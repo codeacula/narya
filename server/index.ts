@@ -1,12 +1,16 @@
 import { Database } from 'bun:sqlite';
 import express from 'express';
+import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import OBSWebSocket from 'obs-websocket-js';
 import tmi from 'tmi.js';
 import { WebSocketServer, type WebSocket } from 'ws';
+
+const execFileAsync = promisify(execFile);
 
 type ChatMessage = {
   id: string;
@@ -18,19 +22,30 @@ type ChatMessage = {
   receivedAt: string;
   deletedAt: string | null;
   deletedReason: string | null;
+  badges: Record<string, string> | null;
+  emotes: Record<string, string[]> | null;
+  isFirstTimer: boolean;
 };
 
-type StreamGoal = {
-  id: string;
-  label: string;
-  current: number;
-  target: number;
+type MusicInfo = {
+  status: 'playing' | 'paused' | 'stopped' | 'unavailable';
+  playerName: string | null;
+  artist: string | null;
+  title: string | null;
+  album: string | null;
+  source: 'playerctl' | 'manual' | 'none';
+  updatedAt: string;
 };
 
 const port = Number(process.env.PORT ?? 4317);
 const twitchChannel = process.env.TWITCH_CHANNEL ?? 'codeacula';
 const obsUrl = process.env.OBS_WEBSOCKET_URL ?? 'ws://127.0.0.1:4455';
 const obsPassword = process.env.OBS_WEBSOCKET_PASSWORD ?? '';
+const musicPollIntervalMs = Number(process.env.MUSIC_POLL_INTERVAL_MS ?? 2000);
+const musicPlayerctlPlayer = process.env.MUSIC_PLAYERCTL_PLAYER?.trim() || 'strawberry';
+
+let twitchRoomId: string | null = null;
+const sessionChatters = new Set<string>();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, '..', 'data');
@@ -86,13 +101,9 @@ function addColumnIfMissing(table: string, column: string, definition: string) {
 addColumnIfMissing('chat_messages', 'deleted_at', 'text');
 addColumnIfMissing('chat_messages', 'deleted_reason', 'text');
 addColumnIfMissing('chat_messages', 'moderation_event_id', 'text');
+addColumnIfMissing('chat_messages', 'badges_json', 'text');
+addColumnIfMissing('chat_messages', 'emotes_json', 'text');
 
-const goalCount = db.prepare('select count(*) as count from stream_goals').get() as { count: number };
-if (goalCount.count === 0) {
-  const insertGoal = db.prepare('insert into stream_goals (id, label, current, target) values (?, ?, ?, ?)');
-  insertGoal.run('followers', 'Follower goal', 0, 100);
-  insertGoal.run('subs', 'Sub goal', 0, 20);
-}
 
 const app = express();
 app.use(express.json());
@@ -115,11 +126,139 @@ wss.on('connection', (socket) => {
   socket.on('close', () => sockets.delete(socket));
 });
 
+let currentMusic: MusicInfo = {
+  status: 'unavailable',
+  playerName: null,
+  artist: null,
+  title: null,
+  album: null,
+  source: 'none',
+  updatedAt: new Date().toISOString()
+};
+let lastMusicFingerprint = '';
+let musicPollRunning = false;
+let manualMusicActive = false;
+
+function cleanMetadata(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeStatus(status: string): MusicInfo['status'] {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === 'playing') return 'playing';
+  if (normalized === 'paused') return 'paused';
+  if (normalized === 'stopped') return 'stopped';
+  return 'unavailable';
+}
+
+function unavailableMusic(): MusicInfo {
+  return {
+    status: 'unavailable',
+    playerName: null,
+    artist: null,
+    title: null,
+    album: null,
+    source: 'none',
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function updateMusic(nextMusic: MusicInfo) {
+  currentMusic = nextMusic;
+
+  const fingerprint = JSON.stringify({
+    status: currentMusic.status,
+    playerName: currentMusic.playerName,
+    artist: currentMusic.artist,
+    title: currentMusic.title,
+    album: currentMusic.album,
+    source: currentMusic.source
+  });
+
+  if (fingerprint !== lastMusicFingerprint) {
+    lastMusicFingerprint = fingerprint;
+    broadcast('music:updated', currentMusic);
+  }
+}
+
+async function readPlayerctlMusicForPlayer(playerName: string | null): Promise<MusicInfo> {
+  const updatedAt = new Date().toISOString();
+  const playerArgs = playerName ? ['--player', playerName] : [];
+  const statusResult = await execFileAsync('playerctl', [...playerArgs, 'status'], { timeout: 1200 });
+  const metadataResult = await execFileAsync(
+    'playerctl',
+    [...playerArgs, 'metadata', '--format', '{{playerName}}\t{{artist}}\t{{title}}\t{{album}}'],
+    { timeout: 1200 }
+  );
+  const [reportedPlayerName = '', artist = '', title = '', album = ''] = metadataResult.stdout.trimEnd().split('\t');
+
+  return {
+    status: normalizeStatus(statusResult.stdout),
+    playerName: cleanMetadata(reportedPlayerName) ?? playerName,
+    artist: cleanMetadata(artist),
+    title: cleanMetadata(title),
+    album: cleanMetadata(album),
+    source: 'playerctl',
+    updatedAt
+  };
+}
+
+async function readPlayerctlMusic(): Promise<MusicInfo> {
+  if (musicPlayerctlPlayer) {
+    return readPlayerctlMusicForPlayer(musicPlayerctlPlayer);
+  }
+
+  const playersResult = await execFileAsync('playerctl', ['-l'], { timeout: 1200 });
+  const players = playersResult.stdout
+    .split('\n')
+    .map((player) => player.trim())
+    .filter(Boolean);
+
+  if (players.length === 0) {
+    return readPlayerctlMusicForPlayer(null);
+  }
+
+  const results = await Promise.allSettled(players.map((player) => readPlayerctlMusicForPlayer(player)));
+  const candidates = results
+    .filter((result): result is PromiseFulfilledResult<MusicInfo> => result.status === 'fulfilled')
+    .map((result) => result.value)
+    .filter((music) => music.title);
+
+  const playing = candidates.find((music) => music.status === 'playing');
+  if (playing) return playing;
+
+  const paused = candidates.find((music) => music.status === 'paused');
+  if (paused) return paused;
+
+  if (candidates[0]) return candidates[0];
+  return readPlayerctlMusicForPlayer(null);
+}
+
+async function pollMusic() {
+  if (manualMusicActive) return;
+  if (musicPollRunning) return;
+  musicPollRunning = true;
+
+  try {
+    updateMusic(await readPlayerctlMusic());
+  } catch {
+    updateMusic(unavailableMusic());
+  } finally {
+    musicPollRunning = false;
+  }
+}
+
+if (musicPollIntervalMs > 0) {
+  pollMusic();
+  setInterval(pollMusic, musicPollIntervalMs);
+}
+
 const insertChat = db.prepare(`
   insert or ignore into chat_messages
-    (id, channel, username, display_name, color, message, received_at, deleted_at, deleted_reason)
+    (id, channel, username, display_name, color, message, received_at, deleted_at, deleted_reason, badges_json, emotes_json)
   values
-    (?, ?, ?, ?, ?, ?, ?, null, null)
+    (?, ?, ?, ?, ?, ?, ?, null, null, ?, ?)
 `);
 
 const insertChatEvent = db.prepare(`
@@ -177,7 +316,15 @@ const twitchClient = new tmi.Client({
 twitchClient.on('message', (channel, tags, message, self) => {
   if (self) return;
 
+  if (!twitchRoomId && tags['room-id']) {
+    twitchRoomId = String(tags['room-id']);
+  }
+
   const occurredAt = new Date().toISOString();
+  const username = (tags.username ?? 'unknown').toLowerCase();
+  const isFirstTimer = !sessionChatters.has(username);
+  sessionChatters.add(username);
+
   const chatMessage: ChatMessage = {
     id: tags.id ?? crypto.randomUUID(),
     channel: channel.replace(/^#/, ''),
@@ -187,7 +334,10 @@ twitchClient.on('message', (channel, tags, message, self) => {
     message,
     receivedAt: occurredAt,
     deletedAt: null,
-    deletedReason: null
+    deletedReason: null,
+    badges: (tags.badges as Record<string, string> | null) ?? null,
+    emotes: (tags.emotes as Record<string, string[]> | null) ?? null,
+    isFirstTimer,
   };
 
   appendChatEvent('message.created', chatMessage.channel, { tags, message }, {
@@ -203,7 +353,9 @@ twitchClient.on('message', (channel, tags, message, self) => {
     chatMessage.displayName,
     chatMessage.color,
     chatMessage.message,
-    chatMessage.receivedAt
+    chatMessage.receivedAt,
+    chatMessage.badges ? JSON.stringify(chatMessage.badges) : null,
+    chatMessage.emotes ? JSON.stringify(chatMessage.emotes) : null,
   );
   broadcast('chat:message', chatMessage);
 });
@@ -299,7 +451,43 @@ obs.on('ConnectionClosed', () => {
 });
 
 app.get('/api/health', (_request, response) => {
-  response.json({ ok: true, twitchChannel, obsConnected });
+  response.json({ ok: true, twitchChannel, obsConnected, twitchRoomId });
+});
+
+app.get('/api/music/current', (_request, response) => {
+  response.json(currentMusic);
+});
+
+app.put('/api/music/current', (request, response) => {
+  const body = request.body as Partial<Record<keyof MusicInfo, unknown>>;
+  const title = typeof body.title === 'string' ? cleanMetadata(body.title) : null;
+  const artist = typeof body.artist === 'string' ? cleanMetadata(body.artist) : null;
+  const album = typeof body.album === 'string' ? cleanMetadata(body.album) : null;
+  const playerName = typeof body.playerName === 'string' ? cleanMetadata(body.playerName) : 'Manual';
+  const status = typeof body.status === 'string' ? normalizeStatus(body.status) : title ? 'playing' : 'stopped';
+
+  if (status === 'unavailable') {
+    response.status(400).json({ error: 'status must be playing, paused, or stopped' });
+    return;
+  }
+
+  manualMusicActive = true;
+  updateMusic({
+    status,
+    playerName,
+    artist,
+    title,
+    album,
+    source: 'manual',
+    updatedAt: new Date().toISOString()
+  });
+  response.json(currentMusic);
+});
+
+app.delete('/api/music/current', async (_request, response) => {
+  manualMusicActive = false;
+  await pollMusic();
+  response.json(currentMusic);
 });
 
 app.get('/api/chat/recent', (_request, response) => {
@@ -314,13 +502,24 @@ app.get('/api/chat/recent', (_request, response) => {
         message,
         received_at as receivedAt,
         deleted_at as deletedAt,
-        deleted_reason as deletedReason
+        deleted_reason as deletedReason,
+        badges_json as badgesJson,
+        emotes_json as emotesJson
       from chat_messages
       order by received_at desc
       limit 40
     `)
     .all()
-    .reverse();
+    .reverse()
+    .map((row) => {
+      const r = row as Record<string, unknown> & { badgesJson: string | null; emotesJson: string | null };
+      const { badgesJson, emotesJson, ...rest } = r;
+      return {
+        ...rest,
+        badges: badgesJson ? JSON.parse(badgesJson) : null,
+        emotes: emotesJson ? JSON.parse(emotesJson) : null,
+      };
+    });
 
   response.json(rows);
 });
@@ -351,29 +550,6 @@ app.get('/api/chat/events/recent', (_request, response) => {
   response.json(rows);
 });
 
-app.get('/api/goals', (_request, response) => {
-  const rows = db
-    .prepare('select id, label, current, target from stream_goals order by id')
-    .all() as StreamGoal[];
-
-  response.json(rows);
-});
-
-app.patch('/api/goals/:id', (request, response) => {
-  const current = Number(request.body.current);
-  const target = Number(request.body.target);
-
-  if (!Number.isFinite(current) || !Number.isFinite(target) || target <= 0) {
-    response.status(400).json({ error: 'current and target are required numbers; target must be positive' });
-    return;
-  }
-
-  db.prepare('update stream_goals set current = ?, target = ? where id = ?').run(current, target, request.params.id);
-  const goal = db.prepare('select id, label, current, target from stream_goals where id = ?').get(request.params.id);
-
-  broadcast('goals:updated', goal);
-  response.json(goal);
-});
 
 app.post('/api/obs/scenes/:sceneName', async (request, response) => {
   try {
@@ -393,6 +569,71 @@ app.post('/api/obs/transition', async (request, response) => {
   } catch (error) {
     response.status(502).json({ error: error instanceof Error ? error.message : 'OBS transition failed' });
   }
+});
+
+let emoteCacheTime = 0;
+let emoteCache: Record<string, string> = {};
+const EMOTE_CACHE_TTL = 10 * 60 * 1000;
+
+app.get('/api/emotes', async (_request, response) => {
+  const now = Date.now();
+  if (now - emoteCacheTime < EMOTE_CACHE_TTL && Object.keys(emoteCache).length > 0) {
+    response.json(emoteCache);
+    return;
+  }
+
+  const map: Record<string, string> = {};
+
+  try {
+    const bttvGlobal = await fetch('https://api.betterttv.net/3/cached/emotes/global').then(
+      (r) => r.json() as Promise<Array<{ code: string; id: string }>>
+    );
+    for (const emote of bttvGlobal) {
+      map[emote.code] = `https://cdn.betterttv.net/emote/${emote.id}/1x`;
+    }
+  } catch {}
+
+  try {
+    const stv = await fetch('https://7tv.io/v3/emote-sets/global').then(
+      (r) => r.json() as Promise<{ emotes: Array<{ id: string; name: string }> }>
+    );
+    for (const emote of stv.emotes ?? []) {
+      map[emote.name] = `https://cdn.7tv.app/emote/${emote.id}/1x.webp`;
+    }
+  } catch {}
+
+  if (twitchRoomId) {
+    try {
+      const bttvChannel = await fetch(
+        `https://api.betterttv.net/3/cached/users/twitch/${twitchRoomId}`
+      ).then(
+        (r) =>
+          r.json() as Promise<{
+            channelEmotes: Array<{ code: string; id: string }>;
+            sharedEmotes: Array<{ code: string; id: string }>;
+          }>
+      );
+      for (const emote of [...(bttvChannel.channelEmotes ?? []), ...(bttvChannel.sharedEmotes ?? [])]) {
+        map[emote.code] = `https://cdn.betterttv.net/emote/${emote.id}/1x`;
+      }
+    } catch {}
+
+    try {
+      const stv7 = await fetch(`https://7tv.io/v3/users/twitch/${twitchRoomId}`).then(
+        (r) =>
+          r.json() as Promise<{
+            emote_set?: { emotes: Array<{ id: string; name: string }> };
+          }>
+      );
+      for (const emote of stv7.emote_set?.emotes ?? []) {
+        map[emote.name] = `https://cdn.7tv.app/emote/${emote.id}/1x.webp`;
+      }
+    } catch {}
+  }
+
+  emoteCache = map;
+  emoteCacheTime = now;
+  response.json(map);
 });
 
 server.listen(port, () => {

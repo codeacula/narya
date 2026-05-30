@@ -1,6 +1,13 @@
 :root {
-  color: #edf4ff;
-  background: #0d1320;
+  --navy: #1c273e;
+  --navy-deep: #131c2e;
+  --ivory: #fdfcf0;
+  --silver: #a2aabc;
+  --gold: #ffb86c;
+  --arcane: #3d2b6b;
+
+  color: var(--ivory);
+  background: var(--navy-deep);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -17,13 +24,22 @@ body {
   min-height: 100vh;
 }
 
+:root.overlayPage,
+body.overlayPage {
+  background: transparent;
+}
+
+body.overlayPage #root {
+  background: transparent;
+}
+
 button,
 a {
   font: inherit;
 }
 
 a {
-  color: #9bd4ff;
+  color: var(--gold);
   text-decoration: none;
 }
 
@@ -31,17 +47,17 @@ button {
   min-height: 48px;
   border: 1px solid #2f4367;
   border-radius: 8px;
-  background: #17233a;
-  color: #edf4ff;
+  background: var(--navy);
+  color: var(--ivory);
   cursor: pointer;
 }
 
 button:hover {
-  border-color: #9bd4ff;
+  border-color: var(--gold);
 }
 
 .accent {
-  background: #245d8f;
+  background: var(--arcane);
 }
 
 .appShell,
@@ -80,10 +96,8 @@ nav {
 }
 
 .eyebrow,
-.muted,
-.musicNow span,
-.goal span {
-  color: #9aa8ba;
+.muted {
+  color: var(--silver);
 }
 
 .dashboardGrid {
@@ -99,9 +113,9 @@ nav {
 
 .controlSurface section,
 .chatPanel {
-  border: 1px solid #233453;
+  border: 1px solid #2a3a58;
   border-radius: 8px;
-  background: #111a2b;
+  background: var(--navy);
   padding: 16px;
 }
 
@@ -111,22 +125,45 @@ nav {
   gap: 10px;
 }
 
-.goalControls {
+.musicControls {
   display: grid;
   gap: 10px;
 }
 
-.goalControl {
+.musicControls label {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 44px 44px;
-  align-items: center;
+  gap: 5px;
+}
+
+.musicControls label span,
+.musicSource {
+  color: var(--silver);
+  font-size: 12px;
+}
+
+.musicControls input,
+.musicControls select {
+  min-height: 40px;
+  border: 1px solid #2f4367;
+  border-radius: 8px;
+  background: var(--navy-deep);
+  color: var(--ivory);
+  padding: 0 10px;
+}
+
+.musicControlActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
+
+
+/* ── Chat panel (dashboard) ─────────────────────────────── */
 
 .chatPanel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-height: 420px;
   max-height: calc(100vh - 110px);
   overflow: hidden;
@@ -138,20 +175,50 @@ nav {
   border: 0;
   background: transparent;
   padding: 0;
+  gap: 6px;
 }
 
 .chatMessage {
+  --border-color: rgba(162, 170, 188, 0.35);
   display: grid;
   gap: 2px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(8, 13, 24, 0.78);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  padding: 9px 12px 9px 14px;
+  border-radius: 6px;
+  border-left: 3px solid var(--border-color);
+  background: rgba(28, 39, 62, 0.88);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
 }
 
 .chatMessage.moderated {
-  opacity: 0.7;
-  border: 1px solid rgba(255, 170, 91, 0.45);
+  opacity: 0.55;
+  --border-color: rgba(162, 170, 188, 0.3);
+}
+
+/* Role-based left border */
+.chatMessage[data-role='broadcaster'] { --border-color: var(--gold); }
+.chatMessage[data-role='moderator']   { --border-color: #50fa7b; }
+.chatMessage[data-role='vip']         { --border-color: #ff79c6; }
+.chatMessage[data-role='subscriber']  { --border-color: #bd93f9; }
+
+/* First-time chatter — green tinted card */
+.chatMessage.firstTime {
+  background: rgba(80, 250, 123, 0.07);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(80, 250, 123, 0.22);
+}
+
+/* Mention — gold tinted card with ring */
+.chatMessage.mention {
+  background: rgba(255, 184, 108, 0.09);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 184, 108, 0.38);
+}
+
+.chatEmote {
+  display: inline-block;
+  vertical-align: middle;
+  height: 28px;
+  width: auto;
+  margin: 0 1px;
 }
 
 .chatMessage strong,
@@ -160,11 +227,19 @@ nav {
   overflow-wrap: anywhere;
 }
 
+.chatMessage span {
+  color: var(--ivory);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .chatMessage em {
-  color: #ffaa5b;
-  font-size: 12px;
+  color: var(--silver);
+  font-size: 11px;
   font-style: normal;
 }
+
+/* ── Overlay layout ─────────────────────────────────────── */
 
 .overlayFrame {
   position: relative;
@@ -174,60 +249,89 @@ nav {
   background: transparent;
 }
 
+/* Chat: top-right, newest at bottom, old messages push off top */
 .overlayChat {
   position: absolute;
-  top: 36px;
-  right: 36px;
-  width: 410px;
-  max-height: 560px;
+  top: 40px;
+  right: 16px;
+  width: 380px;
+  max-height: 640px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  gap: 6px;
+  overflow: hidden;
 }
 
+/* Music + goals: bottom-left */
 .overlayGoals {
   position: absolute;
-  left: 36px;
-  bottom: 36px;
-  width: 430px;
+  left: 40px;
+  bottom: 0;
+  width: 420px;
 }
 
-.goalsPanel {
-  display: grid;
-  gap: 12px;
-}
+/* ── Music panel ────────────────────────────────────────── */
 
-.musicNow,
-.goal {
+.musicNow {
   border-radius: 8px;
-  background: rgba(8, 13, 24, 0.82);
-  padding: 12px 14px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  background: rgba(28, 39, 62, 0.9);
+  border: 1px solid rgba(255, 184, 108, 0.25);
+  padding: 14px 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.musicNow,
-.goal > div {
+.musicNowLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.musicNowContent {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 14px;
 }
 
-progress {
-  width: 100%;
-  height: 10px;
-  margin-top: 10px;
+.musicNowIdle {
+  color: var(--silver);
+  font-size: 13px;
+}
+
+.trackInfo {
+  display: grid;
+  justify-items: start;
+  min-width: 0;
+  text-align: left;
+}
+
+.trackInfo strong {
+  max-width: 360px;
   overflow: hidden;
-  border: 0;
-  border-radius: 999px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 19px;
+  color: var(--ivory);
 }
 
-progress::-webkit-progress-bar {
-  background: #26344c;
+.trackInfo small {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--silver);
 }
 
-progress::-webkit-progress-value {
-  background: #9bd4ff;
-}
+
+/* ── Tablet ─────────────────────────────────────────────── */
 
 .tabletShell {
   padding: 16px;
@@ -240,6 +344,26 @@ progress::-webkit-progress-value {
 .tablet button {
   min-height: 78px;
   font-size: 20px;
+}
+
+@keyframes chatIn {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes chatOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(18px); }
+}
+
+.chatPanel.compact .chatMessage {
+  animation: chatIn 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.chatPanel.compact .chatMessage.exiting {
+  animation: chatOut 0.45s ease-in forwards;
+  pointer-events: none;
 }
 
 @media (max-width: 900px) {

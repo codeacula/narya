@@ -11,7 +11,13 @@ type ChatMessage = {
   receivedAt: string;
   deletedAt: string | null;
   deletedReason: string | null;
+  badges: Record<string, string> | null;
+  emotes: Record<string, string[]> | null;
+  isFirstTimer: boolean;
+  isExiting?: boolean;
 };
+
+type Role = 'broadcaster' | 'moderator' | 'vip' | 'subscriber' | 'regular';
 
 type ChatModerationEvent = {
   type: 'message.deleted' | 'user.timeout' | 'user.ban' | 'chat.clear';
@@ -22,15 +28,74 @@ type ChatModerationEvent = {
   deletedReason: string;
 };
 
-type StreamGoal = {
-  id: string;
-  label: string;
-  current: number;
-  target: number;
+type MusicInfo = {
+  status: 'playing' | 'paused' | 'stopped' | 'unavailable';
+  playerName: string | null;
+  artist: string | null;
+  title: string | null;
+  album: string | null;
+  source: 'playerctl' | 'manual' | 'none';
+  updatedAt: string;
 };
+
+function getRole(badges: Record<string, string> | null): Role {
+  if (!badges) return 'regular';
+  if (badges.broadcaster) return 'broadcaster';
+  if (badges.moderator) return 'moderator';
+  if (badges.vip) return 'vip';
+  if (badges.subscriber) return 'subscriber';
+  return 'regular';
+}
+
+function renderWords(text: string, emoteMap: Record<string, string>, baseKey: number): React.ReactNode[] {
+  return text.split(/(\s+)/).map((part, i) =>
+    emoteMap[part] ? (
+      <img key={`bttv-${baseKey}-${i}`} className="chatEmote" src={emoteMap[part]} alt={part} title={part} />
+    ) : (
+      part
+    )
+  );
+}
+
+function renderContent(
+  text: string,
+  twitchEmotes: Record<string, string[]> | null,
+  emoteMap: Record<string, string>
+): React.ReactNode {
+  type Range = { start: number; end: number; url: string; name: string };
+  const ranges: Range[] = [];
+
+  if (twitchEmotes) {
+    for (const [emoteId, positions] of Object.entries(twitchEmotes)) {
+      const url = `https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/1.0`;
+      for (const pos of positions) {
+        const [start, end] = pos.split('-').map(Number);
+        ranges.push({ start, end, url, name: text.slice(start, end + 1) });
+      }
+    }
+    ranges.sort((a, b) => a.start - b.start);
+  }
+
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const range of ranges) {
+    if (cursor < range.start) nodes.push(...renderWords(text.slice(cursor, range.start), emoteMap, cursor));
+    nodes.push(
+      <img key={`t-${range.start}`} className="chatEmote" src={range.url} alt={range.name} title={range.name} />
+    );
+    cursor = range.end + 1;
+  }
+
+  if (cursor < text.length) nodes.push(...renderWords(text.slice(cursor), emoteMap, cursor));
+
+  return nodes;
+}
 
 const scenes = ['Coding', 'BRB', 'Starting Soon', 'Ending'];
 const soundButtons = ['Airhorn', 'Bonk', 'Applause', 'Vine Boom'];
+const overlayChatExpireMs = 14_000;
+const overlayChatFadeMs = 450;
 
 function useSocket<T>(event: string, onPayload: (payload: T) => void) {
   React.useEffect(() => {
@@ -48,21 +113,33 @@ function useSocket<T>(event: string, onPayload: (payload: T) => void) {
   }, [event, onPayload]);
 }
 
-function useChat() {
+function useChat(expireAfterMs = 0) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
 
   React.useEffect(() => {
+    if (expireAfterMs > 0) return; // overlay: start empty, only show live messages
     fetch('/api/chat/recent')
       .then((response) => response.json())
-      .then(setMessages)
+      .then((data: ChatMessage[]) => setMessages(data.map((m) => ({ ...m, isFirstTimer: false }))))
       .catch(() => setMessages([]));
-  }, []);
+  }, [expireAfterMs]);
 
   useSocket<ChatMessage>(
     'chat:message',
-    React.useCallback((message) => {
-      setMessages((current) => [...current.slice(-39), message]);
-    }, [])
+    React.useCallback(
+      (message) => {
+        setMessages((current) => [...current.slice(-39), message]);
+        if (expireAfterMs > 0) {
+          setTimeout(() => {
+            setMessages((current) => current.map((m) => (m.id === message.id ? { ...m, isExiting: true } : m)));
+          }, expireAfterMs);
+          setTimeout(() => {
+            setMessages((current) => current.filter((m) => m.id !== message.id));
+          }, expireAfterMs + overlayChatFadeMs);
+        }
+      },
+      [expireAfterMs]
+    )
   );
 
   useSocket<ChatModerationEvent>(
@@ -71,18 +148,13 @@ function useChat() {
       setMessages((current) =>
         current.map((message) => {
           const matchesMessage = event.messageId && message.id === event.messageId;
-          const matchesUser = event.username && message.username.toLowerCase() === event.username.toLowerCase();
+          const matchesUser =
+            event.username && message.username.toLowerCase() === event.username.toLowerCase();
           const matchesClear = event.type === 'chat.clear';
 
-          if (!matchesMessage && !matchesUser && !matchesClear) {
-            return message;
-          }
+          if (!matchesMessage && !matchesUser && !matchesClear) return message;
 
-          return {
-            ...message,
-            deletedAt: event.deletedAt,
-            deletedReason: event.deletedReason
-          };
+          return { ...message, deletedAt: event.deletedAt, deletedReason: event.deletedReason };
         })
       );
     }, [])
@@ -91,72 +163,97 @@ function useChat() {
   return messages;
 }
 
-function useGoals() {
-  const [goals, setGoals] = React.useState<StreamGoal[]>([]);
+
+function useMusic() {
+  const [music, setMusic] = React.useState<MusicInfo | null>(null);
 
   React.useEffect(() => {
-    fetch('/api/goals')
+    fetch('/api/music/current')
       .then((response) => response.json())
-      .then(setGoals)
-      .catch(() => setGoals([]));
+      .then(setMusic)
+      .catch(() => setMusic(null));
   }, []);
 
-  useSocket<StreamGoal>(
-    'goals:updated',
-    React.useCallback((goal) => {
-      setGoals((current) => current.map((item) => (item.id === goal.id ? goal : item)));
+  useSocket<MusicInfo>(
+    'music:updated',
+    React.useCallback((nextMusic) => {
+      setMusic(nextMusic);
     }, [])
   );
 
-  return [goals, setGoals] as const;
+  return music;
+}
+
+function useEmotes() {
+  const [emoteMap, setEmoteMap] = React.useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    fetch('/api/emotes')
+      .then((r) => r.json())
+      .then(setEmoteMap)
+      .catch(() => {});
+  }, []);
+
+  return emoteMap;
 }
 
 function ChatPanel({ compact = false }: { compact?: boolean }) {
-  const messages = useChat();
-  const visibleMessages = compact ? messages.filter((message) => !message.deletedAt) : messages;
+  const messages = useChat(compact ? overlayChatExpireMs : 0);
+  const emoteMap = useEmotes();
+  const visibleMessages = compact ? messages.filter((m) => !m.deletedAt) : messages;
 
   return (
     <section className={compact ? 'chatPanel compact' : 'chatPanel'}>
-      {visibleMessages.length === 0 ? (
-        <p className="muted">Waiting for Twitch chat...</p>
-      ) : (
-        visibleMessages.map((message) => (
-          <article className={message.deletedAt ? 'chatMessage moderated' : 'chatMessage'} key={message.id}>
-            <strong style={{ color: message.color ?? '#9bd4ff' }}>{message.displayName}</strong>
-            <span>{message.message}</span>
+      {visibleMessages.length === 0 && !compact ? (
+        <p className="muted">Waiting for Twitch chat…</p>
+      ) : null}
+      {visibleMessages.map((message) => {
+        const role = getRole(message.badges);
+        const isMention = message.message.toLowerCase().includes('codeacula');
+        const classes = [
+          'chatMessage',
+          message.deletedAt ? 'moderated' : '',
+          message.isFirstTimer ? 'firstTime' : '',
+          isMention ? 'mention' : '',
+          message.isExiting ? 'exiting' : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+
+        return (
+          <article className={classes} data-role={role} key={message.id}>
+            <strong style={{ color: message.color ?? 'var(--gold)' }}>{message.displayName}</strong>
+            <span>{renderContent(message.message, message.emotes, emoteMap)}</span>
             {message.deletedAt ? <em>{message.deletedReason ?? 'moderated'}</em> : null}
           </article>
-        ))
-      )}
+        );
+      })}
     </section>
   );
 }
 
-function GoalsPanel() {
-  const [goals] = useGoals();
+function MusicPanel() {
+  const music = useMusic();
+  const hasTrack = (music?.status === 'playing' || music?.status === 'paused') && music.title;
 
   return (
-    <section className="goalsPanel">
-      <div className="musicNow">
-        <span>Now playing</span>
-        <strong>Local music hook pending</strong>
-      </div>
-      {goals.map((goal) => {
-        const percent = Math.min(100, Math.round((goal.current / goal.target) * 100));
-
-        return (
-          <div className="goal" key={goal.id}>
-            <div>
-              <span>{goal.label}</span>
-              <strong>
-                {goal.current}/{goal.target}
-              </strong>
-            </div>
-            <progress max="100" value={percent} />
+    <div className="musicNow">
+      <span className="musicNowLabel">Now playing</span>
+      <div className="musicNowContent">
+        {hasTrack ? (
+          <div className="trackInfo">
+            <strong>{music!.title}</strong>
+            <small>
+              {music!.status === 'paused' ? 'Paused' : ''}
+              {music!.status === 'paused' && music!.artist ? ' — ' : ''}
+              {music!.artist ?? music!.playerName ?? 'Unknown artist'}
+            </small>
           </div>
-        );
-      })}
-    </section>
+        ) : (
+          <span className="musicNowIdle">No music playing</span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -167,7 +264,7 @@ function OverlayPage() {
         <ChatPanel compact />
       </div>
       <div className="overlayGoals">
-        <GoalsPanel />
+        <MusicPanel />
       </div>
     </main>
   );
@@ -177,22 +274,90 @@ async function post(path: string) {
   await fetch(path, { method: 'POST' });
 }
 
-function ControlSurface({ tablet = false }: { tablet?: boolean }) {
-  const [goals, setGoals] = useGoals();
+function MusicControls() {
+  const music = useMusic();
+  const [title, setTitle] = React.useState('');
+  const [artist, setArtist] = React.useState('');
+  const [status, setStatus] = React.useState<MusicInfo['status']>('playing');
+  const [isDirty, setIsDirty] = React.useState(false);
 
-  async function updateGoal(goal: StreamGoal, delta: number) {
-    const nextGoal = { ...goal, current: Math.max(0, goal.current + delta) };
-    setGoals((current) => current.map((item) => (item.id === goal.id ? nextGoal : item)));
+  React.useEffect(() => {
+    if (isDirty) return;
+    setTitle(music?.title ?? '');
+    setArtist(music?.artist ?? '');
+    setStatus(music?.status === 'paused' || music?.status === 'stopped' ? music.status : 'playing');
+  }, [isDirty, music]);
 
-    await fetch(`/api/goals/${goal.id}`, {
-      method: 'PATCH',
+  async function saveMusic(event: React.FormEvent) {
+    event.preventDefault();
+    const response = await fetch('/api/music/current', {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(nextGoal)
+      body: JSON.stringify({ title, artist, status })
     });
+    if (response.ok) setIsDirty(false);
+  }
+
+  async function clearMusic() {
+    const response = await fetch('/api/music/current', { method: 'DELETE' });
+    if (response.ok) setIsDirty(false);
   }
 
   return (
+    <section>
+      <h2>Now Playing</h2>
+      <form className="musicControls" onSubmit={saveMusic}>
+        <label>
+          <span>Title</span>
+          <input
+            value={title}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              setIsDirty(true);
+            }}
+          />
+        </label>
+        <label>
+          <span>Artist</span>
+          <input
+            value={artist}
+            onChange={(event) => {
+              setArtist(event.target.value);
+              setIsDirty(true);
+            }}
+          />
+        </label>
+        <label>
+          <span>Status</span>
+          <select
+            value={status}
+            onChange={(event) => {
+              setStatus(event.target.value as MusicInfo['status']);
+              setIsDirty(true);
+            }}
+          >
+            <option value="playing">Playing</option>
+            <option value="paused">Paused</option>
+            <option value="stopped">Stopped</option>
+          </select>
+        </label>
+        <div className="musicControlActions">
+          <button className="accent" type="submit">Update</button>
+          <button type="button" onClick={clearMusic}>Clear manual</button>
+        </div>
+        <span className="musicSource">
+          Source: {music?.source === 'playerctl' ? 'playerctl' : music?.source === 'manual' ? 'manual' : 'none'}
+        </span>
+      </form>
+    </section>
+  );
+}
+
+function ControlSurface({ tablet = false }: { tablet?: boolean }) {
+  return (
     <div className={tablet ? 'controlSurface tablet' : 'controlSurface'}>
+      <MusicControls />
+
       <section>
         <h2>Scenes</h2>
         <div className="buttonGrid">
@@ -222,22 +387,6 @@ function ControlSurface({ tablet = false }: { tablet?: boolean }) {
         <div className="buttonGrid">
           {soundButtons.map((sound) => (
             <button key={sound}>{sound}</button>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <h2>Goals</h2>
-        <div className="goalControls">
-          {goals.map((goal) => (
-            <div className="goalControl" key={goal.id}>
-              <strong>{goal.label}</strong>
-              <span>
-                {goal.current}/{goal.target}
-              </span>
-              <button onClick={() => updateGoal(goal, -1)}>-</button>
-              <button onClick={() => updateGoal(goal, 1)}>+</button>
-            </div>
           ))}
         </div>
       </section>
@@ -280,6 +429,15 @@ function TabletPage() {
 
 function App() {
   const path = window.location.pathname;
+
+  React.useEffect(() => {
+    document.documentElement.classList.toggle('overlayPage', path === '/overlay');
+    document.body.classList.toggle('overlayPage', path === '/overlay');
+    return () => {
+      document.documentElement.classList.remove('overlayPage');
+      document.body.classList.remove('overlayPage');
+    };
+  }, [path]);
 
   if (path === '/overlay') return <OverlayPage />;
   if (path === '/tablet') return <TabletPage />;

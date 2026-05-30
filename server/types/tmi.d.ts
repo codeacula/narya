@@ -5,6 +5,9 @@ declare module 'tmi.js' {
     'display-name'?: string;
     color?: string;
     'target-msg-id'?: string;
+    'room-id'?: string;
+    badges?: Record<string, string>;
+    emotes?: Record<string, string[]>;
   };
 
   export type ModerationUserstate = {

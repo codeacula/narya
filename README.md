@@ -10,6 +10,9 @@ Local stream tooling for codeacula.
 
 The overlay is designed for a `1920x1080` browser source, with Twitch chat in the top right and music/goals in the bottom left.
 
+Music display uses `playerctl` from the backend process. Install `playerctl` on the host and run the app in the same desktop session as Strawberry.
+By default it reads from the `strawberry` playerctl player. Set `MUSIC_PLAYERCTL_PLAYER` if your playerctl name differs.
+
 ## Local Dev
 
 ```sh
@@ -42,6 +45,9 @@ Copy `.env.example` to `.env` if you want to override defaults:
 TWITCH_CHANNEL=codeacula
 OBS_WEBSOCKET_URL=ws://127.0.0.1:4455
 OBS_WEBSOCKET_PASSWORD=
+MUSIC_POLL_INTERVAL_MS=2000
+MUSIC_PLAYERCTL_PLAYER=strawberry
 ```
 
 For Docker, OBS is configured as `ws://host.docker.internal:4455` so the container can reach OBS running on the host.
+Playerctl is best run locally because containers do not normally have access to the host desktop media session.
