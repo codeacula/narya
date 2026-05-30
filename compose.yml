@@ -1,0 +1,15 @@
+services:
+  streamer-tools:
+    build: .
+    ports:
+      - "5173:5173"
+      - "4317:4317"
+    environment:
+      PORT: 4317
+      TWITCH_CHANNEL: codeacula
+      OBS_WEBSOCKET_URL: ws://host.docker.internal:4455
+      OBS_WEBSOCKET_PASSWORD: ${OBS_WEBSOCKET_PASSWORD:-}
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
