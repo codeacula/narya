@@ -38,6 +38,12 @@ type MusicInfo = {
   updatedAt: string;
 };
 
+type SoundPlayback = {
+  id: string;
+  src: string;
+  volume?: number;
+};
+
 function getRole(badges: Record<string, string> | null): Role {
   if (!badges) return 'regular';
   if (badges.broadcaster) return 'broadcaster';
@@ -197,6 +203,17 @@ function useEmotes() {
   return emoteMap;
 }
 
+function useSoundEvents() {
+  useSocket<SoundPlayback>(
+    'sound:play',
+    React.useCallback((sound) => {
+      const audio = new Audio(sound.src);
+      audio.volume = Math.max(0, Math.min(1, sound.volume ?? 1));
+      void audio.play().catch(() => {});
+    }, [])
+  );
+}
+
 function ChatPanel({ compact = false }: { compact?: boolean }) {
   const messages = useChat(compact ? overlayChatExpireMs : 0);
   const emoteMap = useEmotes();
@@ -258,6 +275,8 @@ function MusicPanel() {
 }
 
 function OverlayPage() {
+  useSoundEvents();
+
   return (
     <main className="overlayFrame">
       <div className="overlayChat">

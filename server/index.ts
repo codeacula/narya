@@ -43,6 +43,11 @@ const obsUrl = process.env.OBS_WEBSOCKET_URL ?? 'ws://127.0.0.1:4455';
 const obsPassword = process.env.OBS_WEBSOCKET_PASSWORD ?? '';
 const musicPollIntervalMs = Number(process.env.MUSIC_POLL_INTERVAL_MS ?? 2000);
 const musicPlayerctlPlayer = process.env.MUSIC_PLAYERCTL_PLAYER?.trim() || 'strawberry';
+const quackSounds = [
+  '/sounds/quacks/075176_duck-quack-40345.mp3',
+  '/sounds/quacks/duck-quack-112941.mp3',
+  '/sounds/quacks/duck-quacking-37392.mp3'
+];
 
 let twitchRoomId: string | null = null;
 const sessionChatters = new Set<string>();
@@ -119,6 +124,17 @@ function broadcast(event: string, payload: unknown) {
       socket.send(body);
     }
   }
+}
+
+function triggerQuackSound() {
+  const src = quackSounds[Math.floor(Math.random() * quackSounds.length)];
+  const payload = {
+    id: crypto.randomUUID(),
+    src,
+    volume: 1
+  };
+  broadcast('sound:play', payload);
+  return payload;
 }
 
 wss.on('connection', (socket) => {
@@ -358,6 +374,10 @@ twitchClient.on('message', (channel, tags, message, self) => {
     chatMessage.emotes ? JSON.stringify(chatMessage.emotes) : null,
   );
   broadcast('chat:message', chatMessage);
+
+  if (/^!quack\b/i.test(message.trim())) {
+    triggerQuackSound();
+  }
 });
 
 twitchClient.on('messagedeleted', (channel, username, deletedMessage, tags) => {
@@ -569,6 +589,10 @@ app.post('/api/obs/transition', async (request, response) => {
   } catch (error) {
     response.status(502).json({ error: error instanceof Error ? error.message : 'OBS transition failed' });
   }
+});
+
+app.post('/api/sounds/quack', (_request, response) => {
+  response.json(triggerQuackSound());
 });
 
 let emoteCacheTime = 0;
