@@ -9,6 +9,17 @@ type ChatMessage = {
   color: string | null;
   message: string;
   receivedAt: string;
+  deletedAt: string | null;
+  deletedReason: string | null;
+};
+
+type ChatModerationEvent = {
+  type: 'message.deleted' | 'user.timeout' | 'user.ban' | 'chat.clear';
+  channel: string;
+  messageId?: string;
+  username?: string;
+  deletedAt: string;
+  deletedReason: string;
 };
 
 type StreamGoal = {
@@ -54,6 +65,29 @@ function useChat() {
     }, [])
   );
 
+  useSocket<ChatModerationEvent>(
+    'chat:moderated',
+    React.useCallback((event) => {
+      setMessages((current) =>
+        current.map((message) => {
+          const matchesMessage = event.messageId && message.id === event.messageId;
+          const matchesUser = event.username && message.username.toLowerCase() === event.username.toLowerCase();
+          const matchesClear = event.type === 'chat.clear';
+
+          if (!matchesMessage && !matchesUser && !matchesClear) {
+            return message;
+          }
+
+          return {
+            ...message,
+            deletedAt: event.deletedAt,
+            deletedReason: event.deletedReason
+          };
+        })
+      );
+    }, [])
+  );
+
   return messages;
 }
 
@@ -79,16 +113,18 @@ function useGoals() {
 
 function ChatPanel({ compact = false }: { compact?: boolean }) {
   const messages = useChat();
+  const visibleMessages = compact ? messages.filter((message) => !message.deletedAt) : messages;
 
   return (
     <section className={compact ? 'chatPanel compact' : 'chatPanel'}>
-      {messages.length === 0 ? (
+      {visibleMessages.length === 0 ? (
         <p className="muted">Waiting for Twitch chat...</p>
       ) : (
-        messages.map((message) => (
-          <article className="chatMessage" key={message.id}>
+        visibleMessages.map((message) => (
+          <article className={message.deletedAt ? 'chatMessage moderated' : 'chatMessage'} key={message.id}>
             <strong style={{ color: message.color ?? '#9bd4ff' }}>{message.displayName}</strong>
             <span>{message.message}</span>
+            {message.deletedAt ? <em>{message.deletedReason ?? 'moderated'}</em> : null}
           </article>
         ))
       )}

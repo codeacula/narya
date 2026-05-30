@@ -16,6 +16,8 @@ type ChatMessage = {
   color: string | null;
   message: string;
   receivedAt: string;
+  deletedAt: string | null;
+  deletedReason: string | null;
 };
 
 type StreamGoal = {
@@ -44,7 +46,20 @@ db.exec(`
     display_name text not null,
     color text,
     message text not null,
-    received_at text not null
+    received_at text not null,
+    deleted_at text,
+    deleted_reason text,
+    moderation_event_id text
+  );
+
+  create table if not exists chat_events (
+    id text primary key,
+    type text not null,
+    channel text not null,
+    message_id text,
+    username text,
+    payload_json text not null,
+    occurred_at text not null
   );
 
   create table if not exists stream_goals (
@@ -60,6 +75,17 @@ db.exec(`
     filename text not null
   );
 `);
+
+function addColumnIfMissing(table: string, column: string, definition: string) {
+  const columns = db.prepare(`pragma table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((row) => row.name === column)) {
+    db.exec(`alter table ${table} add column ${column} ${definition}`);
+  }
+}
+
+addColumnIfMissing('chat_messages', 'deleted_at', 'text');
+addColumnIfMissing('chat_messages', 'deleted_reason', 'text');
+addColumnIfMissing('chat_messages', 'moderation_event_id', 'text');
 
 const goalCount = db.prepare('select count(*) as count from stream_goals').get() as { count: number };
 if (goalCount.count === 0) {
@@ -91,10 +117,57 @@ wss.on('connection', (socket) => {
 
 const insertChat = db.prepare(`
   insert or ignore into chat_messages
-    (id, channel, username, display_name, color, message, received_at)
+    (id, channel, username, display_name, color, message, received_at, deleted_at, deleted_reason)
+  values
+    (?, ?, ?, ?, ?, ?, ?, null, null)
+`);
+
+const insertChatEvent = db.prepare(`
+  insert into chat_events
+    (id, type, channel, message_id, username, payload_json, occurred_at)
   values
     (?, ?, ?, ?, ?, ?, ?)
 `);
+
+const markMessageDeleted = db.prepare(`
+  update chat_messages
+  set deleted_at = ?, deleted_reason = ?, moderation_event_id = ?
+  where id = ?
+`);
+
+const markUserMessagesDeleted = db.prepare(`
+  update chat_messages
+  set deleted_at = ?, deleted_reason = ?, moderation_event_id = ?
+  where channel = ? and lower(username) = lower(?) and deleted_at is null
+`);
+
+const markChannelMessagesDeleted = db.prepare(`
+  update chat_messages
+  set deleted_at = ?, deleted_reason = ?, moderation_event_id = ?
+  where channel = ? and deleted_at is null
+`);
+
+function appendChatEvent(
+  type: string,
+  channel: string,
+  payload: unknown,
+  options: { messageId?: string | null; username?: string | null; occurredAt?: string } = {}
+) {
+  const occurredAt = options.occurredAt ?? new Date().toISOString();
+  const id = crypto.randomUUID();
+
+  insertChatEvent.run(
+    id,
+    type,
+    channel.replace(/^#/, ''),
+    options.messageId ?? null,
+    options.username ?? null,
+    JSON.stringify(payload),
+    occurredAt
+  );
+
+  return { id, occurredAt };
+}
 
 const twitchClient = new tmi.Client({
   connection: { reconnect: true, secure: true },
@@ -104,6 +177,7 @@ const twitchClient = new tmi.Client({
 twitchClient.on('message', (channel, tags, message, self) => {
   if (self) return;
 
+  const occurredAt = new Date().toISOString();
   const chatMessage: ChatMessage = {
     id: tags.id ?? crypto.randomUUID(),
     channel: channel.replace(/^#/, ''),
@@ -111,8 +185,16 @@ twitchClient.on('message', (channel, tags, message, self) => {
     displayName: tags['display-name'] ?? tags.username ?? 'unknown',
     color: tags.color ?? null,
     message,
-    receivedAt: new Date().toISOString()
+    receivedAt: occurredAt,
+    deletedAt: null,
+    deletedReason: null
   };
+
+  appendChatEvent('message.created', chatMessage.channel, { tags, message }, {
+    messageId: chatMessage.id,
+    username: chatMessage.username,
+    occurredAt
+  });
 
   insertChat.run(
     chatMessage.id,
@@ -124,6 +206,73 @@ twitchClient.on('message', (channel, tags, message, self) => {
     chatMessage.receivedAt
   );
   broadcast('chat:message', chatMessage);
+});
+
+twitchClient.on('messagedeleted', (channel, username, deletedMessage, tags) => {
+  const normalizedChannel = channel.replace(/^#/, '');
+  const messageId = tags['target-msg-id'];
+  const event = appendChatEvent(
+    'message.deleted',
+    normalizedChannel,
+    { username, deletedMessage, tags },
+    { messageId, username }
+  );
+
+  if (messageId) {
+    markMessageDeleted.run(event.occurredAt, 'message deleted by moderator', event.id, messageId);
+  }
+
+  broadcast('chat:moderated', {
+    type: 'message.deleted',
+    channel: normalizedChannel,
+    messageId,
+    username,
+    deletedAt: event.occurredAt,
+    deletedReason: 'message deleted by moderator'
+  });
+});
+
+twitchClient.on('timeout', (channel, username, reason, duration, tags) => {
+  const normalizedChannel = channel.replace(/^#/, '');
+  const event = appendChatEvent('user.timeout', normalizedChannel, { username, reason, duration, tags }, { username });
+  const deletedReason = `timeout: ${reason || 'no reason provided'}`;
+
+  markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username);
+  broadcast('chat:moderated', {
+    type: 'user.timeout',
+    channel: normalizedChannel,
+    username,
+    deletedAt: event.occurredAt,
+    deletedReason
+  });
+});
+
+twitchClient.on('ban', (channel, username, reason, tags) => {
+  const normalizedChannel = channel.replace(/^#/, '');
+  const event = appendChatEvent('user.ban', normalizedChannel, { username, reason, tags }, { username });
+  const deletedReason = `ban: ${reason || 'no reason provided'}`;
+
+  markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username);
+  broadcast('chat:moderated', {
+    type: 'user.ban',
+    channel: normalizedChannel,
+    username,
+    deletedAt: event.occurredAt,
+    deletedReason
+  });
+});
+
+twitchClient.on('clearchat', (channel) => {
+  const normalizedChannel = channel.replace(/^#/, '');
+  const event = appendChatEvent('chat.clear', normalizedChannel, {});
+
+  markChannelMessagesDeleted.run(event.occurredAt, 'chat cleared', event.id, normalizedChannel);
+  broadcast('chat:moderated', {
+    type: 'chat.clear',
+    channel: normalizedChannel,
+    deletedAt: event.occurredAt,
+    deletedReason: 'chat cleared'
+  });
 });
 
 twitchClient.connect().catch((error: unknown) => {
@@ -163,13 +312,41 @@ app.get('/api/chat/recent', (_request, response) => {
         display_name as displayName,
         color,
         message,
-        received_at as receivedAt
+        received_at as receivedAt,
+        deleted_at as deletedAt,
+        deleted_reason as deletedReason
       from chat_messages
       order by received_at desc
       limit 40
     `)
     .all()
     .reverse();
+
+  response.json(rows);
+});
+
+app.get('/api/chat/events/recent', (_request, response) => {
+  const rows = db
+    .prepare(`
+      select
+        id,
+        type,
+        channel,
+        message_id as messageId,
+        username,
+        payload_json as payloadJson,
+        occurred_at as occurredAt
+      from chat_events
+      order by occurred_at desc
+      limit 100
+    `)
+    .all()
+    .reverse()
+    .map((row) => {
+      const event = row as Record<string, unknown> & { payloadJson: string };
+      const { payloadJson, ...rest } = event;
+      return { ...rest, payload: JSON.parse(payloadJson) };
+    });
 
   response.json(rows);
 });

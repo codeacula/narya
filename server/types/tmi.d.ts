@@ -4,6 +4,12 @@ declare module 'tmi.js' {
     username?: string;
     'display-name'?: string;
     color?: string;
+    'target-msg-id'?: string;
+  };
+
+  export type ModerationUserstate = {
+    'target-msg-id'?: string;
+    [key: string]: unknown;
   };
 
   export class Client {
@@ -17,6 +23,19 @@ declare module 'tmi.js' {
       event: 'message',
       handler: (channel: string, tags: ChatUserstate, message: string, self: boolean) => void
     ): void;
+    on(
+      event: 'messagedeleted',
+      handler: (channel: string, username: string, deletedMessage: string, tags: ModerationUserstate) => void
+    ): void;
+    on(
+      event: 'timeout',
+      handler: (channel: string, username: string, reason: string, duration: number, tags: ModerationUserstate) => void
+    ): void;
+    on(
+      event: 'ban',
+      handler: (channel: string, username: string, reason: string, tags: ModerationUserstate) => void
+    ): void;
+    on(event: 'clearchat', handler: (channel: string) => void): void;
   }
 
   const tmi: {

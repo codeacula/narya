@@ -27,6 +27,13 @@ docker compose up --build
 
 SQLite data is persisted in `./data/streamer-tools.sqlite`.
 
+Chat is stored in two layers:
+
+- `chat_events` is append-only and keeps raw message and moderation events.
+- `chat_messages` is the current display projection, including moderation state.
+
+The dashboard can show moderated originals. The overlay hides moderated messages so deleted content does not stay visible on stream.
+
 ## Configuration
 
 Copy `.env.example` to `.env` if you want to override defaults:
