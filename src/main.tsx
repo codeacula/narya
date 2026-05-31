@@ -102,6 +102,11 @@ const scenes = ['Coding', 'BRB', 'Starting Soon', 'Ending'];
 const soundButtons = ['Airhorn', 'Bonk', 'Applause', 'Vine Boom'];
 const overlayChatExpireMs = 14_000;
 const overlayChatFadeMs = 450;
+const quackSoundSources = [
+  '/sounds/quacks/075176_duck-quack-40345.mp3',
+  '/sounds/quacks/duck-quack-112941.mp3',
+  '/sounds/quacks/duck-quacking-37392.mp3'
+];
 
 function useSocket<T>(event: string, onPayload: (payload: T) => void) {
   React.useEffect(() => {
@@ -203,14 +208,17 @@ function useEmotes() {
   return emoteMap;
 }
 
-function useSoundEvents() {
+function useSoundEvents(audioRefs: React.RefObject<Record<string, HTMLAudioElement | null>>) {
   useSocket<SoundPlayback>(
     'sound:play',
     React.useCallback((sound) => {
-      const audio = new Audio(sound.src);
+      const audio = audioRefs.current[sound.src] ?? new Audio(sound.src);
       audio.volume = Math.max(0, Math.min(1, sound.volume ?? 1));
-      void audio.play().catch(() => {});
-    }, [])
+      audio.currentTime = 0;
+      void audio.play().catch((error: unknown) => {
+        console.error('Failed to play sound:', error);
+      });
+    }, [audioRefs])
   );
 }
 
@@ -275,10 +283,23 @@ function MusicPanel() {
 }
 
 function OverlayPage() {
-  useSoundEvents();
+  const audioRefs = React.useRef<Record<string, HTMLAudioElement | null>>({});
+  useSoundEvents(audioRefs);
 
   return (
     <main className="overlayFrame">
+      <div className="soundBank" aria-hidden="true">
+        {quackSoundSources.map((src) => (
+          <audio
+            key={src}
+            preload="auto"
+            ref={(audio) => {
+              audioRefs.current[src] = audio;
+            }}
+            src={src}
+          />
+        ))}
+      </div>
       <div className="overlayChat">
         <ChatPanel compact />
       </div>

@@ -249,6 +249,10 @@ nav {
   background: transparent;
 }
 
+.soundBank {
+  display: none;
+}
+
 /* Chat: top-right, newest at bottom, old messages push off top */
 .overlayChat {
   position: absolute;

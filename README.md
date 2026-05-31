@@ -47,6 +47,7 @@ OBS_WEBSOCKET_URL=ws://127.0.0.1:4455
 OBS_WEBSOCKET_PASSWORD=
 MUSIC_POLL_INTERVAL_MS=2000
 MUSIC_PLAYERCTL_PLAYER=strawberry
+QUACK_VOLUME=0.20
 ```
 
 For Docker, OBS is configured as `ws://host.docker.internal:4455` so the container can reach OBS running on the host.
