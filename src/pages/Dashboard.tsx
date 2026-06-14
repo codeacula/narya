@@ -3,6 +3,7 @@ import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { ChatInput, MODULES, PanelCtx } from '../ui/panels';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle, TweakColor } from '../ui/tweaks';
 import { getViewers, getChatEntries, getStreamEvents } from '../services/dashboard';
+import type { Viewer, ChatEntry, StreamEvent } from '../types';
 
 /* ---------------- constants ---------------- */
 
@@ -153,6 +154,17 @@ export function DashboardPage() {
   const [page, setPage] = useState('dashboard');
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [popped, setPopped] = useState<Record<string, PoppedState>>({});
+  const [viewers, setViewers] = useState<Record<string, Viewer>>({});
+  const [chat, setChat] = useState<ChatEntry[]>([]);
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      getViewers().then(setViewers),
+      getChatEntries().then(setChat),
+      getStreamEvents().then(setEvents),
+    ]);
+  }, []);
 
   useEffect(() => {
     const a = ACCENTS[t.accent] ?? ACCENTS['#ffb86c'];
@@ -164,11 +176,12 @@ export function DashboardPage() {
   }, [t.accent]);
 
   const ctx: PanelCtx = {
-    viewers: getViewers(),
-    chat: getChatEntries(),
-    events: getStreamEvents(),
+    viewers,
+    chat,
+    events,
     openViewerPopout: login => {
-      window.open(`/viewer?login=${encodeURIComponent(login)}`, `viewer-${login}`, 'width=380,height=560');
+      const windowName = `viewer_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      window.open(`/viewer?login=${encodeURIComponent(login)}`, windowName, 'width=380,height=560');
     },
   };
 
