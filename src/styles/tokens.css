@@ -1,0 +1,168 @@
+/* ============================================================
+   Codeacula Design System — Colors & Type
+   "The greatest orbs to ponder are the stars above."
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400..900&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+
+:root {
+  /* ---------- Core brand palette ---------- */
+  --navy-blue:     #1c273e;
+  --ivory-white:   #fdfcf0;
+  --starry-silver: #a2aabc;
+  --sunset-gold:   #ffb86c;
+  --arcane-dust:   #3d2b6b;
+
+  /* ---------- Extended navy scale ---------- */
+  --navy-950: #0c1220;
+  --navy-900: #131b2d;
+  --navy-800: #1c273e;
+  --navy-700: #2a3654;
+  --navy-600: #3a476a;
+  --navy-500: #4c5a80;
+
+  /* ---------- Extended ivory / neutral scale ---------- */
+  --ivory-50:  #fdfcf0;
+  --ivory-100: #f5f2e0;
+  --ivory-200: #e8e4cf;
+  --ivory-300: #c9c8b8;
+
+  /* ---------- Silver scale ---------- */
+  --silver-300: #d7dce2;
+  --silver-400: #a2aabc;
+  --silver-500: #7b85a0;
+  --silver-600: #5c6684;
+
+  /* ---------- Gold scale ---------- */
+  --gold-300: #ffd6a0;
+  --gold-400: #ffc488;
+  --gold-500: #ffb86c;
+  --gold-600: #e89a4a;
+  --gold-700: #b8782e;
+
+  /* ---------- Arcane scale ---------- */
+  --arcane-400: #6b4fb8;
+  --arcane-500: #503890;
+  --arcane-600: #3d2b6b;
+  --arcane-700: #2d1f50;
+
+  /* ---------- Semantic — Foreground ---------- */
+  --fg-1: var(--ivory-50);
+  --fg-2: var(--silver-400);
+  --fg-3: var(--silver-500);
+  --fg-inverse: var(--navy-800);
+  --fg-accent: var(--gold-500);
+  --fg-arcane: #9e82e8;
+
+  /* ---------- Semantic — Background ---------- */
+  --bg-1: var(--navy-800);
+  --bg-2: var(--navy-900);
+  --bg-3: var(--navy-700);
+  --bg-void: var(--navy-950);
+  --bg-inverse: var(--ivory-50);
+
+  /* ---------- Semantic — Borders & rules ---------- */
+  --border-1: rgba(162, 170, 188, 0.18);
+  --border-2: rgba(162, 170, 188, 0.32);
+  --border-3: rgba(255, 184, 108, 0.45);
+
+  /* ---------- Status / Alert colors ---------- */
+  --success-base:   #7fc8a3;
+  --success-fg:     #a8e0c4;
+  --success-bg:     #16302a;
+  --success-border: rgba(127, 200, 163, 0.32);
+
+  --warning-base:   #ffb86c;
+  --warning-fg:     #ffd6a0;
+  --warning-bg:     #2f2516;
+  --warning-border: rgba(255, 184, 108, 0.34);
+
+  --danger-base:    #e07a6b;
+  --danger-fg:      #f0a99d;
+  --danger-bg:      #331d1b;
+  --danger-border:  rgba(224, 122, 107, 0.34);
+
+  --info-base:      #6aa8d4;
+  --info-fg:        #9ccae8;
+  --info-bg:        #16273a;
+  --info-border:    rgba(106, 168, 212, 0.34);
+
+  --note-base:      #9e82e8;
+  --note-fg:        #bca6f0;
+  --note-bg:        #211a39;
+  --note-border:    rgba(158, 130, 232, 0.34);
+
+  --status-success: var(--success-base);
+  --status-warning: var(--warning-base);
+  --status-danger:  var(--danger-base);
+  --status-info:    var(--info-base);
+
+  /* ---------- Orb glow ---------- */
+  --glow-gold:   0 0 24px rgba(255, 184, 108, 0.35);
+  --glow-arcane: 0 0 24px rgba(107, 79, 184, 0.40);
+  --glow-silver: 0 0 18px rgba(162, 170, 188, 0.25);
+
+  /* ---------- Typography — families ---------- */
+  --font-logo:    'Cinzel', 'Trajan Pro', 'Cormorant Garamond', Georgia, serif;
+  --font-display: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+  --font-body:    'Montserrat', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ---------- Typography — scale ---------- */
+  --step--2: 0.75rem;
+  --step--1: 0.875rem;
+  --step-0:  1rem;
+  --step-1:  1.125rem;
+  --step-2:  1.375rem;
+  --step-3:  1.75rem;
+  --step-4:  2.25rem;
+  --step-5:  3rem;
+  --step-6:  4rem;
+  --step-7:  5.5rem;
+
+  /* ---------- Line heights ---------- */
+  --lh-tight: 1.05;
+  --lh-snug:  1.2;
+  --lh-body:  1.55;
+  --lh-loose: 1.75;
+
+  /* ---------- Tracking ---------- */
+  --track-tight:  -0.02em;
+  --track-normal: 0;
+  --track-wide:   0.04em;
+  --track-caps:   0.12em;
+
+  /* ---------- Spacing (4px rhythm) ---------- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --space-9: 6rem;
+  --space-10: 8rem;
+
+  /* ---------- Radii ---------- */
+  --radius-0: 0;
+  --radius-1: 2px;
+  --radius-2: 4px;
+  --radius-3: 8px;
+  --radius-pill: 999px;
+
+  /* ---------- Elevation ---------- */
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border-1);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-1);
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--border-2);
+  --shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* ---------- Motion ---------- */
+  --ease-out:     cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out:  cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-stars:   cubic-bezier(0.4, 0.0, 0.2, 1);
+  --dur-fast:   120ms;
+  --dur-base:   240ms;
+  --dur-slow:   480ms;
+  --dur-drift:  1200ms;
+}
