@@ -6,6 +6,7 @@ import './styles/panel.css';
 import { DashboardPage } from './pages/Dashboard';
 import { OverlayPage } from './pages/Overlay';
 import { TabletPage } from './pages/Tablet';
+import { ViewerWindowPage } from './pages/ViewerWindow';
 
 function App() {
   const path = window.location.pathname;
@@ -21,6 +22,7 @@ function App() {
 
   if (path === '/overlay') return <OverlayPage />;
   if (path === '/tablet') return <TabletPage />;
+  if (path === '/viewer') return <ViewerWindowPage />;
   return <DashboardPage />;
 }
 

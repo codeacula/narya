@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
-import { ChatInput, MODULES, PanelCtx, Spotlight } from '../ui/panels';
+import { ChatInput, MODULES, PanelCtx } from '../ui/panels';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle, TweakColor } from '../ui/tweaks';
 import { getViewers, getChatEntries, getStreamEvents } from '../services/dashboard';
 
@@ -31,7 +31,6 @@ const ACCENTS: Record<string, { fg: string; soft: string; border: string }> = {
 const POP_DEFAULTS: Record<string, { w: number; h: number }> = {
   chat:      { w: 380, h: 540 },
   events:    { w: 360, h: 460 },
-  viewer:    { w: 380, h: 560 },
 };
 
 type PoppedState = { x: number; y: number; w: number; h: number };
@@ -169,7 +168,7 @@ export function DashboardPage() {
     chat: getChatEntries(),
     events: getStreamEvents(),
     openViewerPopout: login => {
-      handlePop(`viewer:${login}`, true);
+      window.open(`/viewer?login=${encodeURIComponent(login)}`, `viewer-${login}`, 'width=380,height=560');
     },
   };
 
@@ -250,29 +249,17 @@ export function DashboardPage() {
 
       <div className="popout-layer">
         {Object.keys(popped).map(id => {
-          let title: string;
-          let content: React.ReactNode;
-
-          if (id.startsWith('viewer:')) {
-            const login = id.slice(7);
-            const viewer = ctx.viewers[login];
-            title = viewer?.display ?? login;
-            content = <Spotlight ctx={ctx} login={login} />;
-          } else {
-            const m = MODULES[id];
-            title = m.title;
-            content = m.render(ctx);
-          }
-
+          const m = MODULES[id];
           return (
             <PopWindow
               key={id}
               id={id}
-              title={title}
+              title={m.title}
               initial={popped[id]}
               onClose={x => handlePop(x, false)}
+              footer={m.footer ? <ChatInput /> : undefined}
             >
-              {content}
+              {m.render(ctx)}
             </PopWindow>
           );
         })}
