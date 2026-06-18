@@ -1,10 +1,5 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Icon } from './icons';
-import { getTicker } from '../services/dashboard';
-
-const TICKER = getTicker();
-
-/* ---------------- useDrag ---------------- */
 
 type DragPos = { x: number; y: number; w: number; h: number };
 type DragMemo = { sx: number; sy: number; ox: number; oy: number };
@@ -80,7 +75,7 @@ export function NavBar({
       <div className="nav-spacer" />
       <button
         className={'nav-icon' + (tweaksOpen ? ' active' : '')}
-        title="Tweaks"
+        title="Dev Menu"
         onClick={onTweaksToggle}
       >
         <Icon name="grid" size={15} />
@@ -113,64 +108,106 @@ function Gauge({
     </div>
   );
 }
+export function StatBar({
+  clock24,
+  starfield,
+  isLive = true,
+  uptime = 8077,
+  viewers = 342,
+  peakViewers = 401,
+  avgViewers = 318,
+  bitrate = 6000,
+  totalFrames = 482910,
+  droppedFrames = 124,
+  laggedFrames = 42,
+  nextAd = 381,
+}: {
+  clock24: boolean;
+  starfield: boolean;
+  isLive?: boolean;
+  uptime?: number;
+  viewers?: number;
+  peakViewers?: number;
+  avgViewers?: number;
+  bitrate?: number;
+  totalFrames?: number;
+  droppedFrames?: number;
+  laggedFrames?: number;
+  nextAd?: number;
+}) {
+  const [currentTime, setCurrentTime] = useState('');
 
-export function StatBar({ clock24, starfield }: { clock24: boolean; starfield: boolean }) {
-  const time = clock24 ? '21:42' : '9:42 PM';
+  useEffect(() => {
+    const update = () => {
+      const d = new Date();
+      if (clock24) {
+        setCurrentTime(d.toTimeString().slice(0, 5));
+      } else {
+        let h = d.getHours();
+        const m = d.getMinutes().toString().padStart(2, '0');
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        setCurrentTime(`${h}:${m} ${ampm}`);
+      }
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [clock24]);
 
-  const tickerRow = (key: string) => (
-    <span className="ticker-track" key={key}>
-      {TICKER.map((t, i) => {
-        const [who, ...rest] = t.split(' ');
-        return (
-          <span key={i}>
-            <b>{who}</b> {rest.join(' ')} <span className="sep">·</span>
-          </span>
-        );
-      })}
-    </span>
-  );
+  const formatUptime = (sec: number) => {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const formatAd = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className={'statbar' + (starfield ? ' starfield' : '')}>
-      <Gauge label="On air" className="live" icon={<span className="live-dot" />}>
-        <div className="gauge-value">2:14:37</div>
+      <Gauge label="On air" className={isLive ? 'live' : 'offline'} icon={<span className={'live-dot' + (isLive ? '' : ' offline')} />}>
+        <div className="gauge-value">{isLive ? formatUptime(uptime) : 'OFFLINE'}</div>
       </Gauge>
       <Gauge label="Local time">
-        <div className="gauge-value">{time}</div>
+        <div className="gauge-value">{currentTime}</div>
       </Gauge>
       <Gauge label="Next ad break" className="ad">
-        <div className="gauge-value">06:21</div>
+        <div className="gauge-value">{formatAd(nextAd)}</div>
         <div className="gauge-sub">90s · pre-roll skipped</div>
       </Gauge>
       <Gauge label="Viewers" icon={<Icon name="users" size={11} />}>
         <div className="gauge-value">
-          342 <small className="delta-up">▲ 12</small>
+          {viewers} <small className="delta-up">▲ 12</small>
         </div>
-        <div className="gauge-sub">avg 318 · peak 401</div>
+        <div className="gauge-sub">avg {avgViewers} · peak {peakViewers}</div>
       </Gauge>
       <Gauge label="Stream health">
         <div className="gauge-value health">
-          <span className="health-dot good" />
-          <span style={{ fontSize: '15px' }}>6000<small> kbps</small></span>
+          <span className={'health-dot ' + (isLive ? (droppedFrames > 1000 ? 'warn' : 'good') : 'bad')} />
+          <span style={{ fontSize: '15px' }}>{isLive ? bitrate : 0}<small> kbps</small></span>
           <span className="health-bars">
-            <i style={{ height: '7px' }} />
-            <i style={{ height: '10px' }} />
-            <i style={{ height: '13px' }} />
-            <i style={{ height: '16px' }} />
-            <i style={{ height: '12px' }} />
+            <i style={{ height: isLive ? '7px' : '2px' }} />
+            <i style={{ height: isLive ? '10px' : '2px' }} />
+            <i style={{ height: isLive ? '13px' : '2px' }} />
+            <i style={{ height: isLive ? '16px' : '2px' }} />
+            <i style={{ height: isLive ? '12px' : '2px' }} />
           </span>
         </div>
-        <div className="gauge-sub">0.0% dropped · 1080p60</div>
-      </Gauge>
-      <div className="ticker">
-        <div className="gauge-label">Latest activity</div>
-        <div className="ticker-window">
-          <div style={{ display: 'inline-flex' }}>
-            {tickerRow('a')}
-            {tickerRow('b')}
-          </div>
+        <div className="gauge-sub">
+          {isLive ? (
+            <>
+              net drop: {droppedFrames} ({((droppedFrames / (totalFrames || 1)) * 100).toFixed(2)}%) · lag: {laggedFrames}
+            </>
+          ) : (
+            'offline'
+          )}
         </div>
-      </div>
+      </Gauge>
     </div>
   );
 }

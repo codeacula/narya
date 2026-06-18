@@ -146,7 +146,6 @@ function Settings({ t, setTweak }: { t: Tweaks; setTweak: <K extends keyof Tweak
     </div>
   );
 }
-
 /* ---------------- Dashboard page ---------------- */
 
 export function DashboardPage() {
@@ -157,6 +156,19 @@ export function DashboardPage() {
   const [viewers, setViewers] = useState<Record<string, Viewer>>({});
   const [chat, setChat] = useState<ChatEntry[]>([]);
   const [events, setEvents] = useState<StreamEvent[]>([]);
+
+  // Simulation telemetry state
+  const [isLive, setIsLive] = useState(true);
+  const [uptime, setUptime] = useState(8077);
+  const [viewersCount, setViewersCount] = useState(342);
+  const [peakViewers, setPeakViewers] = useState(401);
+  const [avgViewers, setAvgViewers] = useState(318);
+  const [bitrate, setBitrate] = useState(6000);
+  const [totalFrames, setTotalFrames] = useState(482910);
+  const [droppedFrames, setDroppedFrames] = useState(124);
+  const [laggedFrames, setLaggedFrames] = useState(42);
+  const [nextAd, setNextAd] = useState(381);
+  const [autoSimulate, setAutoSimulate] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -174,6 +186,190 @@ export function DashboardPage() {
     s.setProperty('--accent-soft', a.soft);
     s.setProperty('--border-3', a.border);
   }, [t.accent]);
+
+  // Stream ticking (uptime, ad countdown, and frames)
+  useEffect(() => {
+    if (!isLive) return;
+    const interval = setInterval(() => {
+      setUptime(u => u + 1);
+      setTotalFrames(f => f + 60);
+      setNextAd(a => (a > 0 ? a - 1 : 600)); // Reset ad countdown every 10 min
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isLive]);
+
+  // Telemetry fluctuation
+  useEffect(() => {
+    if (!isLive) return;
+    const interval = setInterval(() => {
+      setViewersCount(v => {
+        const delta = Math.floor(Math.random() * 9) - 4; // -4 to +4
+        const next = Math.max(10, v + delta);
+        setPeakViewers(p => Math.max(p, next));
+        return next;
+      });
+      setBitrate(b => {
+        const delta = Math.floor(Math.random() * 201) - 100; // -100 to +100
+        const nextB = Math.max(2000, Math.min(8000, b + delta));
+        if (nextB < 4000) {
+          setDroppedFrames(d => d + Math.floor(Math.random() * 30) + 10);
+        }
+        return nextB;
+      });
+      // Occasionally drop frames or lag frames randomly
+      if (Math.random() > 0.85) {
+        setDroppedFrames(d => d + Math.floor(Math.random() * 5));
+      }
+      if (Math.random() > 0.92) {
+        setLaggedFrames(l => l + Math.floor(Math.random() * 3));
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isLive]);
+
+  // Handle local simulation events (which mock websocket messages)
+  useEffect(() => {
+    const handleMock = (e: Event) => {
+      const customEvt = e as CustomEvent<{ event: string; payload: any }>;
+      const { event, payload } = customEvt.detail;
+
+      if (event === 'chat:message') {
+        const newEntry: ChatEntry = {
+          user: payload.displayName || payload.username,
+          text: payload.message,
+          time: new Date(payload.receivedAt).toTimeString().slice(0, 5),
+          highlight: payload.isFirstTimer ? 'first' : undefined,
+        };
+        setChat(c => [...c, newEntry]);
+
+        setViewers(v => {
+          const userKey = payload.username.toLowerCase();
+          if (v[userKey]) {
+            return {
+              ...v,
+              [userKey]: {
+                ...v[userKey],
+                msgs: v[userKey].msgs + 1,
+                recent: [
+                  { t: payload.message, ago: '0:00' },
+                  ...v[userKey].recent.slice(0, 4)
+                ]
+              }
+            };
+          } else {
+            return {
+              ...v,
+              [userKey]: {
+                login: payload.username,
+                display: payload.displayName || payload.username,
+                color: payload.color || '#a0a0a0',
+                pronouns: 'they/them',
+                roles: [],
+                followed: 'followed just now',
+                subbed: 'not subscribed',
+                seen: 'first seen just now',
+                msgs: 1,
+                accountAge: 'brand new',
+                note: 'Simulated viewer',
+                recent: [{ t: payload.message, ago: '0:00' }]
+              }
+            };
+          }
+        });
+      } else if (event === 'stream:event') {
+        setEvents(evs => [payload, ...evs]);
+      }
+    };
+    window.addEventListener('mock-websocket', handleMock);
+    return () => window.removeEventListener('mock-websocket', handleMock);
+  }, []);
+
+  const dispatchMockSocket = (event: string, payload: any) => {
+    window.dispatchEvent(new CustomEvent('mock-websocket', { detail: { event, payload } }));
+  };
+
+  const simulateChatMessage = () => {
+    const users = [
+      { name: 'cosmic_jeff', display: 'CosmicJeff', color: '#ff5555' },
+      { name: 'pixel_witch', display: 'PixelWitch', color: '#50fa7b' },
+      { name: 'nebula_smith', display: 'NebulaSmith', color: '#8be9fd' },
+      { name: 'moon_dev', display: 'MoonDev', color: '#ff79c6' },
+      { name: 'stardust_kelly', display: 'StardustKelly', color: '#bd93f9' },
+      { name: 'grumpy_compiler', display: 'GrumpyCompiler', color: '#ffb86c' }
+    ];
+    const user = users[Math.floor(Math.random() * users.length)];
+    const messages = [
+      'this stream layout is absolutely gorgeous!',
+      'can you explain the flex layout again?',
+      'is this next.js or standard react?',
+      'what theme are you using in vscode?',
+      'the framerate is super smooth today',
+      'that parallax background is wild',
+      'hello world from chat!',
+      'peepoHappy',
+      'does anyone know if playerctl works in WSL?',
+      'that is a solid solution right there'
+    ];
+    const text = messages[Math.floor(Math.random() * messages.length)];
+    const isFirst = Math.random() > 0.8;
+
+    dispatchMockSocket('chat:message', {
+      id: Math.random().toString(36).substring(2),
+      username: user.name,
+      displayName: user.display,
+      color: user.color,
+      message: text,
+      receivedAt: new Date().toISOString(),
+      isFirstTimer: isFirst,
+      badges: null,
+      emotes: null
+    });
+  };
+
+  const simulateStreamEvent = () => {
+    const kinds = ['follow', 'sub', 'gift', 'cheer', 'raid'] as const;
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    const names = ['hyper_quantum', 'star_weaver', 'rust_ace', 'gopher_girl', 'neon_rider', 'cyber_duck'];
+    const actor = names[Math.floor(Math.random() * names.length)];
+
+    let detail = '';
+    let tone = 'silver';
+    if (kind === 'follow') {
+      detail = 'followed';
+      tone = 'silver';
+    } else if (kind === 'sub') {
+      detail = 'subscribed · Tier 1 · 3 months';
+      tone = 'warning';
+    } else if (kind === 'gift') {
+      detail = 'gifted a sub to a random viewer!';
+      tone = 'warning';
+    } else if (kind === 'cheer') {
+      detail = `cheered ${[100, 500, 1000, 5000][Math.floor(Math.random() * 4)]} bits`;
+      tone = 'info';
+    } else if (kind === 'raid') {
+      detail = `raided with ${Math.floor(Math.random() * 80) + 10} viewers`;
+      tone = 'note';
+    }
+
+    dispatchMockSocket('stream:event', {
+      kind,
+      actor,
+      detail,
+      ago: 'just now',
+      tone
+    });
+  };
+
+  // Auto traffic simulation
+  useEffect(() => {
+    if (!autoSimulate) return;
+    const chatInterval = setInterval(simulateChatMessage, 4000);
+    const eventInterval = setInterval(simulateStreamEvent, 12000);
+    return () => {
+      clearInterval(chatInterval);
+      clearInterval(eventInterval);
+    };
+  }, [autoSimulate]);
 
   const ctx: PanelCtx = {
     viewers,
@@ -254,8 +450,20 @@ export function DashboardPage() {
         tweaksOpen={tweaksOpen}
         onTweaksToggle={() => setTweaksOpen(o => !o)}
       />
-      <StatBar clock24={t.clock === '24h'} starfield={t.starfield} />
-
+      <StatBar
+        clock24={t.clock === '24h'}
+        starfield={t.starfield}
+        isLive={isLive}
+        uptime={uptime}
+        viewers={viewersCount}
+        peakViewers={peakViewers}
+        avgViewers={avgViewers}
+        bitrate={bitrate}
+        totalFrames={totalFrames}
+        droppedFrames={droppedFrames}
+        laggedFrames={laggedFrames}
+        nextAd={nextAd}
+      />
       {page === 'dashboard' ? (layouts[t.layout] ?? layouts['cockpit']) : (
         <Settings t={t} setTweak={setTweak} />
       )}
@@ -278,39 +486,56 @@ export function DashboardPage() {
         })}
       </div>
 
-      <TweaksPanel open={tweaksOpen} onClose={() => setTweaksOpen(false)}>
-        <TweakSection label="Layout" />
-        <TweakRadio
-          label="Arrangement"
-          value={t.layout}
-          options={['cockpit', 'mission', 'modular']}
-          onChange={v => setTweak('layout', v)}
-        />
-        <TweakRadio
-          label="Density"
-          value={t.density}
-          options={['dense', 'comfy']}
-          onChange={v => setTweak('density', v)}
-        />
-        <TweakSection label="Top bar" />
-        <TweakRadio
-          label="Clock"
-          value={t.clock}
-          options={['12h', '24h']}
-          onChange={v => setTweak('clock', v)}
-        />
-        <TweakToggle
-          label="Starfield behind stats"
-          value={t.starfield}
-          onChange={v => setTweak('starfield', v)}
-        />
-        <TweakSection label="Accent" />
-        <TweakColor
-          label="Status accent"
-          value={t.accent}
-          options={['#ffb86c', '#9e82e8', '#6aa8d4']}
-          onChange={v => setTweak('accent', v)}
-        />
+      <TweaksPanel title="Dev Menu" open={tweaksOpen} onClose={() => setTweaksOpen(false)}>
+        <TweakSection label="Simulator Control" />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+          <TweakToggle
+            label="Auto-generate Traffic"
+            value={autoSimulate}
+            onChange={setAutoSimulate}
+          />
+          <TweakToggle
+            label="Stream Live Status"
+            value={isLive}
+            onChange={setIsLive}
+          />
+          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+            <button
+              onClick={simulateChatMessage}
+              style={{
+                flex: 1,
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid var(--border-2)',
+                color: 'var(--fg-1)',
+                padding: '6px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontSize: '11px',
+                fontWeight: 500
+              }}
+            >
+              Simulate Chat
+            </button>
+            <button
+              onClick={simulateStreamEvent}
+              style={{
+                flex: 1,
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid var(--border-2)',
+                color: 'var(--fg-1)',
+                padding: '6px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontSize: '11px',
+                fontWeight: 500
+              }}
+            >
+              Simulate Event
+            </button>
+          </div>
+        </div>
       </TweaksPanel>
     </div>
   );
