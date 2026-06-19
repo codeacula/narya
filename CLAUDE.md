@@ -19,7 +19,8 @@ docker compose up --build  # containerized run with ./data mounted for SQLite
 Smoke-test backend endpoints after backend changes:
 ```sh
 curl http://localhost:4317/api/health
-curl http://localhost:4317/api/goals
+curl http://localhost:4317/api/chat/recent
+curl http://localhost:4317/api/music/current
 ```
 
 ## Architecture
@@ -32,7 +33,7 @@ curl http://localhost:4317/api/goals
 src/
   types.ts              # domain types (Viewer, ChatEntry, StreamEvent, RunItem)
   services/
-    dashboard.ts        # data service — Phase 2: returns stub data; Phase 3: real API calls
+    dashboard.ts        # dashboard data service backed by REST endpoints
   legacy.tsx            # backend-wired hooks + overlay/tablet components (ChatPanel, MusicPanel, etc.)
   ui/
     icons.tsx           # Icon component
@@ -49,9 +50,9 @@ src/
   styles.css            # legacy overlay/tablet styles (camelCase classes)
 ```
 
-**Service / mock boundary** — `src/services/dashboard.ts` is the only file with stub data. Components and hooks always import domain types from `src/types.ts` and data from the service layer, never from a mock file directly. This keeps Phase 3 wiring to a service-layer swap.
+**Service boundary** — `src/services/dashboard.ts` is the dashboard's REST data boundary. Components and hooks import domain types from `src/types.ts` and dashboard data from the service layer instead of calling `fetch` directly.
 
-**Real-time data flow** — the backend broadcasts WebSocket events (`chat:message`, `chat:moderated`, `goals:updated`, `music:updated`). The frontend's `useSocket` hook subscribes per event name and merges updates into local state seeded by initial REST fetches.
+**Real-time data flow** — the backend broadcasts WebSocket events (`chat:message`, `chat:moderated`, `music:updated`, `sound:play`). The frontend's `useSocket` hook subscribes per event name and merges updates into local state seeded by initial REST fetches.
 
 **Chat dual-layer storage** — `chat_events` is append-only (raw events). `chat_messages` is a mutable projection with soft-delete columns (`deleted_at`, `deleted_reason`, `moderation_event_id`). Dashboard shows moderated messages with a reason; overlay hides them entirely (the `compact` prop on `ChatPanel`).
 

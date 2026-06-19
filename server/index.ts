@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import OBSWebSocket from 'obs-websocket-js';
 import tmi from 'tmi.js';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 
 const execFileAsync = promisify(execFile);
 
@@ -95,6 +95,20 @@ db.exec(`
     label text not null,
     filename text not null
   );
+
+  create table if not exists settings (
+    key text primary key,
+    value text not null
+  );
+
+  create table if not exists stream_events (
+    id text primary key,
+    kind text not null,
+    actor text not null,
+    detail text not null,
+    tone text not null,
+    received_at text not null
+  );
 `);
 
 function addColumnIfMissing(table: string, column: string, definition: string) {
@@ -110,12 +124,243 @@ addColumnIfMissing('chat_messages', 'moderation_event_id', 'text');
 addColumnIfMissing('chat_messages', 'badges_json', 'text');
 addColumnIfMissing('chat_messages', 'emotes_json', 'text');
 
+function getEventSubCredentials(): { clientId: string; userToken: string } | null {
+  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  const userToken = process.env.TWITCH_USER_TOKEN ?? '';
+  if (!clientId || !userToken) return null;
+  return { clientId, userToken };
+}
+
+// ─── EventSub ─────────────────────────────────────────────────────────────
+
+let eventSubWs: WebSocket | null = null;
+let eventSubConnected = false;
+let broadcasterId: string | null = null;
+let eventSubKeepaliveMs = 20_000;
+let eventSubKeepaliveTimer: ReturnType<typeof setTimeout> | null = null;
+
+const insertStreamEvent = db.prepare(`
+  insert or ignore into stream_events (id, kind, actor, detail, tone, received_at)
+  values (?, ?, ?, ?, ?, ?)
+`);
+
+function emitStreamEvent(kind: string, actor: string, detail: string, tone: string) {
+  const id = crypto.randomUUID();
+  const receivedAt = new Date().toISOString();
+  insertStreamEvent.run(id, kind, actor, detail, tone, receivedAt);
+  broadcast('stream:event', { id, kind, actor, detail, tone, ago: 'just now', receivedAt });
+}
+
+function tierLabel(tier: string): string {
+  if (tier === '2000') return 'Tier 2';
+  if (tier === '3000') return 'Tier 3';
+  return 'Tier 1';
+}
+
+function handleEventSubNotification(type: string, event: Record<string, unknown>) {
+  switch (type) {
+    case 'channel.follow':
+      emitStreamEvent('follow', event.user_name as string, 'followed', 'silver');
+      break;
+    case 'channel.subscribe':
+      if (!(event.is_gift as boolean)) {
+        emitStreamEvent('sub', event.user_name as string,
+          `subscribed · ${tierLabel(event.tier as string)}`, 'warning');
+      }
+      break;
+    case 'channel.subscription.message':
+      emitStreamEvent('sub', event.user_name as string,
+        `resubscribed · ${event.cumulative_months} months · ${tierLabel(event.tier as string)}`, 'warning');
+      break;
+    case 'channel.subscription.gift':
+      emitStreamEvent('gift',
+        (event.user_name as string) || 'Anonymous',
+        `gifted ${event.total} sub${(event.total as number) !== 1 ? 's' : ''} to the channel`, 'warning');
+      break;
+    case 'channel.cheer':
+      emitStreamEvent('cheer',
+        (event.user_name as string) || 'Anonymous',
+        `cheered ${event.bits} bits`, 'info');
+      break;
+    case 'channel.raid':
+      emitStreamEvent('raid',
+        event.from_broadcaster_user_name as string,
+        `raided with ${event.viewers} viewer${(event.viewers as number) !== 1 ? 's' : ''}`, 'note');
+      break;
+    case 'channel.channel_points_custom_reward_redemption.add':
+      emitStreamEvent('redeem',
+        event.user_name as string,
+        `redeemed "${(event.reward as { title: string }).title}"`, 'info');
+      break;
+  }
+}
+
+async function fetchBroadcasterId(clientId: string, userToken: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://api.twitch.tv/helix/users?login=${encodeURIComponent(twitchChannel)}`,
+      { headers: { 'Client-Id': clientId, 'Authorization': `Bearer ${userToken}` } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json() as { data: Array<{ id: string }> };
+    return data.data[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function createEventSubSubscription(
+  clientId: string, userToken: string, sessionId: string,
+  type: string, version: string, condition: Record<string, string>
+) {
+  try {
+    const res = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
+      method: 'POST',
+      headers: {
+        'Client-Id': clientId,
+        'Authorization': `Bearer ${userToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type, version, condition, transport: { method: 'websocket', session_id: sessionId } })
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`EventSub: failed to subscribe to ${type} (${res.status}):`, text);
+    }
+  } catch (err) {
+    console.error(`EventSub: error subscribing to ${type}:`, err);
+  }
+}
+
+async function subscribeToAllEvents(clientId: string, userToken: string, sessionId: string, bid: string) {
+  const subs: Array<[string, string, Record<string, string>]> = [
+    ['channel.follow', '2', { broadcaster_user_id: bid, moderator_user_id: bid }],
+    ['channel.subscribe', '1', { broadcaster_user_id: bid }],
+    ['channel.subscription.gift', '1', { broadcaster_user_id: bid }],
+    ['channel.subscription.message', '1', { broadcaster_user_id: bid }],
+    ['channel.cheer', '1', { broadcaster_user_id: bid }],
+    ['channel.raid', '1', { to_broadcaster_user_id: bid }],
+    ['channel.channel_points_custom_reward_redemption.add', '1', { broadcaster_user_id: bid }],
+  ];
+  for (const [type, version, condition] of subs) {
+    await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
+  }
+  console.log('EventSub: all subscriptions created');
+}
+
+function clearKeepaliveTimer() {
+  if (eventSubKeepaliveTimer !== null) {
+    clearTimeout(eventSubKeepaliveTimer);
+    eventSubKeepaliveTimer = null;
+  }
+}
+
+function resetKeepaliveTimer() {
+  clearKeepaliveTimer();
+  eventSubKeepaliveTimer = setTimeout(() => {
+    console.log('EventSub: keepalive timeout, reconnecting...');
+    connectEventSub();
+  }, eventSubKeepaliveMs);
+}
+
+function connectEventSub(reconnectUrl?: string) {
+  const creds = getEventSubCredentials();
+  if (!creds) {
+    console.log('EventSub: no credentials configured, skipping');
+    return;
+  }
+
+  if (!reconnectUrl && eventSubWs) {
+    try { eventSubWs.close(); } catch {}
+    eventSubWs = null;
+  }
+  eventSubConnected = false;
+
+  const ws = new WebSocket(reconnectUrl ?? 'wss://eventsub.wss.twitch.tv/ws');
+  eventSubWs = ws;
+
+  ws.addEventListener('open', () => {
+    console.log('EventSub: WebSocket connected');
+  });
+
+  ws.addEventListener('message', (evt) => {
+    if (typeof evt.data !== 'string') return;
+
+    type EventSubMsg = {
+      metadata: { message_type: string };
+      payload: {
+        session?: { id: string; keepalive_timeout_seconds: number; reconnect_url?: string };
+        subscription?: { type: string };
+        event?: Record<string, unknown>;
+      };
+    };
+
+    let msg: EventSubMsg;
+    try { msg = JSON.parse(evt.data); } catch { return; }
+
+    const msgType = msg.metadata.message_type;
+
+    if (msgType === 'session_welcome') {
+      const session = msg.payload.session!;
+      eventSubConnected = true;
+      eventSubKeepaliveMs = (session.keepalive_timeout_seconds + 10) * 1000;
+      resetKeepaliveTimer();
+      console.log(`EventSub: session ${session.id} established`);
+
+      if (!reconnectUrl) {
+        void (async () => {
+          if (!broadcasterId) {
+            broadcasterId = await fetchBroadcasterId(creds.clientId, creds.userToken);
+          }
+          if (broadcasterId) {
+            await subscribeToAllEvents(creds.clientId, creds.userToken, session.id, broadcasterId);
+          } else {
+            console.error(`EventSub: could not resolve broadcaster ID for "${twitchChannel}"`);
+          }
+        })();
+      }
+
+    } else if (msgType === 'session_keepalive') {
+      resetKeepaliveTimer();
+
+    } else if (msgType === 'session_reconnect') {
+      const newUrl = msg.payload.session?.reconnect_url;
+      if (newUrl) {
+        console.log('EventSub: reconnecting to new URL...');
+        const staleWs = ws;
+        connectEventSub(newUrl);
+        setTimeout(() => { try { staleWs.close(); } catch {} }, 30_000);
+      }
+
+    } else if (msgType === 'notification') {
+      const subType = msg.payload.subscription?.type ?? '';
+      const event = msg.payload.event ?? {};
+      handleEventSubNotification(subType, event);
+
+    } else if (msgType === 'revocation') {
+      const sub = msg.payload.subscription as { type?: string; status?: string } | undefined;
+      console.warn('EventSub: subscription revoked:', sub?.type, sub?.status);
+    }
+  });
+
+  ws.addEventListener('close', (evt) => {
+    if (ws !== eventSubWs) return;
+    eventSubConnected = false;
+    clearKeepaliveTimer();
+    console.log(`EventSub: disconnected (code ${(evt as CloseEvent).code}), retrying in 10s...`);
+    setTimeout(() => connectEventSub(), 10_000);
+  });
+
+  ws.addEventListener('error', () => {
+    console.error('EventSub: WebSocket error');
+  });
+}
 
 const app = express();
 app.use(express.json());
 
 const server = createServer(app);
-const sockets = new Set<WebSocket>();
+const sockets = new Set<WsSocket>();
 const wss = new WebSocketServer({ server, path: '/socket' });
 
 function broadcast(event: string, payload: unknown) {
@@ -472,7 +717,7 @@ obs.on('ConnectionClosed', () => {
 });
 
 app.get('/api/health', (_request, response) => {
-  response.json({ ok: true, twitchChannel, obsConnected, twitchRoomId });
+  response.json({ ok: true, twitchChannel, obsConnected, twitchRoomId, eventSubConnected });
 });
 
 app.get('/api/music/current', (_request, response) => {
@@ -768,19 +1013,32 @@ app.get('/api/dashboard/chat', (_request, response) => {
   ]);
 });
 
+function formatAgo(receivedAt: string): string {
+  const diffMs = Date.now() - new Date(receivedAt).getTime();
+  const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
+  if (totalSecs < 60) return 'just now';
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 app.get('/api/dashboard/events', (_request, response) => {
-  response.json([
-    { kind: 'raid',   actor: 'aurora_codes',    detail: 'raided with 58 friends',          ago: '0:40',  tone: 'note' },
-    { kind: 'gift',   actor: 'stardust_kelly',  detail: 'gifted 5 subs to the channel',    ago: '6:02',  tone: 'warning' },
-    { kind: 'sub',    actor: 'cosmic_jeff',     detail: 'resubscribed · 9 months · tier 1', ago: '11:18', tone: 'warning' },
-    { kind: 'cheer',  actor: 'pixel_witch',     detail: 'cheered 500 bits',                ago: '14:50', tone: 'info' },
-    { kind: 'follow', actor: 'nebula_smith',    detail: 'followed',                        ago: '18:07', tone: 'silver' },
-    { kind: 'sub',    actor: 'moon_dev',        detail: 'subscribed · gifted',             ago: '6:02',  tone: 'warning' },
-    { kind: 'follow', actor: 'quiet_quasar',    detail: 'followed',                        ago: '22:30', tone: 'silver' },
-    { kind: 'cheer',  actor: 'grumpy_compiler', detail: 'cheered 1000 bits',               ago: '24:12', tone: 'info' },
-  ]);
+  const rows = db.prepare(`
+    select id, kind, actor, detail, tone, received_at as receivedAt
+    from stream_events
+    order by received_at desc
+    limit 50
+  `).all() as Array<{ id: string; kind: string; actor: string; detail: string; tone: string; receivedAt: string }>;
+
+  if (rows.length > 0) {
+    response.json(rows.map(r => ({ ...r, ago: formatAgo(r.receivedAt) })));
+    return;
+  }
+
+  response.json([]);
 });
 
 server.listen(port, () => {
   console.log(`Streamer Tools backend listening on http://localhost:${port}`);
+  connectEventSub();
 });

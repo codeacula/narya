@@ -51,7 +51,8 @@ For backend or integration work, also smoke test the relevant endpoints, for exa
 
 ```sh
 curl http://localhost:4317/api/health
-curl http://localhost:4317/api/goals
+curl http://localhost:4317/api/chat/recent
+curl http://localhost:4317/api/music/current
 ```
 
 ## Commit & Pull Request Guidelines

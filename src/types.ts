@@ -23,11 +23,12 @@ export type ChatEntry = {
 };
 
 export type StreamEvent = {
-  kind: 'raid' | 'gift' | 'sub' | 'cheer' | 'follow';
+  kind: 'raid' | 'gift' | 'sub' | 'cheer' | 'follow' | 'redeem';
   actor: string;
   detail: string;
   ago: string;
   tone: string;
+  receivedAt?: string;
 };
 
 export type RunItem = {

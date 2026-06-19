@@ -170,6 +170,7 @@ const EVT_ICON: Record<string, string> = {
   gift: 'gift',
   cheer: 'bits',
   raid: 'swords',
+  redeem: 'star',
 };
 
 function EventFeed({ ctx }: { ctx: PanelCtx }) {

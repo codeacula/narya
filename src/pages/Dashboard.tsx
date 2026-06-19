@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { ChatInput, MODULES, PanelCtx } from '../ui/panels';
-import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle, TweakColor } from '../ui/tweaks';
+import { useTweaks, TweaksPanel, TweakSection, TweakToggle } from '../ui/tweaks';
 import { getViewers, getChatEntries, getStreamEvents } from '../services/dashboard';
+import { useSocket } from '../legacy';
 import type { Viewer, ChatEntry, StreamEvent } from '../types';
 
 /* ---------------- constants ---------------- */
@@ -49,7 +50,7 @@ function Settings({ t, setTweak }: { t: Tweaks; setTweak: <K extends keyof Tweak
     children: React.ReactNode;
   }) => (
     <div className="set-row">
-      <div>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div className="set-label">{label}</div>
         {sub && <div className="set-sub">{sub}</div>}
       </div>
@@ -226,6 +227,11 @@ export function DashboardPage() {
     }, 5000);
     return () => clearInterval(interval);
   }, [isLive]);
+
+  // Real Twitch EventSub events from the backend
+  useSocket<StreamEvent>('stream:event', React.useCallback((evt) => {
+    setEvents(evs => [evt, ...evs.slice(0, 49)]);
+  }, []));
 
   // Handle local simulation events (which mock websocket messages)
   useEffect(() => {
