@@ -7,6 +7,8 @@ services:
     environment:
       PORT: 4317
       TWITCH_CHANNEL: codeacula
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
+      TWITCH_USER_TOKEN: ${TWITCH_USER_TOKEN:-}
       OBS_WEBSOCKET_URL: ws://host.docker.internal:4455
       OBS_WEBSOCKET_PASSWORD: ${OBS_WEBSOCKET_PASSWORD:-}
     volumes:

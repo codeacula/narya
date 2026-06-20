@@ -48,7 +48,11 @@ OBS_WEBSOCKET_PASSWORD=
 MUSIC_POLL_INTERVAL_MS=2000
 MUSIC_PLAYERCTL_PLAYER=strawberry
 QUACK_VOLUME=0.20
+TWITCH_CLIENT_ID=
+TWITCH_USER_TOKEN=
 ```
+
+Twitch EventSub uses `TWITCH_CLIENT_ID` and `TWITCH_USER_TOKEN` from `.env` only. Generate the user OAuth token outside the dashboard with the scopes needed for the channel events you want to receive.
 
 For Docker, OBS is configured as `ws://host.docker.internal:4455` so the container can reach OBS running on the host.
 Playerctl is best run locally because containers do not normally have access to the host desktop media session.

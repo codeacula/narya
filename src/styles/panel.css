@@ -151,6 +151,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   box-shadow: 0 0 0 0 rgba(224, 122, 107, 0.6);
   animation: livepulse 2.4s var(--ease-stars) infinite;
 }
+.live-dot.offline {
+  background: var(--silver-700);
+  box-shadow: none;
+  animation: none;
+}
 @keyframes livepulse {
   0% { box-shadow: 0 0 0 0 rgba(224,122,107,0.55); }
   70% { box-shadow: 0 0 0 7px rgba(224,122,107,0); }
@@ -164,6 +169,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .health-dot { width: 9px; height: 9px; border-radius: 50%; }
 .health-dot.good { background: var(--success-base); box-shadow: 0 0 8px rgba(127,200,163,0.6); }
 .health-dot.warn { background: var(--warning-base); }
+.health-dot.bad { background: var(--silver-700); }
 .health-bars { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
 .health-bars i { width: 3px; background: var(--success-base); border-radius: 1px; display: block; opacity: 0.85; }
 
@@ -484,6 +490,26 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .set-sub { font-size: 12px; color: var(--fg-3); margin-top: 2px; }
 .set-control { margin-left: auto; flex: none; }
 .set-foot { text-align: center; color: var(--fg-3); font-family: var(--font-display); font-style: italic; font-size: 15px; margin-top: var(--space-6); }
+
+.live-data-list {
+  display: grid;
+  gap: 6px;
+  padding: 2px 0 0;
+}
+.live-data-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-3);
+}
+.live-data-list b {
+  color: var(--fg-1);
+  font-weight: 500;
+  text-align: right;
+}
 
 .seg { display: flex; border: 1px solid var(--border-2); border-radius: var(--radius-2); overflow: hidden; }
 .seg-b {

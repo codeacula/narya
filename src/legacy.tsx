@@ -123,17 +123,8 @@ export function useSocket<T>(event: string, onPayload: (payload: T) => void) {
       if (data.event === event) onPayload(data.payload);
     });
 
-    const handleMock = (e: Event) => {
-      const customEvt = e as CustomEvent<{ event: string; payload: T }>;
-      if (customEvt.detail && customEvt.detail.event === event) {
-        onPayload(customEvt.detail.payload);
-      }
-    };
-    window.addEventListener('mock-websocket', handleMock);
-
     return () => {
       socket.close();
-      window.removeEventListener('mock-websocket', handleMock);
     };
   }, [event, onPayload]);
 }

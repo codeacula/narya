@@ -8,6 +8,7 @@ export type PanelCtx = {
   viewers: Record<string, Viewer>;
   chat: ChatEntry[];
   events: StreamEvent[];
+  channel: string;
   openViewerPopout: (login: string) => void;
 };
 
@@ -31,7 +32,7 @@ const ROLE_BADGE: Record<string, string> = {
 function badgesFor(viewer: Viewer | undefined): string[] {
   if (!viewer) return [];
   const out: string[] = [];
-  if (viewer.login === 'codeacula') out.push('broadcaster');
+  if (viewer.roles.includes('broadcaster')) out.push('broadcaster');
   if (viewer.roles.includes('mod')) out.push('mod');
   if (viewer.roles.includes('vip')) out.push('vip');
   if (viewer.roles.includes('sub')) out.push('sub');
@@ -44,12 +45,13 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   const listRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, []);
+  }, [ctx.chat.length]);
 
   return (
     <div className="chat-list" ref={listRef}>
       {ctx.chat.map((m, i) => {
-        const viewer = ctx.viewers[m.user];
+        const login = m.user.toLowerCase();
+        const viewer = ctx.viewers[login];
         const color = viewer?.color ?? '#d7dce2';
         const display = viewer?.display ?? m.user;
         const hlClass = m.highlight ? ' hl-' + m.highlight : '';
@@ -74,10 +76,10 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   );
 }
 
-export function ChatInput() {
+export function ChatInput({ channel }: { channel: string }) {
   return (
     <div className="chat-input">
-      <input placeholder="Send a message as codeacula…" />
+      <input placeholder={channel ? `Send a message as ${channel}...` : 'Send a message...'} />
       <button className="chat-send">Chat</button>
     </div>
   );

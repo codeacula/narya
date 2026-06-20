@@ -52,6 +52,7 @@ const quackSounds = [
 
 let twitchRoomId: string | null = null;
 const sessionChatters = new Set<string>();
+const serverStartedAt = Date.now();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, '..', 'data');
@@ -94,11 +95,6 @@ db.exec(`
     id text primary key,
     label text not null,
     filename text not null
-  );
-
-  create table if not exists settings (
-    key text primary key,
-    value text not null
   );
 
   create table if not exists stream_events (
@@ -906,121 +902,248 @@ app.get('/api/emotes', async (_request, response) => {
   response.json(map);
 });
 
-/* ---------- Test Data Endpoints ---------- */
-
-const STUB_COLORS: Record<string, string> = {
-  gold:   '#ffc488',
-  silver: '#d7dce2',
-  sage:   '#a8e0c4',
-  sky:    '#9ccae8',
-  violet: '#bca6f0',
-  coral:  '#f0a99d',
-  ivory:  '#f5f2e0',
-};
-
-app.get('/api/dashboard/viewers', (_request, response) => {
-  response.json({
-    stardust_kelly: {
-      login: 'stardust_kelly', display: 'stardust_kelly', color: STUB_COLORS.violet,
-      pronouns: 'she/her', roles: ['vip', 'sub'],
-      followed: 'follows for 1y 3mo', subbed: 'subscribed 14 months · tier 1',
-      seen: 'first seen Mar 2025', msgs: 4218, accountAge: 'account 3y 2mo',
-      note: 'Mods love her — first to welcome new chatters. No warnings.',
-      recent: [
-        { t: 'the parallax on that starfield is unreal', ago: '0:12' },
-        { t: 'wait can you show the easing curve again?', ago: '1:40' },
-        { t: 'gifted a sub to moon_dev', ago: '6:02', kind: 'event' },
-        { t: 'diogenes with a licensing agreement lmaooo', ago: '8:31' },
-      ],
-    },
-    moon_dev: {
-      login: 'moon_dev', display: 'moon_dev', color: STUB_COLORS.sky,
-      pronouns: 'they/them', roles: ['sub'],
-      followed: 'follows for 7 months', subbed: 'subscribed 2 months · gift',
-      seen: 'first seen this stream', msgs: 96, accountAge: 'account 5 mo',
-      note: 'New-ish. Gifted into the community by stardust_kelly tonight.',
-      recent: [
-        { t: 'first time catching you live, this is cozy', ago: '0:48' },
-        { t: 'is the repo public?', ago: '3:22' },
-        { t: 'thank you for the gift sub 🌙', ago: '5:55' },
-      ],
-    },
-    grumpy_compiler: {
-      login: 'grumpy_compiler', display: 'grumpy_compiler', color: STUB_COLORS.coral,
-      pronouns: 'he/him', roles: ['mod', 'sub'],
-      followed: 'follows for 2y 8mo', subbed: 'subscribed 31 months · tier 3',
-      seen: 'first seen Jun 2023', msgs: 11904, accountAge: 'account 6y',
-      note: 'Head mod. Trusted with everything. Runs the link bot.',
-      recent: [
-        { t: '!so @nebula_smith they stream rust on tuesdays', ago: '0:30' },
-        { t: 'timed out a spammer, all clear', ago: '2:11', kind: 'mod' },
-        { t: 'the auth refactor is gonna pay off, hold the line', ago: '4:49' },
-      ],
-    },
-    nebula_smith: {
-      login: 'nebula_smith', display: 'nebula_smith', color: STUB_COLORS.sage,
-      pronouns: 'she/they', roles: [],
-      followed: 'not following yet', subbed: 'not subscribed',
-      seen: 'first seen this stream', msgs: 7, accountAge: 'account 11 days',
-      note: 'Brand new account. Lurker so far — keep an eye, but friendly.',
-      recent: [
-        { t: 'hi! found you through the raid', ago: '1:05' },
-        { t: 'what theme is that in the editor?', ago: '2:40' },
-      ],
-    },
-    cosmic_jeff: {
-      login: 'cosmic_jeff', display: 'cosmic_jeff', color: STUB_COLORS.gold,
-      pronouns: 'he/him', roles: ['sub'],
-      followed: 'follows for 1y 1mo', subbed: 'subscribed 9 months · tier 1',
-      seen: 'first seen Apr 2025', msgs: 2051, accountAge: 'account 4y 6mo',
-      note: 'Regular. Asks great questions about accessibility tooling.',
-      recent: [
-        { t: 'does the screen reader announce the live region update?', ago: '0:20' },
-        { t: 'this is why I sub, actual teaching', ago: '3:58' },
-      ],
-    },
-    pixel_witch: {
-      login: 'pixel_witch', display: 'pixel_witch', color: STUB_COLORS.ivory,
-      pronouns: 'she/her', roles: ['vip'],
-      followed: 'follows for 1y 9mo', subbed: 'not subscribed',
-      seen: 'first seen Sep 2024', msgs: 3380, accountAge: 'account 2y 9mo',
-      note: 'Made the emote set. VIP for life. No warnings.',
-      recent: [
-        { t: 'the rim light on the orb came out so good', ago: '1:14' },
-        { t: 'new emote when 👀', ago: '5:30' },
-      ],
-    },
-  });
-});
-
-app.get('/api/dashboard/chat', (_request, response) => {
-  response.json([
-    { user: 'grumpy_compiler', text: '!so @nebula_smith they stream rust on tuesdays', time: '9:38' },
-    { user: 'cosmic_jeff', text: 'does the screen reader announce the live region update?', time: '9:39' },
-    { user: 'pixel_witch', text: 'the rim light on the orb came out so good', time: '9:39' },
-    { user: 'nebula_smith', text: 'hi! found you through the raid', time: '9:40', highlight: 'first' },
-    { user: 'moon_dev', text: 'first time catching you live, this is cozy', time: '9:40', highlight: 'first' },
-    { user: 'stardust_kelly', text: 'diogenes with a licensing agreement lmaooo', time: '9:41' },
-    { user: 'cosmic_jeff', text: 'this is why I sub, actual teaching', time: '9:41' },
-    { user: 'nebula_smith', text: 'what theme is that in the editor?', time: '9:42' },
-    { user: 'moon_dev', text: 'is the repo public?', time: '9:42' },
-    { user: 'stardust_kelly', text: 'wait can you show the easing curve again?', time: '9:43' },
-    { user: 'grumpy_compiler', text: 'the auth refactor is gonna pay off, hold the line', time: '9:43' },
-    { user: 'pixel_witch', text: 'new emote when 👀', time: '9:44' },
-    { user: 'cosmic_jeff', text: 'the contemplative-cozy-mystical thing really is the whole brand huh', time: '9:44' },
-    { user: 'stardust_kelly', text: 'the parallax on that starfield is unreal', time: '9:45' },
-    { user: 'moon_dev', text: 'thank you for the gift sub 🌙', time: '9:45', highlight: 'sub' },
-  ]);
-});
-
 function formatAgo(receivedAt: string): string {
   const diffMs = Date.now() - new Date(receivedAt).getTime();
   const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
   if (totalSecs < 60) return 'just now';
-  const mins = Math.floor(totalSecs / 60);
-  const secs = totalSecs % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+  if (totalSecs < 3600) {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+  if (totalSecs < 86_400) {
+    const hours = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    return `${hours}h ${mins}m`;
+  }
+  const days = Math.floor(totalSecs / 86_400);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
 }
+
+function formatClockTime(receivedAt: string): string {
+  return new Date(receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function formatFirstSeen(receivedAt: string): string {
+  const date = new Date(receivedAt);
+  return `first seen ${date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
+}
+
+function rolesFromBadges(badges: Record<string, string> | null): string[] {
+  if (!badges) return [];
+  const roles: string[] = [];
+  if (badges.broadcaster) roles.push('broadcaster');
+  if (badges.moderator) roles.push('mod');
+  if (badges.vip) roles.push('vip');
+  if (badges.subscriber) roles.push('sub');
+  return roles;
+}
+
+function parseBadgesJson(value: string | null): Record<string, string> | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as Record<string, string>;
+  } catch {
+    return null;
+  }
+}
+
+function fallbackColor(login: string): string {
+  const palette = ['#ffc488', '#d7dce2', '#a8e0c4', '#9ccae8', '#bca6f0', '#f0a99d', '#f5f2e0'];
+  let hash = 0;
+  for (const char of login) hash = (hash + char.charCodeAt(0)) % palette.length;
+  return palette[hash];
+}
+
+function getKnownChatterCount(): number {
+  const row = db.prepare('select count(distinct lower(username)) as count from chat_messages').get() as { count: number };
+  return row.count;
+}
+
+function getActiveChatterCount(): number {
+  const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const row = db
+    .prepare('select count(distinct lower(username)) as count from chat_messages where received_at >= ?')
+    .get(since) as { count: number };
+  return row.count;
+}
+
+async function getObsDashboardStats() {
+  type ObsStreamStatus = {
+    outputActive?: boolean;
+    outputDuration?: number;
+    outputSkippedFrames?: number;
+    outputTotalFrames?: number;
+  };
+  type ObsStats = {
+    outputSkippedFrames?: number;
+    outputTotalFrames?: number;
+    renderSkippedFrames?: number;
+    outputBytes?: number;
+    activeFps?: number;
+  };
+
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('OBS request timed out')), ms);
+      promise.then(
+        value => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        error => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  };
+
+  try {
+    await withTimeout(ensureObs(), 1200);
+    const [streamStatus, stats] = await Promise.all([
+      withTimeout(obs.call('GetStreamStatus') as Promise<ObsStreamStatus>, 1200),
+      withTimeout(obs.call('GetStats') as Promise<ObsStats>, 1200),
+    ]);
+    const uptimeSeconds = typeof streamStatus.outputDuration === 'number'
+      ? Math.floor(streamStatus.outputDuration / 1000)
+      : null;
+    const totalFrames = streamStatus.outputTotalFrames ?? stats.outputTotalFrames ?? null;
+    const droppedFrames = streamStatus.outputSkippedFrames ?? stats.outputSkippedFrames ?? null;
+    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - serverStartedAt) / 1000));
+    const bitrateKbps = typeof stats.outputBytes === 'number' && streamStatus.outputActive
+      ? Math.round((stats.outputBytes * 8) / elapsedSeconds / 1000)
+      : null;
+
+    return {
+      streamActive: streamStatus.outputActive ?? null,
+      uptimeSeconds,
+      bitrateKbps,
+      totalFrames,
+      droppedFrames,
+      laggedFrames: stats.renderSkippedFrames ?? null,
+    };
+  } catch {
+    obsConnected = false;
+    return {
+      streamActive: null,
+      uptimeSeconds: null,
+      bitrateKbps: null,
+      totalFrames: null,
+      droppedFrames: null,
+      laggedFrames: null,
+    };
+  }
+}
+
+app.get('/api/dashboard/status', async (_request, response) => {
+  const obsStats = await getObsDashboardStats();
+  response.json({
+    channel: twitchChannel,
+    chatConnection: twitchClient.readyState?.() ?? 'UNKNOWN',
+    obsConnected,
+    eventSubConnected,
+    ...obsStats,
+    activeChatters: getActiveChatterCount(),
+    sessionChatters: sessionChatters.size,
+    knownChatters: getKnownChatterCount(),
+    nextAdSeconds: null,
+  });
+});
+
+app.get('/api/dashboard/viewers', (_request, response) => {
+  const countRows = db.prepare(`
+    select lower(username) as login, count(*) as msgs, min(received_at) as firstSeen
+    from chat_messages
+    group by lower(username)
+  `).all() as Array<{ login: string; msgs: number; firstSeen: string }>;
+
+  const counts = new Map(countRows.map(row => [row.login, row]));
+  const recentRows = db.prepare(`
+    select username, display_name as displayName, color, message, received_at as receivedAt, badges_json as badgesJson
+    from chat_messages
+    order by received_at desc
+    limit 500
+  `).all() as Array<{
+    username: string;
+    displayName: string;
+    color: string | null;
+    message: string;
+    receivedAt: string;
+    badgesJson: string | null;
+  }>;
+
+  type ViewerProjection = {
+    login: string;
+    display: string;
+    color: string;
+    pronouns: string;
+    roles: string[];
+    followed: string;
+    subbed: string;
+    seen: string;
+    msgs: number;
+    accountAge: string;
+    note: string;
+    recent: Array<{ t: string; ago: string; kind?: string }>;
+  };
+
+  const viewers: Record<string, ViewerProjection> = {};
+  for (const row of recentRows) {
+    const login = row.username.toLowerCase();
+    const count = counts.get(login);
+    if (!count) continue;
+
+    if (!viewers[login]) {
+      const badges = parseBadgesJson(row.badgesJson);
+      const roles = rolesFromBadges(badges);
+      viewers[login] = {
+        login,
+        display: row.displayName,
+        color: row.color ?? fallbackColor(login),
+        pronouns: 'not available',
+        roles,
+        followed: 'not available',
+        subbed: roles.includes('sub') ? 'subscriber badge present' : 'not available',
+        seen: formatFirstSeen(count.firstSeen),
+        msgs: count.msgs,
+        accountAge: 'not available',
+        note: '',
+        recent: [],
+      };
+    }
+
+    if (viewers[login].recent.length < 5) {
+      viewers[login].recent.push({
+        t: row.message,
+        ago: formatAgo(row.receivedAt),
+      });
+    }
+  }
+
+  response.json(viewers);
+});
+
+app.get('/api/dashboard/chat', (_request, response) => {
+  const rows = db.prepare(`
+    select username, message, received_at as receivedAt, badges_json as badgesJson
+    from chat_messages
+    order by received_at desc
+    limit 80
+  `).all() as Array<{ username: string; message: string; receivedAt: string; badgesJson: string | null }>;
+
+  response.json(rows.reverse().map((row) => {
+    const badges = parseBadgesJson(row.badgesJson);
+    return {
+      user: row.username.toLowerCase(),
+      text: row.message,
+      time: formatClockTime(row.receivedAt),
+      highlight: badges?.subscriber ? 'sub' : undefined,
+    };
+  }));
+});
 
 app.get('/api/dashboard/events', (_request, response) => {
   const rows = db.prepare(`

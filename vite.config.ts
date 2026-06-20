@@ -6,9 +6,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:4317',
+      '/api': process.env.VITE_BACKEND_ORIGIN ?? 'http://localhost:4317',
       '/socket': {
-        target: 'ws://localhost:4317',
+        target: process.env.VITE_BACKEND_WS_ORIGIN ?? 'ws://localhost:4317',
         ws: true
       }
     }

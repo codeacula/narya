@@ -42,12 +42,17 @@ export function NavBar({
   setPage,
   tweaksOpen,
   onTweaksToggle,
+  channel,
 }: {
   page: string;
   setPage: (p: string) => void;
   tweaksOpen: boolean;
   onTweaksToggle: () => void;
+  channel: string;
 }) {
+  const brand = channel.trim();
+  const displayBrand = brand ? brand.toUpperCase() : '...';
+
   return (
     <div className="navbar">
       <div className="brand">
@@ -56,7 +61,7 @@ export function NavBar({
           alt=""
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
         />
-        <span className="wm">CODE<span>·</span>ACULA</span>
+        <span className="wm">{displayBrand}</span>
       </div>
       <div className="navlinks">
         <button
@@ -83,7 +88,7 @@ export function NavBar({
       <button className="nav-icon" title="Settings" onClick={() => setPage('settings')}>
         <Icon name="settings" size={15} />
       </button>
-      <div className="nav-avatar">C</div>
+      <div className="nav-avatar">{brand ? displayBrand[0] : '?'}</div>
     </div>
   );
 }
@@ -111,29 +116,35 @@ function Gauge({
 export function StatBar({
   clock24,
   starfield,
-  isLive = true,
-  uptime = 8077,
-  viewers = 342,
-  peakViewers = 401,
-  avgViewers = 318,
-  bitrate = 6000,
-  totalFrames = 482910,
-  droppedFrames = 124,
-  laggedFrames = 42,
-  nextAd = 381,
+  streamActive,
+  uptimeSeconds,
+  activeChatters,
+  sessionChatters,
+  knownChatters,
+  bitrateKbps,
+  totalFrames,
+  droppedFrames,
+  laggedFrames,
+  nextAdSeconds,
+  chatConnection,
+  obsConnected,
+  eventSubConnected,
 }: {
   clock24: boolean;
   starfield: boolean;
-  isLive?: boolean;
-  uptime?: number;
-  viewers?: number;
-  peakViewers?: number;
-  avgViewers?: number;
-  bitrate?: number;
-  totalFrames?: number;
-  droppedFrames?: number;
-  laggedFrames?: number;
-  nextAd?: number;
+  streamActive: boolean | null;
+  uptimeSeconds: number | null;
+  activeChatters: number;
+  sessionChatters: number;
+  knownChatters: number;
+  bitrateKbps: number | null;
+  totalFrames: number | null;
+  droppedFrames: number | null;
+  laggedFrames: number | null;
+  nextAdSeconds: number | null;
+  chatConnection: string;
+  obsConnected: boolean;
+  eventSubConnected: boolean;
 }) {
   const [currentTime, setCurrentTime] = useState('');
 
@@ -155,7 +166,7 @@ export function StatBar({
     return () => clearInterval(interval);
   }, [clock24]);
 
-  const formatUptime = (sec: number) => {
+  const formatDuration = (sec: number) => {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
     const s = sec % 60;
@@ -168,43 +179,52 @@ export function StatBar({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  const streamLabel = streamActive === null ? 'UNKNOWN' : streamActive ? formatDuration(uptimeSeconds ?? 0) : 'OFFLINE';
+  const streamClass = streamActive ? 'live' : 'offline';
+  const hasObsStats = bitrateKbps !== null || droppedFrames !== null || laggedFrames !== null;
+  const frameBase = totalFrames && totalFrames > 0 ? totalFrames : 1;
+  const droppedFrameCount = droppedFrames ?? 0;
+
   return (
     <div className={'statbar' + (starfield ? ' starfield' : '')}>
-      <Gauge label="On air" className={isLive ? 'live' : 'offline'} icon={<span className={'live-dot' + (isLive ? '' : ' offline')} />}>
-        <div className="gauge-value">{isLive ? formatUptime(uptime) : 'OFFLINE'}</div>
+      <Gauge label="Stream" className={streamClass} icon={<span className={'live-dot' + (streamActive ? '' : ' offline')} />}>
+        <div className="gauge-value">{streamLabel}</div>
+        <div className="gauge-sub">chat {chatConnection.toLowerCase()} · events {eventSubConnected ? 'open' : 'closed'}</div>
       </Gauge>
       <Gauge label="Local time">
         <div className="gauge-value">{currentTime}</div>
       </Gauge>
       <Gauge label="Next ad break" className="ad">
-        <div className="gauge-value">{formatAd(nextAd)}</div>
-        <div className="gauge-sub">90s · pre-roll skipped</div>
+        <div className="gauge-value">{nextAdSeconds === null ? 'N/A' : formatAd(nextAdSeconds)}</div>
+        <div className="gauge-sub">{nextAdSeconds === null ? 'not reported by backend' : 'live schedule'}</div>
       </Gauge>
-      <Gauge label="Viewers" icon={<Icon name="users" size={11} />}>
+      <Gauge label="Chatters" icon={<Icon name="users" size={11} />}>
         <div className="gauge-value">
-          {viewers} <small className="delta-up">▲ 12</small>
+          {activeChatters}
         </div>
-        <div className="gauge-sub">avg {avgViewers} · peak {peakViewers}</div>
+        <div className="gauge-sub">session {sessionChatters} · known {knownChatters}</div>
       </Gauge>
       <Gauge label="Stream health">
         <div className="gauge-value health">
-          <span className={'health-dot ' + (isLive ? (droppedFrames > 1000 ? 'warn' : 'good') : 'bad')} />
-          <span style={{ fontSize: '15px' }}>{isLive ? bitrate : 0}<small> kbps</small></span>
+          <span className={'health-dot ' + (obsConnected ? (droppedFrameCount > 1000 ? 'warn' : 'good') : 'bad')} />
+          <span style={{ fontSize: '15px' }}>
+            {bitrateKbps === null ? 'N/A' : bitrateKbps}<small>{bitrateKbps === null ? '' : ' kbps'}</small>
+          </span>
           <span className="health-bars">
-            <i style={{ height: isLive ? '7px' : '2px' }} />
-            <i style={{ height: isLive ? '10px' : '2px' }} />
-            <i style={{ height: isLive ? '13px' : '2px' }} />
-            <i style={{ height: isLive ? '16px' : '2px' }} />
-            <i style={{ height: isLive ? '12px' : '2px' }} />
+            <i style={{ height: obsConnected ? '7px' : '2px' }} />
+            <i style={{ height: obsConnected ? '10px' : '2px' }} />
+            <i style={{ height: obsConnected ? '13px' : '2px' }} />
+            <i style={{ height: obsConnected ? '16px' : '2px' }} />
+            <i style={{ height: obsConnected ? '12px' : '2px' }} />
           </span>
         </div>
         <div className="gauge-sub">
-          {isLive ? (
+          {hasObsStats ? (
             <>
-              net drop: {droppedFrames} ({((droppedFrames / (totalFrames || 1)) * 100).toFixed(2)}%) · lag: {laggedFrames}
+              net drop: {droppedFrameCount} ({((droppedFrameCount / frameBase) * 100).toFixed(2)}%) · lag: {laggedFrames ?? 'N/A'}
             </>
           ) : (
-            'offline'
+            'OBS unavailable'
           )}
         </div>
       </Gauge>

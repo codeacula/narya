@@ -22,6 +22,7 @@ declare module 'tmi.js' {
     });
 
     connect(): Promise<[string, number]>;
+    readyState(): 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED';
     on(
       event: 'message',
       handler: (channel: string, tags: ChatUserstate, message: string, self: boolean) => void

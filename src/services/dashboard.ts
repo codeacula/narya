@@ -1,31 +1,28 @@
 // Dashboard data service - calls backend API for all data.
-import type { Viewer, ChatEntry, StreamEvent, RunItem } from '../types';
+import type { Viewer, ChatEntry, StreamEvent, RunItem, DashboardStatus } from '../types';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
 
-let viewersCache: Record<string, Viewer> | null = null;
-let chatCache: ChatEntry[] | null = null;
-let eventsCache: StreamEvent[] | null = null;
+async function fetchJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`${path} failed with ${response.status}`);
+  return response.json() as Promise<T>;
+}
 
 export async function getViewers(): Promise<Record<string, Viewer>> {
-  if (viewersCache) return viewersCache;
-  const res = await fetch(`${API_BASE}/api/dashboard/viewers`);
-  viewersCache = await res.json();
-  return viewersCache!;
+  return fetchJson<Record<string, Viewer>>('/api/dashboard/viewers');
 }
 
 export async function getChatEntries(): Promise<ChatEntry[]> {
-  if (chatCache) return chatCache;
-  const res = await fetch(`${API_BASE}/api/dashboard/chat`);
-  chatCache = await res.json();
-  return chatCache!;
+  return fetchJson<ChatEntry[]>('/api/dashboard/chat');
 }
 
 export async function getStreamEvents(): Promise<StreamEvent[]> {
-  if (eventsCache) return eventsCache;
-  const res = await fetch(`${API_BASE}/api/dashboard/events`);
-  eventsCache = await res.json();
-  return eventsCache!;
+  return fetchJson<StreamEvent[]>('/api/dashboard/events');
+}
+
+export async function getDashboardStatus(): Promise<DashboardStatus> {
+  return fetchJson<DashboardStatus>('/api/dashboard/status');
 }
 
 export function getRunsheet(): RunItem[] {
@@ -35,4 +32,3 @@ export function getRunsheet(): RunItem[] {
 export function getTicker(): string[] {
   return [];
 }
-

@@ -21,6 +21,7 @@ export function ViewerWindowPage() {
     viewers,
     chat: [],
     events: [],
+    channel: '',
     openViewerPopout: () => {}, // no-op in viewer window
   };
 
