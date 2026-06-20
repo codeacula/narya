@@ -16,6 +16,7 @@ export type Viewer = {
 };
 
 export type ChatEntry = {
+  id: string;
   user: string;
   text: string;
   time: string;

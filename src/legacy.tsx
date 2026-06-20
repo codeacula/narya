@@ -222,7 +222,8 @@ export function useSoundEvents(audioRefs: React.RefObject<Record<string, HTMLAud
 export function ChatPanel({ compact = false }: { compact?: boolean }) {
   const messages = useChat(compact ? overlayChatExpireMs : 0);
   const emoteMap = useEmotes();
-  const visibleMessages = compact ? messages.filter(m => !m.deletedAt) : messages;
+  const filtered = compact ? messages.filter(m => !m.deletedAt) : messages;
+  const visibleMessages = compact ? [...filtered].reverse() : filtered;
 
   return (
     <section className={compact ? 'chatPanel compact' : 'chatPanel'}>

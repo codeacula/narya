@@ -56,7 +56,7 @@ const EMPTY_STATUS: DashboardStatus = {
 
 /* ---------------- Settings page ---------------- */
 
-function Settings({ t, setTweak }: { t: Tweaks; setTweak: <K extends keyof Tweaks>(k: K, v: Tweaks[K]) => void }) {
+function Settings({ t, setTweak, status }: { t: Tweaks; setTweak: <K extends keyof Tweaks>(k: K, v: Tweaks[K]) => void; status: DashboardStatus }) {
   const Row = ({
     label,
     sub,
@@ -157,6 +157,22 @@ function Settings({ t, setTweak }: { t: Tweaks; setTweak: <K extends keyof Tweak
           </Row>
         </div>
 
+        <div className="set-group">
+          <div className="set-group-label">Twitch connection</div>
+          <Row
+            label="EventSub"
+            sub={status.eventSubConnected ? 'Receiving channel events' : 'Not connected — login to enable follows, subs, and alerts'}
+          >
+            {status.eventSubConnected ? (
+              <span className="set-badge set-badge--ok">Connected</span>
+            ) : (
+              <a className="btn-primary" href="/api/auth/twitch">
+                Login with Twitch
+              </a>
+            )}
+          </Row>
+        </div>
+
         <p className="set-foot">
           More to come — alerts, hotkeys, OBS scenes. The greatest orbs to ponder are the stars above.
         </p>
@@ -234,6 +250,7 @@ export function DashboardPage() {
   useSocket<LiveChatMessage>('chat:message', React.useCallback((message) => {
     const login = message.username.toLowerCase();
     const nextEntry: ChatEntry = {
+      id: message.id,
       user: login,
       text: message.message,
       time: new Date(message.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
@@ -351,7 +368,7 @@ export function DashboardPage() {
         eventSubConnected={status.eventSubConnected}
       />
       {page === 'dashboard' ? (layouts[t.layout] ?? layouts['cockpit']) : (
-        <Settings t={t} setTweak={setTweak} />
+        <Settings t={t} setTweak={setTweak} status={status} />
       )}
 
       <div className="popout-layer">

@@ -43,36 +43,75 @@ function badgesFor(viewer: Viewer | undefined): string[] {
 
 function Chat({ ctx }: { ctx: PanelCtx }) {
   const listRef = React.useRef<HTMLDivElement>(null);
+  const atBottomRef = React.useRef(true);
+  const lastIdRef = React.useRef(ctx.chat[ctx.chat.length - 1]?.id ?? '');
+  const [atBottom, setAtBottom] = React.useState(true);
+  const [newCount, setNewCount] = React.useState(0);
+
+  const handleScroll = React.useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    atBottomRef.current = nearBottom;
+    setAtBottom(nearBottom);
+    if (nearBottom) setNewCount(0);
+  }, []);
+
   React.useEffect(() => {
+    const lastId = ctx.chat[ctx.chat.length - 1]?.id ?? '';
+    if (lastId === lastIdRef.current) return;
+    lastIdRef.current = lastId;
+
+    if (!atBottomRef.current) {
+      setNewCount(n => n + 1);
+      return;
+    }
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [ctx.chat.length]);
+  }, [ctx.chat]);
+
+  const scrollToBottom = React.useCallback(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+    atBottomRef.current = true;
+    setAtBottom(true);
+    setNewCount(0);
+  }, []);
 
   return (
-    <div className="chat-list" ref={listRef}>
-      {ctx.chat.map((m, i) => {
-        const login = m.user.toLowerCase();
-        const viewer = ctx.viewers[login];
-        const color = viewer?.color ?? '#d7dce2';
-        const display = viewer?.display ?? m.user;
-        const hlClass = m.highlight ? ' hl-' + m.highlight : '';
-        return (
-          <div className={'msg' + hlClass} key={i}>
-            <span className="msg-time">{m.time}</span>
-            {m.highlight === 'first' && <span className="hl-tag">first time</span>}
-            {m.highlight === 'sub' && <span className="hl-tag">new sub</span>}
-            <span className="badges">
-              {badgesFor(viewer).map(b => (
-                <span className={'cbadge ' + b} key={b} title={b}>{ROLE_BADGE[b]}</span>
-              ))}
-            </span>
-            <span className="msg-user" style={{ color }} onClick={() => ctx.openViewerPopout(m.user)}>
-              {display}
-            </span>
-            <span className="msg-text">{m.text}</span>
-          </div>
-        );
-      })}
-    </div>
+    <>
+      <div className="chat-bar">
+        {!atBottom && (
+          <button className="chat-bar-scroll-btn" onClick={scrollToBottom}>
+            <Icon name="chevron-down" size={12} />
+            {newCount > 0 ? `${newCount} new` : 'latest'}
+          </button>
+        )}
+      </div>
+      <div className="chat-list" ref={listRef} onScroll={handleScroll}>
+        {ctx.chat.map((m) => {
+          const login = m.user.toLowerCase();
+          const viewer = ctx.viewers[login];
+          const color = viewer?.color ?? '#d7dce2';
+          const display = viewer?.display ?? m.user;
+          const hlClass = m.highlight ? ' hl-' + m.highlight : '';
+          return (
+            <div className={'msg' + hlClass} key={m.id}>
+              <span className="msg-time">{m.time}</span>
+              {m.highlight === 'first' && <span className="hl-tag">first time</span>}
+              {m.highlight === 'sub' && <span className="hl-tag">new sub</span>}
+              <span className="badges">
+                {badgesFor(viewer).map(b => (
+                  <span className={'cbadge ' + b} key={b} title={b}>{ROLE_BADGE[b]}</span>
+                ))}
+              </span>
+              <span className="msg-user" style={{ color }} onClick={() => ctx.openViewerPopout(m.user)}>
+                {display}
+              </span>
+              <span className="msg-text">{m.text}</span>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 

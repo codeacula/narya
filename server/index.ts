@@ -120,9 +120,11 @@ addColumnIfMissing('chat_messages', 'moderation_event_id', 'text');
 addColumnIfMissing('chat_messages', 'badges_json', 'text');
 addColumnIfMissing('chat_messages', 'emotes_json', 'text');
 
+let runtimeUserToken: string | null = null;
+
 function getEventSubCredentials(): { clientId: string; userToken: string } | null {
   const clientId = process.env.TWITCH_CLIENT_ID ?? '';
-  const userToken = process.env.TWITCH_USER_TOKEN ?? '';
+  const userToken = runtimeUserToken ?? process.env.TWITCH_USER_TOKEN ?? '';
   if (!clientId || !userToken) return null;
   return { clientId, userToken };
 }
@@ -716,6 +718,70 @@ app.get('/api/health', (_request, response) => {
   response.json({ ok: true, twitchChannel, obsConnected, twitchRoomId, eventSubConnected });
 });
 
+const TWITCH_OAUTH_SCOPES = [
+  'moderator:read:followers',
+  'channel:read:subscriptions',
+  'bits:read',
+  'channel:read:redemptions',
+].join(' ');
+
+const twitchRedirectUri = process.env.TWITCH_REDIRECT_URI ?? 'http://localhost:5173/api/auth/twitch/callback';
+
+app.get('/api/auth/twitch', (_request, response) => {
+  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  if (!clientId) {
+    response.status(500).send('TWITCH_CLIENT_ID not configured');
+    return;
+  }
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: twitchRedirectUri,
+    response_type: 'code',
+    scope: TWITCH_OAUTH_SCOPES,
+  });
+  response.redirect(`https://id.twitch.tv/oauth2/authorize?${params.toString()}`);
+});
+
+app.get('/api/auth/twitch/callback', async (request, response) => {
+  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  const clientSecret = process.env.TWITCH_CLIENT_SECRET ?? '';
+  const code = request.query['code'] as string | undefined;
+  const error = request.query['error'] as string | undefined;
+
+  if (error || !code) {
+    response.status(400).send(`Twitch OAuth error: ${error ?? 'missing code'}`);
+    return;
+  }
+
+  const redirectUri = twitchRedirectUri;
+
+  try {
+    const tokenRes = await fetch('https://id.twitch.tv/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      }),
+    });
+    const tokenData = await tokenRes.json() as { access_token?: string; error?: string };
+    if (!tokenRes.ok || !tokenData.access_token) {
+      response.status(500).send(`Token exchange failed: ${tokenData.error ?? tokenRes.statusText}`);
+      return;
+    }
+    runtimeUserToken = tokenData.access_token;
+    console.log('OAuth: user token acquired, reconnecting EventSub...');
+    connectEventSub();
+    response.redirect('/');
+  } catch (err) {
+    console.error('OAuth callback error:', err);
+    response.status(500).send('Internal error during token exchange');
+  }
+});
+
 app.get('/api/music/current', (_request, response) => {
   response.json(currentMusic);
 });
@@ -1128,15 +1194,16 @@ app.get('/api/dashboard/viewers', (_request, response) => {
 
 app.get('/api/dashboard/chat', (_request, response) => {
   const rows = db.prepare(`
-    select username, message, received_at as receivedAt, badges_json as badgesJson
+    select id, username, message, received_at as receivedAt, badges_json as badgesJson
     from chat_messages
     order by received_at desc
     limit 80
-  `).all() as Array<{ username: string; message: string; receivedAt: string; badgesJson: string | null }>;
+  `).all() as Array<{ id: string; username: string; message: string; receivedAt: string; badgesJson: string | null }>;
 
   response.json(rows.reverse().map((row) => {
     const badges = parseBadgesJson(row.badgesJson);
     return {
+      id: row.id,
       user: row.username.toLowerCase(),
       text: row.message,
       time: formatClockTime(row.receivedAt),

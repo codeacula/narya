@@ -176,6 +176,7 @@ nav {
   background: transparent;
   padding: 0;
   gap: 6px;
+  flex-direction: column-reverse;
 }
 
 .chatMessage {
@@ -300,6 +301,7 @@ nav {
 /* ── Music panel ────────────────────────────────────────── */
 
 .musicNow {
+  width: 100%;
   border-radius: 8px;
   background: rgba(28, 39, 62, 0.9);
   border: 1px solid rgba(255, 184, 108, 0.25);
@@ -309,6 +311,7 @@ nav {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  box-sizing: border-box;
 }
 
 .musicNowLabel {
@@ -339,7 +342,7 @@ nav {
 }
 
 .trackInfo strong {
-  max-width: 360px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -348,7 +351,7 @@ nav {
 }
 
 .trackInfo small {
-  max-width: 360px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

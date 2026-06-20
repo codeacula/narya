@@ -60,6 +60,7 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M5 14l-2 2 3 3 2-2"/>
     </>
   ),
+  'chevron-down': <path d="m6 9 6 6 6-6"/>,
 };
 
 export type IconName = keyof typeof PATHS;
