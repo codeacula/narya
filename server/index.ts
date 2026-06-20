@@ -1609,13 +1609,20 @@ app.get('/api/dashboard/status', async (_request, response) => {
     getObsDashboardStats(),
     getTwitchAdSchedule(),
   ]);
+  const {
+    streamActive: _obsStreamActive,
+    uptimeSeconds: _obsUptimeSeconds,
+    streamStartedAt: _obsStreamStartedAt,
+    uptimeSource: _obsUptimeSource,
+    ...obsHealthStats
+  } = obsStats;
   const streamStatus = twitchStreamStatus.uptimeSource === 'twitch'
     ? twitchStreamStatus
     : {
-        streamActive: obsStats.streamActive,
-        uptimeSeconds: obsStats.uptimeSeconds,
-        streamStartedAt: obsStats.streamStartedAt,
-        uptimeSource: obsStats.uptimeSource,
+        streamActive: _obsStreamActive,
+        uptimeSeconds: _obsUptimeSeconds,
+        streamStartedAt: _obsStreamStartedAt,
+        uptimeSource: _obsUptimeSource,
       };
 
   response.json({
@@ -1625,7 +1632,7 @@ app.get('/api/dashboard/status', async (_request, response) => {
     eventSubConnected,
     ...getTwitchAuthStatus(),
     ...streamStatus,
-    ...obsStats,
+    ...obsHealthStats,
     activeChatters: getActiveChatterCount(),
     sessionChatters: sessionChatters.size,
     knownChatters: getKnownChatterCount(),
