@@ -52,6 +52,18 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   const [newCount, setNewCount] = React.useState(0);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
 
+  React.useLayoutEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const el = listRef.current;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+      atBottomRef.current = true;
+      setAtBottom(true);
+      setNewCount(0);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   const handleScroll = React.useCallback(() => {
     const el = listRef.current;
     if (!el) return;
