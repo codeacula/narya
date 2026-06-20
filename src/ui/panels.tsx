@@ -10,6 +10,7 @@ export type PanelCtx = {
   events: StreamEvent[];
   channel: string;
   openViewerPopout: (login: string) => void;
+  loadOlderChat: () => Promise<boolean>;
 };
 
 export type ModuleEntry = {
@@ -45,17 +46,42 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const atBottomRef = React.useRef(true);
   const lastIdRef = React.useRef(ctx.chat[ctx.chat.length - 1]?.id ?? '');
+  const loadingRef = React.useRef(false);
+  const exhaustedRef = React.useRef(false);
   const [atBottom, setAtBottom] = React.useState(true);
   const [newCount, setNewCount] = React.useState(0);
+  const [loadingOlder, setLoadingOlder] = React.useState(false);
 
   const handleScroll = React.useCallback(() => {
     const el = listRef.current;
     if (!el) return;
+
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     atBottomRef.current = nearBottom;
     setAtBottom(nearBottom);
     if (nearBottom) setNewCount(0);
-  }, []);
+
+    // Load older messages when scrolled near the top
+    if (el.scrollTop < 120 && !loadingRef.current && !exhaustedRef.current) {
+      loadingRef.current = true;
+      setLoadingOlder(true);
+      const prevHeight = el.scrollHeight;
+      ctx.loadOlderChat().then((hasMore) => {
+        exhaustedRef.current = !hasMore;
+        // After React re-renders with new items prepended, restore scroll position
+        requestAnimationFrame(() => {
+          if (listRef.current) {
+            listRef.current.scrollTop += listRef.current.scrollHeight - prevHeight;
+          }
+          loadingRef.current = false;
+          setLoadingOlder(false);
+        });
+      }).catch(() => {
+        loadingRef.current = false;
+        setLoadingOlder(false);
+      });
+    }
+  }, [ctx]);
 
   React.useEffect(() => {
     const lastId = ctx.chat[ctx.chat.length - 1]?.id ?? '';
@@ -87,6 +113,7 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
         )}
       </div>
       <div className="chat-list" ref={listRef} onScroll={handleScroll}>
+        {loadingOlder && <div className="chat-loading">loading…</div>}
         {ctx.chat.map((m) => {
           const login = m.user.toLowerCase();
           const viewer = ctx.viewers[login];
@@ -217,8 +244,8 @@ const EVT_ICON: Record<string, string> = {
 function EventFeed({ ctx }: { ctx: PanelCtx }) {
   return (
     <div className="evt-list">
-      {ctx.events.map((e, i) => (
-        <div className={'evt tone-' + e.tone} key={i}>
+      {ctx.events.map((e) => (
+        <div className={'evt tone-' + e.tone} key={e.id}>
           <div className="evt-icon">
             <Icon name={EVT_ICON[e.kind] ?? 'star'} />
           </div>

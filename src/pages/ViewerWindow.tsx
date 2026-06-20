@@ -22,7 +22,8 @@ export function ViewerWindowPage() {
     chat: [],
     events: [],
     channel: '',
-    openViewerPopout: () => {}, // no-op in viewer window
+    openViewerPopout: () => {},
+    loadOlderChat: async () => false,
   };
 
   return (

@@ -105,6 +105,16 @@ db.exec(`
     tone text not null,
     received_at text not null
   );
+
+  create table if not exists twitch_oauth (
+    provider text primary key,
+    access_token text not null,
+    refresh_token text,
+    scopes_json text not null,
+    token_type text,
+    expires_at text,
+    updated_at text not null
+  );
 `);
 
 function addColumnIfMissing(table: string, column: string, definition: string) {
@@ -120,13 +130,221 @@ addColumnIfMissing('chat_messages', 'moderation_event_id', 'text');
 addColumnIfMissing('chat_messages', 'badges_json', 'text');
 addColumnIfMissing('chat_messages', 'emotes_json', 'text');
 
-let runtimeUserToken: string | null = null;
+type TwitchUserToken = {
+  accessToken: string;
+  refreshToken: string | null;
+  scopes: string[];
+  tokenType: string | null;
+  expiresAtMs: number | null;
+};
 
-function getEventSubCredentials(): { clientId: string; userToken: string } | null {
+type TwitchTokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  scope?: string[];
+  token_type?: string;
+  error?: string;
+  message?: string;
+};
+
+const REQUIRED_TWITCH_OAUTH_SCOPES = [
+  'moderator:read:followers',
+  'channel:read:subscriptions',
+  'bits:read',
+  'channel:read:redemptions',
+  'channel:read:ads',
+  'user:read:chat',
+] as const;
+
+const loadTwitchToken = db.prepare(`
+  select access_token as accessToken,
+         refresh_token as refreshToken,
+         scopes_json as scopesJson,
+         token_type as tokenType,
+         expires_at as expiresAt
+  from twitch_oauth
+  where provider = 'twitch'
+`);
+
+const saveTwitchToken = db.prepare(`
+  insert into twitch_oauth (provider, access_token, refresh_token, scopes_json, token_type, expires_at, updated_at)
+  values ('twitch', ?, ?, ?, ?, ?, ?)
+  on conflict(provider) do update set
+    access_token = excluded.access_token,
+    refresh_token = excluded.refresh_token,
+    scopes_json = excluded.scopes_json,
+    token_type = excluded.token_type,
+    expires_at = excluded.expires_at,
+    updated_at = excluded.updated_at
+`);
+
+const deleteTwitchToken = db.prepare(`delete from twitch_oauth where provider = 'twitch'`);
+
+function parseJsonArray(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadCachedTwitchUserToken(): TwitchUserToken | null {
+  const row = loadTwitchToken.get() as {
+    accessToken: string;
+    refreshToken: string | null;
+    scopesJson: string | null;
+    tokenType: string | null;
+    expiresAt: string | null;
+  } | null;
+
+  if (!row?.accessToken) return null;
+  const expiresAtMs = row.expiresAt ? new Date(row.expiresAt).getTime() : null;
+  return {
+    accessToken: row.accessToken,
+    refreshToken: row.refreshToken,
+    scopes: parseJsonArray(row.scopesJson),
+    tokenType: row.tokenType,
+    expiresAtMs: Number.isFinite(expiresAtMs) ? expiresAtMs : null,
+  };
+}
+
+let runtimeUserToken: TwitchUserToken | null = loadCachedTwitchUserToken();
+let twitchAppToken: { accessToken: string; expiresAtMs: number } | null = null;
+
+function persistTwitchUserToken(tokenData: Required<Pick<TwitchTokenResponse, 'access_token'>> & TwitchTokenResponse, fallbackRefreshToken: string | null = null): TwitchUserToken {
+  const expiresAtMs = Date.now() + Math.max(60, tokenData.expires_in ?? 3600) * 1000;
+  const token: TwitchUserToken = {
+    accessToken: tokenData.access_token,
+    refreshToken: tokenData.refresh_token ?? fallbackRefreshToken,
+    scopes: tokenData.scope ?? [],
+    tokenType: tokenData.token_type ?? null,
+    expiresAtMs,
+  };
+
+  saveTwitchToken.run(
+    token.accessToken,
+    token.refreshToken,
+    JSON.stringify(token.scopes),
+    token.tokenType,
+    new Date(expiresAtMs).toISOString(),
+    new Date().toISOString(),
+  );
+
+  runtimeUserToken = token;
+  twitchStreamStatusCache = null;
+  twitchAdScheduleCache = null;
+  return token;
+}
+
+async function refreshTwitchUserToken(token: TwitchUserToken): Promise<TwitchUserToken | null> {
   const clientId = process.env.TWITCH_CLIENT_ID ?? '';
-  const userToken = runtimeUserToken ?? process.env.TWITCH_USER_TOKEN ?? '';
+  const clientSecret = process.env.TWITCH_CLIENT_SECRET ?? '';
+  if (!clientId || !clientSecret || !token.refreshToken) return null;
+
+  try {
+    const tokenRes = await fetch('https://id.twitch.tv/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'refresh_token',
+        refresh_token: token.refreshToken,
+      }),
+    });
+
+    const tokenData = await tokenRes.json() as TwitchTokenResponse;
+    if (!tokenRes.ok || !tokenData.access_token) {
+      console.error(`OAuth: token refresh failed: ${tokenData.message ?? tokenData.error ?? tokenRes.statusText}`);
+      return null;
+    }
+
+    return persistTwitchUserToken({
+      ...tokenData,
+      access_token: tokenData.access_token,
+      scope: tokenData.scope ?? token.scopes,
+    }, token.refreshToken);
+  } catch (error) {
+    console.error('OAuth: token refresh errored:', error);
+    return null;
+  }
+}
+
+async function getTwitchUserAccessToken(): Promise<string | null> {
+  const token = runtimeUserToken ?? loadCachedTwitchUserToken();
+  if (token) {
+    runtimeUserToken = token;
+    if (!token.expiresAtMs || token.expiresAtMs > Date.now() + 60_000) {
+      return token.accessToken;
+    }
+
+    const refreshed = await refreshTwitchUserToken(token);
+    return refreshed?.accessToken ?? null;
+  }
+
+  return process.env.TWITCH_USER_TOKEN ?? null;
+}
+
+async function getEventSubCredentials(): Promise<{ clientId: string; userToken: string } | null> {
+  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  const userToken = await getTwitchUserAccessToken();
   if (!clientId || !userToken) return null;
   return { clientId, userToken };
+}
+
+async function getTwitchApiHeaders(): Promise<{ 'Client-Id': string; Authorization: string } | null> {
+  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  if (!clientId) return null;
+
+  const userToken = await getTwitchUserAccessToken();
+  if (userToken) {
+    return { 'Client-Id': clientId, Authorization: `Bearer ${userToken}` };
+  }
+
+  const clientSecret = process.env.TWITCH_CLIENT_SECRET ?? '';
+  if (!clientSecret) return null;
+
+  if (twitchAppToken && twitchAppToken.expiresAtMs > Date.now() + 60_000) {
+    return { 'Client-Id': clientId, Authorization: `Bearer ${twitchAppToken.accessToken}` };
+  }
+
+  try {
+    const tokenRes = await fetch('https://id.twitch.tv/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'client_credentials',
+      }),
+    });
+
+    const tokenData = await tokenRes.json() as { access_token?: string; expires_in?: number; error?: string };
+    if (!tokenRes.ok || !tokenData.access_token) {
+      console.error(`Twitch API: app token request failed: ${tokenData.error ?? tokenRes.statusText}`);
+      return null;
+    }
+
+    twitchAppToken = {
+      accessToken: tokenData.access_token,
+      expiresAtMs: Date.now() + Math.max(60, tokenData.expires_in ?? 3600) * 1000,
+    };
+
+    return { 'Client-Id': clientId, Authorization: `Bearer ${twitchAppToken.accessToken}` };
+  } catch (error) {
+    console.error('Twitch API: app token request errored:', error);
+    return null;
+  }
+}
+
+async function getTwitchUserApiHeaders(): Promise<{ 'Client-Id': string; Authorization: string; userToken: string } | null> {
+  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  const userToken = await getTwitchUserAccessToken();
+  if (!clientId || !userToken) return null;
+  return { 'Client-Id': clientId, Authorization: `Bearer ${userToken}`, userToken };
 }
 
 // ─── EventSub ─────────────────────────────────────────────────────────────
@@ -136,6 +354,7 @@ let eventSubConnected = false;
 let broadcasterId: string | null = null;
 let eventSubKeepaliveMs = 20_000;
 let eventSubKeepaliveTimer: ReturnType<typeof setTimeout> | null = null;
+let adBreakEndsAt: string | null = null;
 
 const insertStreamEvent = db.prepare(`
   insert or ignore into stream_events (id, kind, actor, detail, tone, received_at)
@@ -190,6 +409,24 @@ function handleEventSubNotification(type: string, event: Record<string, unknown>
         event.user_name as string,
         `redeemed "${(event.reward as { title: string }).title}"`, 'info');
       break;
+    case 'channel.ad_break.begin': {
+      const durationSecs = event.duration_seconds as number;
+      const startedAt = new Date(event.started_at as string);
+      adBreakEndsAt = new Date(startedAt.getTime() + durationSecs * 1000).toISOString();
+      twitchAdScheduleCache = null;
+      emitStreamEvent('redeem', 'Twitch', `ad break · ${durationSecs}s`, 'info');
+      break;
+    }
+    case 'channel.chat.notification': {
+      const noticeType = event.notice_type as string;
+      if (noticeType === 'watch_streak') {
+        const streak = event.watch_streak as { cumulative_months: number };
+        emitStreamEvent('redeem',
+          event.chatter_user_name as string,
+          `watch streak · ${streak.cumulative_months} month${streak.cumulative_months !== 1 ? 's' : ''}`, 'silver');
+      }
+      break;
+    }
   }
 }
 
@@ -239,6 +476,8 @@ async function subscribeToAllEvents(clientId: string, userToken: string, session
     ['channel.cheer', '1', { broadcaster_user_id: bid }],
     ['channel.raid', '1', { to_broadcaster_user_id: bid }],
     ['channel.channel_points_custom_reward_redemption.add', '1', { broadcaster_user_id: bid }],
+    ['channel.ad_break.begin', '1', { broadcaster_user_id: bid }],
+    ['channel.chat.notification', '1', { broadcaster_user_id: bid, user_id: bid }],
   ];
   for (const [type, version, condition] of subs) {
     await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
@@ -257,12 +496,12 @@ function resetKeepaliveTimer() {
   clearKeepaliveTimer();
   eventSubKeepaliveTimer = setTimeout(() => {
     console.log('EventSub: keepalive timeout, reconnecting...');
-    connectEventSub();
+    void connectEventSub();
   }, eventSubKeepaliveMs);
 }
 
-function connectEventSub(reconnectUrl?: string) {
-  const creds = getEventSubCredentials();
+async function connectEventSub(reconnectUrl?: string) {
+  const creds = await getEventSubCredentials();
   if (!creds) {
     console.log('EventSub: no credentials configured, skipping');
     return;
@@ -326,7 +565,7 @@ function connectEventSub(reconnectUrl?: string) {
       if (newUrl) {
         console.log('EventSub: reconnecting to new URL...');
         const staleWs = ws;
-        connectEventSub(newUrl);
+        void connectEventSub(newUrl);
         setTimeout(() => { try { staleWs.close(); } catch {} }, 30_000);
       }
 
@@ -346,7 +585,7 @@ function connectEventSub(reconnectUrl?: string) {
     eventSubConnected = false;
     clearKeepaliveTimer();
     console.log(`EventSub: disconnected (code ${(evt as CloseEvent).code}), retrying in 10s...`);
-    setTimeout(() => connectEventSub(), 10_000);
+    setTimeout(() => { void connectEventSub(); }, 10_000);
   });
 
   ws.addEventListener('error', () => {
@@ -718,27 +957,65 @@ app.get('/api/health', (_request, response) => {
   response.json({ ok: true, twitchChannel, obsConnected, twitchRoomId, eventSubConnected });
 });
 
-const TWITCH_OAUTH_SCOPES = [
-  'moderator:read:followers',
-  'channel:read:subscriptions',
-  'bits:read',
-  'channel:read:redemptions',
-].join(' ');
+const TWITCH_OAUTH_SCOPES = REQUIRED_TWITCH_OAUTH_SCOPES.join(' ');
 
 const twitchRedirectUri = process.env.TWITCH_REDIRECT_URI ?? 'http://localhost:5173/api/auth/twitch/callback';
+const twitchOAuthStateCookie = 'streamer_tools_twitch_oauth_state';
 
-app.get('/api/auth/twitch', (_request, response) => {
+function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+  if (!cookieHeader) return {};
+  return Object.fromEntries(
+    cookieHeader.split(';').map((cookie) => {
+      const [rawName, ...rawValue] = cookie.trim().split('=');
+      return [rawName, decodeURIComponent(rawValue.join('='))];
+    }).filter(([name]) => Boolean(name))
+  );
+}
+
+function getTwitchAuthStatus() {
+  const token = runtimeUserToken ?? loadCachedTwitchUserToken();
+  if (token) {
+    runtimeUserToken = token;
+    return {
+      twitchAuthenticated: true,
+      twitchAuthSource: 'oauth' as const,
+      twitchTokenExpiresAt: token.expiresAtMs ? new Date(token.expiresAtMs).toISOString() : null,
+      twitchMissingScopes: REQUIRED_TWITCH_OAUTH_SCOPES.filter(scope => !token.scopes.includes(scope)),
+    };
+  }
+
+  return {
+    twitchAuthenticated: Boolean(process.env.TWITCH_USER_TOKEN),
+    twitchAuthSource: process.env.TWITCH_USER_TOKEN ? 'env' as const : null,
+    twitchTokenExpiresAt: null,
+    twitchMissingScopes: [],
+  };
+}
+
+app.get('/api/auth/twitch', (request, response) => {
   const clientId = process.env.TWITCH_CLIENT_ID ?? '';
   if (!clientId) {
     response.status(500).send('TWITCH_CLIENT_ID not configured');
     return;
   }
+  const state = crypto.randomUUID();
+  response.cookie(twitchOAuthStateCookie, state, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: request.secure,
+    maxAge: 10 * 60 * 1000,
+    path: '/api/auth/twitch/callback',
+  });
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: twitchRedirectUri,
     response_type: 'code',
     scope: TWITCH_OAUTH_SCOPES,
+    state,
   });
+  if (request.query['force'] === '1') {
+    params.set('force_verify', 'true');
+  }
   response.redirect(`https://id.twitch.tv/oauth2/authorize?${params.toString()}`);
 });
 
@@ -747,9 +1024,21 @@ app.get('/api/auth/twitch/callback', async (request, response) => {
   const clientSecret = process.env.TWITCH_CLIENT_SECRET ?? '';
   const code = request.query['code'] as string | undefined;
   const error = request.query['error'] as string | undefined;
+  const state = request.query['state'] as string | undefined;
+  const expectedState = parseCookies(request.headers.cookie)[twitchOAuthStateCookie];
+
+  response.clearCookie(twitchOAuthStateCookie, { path: '/api/auth/twitch/callback' });
 
   if (error || !code) {
     response.status(400).send(`Twitch OAuth error: ${error ?? 'missing code'}`);
+    return;
+  }
+  if (!clientSecret) {
+    response.status(500).send('TWITCH_CLIENT_SECRET not configured');
+    return;
+  }
+  if (!state || !expectedState || state !== expectedState) {
+    response.status(400).send('Twitch OAuth error: invalid state');
     return;
   }
 
@@ -767,19 +1056,38 @@ app.get('/api/auth/twitch/callback', async (request, response) => {
         redirect_uri: redirectUri,
       }),
     });
-    const tokenData = await tokenRes.json() as { access_token?: string; error?: string };
+    const tokenData = await tokenRes.json() as TwitchTokenResponse;
     if (!tokenRes.ok || !tokenData.access_token) {
-      response.status(500).send(`Token exchange failed: ${tokenData.error ?? tokenRes.statusText}`);
+      response.status(500).send(`Token exchange failed: ${tokenData.message ?? tokenData.error ?? tokenRes.statusText}`);
       return;
     }
-    runtimeUserToken = tokenData.access_token;
-    console.log('OAuth: user token acquired, reconnecting EventSub...');
-    connectEventSub();
+    persistTwitchUserToken({ ...tokenData, access_token: tokenData.access_token });
+    console.log('OAuth: user token cached, reconnecting EventSub...');
+    void connectEventSub();
     response.redirect('/');
   } catch (err) {
     console.error('OAuth callback error:', err);
     response.status(500).send('Internal error during token exchange');
   }
+});
+
+app.get('/api/auth/twitch/status', (_request, response) => {
+  response.json(getTwitchAuthStatus());
+});
+
+app.delete('/api/auth/twitch', (_request, response) => {
+  deleteTwitchToken.run();
+  runtimeUserToken = null;
+  broadcasterId = null;
+  twitchStreamStatusCache = null;
+  twitchAdScheduleCache = null;
+  if (eventSubWs) {
+    try { eventSubWs.close(); } catch {}
+    eventSubWs = null;
+  }
+  eventSubConnected = false;
+  clearKeepaliveTimer();
+  response.json({ ok: true, ...getTwitchAuthStatus() });
 });
 
 app.get('/api/music/current', (_request, response) => {
@@ -1036,18 +1344,192 @@ function getActiveChatterCount(): number {
   return row.count;
 }
 
+type StreamStatusSource = 'twitch' | 'obs' | null;
+
+type StreamActivityStatus = {
+  streamActive: boolean | null;
+  uptimeSeconds: number | null;
+  streamStartedAt: string | null;
+  uptimeSource: StreamStatusSource;
+};
+
+type AdScheduleStatus = 'available' | 'not_configured' | 'missing_scope' | 'unauthorized' | 'unavailable';
+
+type AdSchedule = {
+  adScheduleStatus: AdScheduleStatus;
+  adScheduleError: string | null;
+  nextAdAt: string | null;
+  lastAdAt: string | null;
+  adBreakDurationSeconds: number | null;
+  prerollFreeTimeSeconds: number | null;
+  snoozeCount: number | null;
+  snoozeRefreshAt: string | null;
+};
+
+let twitchStreamStatusCache: { expiresAtMs: number; status: StreamActivityStatus } | null = null;
+let twitchAdScheduleCache: { expiresAtMs: number; schedule: AdSchedule } | null = null;
+
+const emptyAdSchedule = (adScheduleStatus: AdScheduleStatus, adScheduleError: string | null = null): AdSchedule => ({
+  adScheduleStatus,
+  adScheduleError,
+  nextAdAt: null,
+  lastAdAt: null,
+  adBreakDurationSeconds: null,
+  prerollFreeTimeSeconds: null,
+  snoozeCount: null,
+  snoozeRefreshAt: null,
+});
+
+function parseTwitchInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseTwitchDate(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+async function getTwitchStreamStatus(): Promise<StreamActivityStatus> {
+  if (twitchStreamStatusCache && twitchStreamStatusCache.expiresAtMs > Date.now()) {
+    return twitchStreamStatusCache.status;
+  }
+
+  const unavailable: StreamActivityStatus = {
+    streamActive: null,
+    uptimeSeconds: null,
+    streamStartedAt: null,
+    uptimeSource: null,
+  };
+
+  const headers = await getTwitchApiHeaders();
+  if (!headers) return unavailable;
+
+  try {
+    const res = await fetch(
+      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(twitchChannel)}`,
+      { headers },
+    );
+
+    if (!res.ok) {
+      console.error(`Twitch API: stream status failed (${res.status}):`, await res.text());
+      return unavailable;
+    }
+
+    const data = await res.json() as { data?: Array<{ started_at?: string }> };
+    const startedAt = data.data?.[0]?.started_at ?? null;
+    const status: StreamActivityStatus = startedAt
+      ? {
+          streamActive: true,
+          uptimeSeconds: Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)),
+          streamStartedAt: startedAt,
+          uptimeSource: 'twitch',
+        }
+      : {
+          streamActive: false,
+          uptimeSeconds: null,
+          streamStartedAt: null,
+          uptimeSource: 'twitch',
+        };
+
+    twitchStreamStatusCache = {
+      expiresAtMs: Date.now() + 15_000,
+      status,
+    };
+
+    return status;
+  } catch (error) {
+    console.error('Twitch API: stream status errored:', error);
+    return unavailable;
+  }
+}
+
+async function getTwitchAdSchedule(): Promise<AdSchedule> {
+  if (twitchAdScheduleCache && twitchAdScheduleCache.expiresAtMs > Date.now()) {
+    return twitchAdScheduleCache.schedule;
+  }
+
+  const headers = await getTwitchUserApiHeaders();
+  if (!headers) return emptyAdSchedule('not_configured', 'Twitch user authentication is required for ad schedule data.');
+
+  const cachedToken = runtimeUserToken ?? loadCachedTwitchUserToken();
+  const missingScopes = cachedToken
+    ? REQUIRED_TWITCH_OAUTH_SCOPES.filter(scope => !cachedToken.scopes.includes(scope))
+    : [];
+  if (missingScopes.includes('channel:read:ads')) {
+    return emptyAdSchedule('missing_scope', 'Reconnect Twitch to grant channel:read:ads.');
+  }
+
+  const bid = broadcasterId ?? await fetchBroadcasterId(headers['Client-Id'], headers.userToken);
+  if (!bid) return emptyAdSchedule('unavailable', `Could not resolve broadcaster ID for "${twitchChannel}".`);
+  broadcasterId = bid;
+
+  try {
+    const res = await fetch(
+      `https://api.twitch.tv/helix/channels/ads?broadcaster_id=${encodeURIComponent(bid)}`,
+      { headers: { 'Client-Id': headers['Client-Id'], Authorization: headers.Authorization } },
+    );
+
+    if (!res.ok) {
+      const text = await res.text();
+      const status = res.status === 401 || res.status === 403 ? 'unauthorized' : 'unavailable';
+      console.error(`Twitch API: ad schedule failed (${res.status}):`, text);
+      return emptyAdSchedule(status, status === 'unauthorized'
+        ? 'Twitch token is not authorized for channel:read:ads or does not match the configured channel.'
+        : 'Twitch ad schedule is unavailable.');
+    }
+
+    const data = await res.json() as {
+      data?: Array<{
+        next_ad_at?: unknown;
+        last_ad_at?: unknown;
+        duration?: unknown;
+        preroll_free_time?: unknown;
+        snooze_count?: unknown;
+        snooze_refresh_at?: unknown;
+      }>;
+    };
+    const row = data.data?.[0];
+    const schedule: AdSchedule = {
+      adScheduleStatus: 'available',
+      adScheduleError: null,
+      nextAdAt: parseTwitchDate(row?.next_ad_at),
+      lastAdAt: parseTwitchDate(row?.last_ad_at),
+      adBreakDurationSeconds: parseTwitchInteger(row?.duration),
+      prerollFreeTimeSeconds: parseTwitchInteger(row?.preroll_free_time),
+      snoozeCount: parseTwitchInteger(row?.snooze_count),
+      snoozeRefreshAt: parseTwitchDate(row?.snooze_refresh_at),
+    };
+
+    twitchAdScheduleCache = {
+      expiresAtMs: Date.now() + 15_000,
+      schedule,
+    };
+
+    return schedule;
+  } catch (error) {
+    console.error('Twitch API: ad schedule errored:', error);
+    return emptyAdSchedule('unavailable', 'Twitch ad schedule request failed.');
+  }
+}
+
 async function getObsDashboardStats() {
   type ObsStreamStatus = {
     outputActive?: boolean;
-    outputDuration?: number;
+    outputTimecode?: string;   // "HH:MM:SS.mmm" — source of truth for uptime
+    outputDuration?: number;   // milliseconds (unit confirmed via timecode)
+    outputBytes?: number;      // total bytes sent since stream start
+    outputCongestion?: number; // 0.0–1.0
     outputSkippedFrames?: number;
     outputTotalFrames?: number;
   };
   type ObsStats = {
-    outputSkippedFrames?: number;
-    outputTotalFrames?: number;
     renderSkippedFrames?: number;
-    outputBytes?: number;
+    renderTotalFrames?: number;
     activeFps?: number;
   };
 
@@ -1073,30 +1555,47 @@ async function getObsDashboardStats() {
       withTimeout(obs.call('GetStreamStatus') as Promise<ObsStreamStatus>, 1200),
       withTimeout(obs.call('GetStats') as Promise<ObsStats>, 1200),
     ]);
-    const uptimeSeconds = typeof streamStatus.outputDuration === 'number'
-      ? Math.floor(streamStatus.outputDuration / 1000)
+    const parseTimecode = (tc: string): number | null => {
+      const [hms] = tc.split('.');
+      const parts = hms.split(':').map(Number);
+      if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+      const [h, m, s] = parts;
+      return (h * 3600) + (m * 60) + s;
+    };
+    const uptimeSeconds = streamStatus.outputActive && streamStatus.outputTimecode
+      ? parseTimecode(streamStatus.outputTimecode)
       : null;
-    const totalFrames = streamStatus.outputTotalFrames ?? stats.outputTotalFrames ?? null;
-    const droppedFrames = streamStatus.outputSkippedFrames ?? stats.outputSkippedFrames ?? null;
-    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - serverStartedAt) / 1000));
-    const bitrateKbps = typeof stats.outputBytes === 'number' && streamStatus.outputActive
-      ? Math.round((stats.outputBytes * 8) / elapsedSeconds / 1000)
+
+    const durationMs = streamStatus.outputDuration ?? 0;
+    const totalFrames = streamStatus.outputTotalFrames ?? null;
+    const droppedFrames = streamStatus.outputSkippedFrames ?? null;
+    const laggedFrames = stats.renderSkippedFrames ?? null;
+    // outputBytes lives on GetStreamStatus in OBS WebSocket v5; use stream duration as time base
+    const bitrateKbps = typeof streamStatus.outputBytes === 'number' && streamStatus.outputActive && durationMs > 0
+      ? Math.round((streamStatus.outputBytes * 8) / (durationMs / 1000) / 1000)
       : null;
+    const congestion = streamStatus.outputCongestion ?? null;
 
     return {
       streamActive: streamStatus.outputActive ?? null,
       uptimeSeconds,
+      streamStartedAt: null,
+      uptimeSource: uptimeSeconds !== null ? 'obs' as const : null,
       bitrateKbps,
+      congestion,
       totalFrames,
       droppedFrames,
-      laggedFrames: stats.renderSkippedFrames ?? null,
+      laggedFrames,
     };
   } catch {
     obsConnected = false;
     return {
       streamActive: null,
       uptimeSeconds: null,
+      streamStartedAt: null,
+      uptimeSource: null,
       bitrateKbps: null,
+      congestion: null,
       totalFrames: null,
       droppedFrames: null,
       laggedFrames: null,
@@ -1105,17 +1604,33 @@ async function getObsDashboardStats() {
 }
 
 app.get('/api/dashboard/status', async (_request, response) => {
-  const obsStats = await getObsDashboardStats();
+  const [twitchStreamStatus, obsStats, adSchedule] = await Promise.all([
+    getTwitchStreamStatus(),
+    getObsDashboardStats(),
+    getTwitchAdSchedule(),
+  ]);
+  const streamStatus = twitchStreamStatus.uptimeSource === 'twitch'
+    ? twitchStreamStatus
+    : {
+        streamActive: obsStats.streamActive,
+        uptimeSeconds: obsStats.uptimeSeconds,
+        streamStartedAt: obsStats.streamStartedAt,
+        uptimeSource: obsStats.uptimeSource,
+      };
+
   response.json({
     channel: twitchChannel,
     chatConnection: twitchClient.readyState?.() ?? 'UNKNOWN',
     obsConnected,
     eventSubConnected,
+    ...getTwitchAuthStatus(),
+    ...streamStatus,
     ...obsStats,
     activeChatters: getActiveChatterCount(),
     sessionChatters: sessionChatters.size,
     knownChatters: getKnownChatterCount(),
-    nextAdSeconds: null,
+    adBreakEndsAt,
+    ...adSchedule,
   });
 });
 
@@ -1193,12 +1708,22 @@ app.get('/api/dashboard/viewers', (_request, response) => {
 });
 
 app.get('/api/dashboard/chat', (_request, response) => {
-  const rows = db.prepare(`
-    select id, username, message, received_at as receivedAt, badges_json as badgesJson
-    from chat_messages
-    order by received_at desc
-    limit 80
-  `).all() as Array<{ id: string; username: string; message: string; receivedAt: string; badgesJson: string | null }>;
+  const beforeId = typeof _request.query['before'] === 'string' ? _request.query['before'] : null;
+
+  const rows = beforeId
+    ? db.prepare(`
+        select id, username, message, received_at as receivedAt, badges_json as badgesJson
+        from chat_messages
+        where received_at < (select received_at from chat_messages where id = ?)
+        order by received_at desc
+        limit 80
+      `).all(beforeId) as Array<{ id: string; username: string; message: string; receivedAt: string; badgesJson: string | null }>
+    : db.prepare(`
+        select id, username, message, received_at as receivedAt, badges_json as badgesJson
+        from chat_messages
+        order by received_at desc
+        limit 80
+      `).all() as Array<{ id: string; username: string; message: string; receivedAt: string; badgesJson: string | null }>;
 
   response.json(rows.reverse().map((row) => {
     const badges = parseBadgesJson(row.badgesJson);
@@ -1230,5 +1755,5 @@ app.get('/api/dashboard/events', (_request, response) => {
 
 server.listen(port, () => {
   console.log(`Streamer Tools backend listening on http://localhost:${port}`);
-  connectEventSub();
+  void connectEventSub();
 });

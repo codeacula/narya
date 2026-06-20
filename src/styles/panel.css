@@ -161,7 +161,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   70% { box-shadow: 0 0 0 7px rgba(224,122,107,0); }
   100% { box-shadow: 0 0 0 0 rgba(224,122,107,0); }
 }
-.gauge.ad .gauge-value { color: var(--warning-fg); }
+.gauge.ad-safe .gauge-value { color: var(--success-fg); }
+.gauge.ad-warn .gauge-value { color: var(--warning-fg); }
 .delta-up { color: var(--success-fg); }
 .delta-down { color: var(--danger-fg); }
 
@@ -277,13 +278,18 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   background: linear-gradient(180deg, rgba(255,255,255,0.012), transparent);
 }
 .chat-bar-scroll-btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 2px 9px; border-radius: var(--radius-pill);
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 0 8px; height: 22px; border-radius: var(--radius-pill);
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--accent-fg); background: var(--accent-soft); border: 1px solid rgba(255,184,108,0.25);
-  cursor: pointer; transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
+  color: var(--fg-2); background: transparent; border: 1px solid var(--border-1);
+  cursor: pointer; min-height: 0;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
 }
-.chat-bar-scroll-btn:hover { background: rgba(255,184,108,0.2); border-color: rgba(255,184,108,0.45); }
+.chat-bar-scroll-btn:hover { color: var(--accent-fg); border-color: var(--border-2); background: rgba(255,255,255,0.03); }
+.chat-loading {
+  text-align: center; padding: 6px 0; font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-3);
+}
 .msg {
   padding: var(--row-pad-y) 14px;
   font-size: 13.5px; line-height: 1.5;

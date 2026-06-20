@@ -118,14 +118,22 @@ export function StatBar({
   starfield,
   streamActive,
   uptimeSeconds,
+  uptimeSource,
   activeChatters,
   sessionChatters,
   knownChatters,
   bitrateKbps,
+  congestion,
   totalFrames,
   droppedFrames,
   laggedFrames,
-  nextAdSeconds,
+  adBreakEndsAt,
+  adScheduleStatus,
+  adScheduleError,
+  nextAdAt,
+  adBreakDurationSeconds,
+  prerollFreeTimeSeconds,
+  snoozeCount,
   chatConnection,
   obsConnected,
   eventSubConnected,
@@ -134,20 +142,31 @@ export function StatBar({
   starfield: boolean;
   streamActive: boolean | null;
   uptimeSeconds: number | null;
+  uptimeSource: 'twitch' | 'obs' | null;
   activeChatters: number;
   sessionChatters: number;
   knownChatters: number;
   bitrateKbps: number | null;
+  congestion: number | null;
   totalFrames: number | null;
   droppedFrames: number | null;
   laggedFrames: number | null;
-  nextAdSeconds: number | null;
+  adBreakEndsAt: string | null;
+  adScheduleStatus: 'available' | 'not_configured' | 'missing_scope' | 'unauthorized' | 'unavailable';
+  adScheduleError: string | null;
+  nextAdAt: string | null;
+  adBreakDurationSeconds: number | null;
+  prerollFreeTimeSeconds: number | null;
+  snoozeCount: number | null;
   chatConnection: string;
   obsConnected: boolean;
   eventSubConnected: boolean;
 }) {
   const [currentTime, setCurrentTime] = useState('');
+  const [displaySeconds, setDisplaySeconds] = useState(uptimeSeconds ?? 0);
+  const [adCountdown, setAdCountdown] = useState<{ seconds: number; mode: 'active' | 'next' | 'preroll' } | null>(null);
 
+  // Local clock
   useEffect(() => {
     const update = () => {
       const d = new Date();
@@ -166,6 +185,57 @@ export function StatBar({
     return () => clearInterval(interval);
   }, [clock24]);
 
+  // Stream uptime: seed from OBS poll, then count up locally each second
+  useEffect(() => {
+    if (uptimeSeconds === null || !streamActive) {
+      setDisplaySeconds(0);
+      return;
+    }
+    setDisplaySeconds(uptimeSeconds);
+    const interval = setInterval(() => setDisplaySeconds(s => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [uptimeSeconds, streamActive]);
+
+  // Ad countdown: active ads take warning priority; otherwise show the safest known ad timer.
+  useEffect(() => {
+    const prerollStartedAt = Date.now();
+    const initialPrerollSeconds = prerollFreeTimeSeconds;
+
+    const tick = () => {
+      const remainingFrom = (value: string | null) => {
+        if (!value) return null;
+        const timestamp = new Date(value).getTime();
+        if (!Number.isFinite(timestamp)) return null;
+        const remaining = Math.floor((timestamp - Date.now()) / 1000);
+        return remaining > 0 ? remaining : null;
+      };
+
+      const activeSeconds = remainingFrom(adBreakEndsAt);
+      if (activeSeconds !== null) {
+        setAdCountdown({ seconds: activeSeconds, mode: 'active' });
+        return;
+      }
+
+      if (initialPrerollSeconds !== null && initialPrerollSeconds > 0) {
+        const elapsed = Math.floor((Date.now() - prerollStartedAt) / 1000);
+        const prerollSeconds = Math.max(0, initialPrerollSeconds - elapsed);
+        setAdCountdown(prerollSeconds > 0 ? { seconds: prerollSeconds, mode: 'preroll' } : null);
+        return;
+      }
+
+      const nextSeconds = remainingFrom(nextAdAt);
+      if (nextSeconds !== null) {
+        setAdCountdown({ seconds: nextSeconds, mode: 'next' });
+        return;
+      }
+
+      setAdCountdown(null);
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [adBreakEndsAt, nextAdAt, prerollFreeTimeSeconds]);
+
   const formatDuration = (sec: number) => {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
@@ -173,59 +243,92 @@ export function StatBar({
     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const formatAd = (sec: number) => {
+  const formatMM = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const streamLabel = streamActive === null ? 'UNKNOWN' : streamActive ? formatDuration(uptimeSeconds ?? 0) : 'OFFLINE';
+  const formatShortDuration = (sec: number) => {
+    if (sec >= 60) return `${Math.round(sec / 60)}m`;
+    return `${sec}s`;
+  };
+
+  const streamLabel = streamActive === null ? '—' : streamActive ? formatDuration(displaySeconds) : 'OFFLINE';
+  const uptimeSourceLabel = uptimeSource === 'twitch' ? 'twitch uptime' : uptimeSource === 'obs' ? 'obs uptime' : 'uptime unavailable';
   const streamClass = streamActive ? 'live' : 'offline';
-  const hasObsStats = bitrateKbps !== null || droppedFrames !== null || laggedFrames !== null;
+  const hasObsStats = obsConnected && (bitrateKbps !== null || droppedFrames !== null);
   const frameBase = totalFrames && totalFrames > 0 ? totalFrames : 1;
   const droppedFrameCount = droppedFrames ?? 0;
+  const dropPct = (droppedFrameCount / frameBase) * 100;
+
+  // Health bars: use OBS congestion (0–1) if available, fall back to dropped frame %
+  const healthScore = congestion !== null
+    ? 1 - congestion
+    : obsConnected
+      ? Math.max(0, 1 - dropPct / 5)
+      : 0;
+  const barCount = obsConnected ? Math.max(1, Math.round(healthScore * 5)) : 0;
+  const barHeights = ['7px', '10px', '13px', '16px', '12px'];
+  const healthDotClass = !obsConnected ? 'bad' : healthScore > 0.7 ? 'good' : healthScore > 0.4 ? 'warn' : 'bad';
+  const adClass = adCountdown?.mode === 'active'
+    ? 'ad-warn'
+    : adCountdown !== null || adScheduleStatus === 'available'
+      ? 'ad-safe'
+      : '';
+  const adSub = adCountdown?.mode === 'active'
+    ? 'Status: ads running'
+    : adCountdown?.mode === 'preroll'
+      ? 'Status: pre-roll off'
+    : adCountdown?.mode === 'next'
+      ? [
+          'Status: next ad scheduled',
+          adBreakDurationSeconds !== null ? `${formatShortDuration(adBreakDurationSeconds)} break` : null,
+          snoozeCount !== null ? `${snoozeCount} snooze${snoozeCount === 1 ? '' : 's'}` : null,
+        ].filter(Boolean).join(' · ')
+      : adScheduleStatus === 'missing_scope'
+        ? 'Status: reconnect Twitch for ads'
+        : adScheduleStatus === 'unauthorized'
+          ? 'Status: Twitch cannot read ads'
+          : adScheduleStatus === 'not_configured'
+            ? 'Status: Twitch login required'
+            : adScheduleStatus === 'available'
+              ? 'Status: no ad scheduled'
+              : `Status: ${adScheduleError ?? 'ad status unavailable'}`;
 
   return (
     <div className={'statbar' + (starfield ? ' starfield' : '')}>
       <Gauge label="Stream" className={streamClass} icon={<span className={'live-dot' + (streamActive ? '' : ' offline')} />}>
         <div className="gauge-value">{streamLabel}</div>
-        <div className="gauge-sub">chat {chatConnection.toLowerCase()} · events {eventSubConnected ? 'open' : 'closed'}</div>
+        <div className="gauge-sub">{uptimeSourceLabel} · chat {chatConnection.toLowerCase()} · events {eventSubConnected ? 'open' : 'closed'}</div>
       </Gauge>
       <Gauge label="Local time">
         <div className="gauge-value">{currentTime}</div>
       </Gauge>
-      <Gauge label="Next ad break" className="ad">
-        <div className="gauge-value">{nextAdSeconds === null ? 'N/A' : formatAd(nextAdSeconds)}</div>
-        <div className="gauge-sub">{nextAdSeconds === null ? 'not reported by backend' : 'live schedule'}</div>
+      <Gauge label="Ad break" className={adClass}>
+        <div className="gauge-value">{adCountdown !== null ? formatMM(adCountdown.seconds) : 'N/A'}</div>
+        <div className="gauge-sub">{adSub}</div>
       </Gauge>
       <Gauge label="Chatters" icon={<Icon name="users" size={11} />}>
-        <div className="gauge-value">
-          {activeChatters}
-        </div>
+        <div className="gauge-value">{activeChatters}</div>
         <div className="gauge-sub">session {sessionChatters} · known {knownChatters}</div>
       </Gauge>
       <Gauge label="Stream health">
         <div className="gauge-value health">
-          <span className={'health-dot ' + (obsConnected ? (droppedFrameCount > 1000 ? 'warn' : 'good') : 'bad')} />
+          <span className={'health-dot ' + healthDotClass} />
           <span style={{ fontSize: '15px' }}>
             {bitrateKbps === null ? 'N/A' : bitrateKbps}<small>{bitrateKbps === null ? '' : ' kbps'}</small>
           </span>
           <span className="health-bars">
-            <i style={{ height: obsConnected ? '7px' : '2px' }} />
-            <i style={{ height: obsConnected ? '10px' : '2px' }} />
-            <i style={{ height: obsConnected ? '13px' : '2px' }} />
-            <i style={{ height: obsConnected ? '16px' : '2px' }} />
-            <i style={{ height: obsConnected ? '12px' : '2px' }} />
+            {barHeights.map((h, i) => (
+              <i key={i} style={{ height: i < barCount ? h : '2px' }} />
+            ))}
           </span>
         </div>
         <div className="gauge-sub">
-          {hasObsStats ? (
-            <>
-              net drop: {droppedFrameCount} ({((droppedFrameCount / frameBase) * 100).toFixed(2)}%) · lag: {laggedFrames ?? 'N/A'}
-            </>
-          ) : (
-            'OBS unavailable'
-          )}
+          {hasObsStats
+            ? `drop: ${droppedFrameCount} (${dropPct.toFixed(2)}%) · lag: ${laggedFrames ?? 'N/A'}`
+            : 'OBS unavailable'}
         </div>
       </Gauge>
     </div>

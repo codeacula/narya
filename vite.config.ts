@@ -8,8 +8,9 @@ export default defineConfig({
     proxy: {
       '/api': process.env.VITE_BACKEND_ORIGIN ?? 'http://localhost:4317',
       '/socket': {
-        target: process.env.VITE_BACKEND_WS_ORIGIN ?? 'ws://localhost:4317',
-        ws: true
+        target: process.env.VITE_BACKEND_WS_ORIGIN ?? 'http://localhost:4317',
+        ws: true,
+        changeOrigin: true,
       }
     }
   }

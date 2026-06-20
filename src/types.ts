@@ -24,6 +24,7 @@ export type ChatEntry = {
 };
 
 export type StreamEvent = {
+  id: string;
   kind: 'raid' | 'gift' | 'sub' | 'cheer' | 'follow' | 'redeem';
   actor: string;
   detail: string;
@@ -42,14 +43,29 @@ export type DashboardStatus = {
   chatConnection: 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED' | 'UNKNOWN';
   obsConnected: boolean;
   eventSubConnected: boolean;
+  twitchAuthenticated: boolean;
+  twitchAuthSource: 'oauth' | 'env' | null;
+  twitchTokenExpiresAt: string | null;
+  twitchMissingScopes: string[];
   streamActive: boolean | null;
   uptimeSeconds: number | null;
+  streamStartedAt: string | null;
+  uptimeSource: 'twitch' | 'obs' | null;
   activeChatters: number;
   sessionChatters: number;
   knownChatters: number;
   bitrateKbps: number | null;
+  congestion: number | null;
   totalFrames: number | null;
   droppedFrames: number | null;
   laggedFrames: number | null;
-  nextAdSeconds: number | null;
+  adBreakEndsAt: string | null;
+  adScheduleStatus: 'available' | 'not_configured' | 'missing_scope' | 'unauthorized' | 'unavailable';
+  adScheduleError: string | null;
+  nextAdAt: string | null;
+  lastAdAt: string | null;
+  adBreakDurationSeconds: number | null;
+  prerollFreeTimeSeconds: number | null;
+  snoozeCount: number | null;
+  snoozeRefreshAt: string | null;
 };

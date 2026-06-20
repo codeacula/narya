@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { ChatInput, MODULES, PanelCtx } from '../ui/panels';
 import { useTweaks, TweaksPanel, TweakSection } from '../ui/tweaks';
-import { getViewers, getChatEntries, getStreamEvents, getDashboardStatus } from '../services/dashboard';
+import { disconnectTwitch, getViewers, getChatEntries, getChatEntriesBefore, getStreamEvents, getDashboardStatus } from '../services/dashboard';
 import { useSocket, type ChatMessage as LiveChatMessage, type ChatModerationEvent } from '../legacy';
 import type { Viewer, ChatEntry, StreamEvent, DashboardStatus } from '../types';
 
@@ -42,21 +42,55 @@ const EMPTY_STATUS: DashboardStatus = {
   chatConnection: 'UNKNOWN',
   obsConnected: false,
   eventSubConnected: false,
+  twitchAuthenticated: false,
+  twitchAuthSource: null,
+  twitchTokenExpiresAt: null,
+  twitchMissingScopes: [],
   streamActive: null,
   uptimeSeconds: null,
+  streamStartedAt: null,
+  uptimeSource: null,
   activeChatters: 0,
   sessionChatters: 0,
   knownChatters: 0,
   bitrateKbps: null,
+  congestion: null,
   totalFrames: null,
   droppedFrames: null,
   laggedFrames: null,
-  nextAdSeconds: null,
+  adBreakEndsAt: null,
+  adScheduleStatus: 'not_configured',
+  adScheduleError: null,
+  nextAdAt: null,
+  lastAdAt: null,
+  adBreakDurationSeconds: null,
+  prerollFreeTimeSeconds: null,
+  snoozeCount: null,
+  snoozeRefreshAt: null,
 };
 
 /* ---------------- Settings page ---------------- */
 
-function Settings({ t, setTweak, status }: { t: Tweaks; setTweak: <K extends keyof Tweaks>(k: K, v: Tweaks[K]) => void; status: DashboardStatus }) {
+function Settings({
+  t,
+  setTweak,
+  status,
+  onTwitchLogout,
+}: {
+  t: Tweaks;
+  setTweak: <K extends keyof Tweaks>(k: K, v: Tweaks[K]) => void;
+  status: DashboardStatus;
+  onTwitchLogout: () => void;
+}) {
+  const missingTwitchScopes = status.twitchMissingScopes.length > 0
+    ? status.twitchMissingScopes.join(', ')
+    : null;
+  const twitchLoginSub = missingTwitchScopes
+    ? `Reconnect to grant missing scopes: ${missingTwitchScopes}`
+    : status.twitchAuthenticated
+      ? `Credentials cached on backend${status.twitchAuthSource ? ` via ${status.twitchAuthSource}` : ''}`
+      : 'Login to cache credentials for EventSub, Twitch uptime, and ad schedule data';
+
   const Row = ({
     label,
     sub,
@@ -160,15 +194,29 @@ function Settings({ t, setTweak, status }: { t: Tweaks; setTweak: <K extends key
         <div className="set-group">
           <div className="set-group-label">Twitch connection</div>
           <Row
+            label="Twitch login"
+            sub={twitchLoginSub}
+          >
+            {missingTwitchScopes ? (
+              <a className="btn-primary" href="/api/auth/twitch?force=1">Reconnect</a>
+            ) : status.twitchAuthenticated && status.twitchAuthSource === 'oauth' ? (
+              <button className="btn-primary" onClick={onTwitchLogout}>Disconnect</button>
+            ) : status.twitchAuthenticated ? (
+              <span className="set-badge set-badge--ok">Configured</span>
+            ) : (
+              <a className="btn-primary" href="/api/auth/twitch">
+                Login with Twitch
+              </a>
+            )}
+          </Row>
+          <Row
             label="EventSub"
             sub={status.eventSubConnected ? 'Receiving channel events' : 'Not connected — login to enable follows, subs, and alerts'}
           >
             {status.eventSubConnected ? (
               <span className="set-badge set-badge--ok">Connected</span>
             ) : (
-              <a className="btn-primary" href="/api/auth/twitch">
-                Login with Twitch
-              </a>
+              <span className="set-badge">Disconnected</span>
             )}
           </Row>
         </div>
@@ -244,7 +292,7 @@ export function DashboardPage() {
 
   // Real Twitch EventSub events from the backend
   useSocket<StreamEvent>('stream:event', React.useCallback((evt) => {
-    setEvents(evs => [evt, ...evs.slice(0, 49)]);
+    setEvents(evs => evs.some(existing => existing.id === evt.id) ? evs : [evt, ...evs.slice(0, 49)]);
   }, []));
 
   useSocket<LiveChatMessage>('chat:message', React.useCallback((message) => {
@@ -257,7 +305,7 @@ export function DashboardPage() {
       highlight: message.isFirstTimer ? 'first' : message.badges?.subscriber ? 'sub' : undefined,
     };
 
-    setChat(current => [...current.slice(-79), nextEntry]);
+    setChat(current => current.some(entry => entry.id === nextEntry.id) ? current : [...current, nextEntry]);
     void getViewers().then(setViewers).catch(() => {});
     void getDashboardStatus().then(setStatus).catch(() => {});
   }, []));
@@ -269,6 +317,13 @@ export function DashboardPage() {
     }).catch(() => {});
   }, []));
 
+  const handleTwitchLogout = React.useCallback(() => {
+    void disconnectTwitch()
+      .then(() => getDashboardStatus())
+      .then(setStatus)
+      .catch(() => {});
+  }, []);
+
   const ctx: PanelCtx = {
     viewers,
     chat,
@@ -277,6 +332,14 @@ export function DashboardPage() {
     openViewerPopout: login => {
       const windowName = `viewer_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       window.open(`/viewer?login=${encodeURIComponent(login)}`, windowName, 'width=380,height=560');
+    },
+    loadOlderChat: async () => {
+      const oldest = chat[0];
+      if (!oldest) return false;
+      const older = await getChatEntriesBefore(oldest.id);
+      if (older.length === 0) return false;
+      setChat(current => [...older, ...current]);
+      return older.length === 80; // still more if a full page came back
     },
   };
 
@@ -355,20 +418,28 @@ export function DashboardPage() {
         starfield={t.starfield}
         streamActive={status.streamActive}
         uptimeSeconds={status.uptimeSeconds}
+        uptimeSource={status.uptimeSource}
         activeChatters={status.activeChatters}
         sessionChatters={status.sessionChatters}
         knownChatters={status.knownChatters}
         bitrateKbps={status.bitrateKbps}
+        congestion={status.congestion}
         totalFrames={status.totalFrames}
         droppedFrames={status.droppedFrames}
         laggedFrames={status.laggedFrames}
-        nextAdSeconds={status.nextAdSeconds}
+        adBreakEndsAt={status.adBreakEndsAt}
+        adScheduleStatus={status.adScheduleStatus}
+        adScheduleError={status.adScheduleError}
+        nextAdAt={status.nextAdAt}
+        adBreakDurationSeconds={status.adBreakDurationSeconds}
+        prerollFreeTimeSeconds={status.prerollFreeTimeSeconds}
+        snoozeCount={status.snoozeCount}
         chatConnection={status.chatConnection}
         obsConnected={status.obsConnected}
         eventSubConnected={status.eventSubConnected}
       />
       {page === 'dashboard' ? (layouts[t.layout] ?? layouts['cockpit']) : (
-        <Settings t={t} setTweak={setTweak} status={status} />
+        <Settings t={t} setTweak={setTweak} status={status} onTwitchLogout={handleTwitchLogout} />
       )}
 
       <div className="popout-layer">

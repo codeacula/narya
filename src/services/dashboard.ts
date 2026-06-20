@@ -17,12 +17,21 @@ export async function getChatEntries(): Promise<ChatEntry[]> {
   return fetchJson<ChatEntry[]>('/api/dashboard/chat');
 }
 
+export async function getChatEntriesBefore(id: string): Promise<ChatEntry[]> {
+  return fetchJson<ChatEntry[]>(`/api/dashboard/chat?before=${encodeURIComponent(id)}`);
+}
+
 export async function getStreamEvents(): Promise<StreamEvent[]> {
   return fetchJson<StreamEvent[]>('/api/dashboard/events');
 }
 
 export async function getDashboardStatus(): Promise<DashboardStatus> {
   return fetchJson<DashboardStatus>('/api/dashboard/status');
+}
+
+export async function disconnectTwitch(): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/auth/twitch`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(`Twitch logout failed with ${response.status}`);
 }
 
 export function getRunsheet(): RunItem[] {
