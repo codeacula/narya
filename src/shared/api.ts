@@ -111,6 +111,10 @@ export type DashboardStatus = {
   twitchAuthSource: 'oauth' | 'env' | null;
   twitchTokenExpiresAt: string | null;
   twitchMissingScopes: string[];
+  twitchBotAuthenticated: boolean;
+  twitchBotAuthSource: 'oauth' | 'env' | null;
+  twitchBotTokenExpiresAt: string | null;
+  twitchBotMissingScopes: string[];
   streamActive: boolean | null;
   uptimeSeconds: number | null;
   streamStartedAt: string | null;

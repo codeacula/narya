@@ -37,6 +37,10 @@ const EMPTY_STATUS: DashboardStatus = {
   twitchAuthSource: null,
   twitchTokenExpiresAt: null,
   twitchMissingScopes: [],
+  twitchBotAuthenticated: false,
+  twitchBotAuthSource: null,
+  twitchBotTokenExpiresAt: null,
+  twitchBotMissingScopes: [],
   streamActive: null,
   uptimeSeconds: null,
   streamStartedAt: null,
@@ -165,6 +169,15 @@ export function DashboardPage() {
       .then(setStatus)
       .catch((error: unknown) => {
         console.error('Failed to disconnect Twitch:', error);
+      });
+  }, []);
+
+  const handleTwitchBotLogout = React.useCallback(() => {
+    void disconnectTwitch('bot')
+      .then(() => getDashboardStatus())
+      .then(setStatus)
+      .catch((error: unknown) => {
+        console.error('Failed to disconnect Twitch bot:', error);
       });
   }, []);
 
@@ -358,7 +371,11 @@ export function DashboardPage() {
         eventSubConnected={status.eventSubConnected}
       />
       {page === 'dashboard' ? dashboardLayout : (
-        <SettingsPage status={status} onTwitchLogout={handleTwitchLogout} />
+        <SettingsPage
+          status={status}
+          onTwitchLogout={handleTwitchLogout}
+          onTwitchBotLogout={handleTwitchBotLogout}
+        />
       )}
 
       <div className="popout-layer">

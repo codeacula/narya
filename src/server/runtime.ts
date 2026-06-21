@@ -43,11 +43,13 @@ export type AdSchedule = {
 export class RuntimeState {
   readonly serverStartedAt = Date.now();
   runtimeUserToken: TwitchUserToken | null = null;
+  runtimeBotToken: TwitchUserToken | null = null;
   twitchAppToken: { accessToken: string; expiresAtMs: number } | null = null;
   eventSubWs: WebSocket | null = null;
   eventSubConnected = false;
   broadcasterId: string | null = null;
   twitchSenderId: string | null = null;
+  twitchBotSenderId: string | null = null;
   eventSubKeepaliveMs = EVENTSUB_DEFAULT_KEEPALIVE_MS;
   eventSubKeepaliveTimer: ReturnType<typeof setTimeout> | null = null;
   adBreakEndsAt: string | null = null;
@@ -64,6 +66,11 @@ export class RuntimeState {
     this.broadcasterId = null;
     this.twitchSenderId = null;
     this.clearTwitchCaches();
+  }
+
+  clearAuthenticatedBotState() {
+    this.runtimeBotToken = null;
+    this.twitchBotSenderId = null;
   }
 
   clearEventSubSocket() {

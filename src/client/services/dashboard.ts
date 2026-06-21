@@ -88,8 +88,9 @@ export async function sendChatMessage(message: string): Promise<ChatSendResult> 
   return sendJson('/api/twitch/chat-message', 'POST', { message });
 }
 
-export async function disconnectTwitch(): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/auth/twitch`, { method: 'DELETE' });
+export async function disconnectTwitch(account: 'user' | 'bot' = 'user'): Promise<void> {
+  const path = account === 'bot' ? '/api/auth/twitch/bot' : '/api/auth/twitch';
+  const response = await fetch(`${API_BASE}${path}`, { method: 'DELETE' });
   if (!response.ok) throw new Error(`Twitch logout failed with ${response.status}`);
 }
 

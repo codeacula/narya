@@ -4,9 +4,12 @@ import { config } from '../config';
 import { HttpRouteError, readResponseError, sendRouteError } from '../http';
 import type { RuntimeState } from '../runtime';
 import {
+  getTwitchBotAccessToken,
   getTwitchAuthStatus,
   getTwitchUserAccessToken,
+  loadCachedTwitchBotToken,
   loadCachedTwitchUserToken,
+  REQUIRED_TWITCH_BOT_OAUTH_SCOPES,
   REQUIRED_TWITCH_OAUTH_SCOPES,
 } from './auth';
 
@@ -71,6 +74,13 @@ export async function getTwitchUserApiHeaders(state: RuntimeState): Promise<{ 'C
   return { 'Client-Id': clientId, Authorization: `Bearer ${userToken}`, userToken };
 }
 
+export async function getTwitchBotApiHeaders(state: RuntimeState): Promise<{ 'Client-Id': string; Authorization: string; userToken: string } | null> {
+  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  const userToken = await getTwitchBotAccessToken(state);
+  if (!clientId || !userToken) return null;
+  return { 'Client-Id': clientId, Authorization: `Bearer ${userToken}`, userToken };
+}
+
 export async function fetchBroadcasterId(clientId: string, userToken: string): Promise<string | null> {
   try {
     const res = await fetch(
@@ -107,6 +117,13 @@ export function getMissingTwitchScopes(state: RuntimeState, scopes: readonly str
   return scopes.filter(scope => !token.scopes.includes(scope));
 }
 
+export function getMissingTwitchBotScopes(state: RuntimeState, scopes: readonly string[]): string[] {
+  const token = state.runtimeBotToken ?? loadCachedTwitchBotToken();
+  if (token) state.runtimeBotToken = token;
+  if (!token) return [];
+  return scopes.filter(scope => !token.scopes.includes(scope));
+}
+
 export async function getTwitchActionCredentials(state: RuntimeState, scopes: readonly string[]) {
   const headers = await getTwitchUserApiHeaders(state);
   if (!headers) throw new HttpRouteError(401, 'Twitch login is required.');
@@ -125,6 +142,41 @@ export async function getTwitchActionCredentials(state: RuntimeState, scopes: re
     authorization: headers.Authorization,
     userToken: headers.userToken,
     broadcasterId: bid,
+  };
+}
+
+async function getTwitchChatCredentials(state: RuntimeState) {
+  const botHeaders = await getTwitchBotApiHeaders(state);
+  if (botHeaders) {
+    const missingBotScopes = getMissingTwitchBotScopes(state, REQUIRED_TWITCH_BOT_OAUTH_SCOPES);
+    if (missingBotScopes.length > 0) {
+      throw new HttpRouteError(403, `Reconnect Twitch bot to grant: ${missingBotScopes.join(', ')}`);
+    }
+
+    const bid = state.broadcasterId ?? await fetchBroadcasterId(botHeaders['Client-Id'], botHeaders.userToken);
+    if (!bid) throw new HttpRouteError(502, `Could not resolve broadcaster ID for "${config.twitchChannel}".`);
+    state.broadcasterId = bid;
+
+    return {
+      clientId: botHeaders['Client-Id'],
+      authorization: botHeaders.Authorization,
+      userToken: botHeaders.userToken,
+      broadcasterId: bid,
+      senderIdKey: 'bot' as const,
+    };
+  }
+
+  const userCredentials = await getTwitchActionCredentials(state, []);
+  const missingUserScopes = getMissingTwitchScopes(state, ['user:write:chat']);
+  if (missingUserScopes.length > 0) {
+    throw new HttpRouteError(403, `Reconnect Twitch to grant: ${missingUserScopes.join(', ')}`);
+  }
+  return {
+    clientId: userCredentials.clientId,
+    authorization: userCredentials.authorization,
+    userToken: userCredentials.userToken,
+    broadcasterId: userCredentials.broadcasterId,
+    senderIdKey: 'user' as const,
   };
 }
 
@@ -354,10 +406,12 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       if (!message) throw new HttpRouteError(400, 'Message is required.');
       if (message.length > 500) throw new HttpRouteError(400, 'Message must be 500 characters or fewer.');
 
-      const credentials = await getTwitchActionCredentials(state, ['user:write:chat']);
-      const senderId = state.twitchSenderId ?? await fetchAuthenticatedTwitchUserId(credentials.clientId, credentials.userToken);
+      const credentials = await getTwitchChatCredentials(state);
+      const cachedSenderId = credentials.senderIdKey === 'bot' ? state.twitchBotSenderId : state.twitchSenderId;
+      const senderId = cachedSenderId ?? await fetchAuthenticatedTwitchUserId(credentials.clientId, credentials.userToken);
       if (!senderId) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
-      state.twitchSenderId = senderId;
+      if (credentials.senderIdKey === 'bot') state.twitchBotSenderId = senderId;
+      else state.twitchSenderId = senderId;
 
       const res = await fetch('https://api.twitch.tv/helix/chat/messages', {
         method: 'POST',

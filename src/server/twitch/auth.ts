@@ -17,6 +17,23 @@ export const REQUIRED_TWITCH_OAUTH_SCOPES = [
   'user:write:chat',
 ] as const;
 
+export const REQUIRED_TWITCH_BOT_OAUTH_SCOPES = [
+  'user:read:chat',
+  'user:write:chat',
+] as const;
+
+type TwitchAuthAccount = 'user' | 'bot';
+
+const TWITCH_AUTH_PROVIDERS: Record<TwitchAuthAccount, string> = {
+  user: 'twitch',
+  bot: 'twitch_bot',
+};
+
+const TWITCH_AUTH_SCOPES: Record<TwitchAuthAccount, readonly string[]> = {
+  user: REQUIRED_TWITCH_OAUTH_SCOPES,
+  bot: REQUIRED_TWITCH_BOT_OAUTH_SCOPES,
+};
+
 const loadTwitchToken = db.prepare(`
   select access_token as accessToken,
          refresh_token as refreshToken,
@@ -24,12 +41,12 @@ const loadTwitchToken = db.prepare(`
          token_type as tokenType,
          expires_at as expiresAt
   from twitch_oauth
-  where provider = 'twitch'
+  where provider = ?
 `);
 
 const saveTwitchToken = db.prepare(`
   insert into twitch_oauth (provider, access_token, refresh_token, scopes_json, token_type, expires_at, updated_at)
-  values ('twitch', ?, ?, ?, ?, ?, ?)
+  values (?, ?, ?, ?, ?, ?, ?)
   on conflict(provider) do update set
     access_token = excluded.access_token,
     refresh_token = excluded.refresh_token,
@@ -39,8 +56,7 @@ const saveTwitchToken = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
-const deleteTwitchToken = db.prepare(`delete from twitch_oauth where provider = 'twitch'`);
-const TWITCH_OAUTH_SCOPES = REQUIRED_TWITCH_OAUTH_SCOPES.join(' ');
+const deleteTwitchToken = db.prepare(`delete from twitch_oauth where provider = ?`);
 const twitchOAuthStateCookie = 'streamer_tools_twitch_oauth_state';
 
 function parseJsonArray(value: string | null): string[] {
@@ -54,8 +70,8 @@ function parseJsonArray(value: string | null): string[] {
   }
 }
 
-export function loadCachedTwitchUserToken(): TwitchUserToken | null {
-  const row = loadTwitchToken.get() as {
+function loadCachedTwitchToken(account: TwitchAuthAccount): TwitchUserToken | null {
+  const row = loadTwitchToken.get(TWITCH_AUTH_PROVIDERS[account]) as {
     accessToken: string;
     refreshToken: string | null;
     scopesJson: string | null;
@@ -74,11 +90,21 @@ export function loadCachedTwitchUserToken(): TwitchUserToken | null {
   };
 }
 
-export function hydrateTwitchAuthState(state: RuntimeState) {
-  state.runtimeUserToken = loadCachedTwitchUserToken();
+export function loadCachedTwitchUserToken(): TwitchUserToken | null {
+  return loadCachedTwitchToken('user');
 }
 
-function persistTwitchUserToken(
+export function loadCachedTwitchBotToken(): TwitchUserToken | null {
+  return loadCachedTwitchToken('bot');
+}
+
+export function hydrateTwitchAuthState(state: RuntimeState) {
+  state.runtimeUserToken = loadCachedTwitchUserToken();
+  state.runtimeBotToken = loadCachedTwitchBotToken();
+}
+
+function persistTwitchToken(
+  account: TwitchAuthAccount,
   state: RuntimeState,
   tokenData: Required<Pick<TwitchTokenResponse, 'access_token'>> & TwitchTokenResponse,
   fallbackRefreshToken: string | null = null,
@@ -93,6 +119,7 @@ function persistTwitchUserToken(
   };
 
   saveTwitchToken.run(
+    TWITCH_AUTH_PROVIDERS[account],
     token.accessToken,
     token.refreshToken,
     JSON.stringify(token.scopes),
@@ -101,13 +128,34 @@ function persistTwitchUserToken(
     new Date().toISOString(),
   );
 
-  state.runtimeUserToken = token;
-  state.twitchSenderId = null;
-  state.clearTwitchCaches();
+  if (account === 'bot') {
+    state.runtimeBotToken = token;
+    state.twitchBotSenderId = null;
+  } else {
+    state.runtimeUserToken = token;
+    state.twitchSenderId = null;
+    state.clearTwitchCaches();
+  }
   return token;
 }
 
-async function refreshTwitchUserToken(state: RuntimeState, token: TwitchUserToken): Promise<TwitchUserToken | null> {
+function persistTwitchUserToken(
+  state: RuntimeState,
+  tokenData: Required<Pick<TwitchTokenResponse, 'access_token'>> & TwitchTokenResponse,
+  fallbackRefreshToken: string | null = null,
+): TwitchUserToken {
+  return persistTwitchToken('user', state, tokenData, fallbackRefreshToken);
+}
+
+function persistTwitchBotToken(
+  state: RuntimeState,
+  tokenData: Required<Pick<TwitchTokenResponse, 'access_token'>> & TwitchTokenResponse,
+  fallbackRefreshToken: string | null = null,
+): TwitchUserToken {
+  return persistTwitchToken('bot', state, tokenData, fallbackRefreshToken);
+}
+
+async function refreshTwitchToken(account: TwitchAuthAccount, state: RuntimeState, token: TwitchUserToken): Promise<TwitchUserToken | null> {
   const clientId = process.env.TWITCH_CLIENT_ID ?? '';
   const clientSecret = process.env.TWITCH_CLIENT_SECRET ?? '';
   if (!clientId || !clientSecret || !token.refreshToken) return null;
@@ -126,53 +174,92 @@ async function refreshTwitchUserToken(state: RuntimeState, token: TwitchUserToke
 
     const tokenData = await tokenRes.json() as TwitchTokenResponse;
     if (!tokenRes.ok || !tokenData.access_token) {
-      console.error(`OAuth: token refresh failed: ${tokenData.message ?? tokenData.error ?? tokenRes.statusText}`);
+      console.error(`OAuth: ${account} token refresh failed: ${tokenData.message ?? tokenData.error ?? tokenRes.statusText}`);
       return null;
     }
 
-    return persistTwitchUserToken(state, {
+    return persistTwitchToken(account, state, {
       ...tokenData,
       access_token: tokenData.access_token,
       scope: tokenData.scope ?? token.scopes,
     }, token.refreshToken);
   } catch (error) {
-    console.error('OAuth: token refresh errored:', error);
+    console.error(`OAuth: ${account} token refresh errored:`, error);
     return null;
   }
 }
 
-export async function getTwitchUserAccessToken(state: RuntimeState): Promise<string | null> {
-  const token = state.runtimeUserToken ?? loadCachedTwitchUserToken();
+async function getTwitchAccessToken(account: TwitchAuthAccount, state: RuntimeState): Promise<string | null> {
+  const token = account === 'bot'
+    ? state.runtimeBotToken ?? loadCachedTwitchBotToken()
+    : state.runtimeUserToken ?? loadCachedTwitchUserToken();
   if (token) {
-    state.runtimeUserToken = token;
+    if (account === 'bot') state.runtimeBotToken = token;
+    else state.runtimeUserToken = token;
     if (!token.expiresAtMs || token.expiresAtMs > Date.now() + TOKEN_EXPIRY_REFRESH_BUFFER_MS) {
       return token.accessToken;
     }
 
-    const refreshed = await refreshTwitchUserToken(state, token);
+    const refreshed = await refreshTwitchToken(account, state, token);
     return refreshed?.accessToken ?? null;
   }
 
-  return process.env.TWITCH_USER_TOKEN ?? null;
+  if (account === 'user') return process.env.TWITCH_USER_TOKEN ?? null;
+  return process.env.TWITCH_BOT_USER_TOKEN ?? null;
 }
 
-export function getTwitchAuthStatus(state: RuntimeState) {
-  const token = state.runtimeUserToken ?? loadCachedTwitchUserToken();
+export async function getTwitchUserAccessToken(state: RuntimeState): Promise<string | null> {
+  return getTwitchAccessToken('user', state);
+}
+
+export async function getTwitchBotAccessToken(state: RuntimeState): Promise<string | null> {
+  return getTwitchAccessToken('bot', state);
+}
+
+function getTwitchAccountAuthStatus(
+  account: TwitchAuthAccount,
+  state: RuntimeState,
+): {
+  authenticated: boolean;
+  authSource: 'oauth' | 'env' | null;
+  tokenExpiresAt: string | null;
+  missingScopes: string[];
+} {
+  const token = account === 'bot'
+    ? state.runtimeBotToken ?? loadCachedTwitchBotToken()
+    : state.runtimeUserToken ?? loadCachedTwitchUserToken();
   if (token) {
-    state.runtimeUserToken = token;
+    if (account === 'bot') state.runtimeBotToken = token;
+    else state.runtimeUserToken = token;
     return {
-      twitchAuthenticated: true,
-      twitchAuthSource: 'oauth' as const,
-      twitchTokenExpiresAt: token.expiresAtMs ? new Date(token.expiresAtMs).toISOString() : null,
-      twitchMissingScopes: REQUIRED_TWITCH_OAUTH_SCOPES.filter(scope => !token.scopes.includes(scope)),
+      authenticated: true,
+      authSource: 'oauth' as const,
+      tokenExpiresAt: token.expiresAtMs ? new Date(token.expiresAtMs).toISOString() : null,
+      missingScopes: TWITCH_AUTH_SCOPES[account].filter(scope => !token.scopes.includes(scope)),
     };
   }
 
+  const envToken = account === 'bot' ? process.env.TWITCH_BOT_USER_TOKEN : process.env.TWITCH_USER_TOKEN;
   return {
-    twitchAuthenticated: Boolean(process.env.TWITCH_USER_TOKEN),
-    twitchAuthSource: process.env.TWITCH_USER_TOKEN ? 'env' as const : null,
-    twitchTokenExpiresAt: null,
-    twitchMissingScopes: [],
+    authenticated: Boolean(envToken),
+    authSource: envToken ? 'env' as const : null,
+    tokenExpiresAt: null,
+    missingScopes: [],
+  };
+}
+
+export function getTwitchAuthStatus(state: RuntimeState) {
+  const user = getTwitchAccountAuthStatus('user', state);
+  const bot = getTwitchAccountAuthStatus('bot', state);
+  return {
+    twitchAuthenticated: user.authenticated,
+    twitchAuthSource: user.authSource,
+    twitchTokenExpiresAt: user.tokenExpiresAt,
+    twitchMissingScopes: user.missingScopes,
+    twitchBotAuthenticated: bot.authenticated,
+    twitchBotAuthSource: bot.authSource,
+    twitchBotTokenExpiresAt: bot.tokenExpiresAt,
+    twitchBotMissingScopes: bot.missingScopes,
   };
 }
 
@@ -187,7 +274,7 @@ export function registerTwitchAuthRoutes({
   connectEventSub: () => void;
   disconnectEventSub: () => void;
 }) {
-  app.get('/api/auth/twitch', (request, response) => {
+  function startTwitchLogin(account: TwitchAuthAccount, request: express.Request, response: express.Response) {
     const clientId = process.env.TWITCH_CLIENT_ID ?? '';
     if (!clientId) {
       response.status(500).send('TWITCH_CLIENT_ID not configured');
@@ -205,13 +292,21 @@ export function registerTwitchAuthRoutes({
       client_id: clientId,
       redirect_uri: config.twitchRedirectUri,
       response_type: 'code',
-      scope: TWITCH_OAUTH_SCOPES,
-      state: oauthState,
+      scope: TWITCH_AUTH_SCOPES[account].join(' '),
+      state: `${account}:${oauthState}`,
     });
     if (request.query['force'] === '1') {
       params.set('force_verify', 'true');
     }
     response.redirect(`https://id.twitch.tv/oauth2/authorize?${params.toString()}`);
+  }
+
+  app.get('/api/auth/twitch', (request, response) => {
+    startTwitchLogin('user', request, response);
+  });
+
+  app.get('/api/auth/twitch/bot', (request, response) => {
+    startTwitchLogin('bot', request, response);
   });
 
   app.get('/api/auth/twitch/callback', async (request, response) => {
@@ -219,7 +314,7 @@ export function registerTwitchAuthRoutes({
     const clientSecret = process.env.TWITCH_CLIENT_SECRET ?? '';
     const code = request.query['code'] as string | undefined;
     const error = request.query['error'] as string | undefined;
-    const oauthState = request.query['state'] as string | undefined;
+    const oauthStateParam = request.query['state'] as string | undefined;
     const expectedState = parseCookies(request.headers.cookie)[twitchOAuthStateCookie];
 
     response.clearCookie(twitchOAuthStateCookie, { path: '/api/auth/twitch/callback' });
@@ -232,7 +327,9 @@ export function registerTwitchAuthRoutes({
       response.status(500).send('TWITCH_CLIENT_SECRET not configured');
       return;
     }
-    if (!oauthState || !expectedState || oauthState !== expectedState) {
+    const [accountValue, oauthState] = oauthStateParam?.split(':', 2) ?? [];
+    const account = accountValue === 'bot' ? 'bot' : accountValue === 'user' ? 'user' : null;
+    if (!account || !oauthState || !expectedState || oauthState !== expectedState) {
       response.status(400).send('Twitch OAuth error: invalid state');
       return;
     }
@@ -254,9 +351,14 @@ export function registerTwitchAuthRoutes({
         response.status(500).send(`Token exchange failed: ${tokenData.message ?? tokenData.error ?? tokenRes.statusText}`);
         return;
       }
-      persistTwitchUserToken(state, { ...tokenData, access_token: tokenData.access_token });
-      console.log('OAuth: user token cached, reconnecting EventSub...');
-      connectEventSub();
+      if (account === 'bot') {
+        persistTwitchBotToken(state, { ...tokenData, access_token: tokenData.access_token });
+        console.log('OAuth: bot token cached.');
+      } else {
+        persistTwitchUserToken(state, { ...tokenData, access_token: tokenData.access_token });
+        console.log('OAuth: user token cached, reconnecting EventSub...');
+        connectEventSub();
+      }
       response.redirect('/');
     } catch (err) {
       console.error('OAuth callback error:', err);
@@ -269,9 +371,15 @@ export function registerTwitchAuthRoutes({
   });
 
   app.delete('/api/auth/twitch', (_request, response) => {
-    deleteTwitchToken.run();
+    deleteTwitchToken.run(TWITCH_AUTH_PROVIDERS.user);
     state.clearAuthenticatedUserState();
     disconnectEventSub();
+    response.json({ ok: true, ...getTwitchAuthStatus(state) });
+  });
+
+  app.delete('/api/auth/twitch/bot', (_request, response) => {
+    deleteTwitchToken.run(TWITCH_AUTH_PROVIDERS.bot);
+    state.clearAuthenticatedBotState();
     response.json({ ok: true, ...getTwitchAuthStatus(state) });
   });
 }

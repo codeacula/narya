@@ -4,9 +4,11 @@ import type { DashboardStatus } from '../../shared/api';
 export function SettingsPage({
   status,
   onTwitchLogout,
+  onTwitchBotLogout,
 }: {
   status: DashboardStatus;
   onTwitchLogout: () => void;
+  onTwitchBotLogout: () => void;
 }) {
   const missingTwitchScopes = status.twitchMissingScopes.length > 0
     ? status.twitchMissingScopes.join(', ')
@@ -16,6 +18,14 @@ export function SettingsPage({
     : status.twitchAuthenticated
       ? `Credentials cached on backend${status.twitchAuthSource ? ` via ${status.twitchAuthSource}` : ''}`
       : 'Login to cache credentials for EventSub, Twitch uptime, and ad schedule data';
+  const missingTwitchBotScopes = status.twitchBotMissingScopes.length > 0
+    ? status.twitchBotMissingScopes.join(', ')
+    : null;
+  const twitchBotLoginSub = missingTwitchBotScopes
+    ? `Reconnect to grant missing scopes: ${missingTwitchBotScopes}`
+    : status.twitchBotAuthenticated
+      ? `Bot credentials cached on backend${status.twitchBotAuthSource ? ` via ${status.twitchBotAuthSource}` : ''}`
+      : 'Login as a bot account for dashboard chat messages';
 
   const Row = ({
     label,
@@ -61,6 +71,22 @@ export function SettingsPage({
             ) : (
               <a className="btn-primary" href="/api/auth/twitch">
                 Login with Twitch
+              </a>
+            )}
+          </Row>
+          <Row
+            label="Bot login"
+            sub={twitchBotLoginSub}
+          >
+            {missingTwitchBotScopes ? (
+              <a className="btn-primary" href="/api/auth/twitch/bot?force=1">Reconnect bot</a>
+            ) : status.twitchBotAuthenticated && status.twitchBotAuthSource === 'oauth' ? (
+              <button className="btn-primary" onClick={onTwitchBotLogout}>Disconnect</button>
+            ) : status.twitchBotAuthenticated ? (
+              <span className="set-badge set-badge--ok">Configured</span>
+            ) : (
+              <a className="btn-primary" href="/api/auth/twitch/bot">
+                Login as Bot
               </a>
             )}
           </Row>
