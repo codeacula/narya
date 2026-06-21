@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { ChatInput, MODULES, PanelCtx } from '../ui/panels';
-import { useTweaks, TweaksPanel, TweakSection } from '../ui/tweaks';
+import { TweaksPanel, TweakSection } from '../ui/tweaks';
 import {
   disconnectTwitch,
   getViewers,
@@ -15,25 +15,11 @@ import {
 } from '../services/dashboard';
 import { useSocket, type ChatMessage as LiveChatMessage, type ChatModerationEvent } from '../legacy';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
-import { SettingsPage, type DashboardTweaks } from './SettingsPage';
+import { SettingsPage } from './SettingsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import type { Viewer, ChatEntry, StreamEvent, DashboardStatus } from '../../shared/api';
 
 /* ---------------- constants ---------------- */
-
-const TWEAK_DEFAULTS: DashboardTweaks = {
-  layout: 'cockpit',
-  density: 'dense',
-  clock: '12h',
-  accent: '#ffb86c',
-  starfield: true,
-};
-
-const ACCENTS: Record<string, { fg: string; soft: string; border: string }> = {
-  '#ffb86c': { fg: '#ffc488', soft: 'rgba(255,184,108,0.12)', border: 'rgba(255,184,108,0.45)' },
-  '#9e82e8': { fg: '#bca6f0', soft: 'rgba(158,130,232,0.14)', border: 'rgba(158,130,232,0.45)' },
-  '#6aa8d4': { fg: '#9ccae8', soft: 'rgba(106,168,212,0.14)', border: 'rgba(106,168,212,0.45)' },
-};
 
 const POP_DEFAULTS: Record<string, { w: number; h: number }> = {
   chat:      { w: 380, h: 540 },
@@ -77,7 +63,6 @@ const EMPTY_STATUS: DashboardStatus = {
 /* ---------------- Dashboard page ---------------- */
 
 export function DashboardPage() {
-  const [t, setTweak] = useTweaks<DashboardTweaks>(TWEAK_DEFAULTS);
   const [page, setPage] = useState('dashboard');
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [popped, setPopped] = useState<Record<string, PoppedState>>({});
@@ -136,15 +121,6 @@ export function DashboardPage() {
       clearInterval(statusRefresh);
     };
   }, []);
-
-  useEffect(() => {
-    const a = ACCENTS[t.accent] ?? ACCENTS['#ffb86c'];
-    const s = document.documentElement.style;
-    s.setProperty('--accent', t.accent);
-    s.setProperty('--accent-fg', a.fg);
-    s.setProperty('--accent-soft', a.soft);
-    s.setProperty('--border-3', a.border);
-  }, [t.accent]);
 
   // Real Twitch EventSub events from the backend
   useSocket<StreamEvent>('stream:event', React.useCallback((evt) => {
@@ -333,35 +309,17 @@ export function DashboardPage() {
     );
   }
 
-  const layouts: Record<string, React.ReactNode> = {
-    cockpit: (
-      <div className="stage stage--cockpit">
-        {slot('chat')}
-        <div className="col-stack">
-          {slot('events')}
-        </div>
+  const dashboardLayout = (
+    <div className="stage stage--cockpit">
+      {slot('chat')}
+      <div className="col-stack">
+        {slot('events')}
       </div>
-    ),
-    mission: (
-      <div className="stage stage--mission">
-        {slot('events', 'area-events-rail')}
-        {slot('chat')}
-      </div>
-    ),
-    modular: (
-      <div className="stage stage--modular">
-        {slot('chat')}
-        <div className="modgrid">
-          <div className="area-events" style={{ display: 'grid', minHeight: 0 }}>
-            {slot('events')}
-          </div>
-        </div>
-      </div>
-    ),
-  };
+    </div>
+  );
 
   return (
-    <div className={'cockpit' + (t.density === 'comfy' ? ' comfy' : '')}>
+    <div className="cockpit">
       <NavBar
         page={page}
         setPage={setPage}
@@ -370,8 +328,8 @@ export function DashboardPage() {
         channel={status.channel}
       />
       <StatBar
-        clock24={t.clock === '24h'}
-        starfield={t.starfield}
+        clock24={false}
+        starfield={true}
         onRunPreroll={handleRunPreroll}
         onOpenStreamInfo={handleOpenStreamInfo}
         prerollBusy={prerollBusy}
@@ -399,8 +357,8 @@ export function DashboardPage() {
         obsConnected={status.obsConnected}
         eventSubConnected={status.eventSubConnected}
       />
-      {page === 'dashboard' ? (layouts[t.layout] ?? layouts['cockpit']) : (
-        <SettingsPage t={t} setTweak={setTweak} status={status} onTwitchLogout={handleTwitchLogout} />
+      {page === 'dashboard' ? dashboardLayout : (
+        <SettingsPage status={status} onTwitchLogout={handleTwitchLogout} />
       )}
 
       <div className="popout-layer">

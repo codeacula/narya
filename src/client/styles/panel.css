@@ -236,24 +236,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   padding: var(--panel-gap);
 }
 .stage--cockpit { grid-template-columns: minmax(380px, 1.15fr) minmax(380px, 0.85fr); }
-.stage--mission { grid-template-columns: minmax(240px, 0.7fr) minmax(420px, 1.5fr) minmax(330px, 0.95fr); }
-.stage--modular { grid-template-columns: minmax(400px, 1fr) minmax(440px, 1fr); }
 
 .col-stack { min-height: 0; display: grid; gap: var(--panel-gap); grid-auto-rows: minmax(0, 1fr); }
 .col-stack.s2 { grid-template-rows: 1fr 1fr; }
 .col-stack.s3 { grid-template-rows: auto 1fr 1.1fr; }
-
-.modgrid {
-  min-height: 0;
-  display: grid;
-  gap: var(--panel-gap);
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1.1fr 0.9fr;
-  grid-template-areas: "spotlight spotlight" "runsheet events";
-}
-.modgrid .area-spotlight { grid-area: spotlight; }
-.modgrid .area-runsheet { grid-area: runsheet; }
-.modgrid .area-events { grid-area: events; }
 
 /* ================= PANEL ================= */
 .panel {
@@ -537,11 +523,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .panel-body::-webkit-scrollbar-thumb:hover, .popwin-body::-webkit-scrollbar-thumb:hover { background: rgba(162,170,188,0.35); background-clip: padding-box; }
 
-/* ================= density: comfy ================= */
-.cockpit.comfy { --row-pad-y: 10px; --panel-gap: 14px; }
-.cockpit.comfy .msg { font-size: 14px; }
-.cockpit.comfy .statbar { height: 68px; }
-
 /* ================= SETTINGS PAGE ================= */
 .settings-page { min-height: 0; overflow-y: auto; padding: var(--space-5); }
 .settings-inner { max-width: 720px; margin: 0 auto; }
@@ -582,22 +563,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-weight: 500;
   text-align: right;
 }
-
-.seg { display: flex; border: 1px solid var(--border-2); border-radius: var(--radius-2); overflow: hidden; }
-.seg-b {
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: lowercase;
-  padding: 7px 13px; background: transparent; color: var(--fg-2); border: none; cursor: pointer; min-height: 0;
-  display: flex; align-items: center; gap: 6px; transition: background var(--dur-fast), color var(--dur-fast);
-}
-.seg-b + .seg-b { border-left: 1px solid var(--border-1); }
-.seg-b:hover { color: var(--fg-1); background: rgba(255,255,255,0.03); }
-.seg-b.on { color: var(--accent-fg); background: var(--accent-soft); }
-.seg-b .swatch { width: 10px; height: 10px; border-radius: 50%; }
-
-.toggle { width: 42px; height: 24px; border-radius: 999px; border: 1px solid var(--border-2); background: var(--bg-void); cursor: pointer; position: relative; transition: background var(--dur-fast), border-color var(--dur-fast); padding: 0; min-height: 0; }
-.toggle .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--silver-400); transition: transform var(--dur-base) var(--ease-out), background var(--dur-base); }
-.toggle.on { background: var(--accent-soft); border-color: var(--border-3); }
-.toggle.on .knob { transform: translateX(18px); background: var(--accent); }
 
 /* ================= MODAL ================= */
 .modal-backdrop {
@@ -779,8 +744,3 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   gap: 8px;
 }
 
-/* responsive guard */
-@media (max-width: 1000px) {
-  .stage--mission { grid-template-columns: minmax(360px, 1.2fr) minmax(320px, 0.9fr); }
-  .stage--mission .area-events-rail { display: none; }
-}

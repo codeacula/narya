@@ -1,22 +1,10 @@
 import type React from 'react';
 import type { DashboardStatus } from '../../shared/api';
 
-export type DashboardTweaks = {
-  layout: string;
-  density: string;
-  clock: string;
-  accent: string;
-  starfield: boolean;
-};
-
 export function SettingsPage({
-  t,
-  setTweak,
   status,
   onTwitchLogout,
 }: {
-  t: DashboardTweaks;
-  setTweak: <K extends keyof DashboardTweaks>(k: K, v: DashboardTweaks[K]) => void;
   status: DashboardStatus;
   onTwitchLogout: () => void;
 }) {
@@ -55,79 +43,8 @@ export function SettingsPage({
           Control room
         </h2>
         <p className="set-intro">
-          Panel preferences - everything here also lives in the Tweaks drawer.
+          Twitch connection and backend integration settings.
         </p>
-
-        <div className="set-group">
-          <div className="set-group-label">Appearance</div>
-          <Row label="Layout arrangement" sub="How the dashboard columns are organized">
-            <div className="seg">
-              {(['cockpit', 'mission', 'modular'] as const).map(o => (
-                <button
-                  key={o}
-                  className={'seg-b' + (t.layout === o ? ' on' : '')}
-                  onClick={() => setTweak('layout', o)}
-                >
-                  {o}
-                </button>
-              ))}
-            </div>
-          </Row>
-          <Row label="Density" sub="Tighten the rows for a true cockpit feel">
-            <div className="seg">
-              {(['dense', 'comfy'] as const).map(o => (
-                <button
-                  key={o}
-                  className={'seg-b' + (t.density === o ? ' on' : '')}
-                  onClick={() => setTweak('density', o)}
-                >
-                  {o}
-                </button>
-              ))}
-            </div>
-          </Row>
-          <Row label="Status accent" sub="Tint for live, focus, and highlights">
-            <div className="seg">
-              {([['#ffb86c', 'gold'], ['#9e82e8', 'arcane'], ['#6aa8d4', 'celestial']] as const).map(
-                ([c, n]) => (
-                  <button
-                    key={c}
-                    className={'seg-b' + (t.accent === c ? ' on' : '')}
-                    onClick={() => setTweak('accent', c)}
-                  >
-                    <span className="swatch" style={{ background: c }} />
-                    {n}
-                  </button>
-                ),
-              )}
-            </div>
-          </Row>
-        </div>
-
-        <div className="set-group">
-          <div className="set-group-label">Top bar</div>
-          <Row label="Clock format">
-            <div className="seg">
-              {(['12h', '24h'] as const).map(o => (
-                <button
-                  key={o}
-                  className={'seg-b' + (t.clock === o ? ' on' : '')}
-                  onClick={() => setTweak('clock', o)}
-                >
-                  {o}
-                </button>
-              ))}
-            </div>
-          </Row>
-          <Row label="Starfield behind stats" sub="A faint drift of stars under the gauges">
-            <button
-              className={'toggle' + (t.starfield ? ' on' : '')}
-              onClick={() => setTweak('starfield', !t.starfield)}
-            >
-              <span className="knob" />
-            </button>
-          </Row>
-        </div>
 
         <div className="set-group">
           <div className="set-group-label">Twitch connection</div>
