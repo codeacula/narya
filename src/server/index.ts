@@ -55,7 +55,7 @@ const sessionChatters = new Set<string>();
 const serverStartedAt = Date.now();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.resolve(__dirname, '..', 'data');
+const dataDir = path.resolve(__dirname, '..', '..', 'data');
 mkdirSync(dataDir, { recursive: true });
 const db = new Database(path.join(dataDir, 'streamer-tools.sqlite'));
 

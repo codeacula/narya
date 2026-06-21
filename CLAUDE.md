@@ -25,32 +25,37 @@ curl http://localhost:4317/api/music/current
 
 ## Architecture
 
-**Single-file backend** — `server/index.ts` owns everything: Express HTTP routes, WebSocket broadcast server (`/socket`), Twitch chat via `tmi.js`, OBS control via `obs-websocket-js`, `playerctl`-based music polling, and a Bun SQLite database.
+**Single-file backend** — `src/server/index.ts` owns everything: Express HTTP routes, WebSocket broadcast server (`/socket`), Twitch chat via `tmi.js`, OBS control via `obs-websocket-js`, `playerctl`-based music polling, and a Bun SQLite database.
 
-**Modular frontend** — `src/main.tsx` is a thin router (pathname-based, no router library): `/overlay` → `OverlayPage`, `/tablet` → `TabletPage`, default → `DashboardPage`. Source layout:
+**Modular frontend** — `src/client/main.tsx` is a thin router (pathname-based, no router library): `/overlay` → `OverlayPage`, `/tablet` → `TabletPage`, default → `DashboardPage`. Source layout:
 
 ```
 src/
-  types.ts              # domain types (Viewer, ChatEntry, StreamEvent, RunItem)
-  services/
-    dashboard.ts        # dashboard data service backed by REST endpoints
-  legacy.tsx            # backend-wired hooks + overlay/tablet components (ChatPanel, MusicPanel, etc.)
-  ui/
-    icons.tsx           # Icon component
-    shell.tsx           # NavBar, StatBar, Panel, PopWindow, useDrag
-    panels.tsx          # Chat, Spotlight, EventFeed, RunSheet, MODULES registry
-    tweaks.tsx          # useTweaks (localStorage) + TweakSection/Radio/Toggle/Color controls
-  pages/
-    Dashboard.tsx       # cockpit dashboard (3 layouts, popout windows, settings page)
-    Overlay.tsx         # browser-source overlay (transparent, chat + now-playing)
-    Tablet.tsx          # surface stream-deck controls
-  styles/
-    tokens.css          # design tokens (colors, type, spacing, motion)
-    panel.css           # cockpit layout + component styles (kebab-case classes)
-  styles.css            # legacy overlay/tablet styles (camelCase classes)
+  client/
+    types.ts              # domain types (Viewer, ChatEntry, StreamEvent, RunItem)
+    services/
+      dashboard.ts        # dashboard data service backed by REST endpoints
+    legacy.tsx            # backend-wired hooks + overlay/tablet components (ChatPanel, MusicPanel, etc.)
+    ui/
+      icons.tsx           # Icon component
+      shell.tsx           # NavBar, StatBar, Panel, PopWindow, useDrag
+      panels.tsx          # Chat, Spotlight, EventFeed, RunSheet, MODULES registry
+      tweaks.tsx          # useTweaks (localStorage) + TweakSection/Radio/Toggle/Color controls
+    pages/
+      Dashboard.tsx       # cockpit dashboard (3 layouts, popout windows, settings page)
+      Overlay.tsx         # browser-source overlay (transparent, chat + now-playing)
+      Tablet.tsx          # surface stream-deck controls
+    styles/
+      tokens.css          # design tokens (colors, type, spacing, motion)
+      panel.css           # cockpit layout + component styles (kebab-case classes)
+    styles.css            # legacy overlay/tablet styles (camelCase classes)
+  server/
+    index.ts           # Express/Bun backend, Twitch, OBS, playerctl, SQLite
+    types/
+      tmi.d.ts         # local declarations for tmi.js
 ```
 
-**Service boundary** — `src/services/dashboard.ts` is the dashboard's REST data boundary. Components and hooks import domain types from `src/types.ts` and dashboard data from the service layer instead of calling `fetch` directly.
+**Service boundary** — `src/client/services/dashboard.ts` is the dashboard's REST data boundary. Components and hooks import domain types from `src/client/types.ts` and dashboard data from the service layer instead of calling `fetch` directly.
 
 **Real-time data flow** — the backend broadcasts WebSocket events (`chat:message`, `chat:moderated`, `music:updated`, `sound:play`). The frontend's `useSocket` hook subscribes per event name and merges updates into local state seeded by initial REST fetches.
 
@@ -63,7 +68,7 @@ src/
 ## Coding conventions
 
 - TypeScript strict mode; no linter or formatter configured — match existing two-space indentation.
-- Dashboard domain types (`Viewer`, `ChatEntry`, `StreamEvent`, `RunItem`) live in `src/types.ts`. Backend-wired types (`ChatMessage`, `MusicInfo`, etc.) stay in `src/legacy.tsx` alongside the hooks that use them.
+- Dashboard domain types (`Viewer`, `ChatEntry`, `StreamEvent`, `RunItem`) live in `src/client/types.ts`. Backend-wired types (`ChatMessage`, `MusicInfo`, etc.) stay in `src/client/legacy.tsx` alongside the hooks that use them.
 - React components in PascalCase, hooks in `useCamelCase`, CSS classes in camelCase (`.chatPanel`, `.overlayFrame`).
 - Overlay CSS must stay browser-source friendly: transparent background, fixed-position regions, no app chrome.
 - Commits use short imperative hyphenated messages (`add-chat-event-history`).
