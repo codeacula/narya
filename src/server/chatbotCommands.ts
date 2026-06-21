@@ -2,12 +2,16 @@ import type express from 'express';
 import type { ChatMessage, ChatbotCommandSettingsResponse } from '../shared/api';
 import { db } from './db';
 import { HttpRouteError, sendRouteError } from './http';
+import { askPonderLlm, formatPonderReply } from './llm';
 import type { RuntimeState } from './runtime';
 import { sendTwitchChatMessage } from './twitch/api';
 
 const V1_COMMAND_ID = 'default-chat-reply-command';
 const V1_ACTION_ID = 'default-chat-reply-action';
+const PONDER_COMMAND_ID = 'ponder-llm-command';
+const PONDER_ACTION_ID = 'ponder-llm-action';
 const CHAT_REPLY_ACTION = 'chat_reply';
+const LLM_RESPONSE_ACTION = 'llm_response';
 const COMMAND_PATTERN = /^![A-Za-z0-9_-]{1,49}$/;
 
 type CommandRow = {
@@ -62,10 +66,36 @@ const upsertV1Action = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
+const upsertPonderCommand = db.prepare(`
+  insert into chatbot_commands (id, trigger, enabled, created_at, updated_at)
+  values (?, '!ponder', 1, ?, ?)
+  on conflict(id) do update set
+    trigger = excluded.trigger,
+    enabled = 1,
+    updated_at = excluded.updated_at
+`);
+
+const upsertPonderAction = db.prepare(`
+  insert into chatbot_command_actions (id, command_id, action_type, payload_json, enabled, position, created_at, updated_at)
+  values (?, ?, ?, '{}', 1, 0, ?, ?)
+  on conflict(id) do update set
+    action_type = excluded.action_type,
+    enabled = 1,
+    position = 0,
+    updated_at = excluded.updated_at
+`);
+
 const getEnabledCommandByTrigger = db.prepare(`
   select id, trigger, enabled, updated_at as updatedAt
   from chatbot_commands
   where enabled = 1 and lower(trigger) = lower(?)
+  limit 1
+`);
+
+const getCommandByTrigger = db.prepare(`
+  select id, trigger, enabled, updated_at as updatedAt
+  from chatbot_commands
+  where lower(trigger) = lower(?)
   limit 1
 `);
 
@@ -92,6 +122,17 @@ const clearV1Settings = db.transaction(() => {
   deleteActionsForCommand.run(V1_COMMAND_ID);
   deleteCommand.run(V1_COMMAND_ID);
 });
+
+function ensurePonderCommand() {
+  const now = new Date().toISOString();
+  const existing = getCommandByTrigger.get('!ponder') as CommandRow | null;
+  if (existing && existing.id !== PONDER_COMMAND_ID) {
+    deleteActionsForCommand.run(existing.id);
+    deleteCommand.run(existing.id);
+  }
+  upsertPonderCommand.run(PONDER_COMMAND_ID, now, now);
+  upsertPonderAction.run(PONDER_ACTION_ID, PONDER_COMMAND_ID, LLM_RESPONSE_ACTION, now, now);
+}
 
 function parseChatReplyTemplate(payloadJson: string): string {
   try {
@@ -134,6 +175,9 @@ function normalizeSettingsBody(body: unknown): { command: string; response: stri
   if (!COMMAND_PATTERN.test(command)) {
     throw new HttpRouteError(400, 'Command must start with ! and use only letters, numbers, underscores, or hyphens.');
   }
+  if (command.toLowerCase() === '!ponder') {
+    throw new HttpRouteError(400, '!ponder is reserved for the LLM command.');
+  }
   if (response.length > 500) throw new HttpRouteError(400, 'Response must be 500 characters or fewer.');
 
   return { command: command.toLowerCase(), response, enabled };
@@ -141,6 +185,10 @@ function normalizeSettingsBody(body: unknown): { command: string; response: stri
 
 function firstMessageWord(message: string): string {
   return message.trim().split(/\s+/, 1)[0] ?? '';
+}
+
+function messageAfterFirstWord(message: string): string {
+  return message.trim().replace(/^\S+\s*/, '').trim();
 }
 
 function renderTemplate(template: string, chatMessage: ChatMessage): string {
@@ -157,16 +205,28 @@ export async function handleChatbotCommandMessage(state: RuntimeState, chatMessa
 
   const actions = listEnabledActionsForCommand.all(command.id) as ActionRow[];
   for (const action of actions) {
-    if (action.actionType !== CHAT_REPLY_ACTION) continue;
-    const template = parseChatReplyTemplate(action.payloadJson);
-    if (!template) continue;
-    const message = renderTemplate(template, chatMessage).trim();
-    if (!message) continue;
-    await sendTwitchChatMessage(state, message, 'bot');
+    if (action.actionType === CHAT_REPLY_ACTION) {
+      const template = parseChatReplyTemplate(action.payloadJson);
+      if (!template) continue;
+      const message = renderTemplate(template, chatMessage).trim();
+      if (!message) continue;
+      await sendTwitchChatMessage(state, message, 'bot');
+      continue;
+    }
+
+    if (action.actionType === LLM_RESPONSE_ACTION) {
+      const question = messageAfterFirstWord(chatMessage.message);
+      const message = question
+        ? await askPonderLlm(chatMessage, question)
+        : formatPonderReply(chatMessage, 'ask me something after !ponder. I left my crystal ball in another hoodie.');
+      await sendTwitchChatMessage(state, message, 'bot');
+    }
   }
 }
 
 export function registerChatbotCommandRoutes(app: express.Express) {
+  ensurePonderCommand();
+
   app.get('/api/chatbot/command-settings', (_request, response) => {
     response.json(getChatbotCommandSettings());
   });

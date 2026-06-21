@@ -171,7 +171,7 @@ export type ChatSendResult = {
   messageId: string | null;
 };
 
-export type ChatbotCommandActionType = 'chat_reply';
+export type ChatbotCommandActionType = 'chat_reply' | 'llm_response';
 
 export type ChatbotCommandSettings = {
   enabled: boolean;
@@ -181,4 +181,28 @@ export type ChatbotCommandSettings = {
 
 export type ChatbotCommandSettingsResponse = ChatbotCommandSettings & {
   updatedAt: string | null;
+};
+
+export type LlmSettings = {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  apiKeyConfigured: boolean;
+  personalityPrompt: string;
+  temperature: number;
+  maxOutputTokens: number;
+  timeoutMs: number;
+  updatedAt: string | null;
+};
+
+export type LlmSettingsUpdate = {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+  personalityPrompt: string;
+  temperature: number;
+  maxOutputTokens: number;
+  timeoutMs: number;
 };

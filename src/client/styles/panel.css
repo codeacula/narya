@@ -585,6 +585,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   justify-content: flex-end;
   gap: 8px;
 }
+.llm-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 700px) {
+  .llm-settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
 
 .live-data-list {
   display: grid;

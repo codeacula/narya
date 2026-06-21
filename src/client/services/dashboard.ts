@@ -17,6 +17,8 @@ import type {
   SoundPlayback,
   ChatbotCommandSettings,
   ChatbotCommandSettingsResponse,
+  LlmSettings,
+  LlmSettingsUpdate,
 } from '../../shared/api';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
@@ -96,6 +98,14 @@ export async function getChatbotCommandSettings(): Promise<ChatbotCommandSetting
 
 export async function updateChatbotCommandSettings(settings: ChatbotCommandSettings): Promise<ChatbotCommandSettingsResponse> {
   return sendJson<ChatbotCommandSettingsResponse>('/api/chatbot/command-settings', 'PUT', settings);
+}
+
+export async function getLlmSettings(): Promise<LlmSettings> {
+  return fetchJson<LlmSettings>('/api/llm/settings');
+}
+
+export async function updateLlmSettings(settings: LlmSettingsUpdate): Promise<LlmSettings> {
+  return sendJson<LlmSettings>('/api/llm/settings', 'PUT', settings);
 }
 
 export async function disconnectTwitch(account: 'user' | 'bot' = 'user'): Promise<void> {

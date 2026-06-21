@@ -86,6 +86,19 @@ db.exec(`
     foreign key (command_id) references chatbot_commands(id) on delete cascade
   );
 
+  create table if not exists llm_settings (
+    id text primary key,
+    enabled integer not null default 1,
+    base_url text not null,
+    model text not null,
+    api_key text not null,
+    personality_prompt text not null,
+    temperature real not null default 0.7,
+    max_output_tokens integer not null default 140,
+    timeout_ms integer not null default 15000,
+    updated_at text not null
+  );
+
   create table if not exists runsheet_items (
     id text primary key,
     text text not null,
@@ -119,6 +132,7 @@ const allowedMigrationTables = new Set([
   'twitch_oauth',
   'chatbot_commands',
   'chatbot_command_actions',
+  'llm_settings',
   'runsheet_items',
   'ticker_items',
 ]);

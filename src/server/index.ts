@@ -3,6 +3,7 @@ import { registerChatbotCommandRoutes } from './chatbotCommands';
 import { config } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
 import { connectEventSub, disconnectEventSub } from './eventsub';
+import { registerLlmRoutes } from './llm';
 import { startMusicPolling } from './music';
 import { connectObs } from './obs';
 import { app, server } from './realtime';
@@ -23,6 +24,7 @@ registerTwitchAuthRoutes({
 });
 registerTwitchApiRoutes(app, runtimeState);
 registerChatbotCommandRoutes(app);
+registerLlmRoutes(app);
 registerDashboardRoutes(app, runtimeState);
 
 server.listen(config.port, () => {
