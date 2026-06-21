@@ -1,48 +1,10 @@
 // Backend-wired hooks and components, relocated from main.tsx.
 // Overlay and Tablet import from here; do not redesign in Phase 2.
 import React from 'react';
-
-export type ChatMessage = {
-  id: string;
-  username: string;
-  displayName: string;
-  color: string | null;
-  message: string;
-  receivedAt: string;
-  deletedAt: string | null;
-  deletedReason: string | null;
-  badges: Record<string, string> | null;
-  emotes: Record<string, string[]> | null;
-  isFirstTimer: boolean;
-  isExiting?: boolean;
-};
+import type { ChatMessage, ChatModerationEvent, MusicInfo, SoundPlayback } from '../shared/api';
+export type { ChatMessage, ChatModerationEvent, MusicInfo, SoundPlayback } from '../shared/api';
 
 export type Role = 'broadcaster' | 'moderator' | 'vip' | 'subscriber' | 'regular';
-
-export type ChatModerationEvent = {
-  type: 'message.deleted' | 'user.timeout' | 'user.ban' | 'chat.clear';
-  channel: string;
-  messageId?: string;
-  username?: string;
-  deletedAt: string;
-  deletedReason: string;
-};
-
-export type MusicInfo = {
-  status: 'playing' | 'paused' | 'stopped' | 'unavailable';
-  playerName: string | null;
-  artist: string | null;
-  title: string | null;
-  album: string | null;
-  source: 'playerctl' | 'manual' | 'none';
-  updatedAt: string;
-};
-
-export type SoundPlayback = {
-  id: string;
-  src: string;
-  volume?: number;
-};
 
 export const overlayChatExpireMs = 14_000;
 export const overlayChatFadeMs = 450;

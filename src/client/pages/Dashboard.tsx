@@ -17,7 +17,7 @@ import {
   runPrerollAds,
 } from '../services/dashboard';
 import { useSocket, type ChatMessage as LiveChatMessage, type ChatModerationEvent } from '../legacy';
-import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, TwitchCategorySuggestion } from '../types';
+import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, TwitchCategorySuggestion } from '../../shared/api';
 
 /* ---------------- constants ---------------- */
 

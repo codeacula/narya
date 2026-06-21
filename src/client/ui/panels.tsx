@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from './icons';
 import { sendChatMessage } from '../services/dashboard';
-import type { Viewer, ChatEntry, StreamEvent } from '../types';
+import type { Viewer, ChatEntry, StreamEvent } from '../../shared/api';
 
 /* ---------------- types ---------------- */
 

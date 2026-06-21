@@ -10,7 +10,7 @@ import type {
   StreamInfoUpdate,
   PrerollResult,
   ChatSendResult,
-} from '../types';
+} from '../../shared/api';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
 

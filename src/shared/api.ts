@@ -1,4 +1,43 @@
-// Domain types shared across the app. These match the backend API.
+export type ChatMessage = {
+  id: string;
+  channel: string;
+  username: string;
+  displayName: string;
+  color: string | null;
+  message: string;
+  receivedAt: string;
+  deletedAt: string | null;
+  deletedReason: string | null;
+  badges: Record<string, string> | null;
+  emotes: Record<string, string[]> | null;
+  isFirstTimer: boolean;
+  isExiting?: boolean;
+};
+
+export type ChatModerationEvent = {
+  type: 'message.deleted' | 'user.timeout' | 'user.ban' | 'chat.clear';
+  channel: string;
+  messageId?: string;
+  username?: string;
+  deletedAt: string;
+  deletedReason: string;
+};
+
+export type MusicInfo = {
+  status: 'playing' | 'paused' | 'stopped' | 'unavailable';
+  playerName: string | null;
+  artist: string | null;
+  title: string | null;
+  album: string | null;
+  source: 'playerctl' | 'manual' | 'none';
+  updatedAt: string;
+};
+
+export type SoundPlayback = {
+  id: string;
+  src: string;
+  volume?: number;
+};
 
 export type Viewer = {
   login: string;

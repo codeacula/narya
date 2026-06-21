@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getViewers } from '../services/dashboard';
 import { Spotlight } from '../ui/panels';
 import type { PanelCtx } from '../ui/panels';
-import type { Viewer } from '../types';
+import type { Viewer } from '../../shared/api';
 
 export function ViewerWindowPage() {
   const params = new URLSearchParams(window.location.search);

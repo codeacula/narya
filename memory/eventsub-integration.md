@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Twitch EventSub WebSocket client is implemented inline in `src/server/index.ts` (around line 150+). It auto-connects on server startup.
+Twitch EventSub WebSocket client is implemented in `src/server/index.ts` alongside the Twitch OAuth/API helpers. It auto-connects during server startup.
 
 **Credentials**:
 - `TWITCH_CLIENT_ID`

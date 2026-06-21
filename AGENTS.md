@@ -6,8 +6,9 @@ This is a Bun-powered Vite + React + TypeScript app with a small backend.
 
 - `src/client/` contains the React UI for `/dashboard`, `/tablet`, and `/overlay`.
 - `src/client/styles.css` holds global UI and overlay styling.
-- `src/server/` contains the Bun/Express backend, Twitch chat handling, OBS WebSocket calls, and SQLite access.
+- `src/server/` contains the Bun/Express backend split by responsibility: HTTP entrypoint/routes, config, SQLite, realtime WebSocket broadcast, Twitch chat, emotes, OBS, music, and sounds.
 - `src/server/types/` contains local declarations for packages without complete TypeScript types.
+- `src/shared/` contains TypeScript interfaces shared by the client and server.
 - `data/` stores runtime SQLite files; only `data/.gitkeep` should be committed.
 - `compose.yml` and `Dockerfile` define the container workflow.
 

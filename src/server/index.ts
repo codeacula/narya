@@ -1,128 +1,20 @@
-import { Database } from 'bun:sqlite';
-import express from 'express';
-import { execFile } from 'node:child_process';
-import { createServer } from 'node:http';
-import { mkdirSync } from 'node:fs';
-import path from 'node:path';
-import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
-import OBSWebSocket from 'obs-websocket-js';
-import tmi from 'tmi.js';
-import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
+import { connectTwitchChat, getSessionChatterCount, getTwitchRoomId, twitchClient } from './chat';
+import { config } from './config';
+import { addColumnIfMissing, db } from './db';
+import { getEmoteMap } from './emotes';
+import { HttpRouteError, parseCookies, readResponseError, sendRouteError } from './http';
+import { clearManualMusic, getCurrentMusic, setManualMusic, startMusicPolling } from './music';
+import { getObsDashboardStats, isObsConnected, switchObsScene, triggerObsTransition } from './obs';
+import { app, broadcast, getSocketCount, server } from './realtime';
+import { triggerQuackSound } from './sounds';
 
-const execFileAsync = promisify(execFile);
+const {
+  port,
+  twitchChannel,
+  twitchRedirectUri,
+} = config;
 
-type ChatMessage = {
-  id: string;
-  channel: string;
-  username: string;
-  displayName: string;
-  color: string | null;
-  message: string;
-  receivedAt: string;
-  deletedAt: string | null;
-  deletedReason: string | null;
-  badges: Record<string, string> | null;
-  emotes: Record<string, string[]> | null;
-  isFirstTimer: boolean;
-};
-
-type MusicInfo = {
-  status: 'playing' | 'paused' | 'stopped' | 'unavailable';
-  playerName: string | null;
-  artist: string | null;
-  title: string | null;
-  album: string | null;
-  source: 'playerctl' | 'manual' | 'none';
-  updatedAt: string;
-};
-
-const port = Number(process.env.PORT ?? 4317);
-const twitchChannel = process.env.TWITCH_CHANNEL ?? 'codeacula';
-const obsUrl = process.env.OBS_WEBSOCKET_URL ?? 'ws://127.0.0.1:4455';
-const obsPassword = process.env.OBS_WEBSOCKET_PASSWORD ?? '';
-const musicPollIntervalMs = Number(process.env.MUSIC_POLL_INTERVAL_MS ?? 2000);
-const musicPlayerctlPlayer = process.env.MUSIC_PLAYERCTL_PLAYER?.trim() || 'strawberry';
-const quackVolume = Math.max(0, Math.min(1, Number(process.env.QUACK_VOLUME ?? 0.2)));
-const quackSounds = [
-  '/sounds/quacks/075176_duck-quack-40345.mp3',
-  '/sounds/quacks/duck-quack-112941.mp3',
-  '/sounds/quacks/duck-quacking-37392.mp3'
-];
-
-let twitchRoomId: string | null = null;
-const sessionChatters = new Set<string>();
 const serverStartedAt = Date.now();
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.resolve(__dirname, '..', '..', 'data');
-mkdirSync(dataDir, { recursive: true });
-const db = new Database(path.join(dataDir, 'streamer-tools.sqlite'));
-
-db.exec('pragma journal_mode = WAL');
-db.exec(`
-  create table if not exists chat_messages (
-    id text primary key,
-    channel text not null,
-    username text not null,
-    display_name text not null,
-    color text,
-    message text not null,
-    received_at text not null,
-    deleted_at text,
-    deleted_reason text,
-    moderation_event_id text
-  );
-
-  create table if not exists chat_events (
-    id text primary key,
-    type text not null,
-    channel text not null,
-    message_id text,
-    username text,
-    payload_json text not null,
-    occurred_at text not null
-  );
-
-  create table if not exists stream_goals (
-    id text primary key,
-    label text not null,
-    current integer not null,
-    target integer not null
-  );
-
-  create table if not exists sound_buttons (
-    id text primary key,
-    label text not null,
-    filename text not null
-  );
-
-  create table if not exists stream_events (
-    id text primary key,
-    kind text not null,
-    actor text not null,
-    detail text not null,
-    tone text not null,
-    received_at text not null
-  );
-
-  create table if not exists twitch_oauth (
-    provider text primary key,
-    access_token text not null,
-    refresh_token text,
-    scopes_json text not null,
-    token_type text,
-    expires_at text,
-    updated_at text not null
-  );
-`);
-
-function addColumnIfMissing(table: string, column: string, definition: string) {
-  const columns = db.prepare(`pragma table_info(${table})`).all() as Array<{ name: string }>;
-  if (!columns.some((row) => row.name === column)) {
-    db.exec(`alter table ${table} add column ${column} ${definition}`);
-  }
-}
 
 addColumnIfMissing('chat_messages', 'deleted_at', 'text');
 addColumnIfMissing('chat_messages', 'deleted_reason', 'text');
@@ -611,384 +503,13 @@ async function connectEventSub(reconnectUrl?: string) {
   });
 }
 
-const app = express();
-app.use(express.json());
-
-const server = createServer(app);
-const sockets = new Set<WsSocket>();
-const wss = new WebSocketServer({ server, path: '/socket' });
-
-function broadcast(event: string, payload: unknown) {
-  const body = JSON.stringify({ event, payload });
-  for (const socket of sockets) {
-    if (socket.readyState === socket.OPEN) {
-      socket.send(body);
-    }
-  }
-}
-
-function triggerQuackSound() {
-  const src = quackSounds[Math.floor(Math.random() * quackSounds.length)];
-  const payload = {
-    id: crypto.randomUUID(),
-    src,
-    volume: quackVolume
-  };
-  broadcast('sound:play', payload);
-  return payload;
-}
-
-wss.on('connection', (socket) => {
-  sockets.add(socket);
-  socket.on('close', () => sockets.delete(socket));
-});
-
-let currentMusic: MusicInfo = {
-  status: 'unavailable',
-  playerName: null,
-  artist: null,
-  title: null,
-  album: null,
-  source: 'none',
-  updatedAt: new Date().toISOString()
-};
-let lastMusicFingerprint = '';
-let musicPollRunning = false;
-let manualMusicActive = false;
-
-function cleanMetadata(value: string) {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeStatus(status: string): MusicInfo['status'] {
-  const normalized = status.trim().toLowerCase();
-  if (normalized === 'playing') return 'playing';
-  if (normalized === 'paused') return 'paused';
-  if (normalized === 'stopped') return 'stopped';
-  return 'unavailable';
-}
-
-function unavailableMusic(): MusicInfo {
-  return {
-    status: 'unavailable',
-    playerName: null,
-    artist: null,
-    title: null,
-    album: null,
-    source: 'none',
-    updatedAt: new Date().toISOString()
-  };
-}
-
-function updateMusic(nextMusic: MusicInfo) {
-  currentMusic = nextMusic;
-
-  const fingerprint = JSON.stringify({
-    status: currentMusic.status,
-    playerName: currentMusic.playerName,
-    artist: currentMusic.artist,
-    title: currentMusic.title,
-    album: currentMusic.album,
-    source: currentMusic.source
-  });
-
-  if (fingerprint !== lastMusicFingerprint) {
-    lastMusicFingerprint = fingerprint;
-    broadcast('music:updated', currentMusic);
-  }
-}
-
-async function readPlayerctlMusicForPlayer(playerName: string | null): Promise<MusicInfo> {
-  const updatedAt = new Date().toISOString();
-  const playerArgs = playerName ? ['--player', playerName] : [];
-  const statusResult = await execFileAsync('playerctl', [...playerArgs, 'status'], { timeout: 1200 });
-  const metadataResult = await execFileAsync(
-    'playerctl',
-    [...playerArgs, 'metadata', '--format', '{{playerName}}\t{{artist}}\t{{title}}\t{{album}}'],
-    { timeout: 1200 }
-  );
-  const [reportedPlayerName = '', artist = '', title = '', album = ''] = metadataResult.stdout.trimEnd().split('\t');
-
-  return {
-    status: normalizeStatus(statusResult.stdout),
-    playerName: cleanMetadata(reportedPlayerName) ?? playerName,
-    artist: cleanMetadata(artist),
-    title: cleanMetadata(title),
-    album: cleanMetadata(album),
-    source: 'playerctl',
-    updatedAt
-  };
-}
-
-async function readPlayerctlMusic(): Promise<MusicInfo> {
-  if (musicPlayerctlPlayer) {
-    return readPlayerctlMusicForPlayer(musicPlayerctlPlayer);
-  }
-
-  const playersResult = await execFileAsync('playerctl', ['-l'], { timeout: 1200 });
-  const players = playersResult.stdout
-    .split('\n')
-    .map((player) => player.trim())
-    .filter(Boolean);
-
-  if (players.length === 0) {
-    return readPlayerctlMusicForPlayer(null);
-  }
-
-  const results = await Promise.allSettled(players.map((player) => readPlayerctlMusicForPlayer(player)));
-  const candidates = results
-    .filter((result): result is PromiseFulfilledResult<MusicInfo> => result.status === 'fulfilled')
-    .map((result) => result.value)
-    .filter((music) => music.title);
-
-  const playing = candidates.find((music) => music.status === 'playing');
-  if (playing) return playing;
-
-  const paused = candidates.find((music) => music.status === 'paused');
-  if (paused) return paused;
-
-  if (candidates[0]) return candidates[0];
-  return readPlayerctlMusicForPlayer(null);
-}
-
-async function pollMusic() {
-  if (manualMusicActive) return;
-  if (musicPollRunning) return;
-  musicPollRunning = true;
-
-  try {
-    updateMusic(await readPlayerctlMusic());
-  } catch {
-    updateMusic(unavailableMusic());
-  } finally {
-    musicPollRunning = false;
-  }
-}
-
-if (musicPollIntervalMs > 0) {
-  pollMusic();
-  setInterval(pollMusic, musicPollIntervalMs);
-}
-
-const insertChat = db.prepare(`
-  insert or ignore into chat_messages
-    (id, channel, username, display_name, color, message, received_at, deleted_at, deleted_reason, badges_json, emotes_json)
-  values
-    (?, ?, ?, ?, ?, ?, ?, null, null, ?, ?)
-`);
-
-const insertChatEvent = db.prepare(`
-  insert into chat_events
-    (id, type, channel, message_id, username, payload_json, occurred_at)
-  values
-    (?, ?, ?, ?, ?, ?, ?)
-`);
-
-const markMessageDeleted = db.prepare(`
-  update chat_messages
-  set deleted_at = ?, deleted_reason = ?, moderation_event_id = ?
-  where id = ?
-`);
-
-const markUserMessagesDeleted = db.prepare(`
-  update chat_messages
-  set deleted_at = ?, deleted_reason = ?, moderation_event_id = ?
-  where channel = ? and lower(username) = lower(?) and deleted_at is null
-`);
-
-const markChannelMessagesDeleted = db.prepare(`
-  update chat_messages
-  set deleted_at = ?, deleted_reason = ?, moderation_event_id = ?
-  where channel = ? and deleted_at is null
-`);
-
-function appendChatEvent(
-  type: string,
-  channel: string,
-  payload: unknown,
-  options: { messageId?: string | null; username?: string | null; occurredAt?: string } = {}
-) {
-  const occurredAt = options.occurredAt ?? new Date().toISOString();
-  const id = crypto.randomUUID();
-
-  insertChatEvent.run(
-    id,
-    type,
-    channel.replace(/^#/, ''),
-    options.messageId ?? null,
-    options.username ?? null,
-    JSON.stringify(payload),
-    occurredAt
-  );
-
-  return { id, occurredAt };
-}
-
-const twitchClient = new tmi.Client({
-  connection: { reconnect: true, secure: true },
-  channels: [twitchChannel]
-});
-
-twitchClient.on('message', (channel, tags, message, self) => {
-  if (self) return;
-
-  if (!twitchRoomId && tags['room-id']) {
-    twitchRoomId = String(tags['room-id']);
-  }
-
-  const occurredAt = new Date().toISOString();
-  const username = (tags.username ?? 'unknown').toLowerCase();
-  const isFirstTimer = !sessionChatters.has(username);
-  sessionChatters.add(username);
-
-  const chatMessage: ChatMessage = {
-    id: tags.id ?? crypto.randomUUID(),
-    channel: channel.replace(/^#/, ''),
-    username: tags.username ?? 'unknown',
-    displayName: tags['display-name'] ?? tags.username ?? 'unknown',
-    color: tags.color ?? null,
-    message,
-    receivedAt: occurredAt,
-    deletedAt: null,
-    deletedReason: null,
-    badges: (tags.badges as Record<string, string> | null) ?? null,
-    emotes: (tags.emotes as Record<string, string[]> | null) ?? null,
-    isFirstTimer,
-  };
-
-  appendChatEvent('message.created', chatMessage.channel, { tags, message }, {
-    messageId: chatMessage.id,
-    username: chatMessage.username,
-    occurredAt
-  });
-
-  insertChat.run(
-    chatMessage.id,
-    chatMessage.channel,
-    chatMessage.username,
-    chatMessage.displayName,
-    chatMessage.color,
-    chatMessage.message,
-    chatMessage.receivedAt,
-    chatMessage.badges ? JSON.stringify(chatMessage.badges) : null,
-    chatMessage.emotes ? JSON.stringify(chatMessage.emotes) : null,
-  );
-  broadcast('chat:message', chatMessage);
-
-  if (/^!quack\b/i.test(message.trim())) {
-    triggerQuackSound();
-  }
-});
-
-twitchClient.on('messagedeleted', (channel, username, deletedMessage, tags) => {
-  const normalizedChannel = channel.replace(/^#/, '');
-  const messageId = tags['target-msg-id'];
-  const event = appendChatEvent(
-    'message.deleted',
-    normalizedChannel,
-    { username, deletedMessage, tags },
-    { messageId, username }
-  );
-
-  if (messageId) {
-    markMessageDeleted.run(event.occurredAt, 'message deleted by moderator', event.id, messageId);
-  }
-
-  broadcast('chat:moderated', {
-    type: 'message.deleted',
-    channel: normalizedChannel,
-    messageId,
-    username,
-    deletedAt: event.occurredAt,
-    deletedReason: 'message deleted by moderator'
-  });
-});
-
-twitchClient.on('timeout', (channel, username, reason, duration, tags) => {
-  const normalizedChannel = channel.replace(/^#/, '');
-  const event = appendChatEvent('user.timeout', normalizedChannel, { username, reason, duration, tags }, { username });
-  const deletedReason = `timeout: ${reason || 'no reason provided'}`;
-
-  markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username);
-  broadcast('chat:moderated', {
-    type: 'user.timeout',
-    channel: normalizedChannel,
-    username,
-    deletedAt: event.occurredAt,
-    deletedReason
-  });
-});
-
-twitchClient.on('ban', (channel, username, reason, tags) => {
-  const normalizedChannel = channel.replace(/^#/, '');
-  const event = appendChatEvent('user.ban', normalizedChannel, { username, reason, tags }, { username });
-  const deletedReason = `ban: ${reason || 'no reason provided'}`;
-
-  markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username);
-  broadcast('chat:moderated', {
-    type: 'user.ban',
-    channel: normalizedChannel,
-    username,
-    deletedAt: event.occurredAt,
-    deletedReason
-  });
-});
-
-twitchClient.on('clearchat', (channel) => {
-  const normalizedChannel = channel.replace(/^#/, '');
-  const event = appendChatEvent('chat.clear', normalizedChannel, {});
-
-  markChannelMessagesDeleted.run(event.occurredAt, 'chat cleared', event.id, normalizedChannel);
-  broadcast('chat:moderated', {
-    type: 'chat.clear',
-    channel: normalizedChannel,
-    deletedAt: event.occurredAt,
-    deletedReason: 'chat cleared'
-  });
-});
-
-twitchClient.connect().catch((error: unknown) => {
-  console.error('Failed to connect to Twitch chat:', error);
-});
-
-const obs = new OBSWebSocket();
-let obsConnected = false;
-
-async function ensureObs() {
-  if (obsConnected) return;
-
-  try {
-    await obs.connect(obsUrl, obsPassword || undefined);
-    obsConnected = true;
-  } catch (error) {
-    obsConnected = false;
-    throw error;
-  }
-}
-
-obs.on('ConnectionClosed', () => {
-  obsConnected = false;
-});
-
 app.get('/api/health', (_request, response) => {
-  response.json({ ok: true, twitchChannel, obsConnected, twitchRoomId, eventSubConnected });
+  response.json({ ok: true, twitchChannel, obsConnected: isObsConnected(), twitchRoomId: getTwitchRoomId(), eventSubConnected });
 });
 
 const TWITCH_OAUTH_SCOPES = REQUIRED_TWITCH_OAUTH_SCOPES.join(' ');
 
-const twitchRedirectUri = process.env.TWITCH_REDIRECT_URI ?? 'http://localhost:5173/api/auth/twitch/callback';
 const twitchOAuthStateCookie = 'streamer_tools_twitch_oauth_state';
-
-function parseCookies(cookieHeader: string | undefined): Record<string, string> {
-  if (!cookieHeader) return {};
-  return Object.fromEntries(
-    cookieHeader.split(';').map((cookie) => {
-      const [rawName, ...rawValue] = cookie.trim().split('=');
-      return [rawName, decodeURIComponent(rawValue.join('='))];
-    }).filter(([name]) => Boolean(name))
-  );
-}
 
 function getTwitchAuthStatus() {
   const token = runtimeUserToken ?? loadCachedTwitchUserToken();
@@ -1118,7 +639,7 @@ app.get('/api/twitch/stream-info', async (_request, response) => {
     );
 
     if (!res.ok) {
-      const message = await readTwitchError(res, 'Twitch channel information is unavailable.');
+      const message = await readResponseError(res, 'Twitch channel information is unavailable.');
       throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
     }
 
@@ -1177,7 +698,7 @@ app.get('/api/twitch/tag-suggestions', async (request, response) => {
     );
 
     if (!res.ok) {
-      const message = await readTwitchError(res, 'Twitch channel tags are unavailable.');
+      const message = await readResponseError(res, 'Twitch channel tags are unavailable.');
       throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
     }
 
@@ -1225,7 +746,7 @@ app.patch('/api/twitch/stream-info', async (request, response) => {
     );
 
     if (!res.ok) {
-      const message = await readTwitchError(res, 'Twitch channel update failed.');
+      const message = await readResponseError(res, 'Twitch channel update failed.');
       throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
     }
 
@@ -1252,7 +773,7 @@ app.post('/api/twitch/preroll', async (_request, response) => {
     });
 
     if (!res.ok) {
-      const message = await readTwitchError(res, 'Twitch commercial request failed.');
+      const message = await readResponseError(res, 'Twitch commercial request failed.');
       throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
     }
 
@@ -1307,7 +828,7 @@ app.post('/api/twitch/chat-message', async (request, response) => {
     });
 
     if (!res.ok) {
-      const errorMessage = await readTwitchError(res, 'Twitch chat message failed.');
+      const errorMessage = await readResponseError(res, 'Twitch chat message failed.');
       throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
     }
 
@@ -1334,39 +855,21 @@ app.post('/api/twitch/chat-message', async (request, response) => {
 });
 
 app.get('/api/music/current', (_request, response) => {
-  response.json(currentMusic);
+  response.json(getCurrentMusic());
 });
 
 app.put('/api/music/current', (request, response) => {
-  const body = request.body as Partial<Record<keyof MusicInfo, unknown>>;
-  const title = typeof body.title === 'string' ? cleanMetadata(body.title) : null;
-  const artist = typeof body.artist === 'string' ? cleanMetadata(body.artist) : null;
-  const album = typeof body.album === 'string' ? cleanMetadata(body.album) : null;
-  const playerName = typeof body.playerName === 'string' ? cleanMetadata(body.playerName) : 'Manual';
-  const status = typeof body.status === 'string' ? normalizeStatus(body.status) : title ? 'playing' : 'stopped';
-
-  if (status === 'unavailable') {
+  const music = setManualMusic(request.body);
+  if (!music) {
     response.status(400).json({ error: 'status must be playing, paused, or stopped' });
     return;
   }
 
-  manualMusicActive = true;
-  updateMusic({
-    status,
-    playerName,
-    artist,
-    title,
-    album,
-    source: 'manual',
-    updatedAt: new Date().toISOString()
-  });
-  response.json(currentMusic);
+  response.json(music);
 });
 
 app.delete('/api/music/current', async (_request, response) => {
-  manualMusicActive = false;
-  await pollMusic();
-  response.json(currentMusic);
+  response.json(await clearManualMusic());
 });
 
 app.get('/api/chat/recent', (_request, response) => {
@@ -1432,8 +935,7 @@ app.get('/api/chat/events/recent', (_request, response) => {
 
 app.post('/api/obs/scenes/:sceneName', async (request, response) => {
   try {
-    await ensureObs();
-    await obs.call('SetCurrentProgramScene', { sceneName: request.params.sceneName });
+    await switchObsScene(request.params.sceneName);
     response.json({ ok: true });
   } catch (error) {
     response.status(502).json({ error: error instanceof Error ? error.message : 'OBS scene switch failed' });
@@ -1442,8 +944,7 @@ app.post('/api/obs/scenes/:sceneName', async (request, response) => {
 
 app.post('/api/obs/transition', async (request, response) => {
   try {
-    await ensureObs();
-    await obs.call('TriggerStudioModeTransition');
+    await triggerObsTransition();
     response.json({ ok: true });
   } catch (error) {
     response.status(502).json({ error: error instanceof Error ? error.message : 'OBS transition failed' });
@@ -1454,69 +955,8 @@ app.post('/api/sounds/quack', (_request, response) => {
   response.json(triggerQuackSound());
 });
 
-let emoteCacheTime = 0;
-let emoteCache: Record<string, string> = {};
-const EMOTE_CACHE_TTL = 10 * 60 * 1000;
-
 app.get('/api/emotes', async (_request, response) => {
-  const now = Date.now();
-  if (now - emoteCacheTime < EMOTE_CACHE_TTL && Object.keys(emoteCache).length > 0) {
-    response.json(emoteCache);
-    return;
-  }
-
-  const map: Record<string, string> = {};
-
-  try {
-    const bttvGlobal = await fetch('https://api.betterttv.net/3/cached/emotes/global').then(
-      (r) => r.json() as Promise<Array<{ code: string; id: string }>>
-    );
-    for (const emote of bttvGlobal) {
-      map[emote.code] = `https://cdn.betterttv.net/emote/${emote.id}/1x`;
-    }
-  } catch {}
-
-  try {
-    const stv = await fetch('https://7tv.io/v3/emote-sets/global').then(
-      (r) => r.json() as Promise<{ emotes: Array<{ id: string; name: string }> }>
-    );
-    for (const emote of stv.emotes ?? []) {
-      map[emote.name] = `https://cdn.7tv.app/emote/${emote.id}/1x.webp`;
-    }
-  } catch {}
-
-  if (twitchRoomId) {
-    try {
-      const bttvChannel = await fetch(
-        `https://api.betterttv.net/3/cached/users/twitch/${twitchRoomId}`
-      ).then(
-        (r) =>
-          r.json() as Promise<{
-            channelEmotes: Array<{ code: string; id: string }>;
-            sharedEmotes: Array<{ code: string; id: string }>;
-          }>
-      );
-      for (const emote of [...(bttvChannel.channelEmotes ?? []), ...(bttvChannel.sharedEmotes ?? [])]) {
-        map[emote.code] = `https://cdn.betterttv.net/emote/${emote.id}/1x`;
-      }
-    } catch {}
-
-    try {
-      const stv7 = await fetch(`https://7tv.io/v3/users/twitch/${twitchRoomId}`).then(
-        (r) =>
-          r.json() as Promise<{
-            emote_set?: { emotes: Array<{ id: string; name: string }> };
-          }>
-      );
-      for (const emote of stv7.emote_set?.emotes ?? []) {
-        map[emote.name] = `https://cdn.7tv.app/emote/${emote.id}/1x.webp`;
-      }
-    } catch {}
-  }
-
-  emoteCache = map;
-  emoteCacheTime = now;
-  response.json(map);
+  response.json(await getEmoteMap(getTwitchRoomId()));
 });
 
 function formatAgo(receivedAt: string): string {
@@ -1615,12 +1055,6 @@ const TWITCH_PREROLL_COMMERCIAL_SECONDS = 180;
 const TWITCH_STREAM_STATUS_CACHE_MS = 15_000;
 const TWITCH_AD_SCHEDULE_CACHE_MS = 5_000;
 
-class HttpRouteError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
-
 const emptyAdSchedule = (adScheduleStatus: AdScheduleStatus, adScheduleError: string | null = null): AdSchedule => ({
   adScheduleStatus,
   adScheduleError,
@@ -1688,30 +1122,6 @@ async function getTwitchActionCredentials(scopes: readonly string[]) {
   };
 }
 
-async function readTwitchError(response: Response, fallback: string): Promise<string> {
-  try {
-    const data = await response.json() as { message?: string; error?: string };
-    return data.message ?? data.error ?? fallback;
-  } catch {
-    try {
-      const text = await response.text();
-      return text.trim() || fallback;
-    } catch {
-      return fallback;
-    }
-  }
-}
-
-function sendRouteError(response: express.Response, error: unknown) {
-  if (error instanceof HttpRouteError) {
-    response.status(error.status).json({ error: error.message });
-    return;
-  }
-
-  console.error('Route error:', error);
-  response.status(500).json({ error: 'Internal server error' });
-}
-
 function normalizeTags(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -1737,7 +1147,7 @@ async function searchTwitchCategories(query: string, credentials: { clientId: st
     { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
   );
   if (!res.ok) {
-    const message = await readTwitchError(res, 'Twitch category search failed.');
+    const message = await readResponseError(res, 'Twitch category search failed.');
     throw new HttpRouteError(res.status === 401 ? 401 : 502, message);
   }
 
@@ -1884,92 +1294,6 @@ async function getTwitchAdSchedule(): Promise<AdSchedule> {
   }
 }
 
-async function getObsDashboardStats() {
-  type ObsStreamStatus = {
-    outputActive?: boolean;
-    outputTimecode?: string;   // "HH:MM:SS.mmm" — source of truth for uptime
-    outputDuration?: number;   // milliseconds (unit confirmed via timecode)
-    outputBytes?: number;      // total bytes sent since stream start
-    outputCongestion?: number; // 0.0–1.0
-    outputSkippedFrames?: number;
-    outputTotalFrames?: number;
-  };
-  type ObsStats = {
-    renderSkippedFrames?: number;
-    renderTotalFrames?: number;
-    activeFps?: number;
-  };
-
-  const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('OBS request timed out')), ms);
-      promise.then(
-        value => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        error => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
-    });
-  };
-
-  try {
-    await withTimeout(ensureObs(), 1200);
-    const [streamStatus, stats] = await Promise.all([
-      withTimeout(obs.call('GetStreamStatus') as Promise<ObsStreamStatus>, 1200),
-      withTimeout(obs.call('GetStats') as Promise<ObsStats>, 1200),
-    ]);
-    const parseTimecode = (tc: string): number | null => {
-      const [hms] = tc.split('.');
-      const parts = hms.split(':').map(Number);
-      if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
-      const [h, m, s] = parts;
-      return (h * 3600) + (m * 60) + s;
-    };
-    const uptimeSeconds = streamStatus.outputActive && streamStatus.outputTimecode
-      ? parseTimecode(streamStatus.outputTimecode)
-      : null;
-
-    const durationMs = streamStatus.outputDuration ?? 0;
-    const totalFrames = streamStatus.outputTotalFrames ?? null;
-    const droppedFrames = streamStatus.outputSkippedFrames ?? null;
-    const laggedFrames = stats.renderSkippedFrames ?? null;
-    // outputBytes lives on GetStreamStatus in OBS WebSocket v5; use stream duration as time base
-    const bitrateKbps = typeof streamStatus.outputBytes === 'number' && streamStatus.outputActive && durationMs > 0
-      ? Math.round((streamStatus.outputBytes * 8) / (durationMs / 1000) / 1000)
-      : null;
-    const congestion = streamStatus.outputCongestion ?? null;
-
-    return {
-      streamActive: streamStatus.outputActive ?? null,
-      uptimeSeconds,
-      streamStartedAt: null,
-      uptimeSource: uptimeSeconds !== null ? 'obs' as const : null,
-      bitrateKbps,
-      congestion,
-      totalFrames,
-      droppedFrames,
-      laggedFrames,
-    };
-  } catch {
-    obsConnected = false;
-    return {
-      streamActive: null,
-      uptimeSeconds: null,
-      streamStartedAt: null,
-      uptimeSource: null,
-      bitrateKbps: null,
-      congestion: null,
-      totalFrames: null,
-      droppedFrames: null,
-      laggedFrames: null,
-    };
-  }
-}
-
 async function getDashboardStatusSnapshot() {
   clearExpiredAdBreak();
 
@@ -1997,13 +1321,13 @@ async function getDashboardStatusSnapshot() {
   return {
     channel: twitchChannel,
     chatConnection: twitchClient.readyState?.() ?? 'UNKNOWN',
-    obsConnected,
+    obsConnected: isObsConnected(),
     eventSubConnected,
     ...getTwitchAuthStatus(),
     ...streamStatus,
     ...obsHealthStats,
     activeChatters: getActiveChatterCount(),
-    sessionChatters: sessionChatters.size,
+    sessionChatters: getSessionChatterCount(),
     knownChatters: getKnownChatterCount(),
     adBreakEndsAt,
     ...adSchedule,
@@ -2135,7 +1459,7 @@ app.get('/api/dashboard/events', (_request, response) => {
 
 function startDashboardHeartbeat() {
   setInterval(() => {
-    if (sockets.size === 0) return;
+    if (getSocketCount() === 0) return;
 
     void getDashboardStatusSnapshot()
       .then(status => broadcast('dashboard:status', status))
@@ -2145,6 +1469,8 @@ function startDashboardHeartbeat() {
 
 server.listen(port, () => {
   console.log(`Streamer Tools backend listening on http://localhost:${port}`);
+  connectTwitchChat();
+  startMusicPolling();
   startDashboardHeartbeat();
   void connectEventSub();
 });
