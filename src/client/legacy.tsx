@@ -1,13 +1,15 @@
-// Backend-wired hooks and components, relocated from main.tsx.
-// Overlay and Tablet import from here; do not redesign in Phase 2.
+// Backend-wired hooks and components shared by Overlay and Tablet.
 import React from 'react';
-import type { ChatMessage, ChatModerationEvent, MusicInfo, SoundPlayback } from '../shared/api';
+import { getControlConfig, getSoundButtons, playSoundButton } from './services/dashboard';
+import { OVERLAY_CHAT_EXPIRE_MS, OVERLAY_CHAT_FADE_MS } from '../shared/constants';
+import { getRoleFromBadges, type Role } from '../shared/roles';
+import type { ChatMessage, ChatModerationEvent, MusicInfo, SoundButton, SoundPlayback } from '../shared/api';
 export type { ChatMessage, ChatModerationEvent, MusicInfo, SoundPlayback } from '../shared/api';
 
-export type Role = 'broadcaster' | 'moderator' | 'vip' | 'subscriber' | 'regular';
+export type { Role } from '../shared/roles';
 
-export const overlayChatExpireMs = 14_000;
-export const overlayChatFadeMs = 450;
+export const overlayChatExpireMs = OVERLAY_CHAT_EXPIRE_MS;
+export const overlayChatFadeMs = OVERLAY_CHAT_FADE_MS;
 
 export const quackSoundSources = [
   '/sounds/quacks/075176_duck-quack-40345.mp3',
@@ -15,16 +17,10 @@ export const quackSoundSources = [
   '/sounds/quacks/duck-quacking-37392.mp3',
 ];
 
-export const scenes = ['Coding', 'BRB', 'Starting Soon', 'Ending'];
-export const soundButtons = ['Airhorn', 'Bonk', 'Applause', 'Vine Boom'];
+const fallbackScenes = ['Coding', 'BRB', 'Starting Soon', 'Ending'];
 
 export function getRole(badges: Record<string, string> | null): Role {
-  if (!badges) return 'regular';
-  if (badges.broadcaster) return 'broadcaster';
-  if (badges.moderator) return 'moderator';
-  if (badges.vip) return 'vip';
-  if (badges.subscriber) return 'subscriber';
-  return 'regular';
+  return getRoleFromBadges(badges);
 }
 
 export function renderWords(
@@ -169,6 +165,34 @@ export function useEmotes() {
   return emoteMap;
 }
 
+function useControlConfig() {
+  const [scenes, setScenes] = React.useState<string[]>(fallbackScenes);
+
+  React.useEffect(() => {
+    getControlConfig()
+      .then(config => setScenes(config.scenes.length > 0 ? config.scenes : fallbackScenes))
+      .catch((error: unknown) => {
+        console.error('Failed to load control config:', error);
+      });
+  }, []);
+
+  return { scenes };
+}
+
+function useSoundButtons() {
+  const [soundButtons, setSoundButtons] = React.useState<SoundButton[]>([]);
+
+  React.useEffect(() => {
+    getSoundButtons()
+      .then(setSoundButtons)
+      .catch((error: unknown) => {
+        console.error('Failed to load sound buttons:', error);
+      });
+  }, []);
+
+  return soundButtons;
+}
+
 export function useSoundEvents(audioRefs: React.RefObject<Record<string, HTMLAudioElement | null>>) {
   useSocket<SoundPlayback>(
     'sound:play',
@@ -302,8 +326,17 @@ export function MusicControls() {
 }
 
 export function ControlSurface({ tablet = false }: { tablet?: boolean }) {
+  const { scenes } = useControlConfig();
+  const soundButtons = useSoundButtons();
+
   async function post(path: string) {
     await fetch(path, { method: 'POST' });
+  }
+
+  function playSound(id: string) {
+    void playSoundButton(id).catch((error: unknown) => {
+      console.error(`Failed to play sound button ${id}:`, error);
+    });
   }
 
   return (
@@ -332,7 +365,11 @@ export function ControlSurface({ tablet = false }: { tablet?: boolean }) {
       <section>
         <h2>Sounds</h2>
         <div className="buttonGrid">
-          {soundButtons.map(sound => <button key={sound}>{sound}</button>)}
+          {soundButtons.map(sound => (
+            <button key={sound.id} onClick={() => playSound(sound.id)}>
+              {sound.label}
+            </button>
+          ))}
         </div>
       </section>
     </div>

@@ -3,6 +3,7 @@ import { config } from './config';
 
 const obs = new OBSWebSocket();
 let obsConnected = false;
+let obsConnectPromise: Promise<void> | null = null;
 
 export function isObsConnected(): boolean {
   return obsConnected;
@@ -10,18 +11,26 @@ export function isObsConnected(): boolean {
 
 async function ensureObs() {
   if (obsConnected) return;
+  if (obsConnectPromise) return obsConnectPromise;
 
-  try {
+  obsConnectPromise = (async () => {
     await obs.connect(config.obsUrl, config.obsPassword || undefined);
     obsConnected = true;
+  })();
+
+  try {
+    await obsConnectPromise;
   } catch (error) {
     obsConnected = false;
     throw error;
+  } finally {
+    obsConnectPromise = null;
   }
 }
 
 obs.on('ConnectionClosed', () => {
   obsConnected = false;
+  obsConnectPromise = null;
 });
 
 export async function switchObsScene(sceneName: string) {
@@ -103,7 +112,8 @@ export async function getObsDashboardStats() {
       droppedFrames,
       laggedFrames,
     };
-  } catch {
+  } catch (error) {
+    console.error('OBS: dashboard stats unavailable:', error);
     obsConnected = false;
     return {
       streamActive: null,

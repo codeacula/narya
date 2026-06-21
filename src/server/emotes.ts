@@ -17,7 +17,9 @@ export async function getEmoteMap(twitchRoomId: string | null): Promise<Record<s
     for (const emote of bttvGlobal) {
       map[emote.code] = `https://cdn.betterttv.net/emote/${emote.id}/1x`;
     }
-  } catch {}
+  } catch (error) {
+    console.error('Emotes: failed to fetch global BTTV emotes:', error);
+  }
 
   try {
     const stv = await fetch('https://7tv.io/v3/emote-sets/global').then(
@@ -26,7 +28,9 @@ export async function getEmoteMap(twitchRoomId: string | null): Promise<Record<s
     for (const emote of stv.emotes ?? []) {
       map[emote.name] = `https://cdn.7tv.app/emote/${emote.id}/1x.webp`;
     }
-  } catch {}
+  } catch (error) {
+    console.error('Emotes: failed to fetch global 7TV emotes:', error);
+  }
 
   if (twitchRoomId) {
     try {
@@ -42,7 +46,9 @@ export async function getEmoteMap(twitchRoomId: string | null): Promise<Record<s
       for (const emote of [...(bttvChannel.channelEmotes ?? []), ...(bttvChannel.sharedEmotes ?? [])]) {
         map[emote.code] = `https://cdn.betterttv.net/emote/${emote.id}/1x`;
       }
-    } catch {}
+    } catch (error) {
+      console.error(`Emotes: failed to fetch BTTV channel emotes for ${twitchRoomId}:`, error);
+    }
 
     try {
       const stv7 = await fetch(`https://7tv.io/v3/users/twitch/${twitchRoomId}`).then(
@@ -54,7 +60,9 @@ export async function getEmoteMap(twitchRoomId: string | null): Promise<Record<s
       for (const emote of stv7.emote_set?.emotes ?? []) {
         map[emote.name] = `https://cdn.7tv.app/emote/${emote.id}/1x.webp`;
       }
-    } catch {}
+    } catch (error) {
+      console.error(`Emotes: failed to fetch 7TV channel emotes for ${twitchRoomId}:`, error);
+    }
   }
 
   emoteCache = map;

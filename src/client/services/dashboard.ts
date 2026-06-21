@@ -10,6 +10,9 @@ import type {
   StreamInfoUpdate,
   PrerollResult,
   ChatSendResult,
+  ControlConfig,
+  SoundButton,
+  SoundPlayback,
 } from '../../shared/api';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
@@ -88,10 +91,22 @@ export async function disconnectTwitch(): Promise<void> {
   if (!response.ok) throw new Error(`Twitch logout failed with ${response.status}`);
 }
 
-export function getRunsheet(): RunItem[] {
-  return [];
+export async function getControlConfig(): Promise<ControlConfig> {
+  return fetchJson<ControlConfig>('/api/control/config');
 }
 
-export function getTicker(): string[] {
-  return [];
+export async function getSoundButtons(): Promise<SoundButton[]> {
+  return fetchJson<SoundButton[]>('/api/sounds');
+}
+
+export async function playSoundButton(id: string): Promise<SoundPlayback> {
+  return sendJson<SoundPlayback>(`/api/sounds/${encodeURIComponent(id)}/play`, 'POST');
+}
+
+export async function getRunsheet(): Promise<RunItem[]> {
+  return fetchJson<RunItem[]>('/api/runsheet');
+}
+
+export async function getTicker(): Promise<string[]> {
+  return fetchJson<string[]>('/api/ticker');
 }

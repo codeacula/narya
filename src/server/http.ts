@@ -20,11 +20,13 @@ export async function readResponseError(response: Response, fallback: string): P
   try {
     const data = await response.json() as { message?: string; error?: string };
     return data.message ?? data.error ?? fallback;
-  } catch {
+  } catch (error) {
+    console.error('HTTP: failed to parse error response JSON:', error);
     try {
       const text = await response.text();
       return text.trim() || fallback;
-    } catch {
+    } catch (textError) {
+      console.error('HTTP: failed to read error response text:', textError);
       return fallback;
     }
   }

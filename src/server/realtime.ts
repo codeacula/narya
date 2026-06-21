@@ -22,6 +22,9 @@ export function getSocketCount(): number {
 export function broadcast(event: string, payload: unknown) {
   const message = JSON.stringify({ event, payload });
   for (const socket of sockets) {
-    if (socket.readyState === socket.OPEN) socket.send(message);
+    if (socket.readyState !== socket.OPEN) continue;
+    socket.send(message, (error) => {
+      if (error) console.error(`Realtime: failed to send ${event}:`, error);
+    });
   }
 }

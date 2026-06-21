@@ -126,7 +126,8 @@ export async function pollMusic() {
 
   try {
     updateMusic(await readPlayerctlMusic());
-  } catch {
+  } catch (error) {
+    console.error('Music: polling failed:', error);
     updateMusic(unavailableMusic());
   } finally {
     musicPollRunning = false;

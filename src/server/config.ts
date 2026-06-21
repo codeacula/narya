@@ -11,5 +11,9 @@ export const config = {
     '/sounds/quacks/duck-quack-112941.mp3',
     '/sounds/quacks/duck-quacking-37392.mp3',
   ],
+  obsScenes: (process.env.OBS_SCENES ?? 'Coding,BRB,Starting Soon,Ending')
+    .split(',')
+    .map(scene => scene.trim())
+    .filter(Boolean),
   twitchRedirectUri: process.env.TWITCH_REDIRECT_URI ?? 'http://localhost:5173/api/auth/twitch/callback',
 };

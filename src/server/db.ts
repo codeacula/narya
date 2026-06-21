@@ -65,11 +65,69 @@ db.exec(`
     expires_at text,
     updated_at text not null
   );
+
+  create table if not exists runsheet_items (
+    id text primary key,
+    text text not null,
+    done integer not null default 0,
+    position integer not null default 0
+  );
+
+  create table if not exists ticker_items (
+    id text primary key,
+    text text not null,
+    position integer not null default 0
+  );
 `);
 
+db.exec(`
+  create index if not exists idx_chat_messages_channel on chat_messages(channel);
+  create index if not exists idx_chat_messages_received_at on chat_messages(received_at);
+  create index if not exists idx_chat_messages_username on chat_messages(username);
+  create index if not exists idx_runsheet_items_position on runsheet_items(position);
+  create index if not exists idx_ticker_items_position on ticker_items(position);
+`);
+
+const allowedMigrationTables = new Set([
+  'chat_messages',
+  'chat_events',
+  'stream_goals',
+  'sound_buttons',
+  'stream_events',
+  'twitch_oauth',
+  'runsheet_items',
+  'ticker_items',
+]);
+const allowedMigrationColumns = new Set(['deleted_at', 'deleted_reason', 'moderation_event_id', 'badges_json', 'emotes_json']);
+const allowedMigrationDefinitions: Record<string, string> = {
+  deleted_at: 'text',
+  deleted_reason: 'text',
+  moderation_event_id: 'text',
+  badges_json: 'text',
+  emotes_json: 'text',
+};
+
+function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
+  const allowed = kind === 'table' ? allowedMigrationTables : allowedMigrationColumns;
+  if (!allowed.has(value)) {
+    throw new Error(`Unsafe migration ${kind}: ${value}`);
+  }
+}
+
 export function addColumnIfMissing(table: string, column: string, definition: string) {
+  assertMigrationIdentifier('table', table);
+  assertMigrationIdentifier('column', column);
+  if (allowedMigrationDefinitions[column] !== definition.trim().toLowerCase()) {
+    throw new Error(`Unsafe migration definition for ${column}: ${definition}`);
+  }
   const columns = db.prepare(`pragma table_info(${table})`).all() as Array<{ name: string }>;
   if (!columns.some((row) => row.name === column)) {
     db.exec(`alter table ${table} add column ${column} ${definition}`);
   }
 }
+
+addColumnIfMissing('chat_messages', 'deleted_at', 'text');
+addColumnIfMissing('chat_messages', 'deleted_reason', 'text');
+addColumnIfMissing('chat_messages', 'moderation_event_id', 'text');
+addColumnIfMissing('chat_messages', 'badges_json', 'text');
+addColumnIfMissing('chat_messages', 'emotes_json', 'text');

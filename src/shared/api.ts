@@ -39,6 +39,16 @@ export type SoundPlayback = {
   volume?: number;
 };
 
+export type SoundButton = {
+  id: string;
+  label: string;
+  filename: string;
+};
+
+export type ControlConfig = {
+  scenes: string[];
+};
+
 export type Viewer = {
   login: string;
   display: string;
