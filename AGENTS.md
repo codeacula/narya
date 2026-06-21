@@ -58,7 +58,9 @@ curl http://localhost:4317/api/music/current
 
 ## Commit & Pull Request Guidelines
 
-Existing commits use short, imperative, hyphenated messages, such as `initial-streamer-tools-scaffold` and `add-chat-event-history`. Keep commits focused and avoid mixing unrelated UI, backend, and config changes.
+Use semantic commit messages, for example `feat: add chat command replies` or `docs: update agent instructions`. Keep commits focused and avoid mixing unrelated UI, backend, and config changes.
+
+As part of tidy-up before handing work back, commit completed changes unless the user explicitly asks not to commit or the work is intentionally left in progress.
 
 Pull requests should include a short summary, verification commands run, and screenshots for visible dashboard/tablet/overlay changes. Mention any required `.env` or OBS/Twitch setup changes.
 
