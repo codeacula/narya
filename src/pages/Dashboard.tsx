@@ -2,9 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { ChatInput, MODULES, PanelCtx } from '../ui/panels';
 import { useTweaks, TweaksPanel, TweakSection } from '../ui/tweaks';
-import { disconnectTwitch, getViewers, getChatEntries, getChatEntriesBefore, getStreamEvents, getDashboardStatus } from '../services/dashboard';
+import { Icon } from '../ui/icons';
+import {
+  disconnectTwitch,
+  getViewers,
+  getChatEntries,
+  getChatEntriesBefore,
+  getStreamEvents,
+  getDashboardStatus,
+  getStreamInfo,
+  getCategorySuggestions,
+  getTagSuggestions,
+  updateStreamInfo,
+  runPrerollAds,
+} from '../services/dashboard';
 import { useSocket, type ChatMessage as LiveChatMessage, type ChatModerationEvent } from '../legacy';
-import type { Viewer, ChatEntry, StreamEvent, DashboardStatus } from '../types';
+import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, TwitchCategorySuggestion } from '../types';
 
 /* ---------------- constants ---------------- */
 
@@ -36,6 +49,7 @@ const POP_DEFAULTS: Record<string, { w: number; h: number }> = {
 };
 
 type PoppedState = { x: number; y: number; w: number; h: number };
+type StreamInfoForm = { title: string; category: string; tags: string[] };
 
 const EMPTY_STATUS: DashboardStatus = {
   channel: '',
@@ -228,6 +242,242 @@ function Settings({
     </div>
   );
 }
+
+function normalizeTagInput(value: string): string {
+  return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
+}
+
+function StreamInfoModal({
+  form,
+  loading,
+  saving,
+  message,
+  error,
+  setForm,
+  onSubmit,
+  onClose,
+}: {
+  form: StreamInfoForm;
+  loading: boolean;
+  saving: boolean;
+  message: string | null;
+  error: string | null;
+  setForm: React.Dispatch<React.SetStateAction<StreamInfoForm>>;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+}) {
+  const [categorySuggestions, setCategorySuggestions] = React.useState<TwitchCategorySuggestion[]>([]);
+  const [categoryLoading, setCategoryLoading] = React.useState(false);
+  const [categoryFocused, setCategoryFocused] = React.useState(false);
+  const [tagInput, setTagInput] = React.useState('');
+  const [tagSuggestions, setTagSuggestions] = React.useState<string[]>([]);
+  const [tagLoading, setTagLoading] = React.useState(false);
+  const [tagFocused, setTagFocused] = React.useState(false);
+
+  React.useEffect(() => {
+    const query = form.category.trim();
+    if (query.length < 2 || loading) {
+      setCategorySuggestions([]);
+      setCategoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCategoryLoading(true);
+    const timeout = window.setTimeout(() => {
+      void getCategorySuggestions(query)
+        .then(suggestions => {
+          if (!cancelled) setCategorySuggestions(suggestions);
+        })
+        .catch(() => {
+          if (!cancelled) setCategorySuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setCategoryLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [form.category, loading]);
+
+  React.useEffect(() => {
+    const query = tagInput.trim();
+    if (!query || loading) {
+      setTagSuggestions([]);
+      setTagLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setTagLoading(true);
+    const timeout = window.setTimeout(() => {
+      void getTagSuggestions(query)
+        .then(suggestions => {
+          if (!cancelled) {
+            const selected = new Set(form.tags.map(tag => tag.toLowerCase()));
+            setTagSuggestions(suggestions.filter(tag => !selected.has(tag.toLowerCase())));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setTagSuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setTagLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [form.tags, loading, tagInput]);
+
+  const addTag = React.useCallback((value: string) => {
+    const tag = normalizeTagInput(value);
+    if (!tag) return;
+    setForm(current => {
+      if (current.tags.length >= 10 || current.tags.some(item => item.toLowerCase() === tag.toLowerCase())) {
+        return current;
+      }
+      return { ...current, tags: [...current.tags, tag] };
+    });
+    setTagInput('');
+    setTagSuggestions([]);
+  }, [setForm]);
+
+  const removeTag = React.useCallback((tag: string) => {
+    setForm(current => ({ ...current, tags: current.tags.filter(item => item !== tag) }));
+  }, [setForm]);
+  const showCategorySuggestions = categoryFocused && (categoryLoading || categorySuggestions.length > 0);
+  const showTagSuggestions = tagFocused && (tagLoading || tagSuggestions.length > 0);
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <form className="stream-info-modal" onSubmit={onSubmit}>
+        <div className="modal-head">
+          <div>
+            <h2>Stream Info</h2>
+          </div>
+          <button className="icon-btn" type="button" title="Close" onClick={onClose}>
+            <Icon name="x" />
+          </button>
+        </div>
+
+        <label className="field">
+          <span>Title</span>
+          <input
+            value={form.title}
+            maxLength={140}
+            disabled={loading || saving}
+            onChange={event => setForm(current => ({ ...current, title: event.target.value }))}
+          />
+          <small>{form.title.length}/140</small>
+        </label>
+
+        <div className="field">
+          <span>Category</span>
+          <div className="suggestion-anchor">
+            <input
+              aria-label="Category"
+              value={form.category}
+              disabled={loading || saving}
+              onFocus={() => setCategoryFocused(true)}
+              onBlur={() => window.setTimeout(() => setCategoryFocused(false), 120)}
+              onChange={event => setForm(current => ({ ...current, category: event.target.value }))}
+            />
+            {showCategorySuggestions && (
+              <div className="suggestion-list">
+                {categoryLoading ? (
+                  <div className="suggestion-empty">Searching categories...</div>
+                ) : categorySuggestions.map(category => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    className="suggestion-item"
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => {
+                      setForm(current => ({ ...current, category: category.name }));
+                      setCategorySuggestions([]);
+                      setCategoryFocused(false);
+                    }}
+                  >
+                    <span>{category.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="field">
+          <span>Tags</span>
+          <div className="tag-chip-list">
+            {form.tags.map(tag => (
+              <span className="tag-chip" key={tag}>
+                {tag}
+                <button type="button" title={`Remove ${tag}`} onClick={() => removeTag(tag)}>
+                  <Icon name="x" size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="suggestion-anchor">
+            <input
+              aria-label="Tag suggestion"
+              value={tagInput}
+              disabled={loading || saving || form.tags.length >= 10}
+              onFocus={() => setTagFocused(true)}
+              onBlur={() => window.setTimeout(() => setTagFocused(false), 120)}
+              onChange={event => setTagInput(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  addTag(tagInput);
+                }
+              }}
+            />
+            {showTagSuggestions && (
+              <div className="suggestion-list">
+                {tagLoading ? (
+                  <div className="suggestion-empty">Searching tags...</div>
+                ) : tagSuggestions.map(tag => (
+                  <button
+                    key={tag}
+                    type="button"
+                    className="suggestion-item"
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => addTag(tag)}
+                  >
+                    <span>{tag}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <small>{form.tags.length}/10</small>
+        </div>
+
+        {(loading || message || error) && (
+          <div className={'modal-status' + (error ? ' error' : '')}>
+            {loading ? 'Loading current stream info…' : error ?? message}
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <button className="modbtn" type="button" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="modbtn gold" type="submit" disabled={loading || saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 /* ---------------- Dashboard page ---------------- */
 
 export function DashboardPage() {
@@ -239,6 +489,14 @@ export function DashboardPage() {
   const [chat, setChat] = useState<ChatEntry[]>([]);
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
+  const [streamInfoOpen, setStreamInfoOpen] = useState(false);
+  const [streamInfoForm, setStreamInfoForm] = useState<StreamInfoForm>({ title: '', category: '', tags: [] });
+  const [streamInfoLoading, setStreamInfoLoading] = useState(false);
+  const [streamInfoSaving, setStreamInfoSaving] = useState(false);
+  const [streamInfoMessage, setStreamInfoMessage] = useState<string | null>(null);
+  const [streamInfoError, setStreamInfoError] = useState<string | null>(null);
+  const [prerollBusy, setPrerollBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -317,12 +575,102 @@ export function DashboardPage() {
     }).catch(() => {});
   }, []));
 
+  useSocket<DashboardStatus>('dashboard:status', React.useCallback((nextStatus) => {
+    setStatus(nextStatus);
+  }, []));
+
   const handleTwitchLogout = React.useCallback(() => {
     void disconnectTwitch()
       .then(() => getDashboardStatus())
       .then(setStatus)
       .catch(() => {});
   }, []);
+
+  const refreshDashboardStatus = React.useCallback(() => {
+    void getDashboardStatus().then(setStatus).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const timeUntil = (value: string | null) => {
+      if (!value) return null;
+      const timestamp = new Date(value).getTime();
+      if (!Number.isFinite(timestamp)) return null;
+      const remaining = timestamp - Date.now();
+      return remaining > 0 ? remaining : 250;
+    };
+
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    const adBreakMs = timeUntil(status.adBreakEndsAt);
+    if (adBreakMs !== null) {
+      timers.push(setTimeout(refreshDashboardStatus, Math.min(adBreakMs + 500, 2_147_483_647)));
+    }
+    if (status.prerollFreeTimeSeconds !== null && status.prerollFreeTimeSeconds > 0) {
+      timers.push(setTimeout(refreshDashboardStatus, Math.min(status.prerollFreeTimeSeconds * 1000 + 500, 2_147_483_647)));
+    }
+    const nextAdMs = timeUntil(status.nextAdAt);
+    if (nextAdMs !== null) {
+      timers.push(setTimeout(refreshDashboardStatus, Math.min(nextAdMs + 500, 2_147_483_647)));
+    }
+
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+    };
+  }, [refreshDashboardStatus, status.adBreakEndsAt, status.nextAdAt, status.prerollFreeTimeSeconds]);
+
+  const handleRunPreroll = React.useCallback(() => {
+    setPrerollBusy(true);
+    setActionMessage(null);
+    void runPrerollAds()
+      .then(result => {
+        const minutes = Math.round(result.durationSeconds / 60);
+        setActionMessage(`${minutes}m ads started`);
+        refreshDashboardStatus();
+      })
+      .catch(error => {
+        setActionMessage(error instanceof Error ? error.message : 'Ad request failed');
+      })
+      .finally(() => setPrerollBusy(false));
+  }, [refreshDashboardStatus]);
+
+  const handleOpenStreamInfo = React.useCallback(() => {
+    setStreamInfoOpen(true);
+    setStreamInfoLoading(true);
+    setStreamInfoMessage(null);
+    setStreamInfoError(null);
+    void getStreamInfo()
+      .then(info => {
+        setStreamInfoForm({
+          title: info.title,
+          category: info.category,
+          tags: info.tags,
+        });
+      })
+      .catch(error => {
+        setStreamInfoError(error instanceof Error ? error.message : 'Could not load stream info');
+      })
+      .finally(() => setStreamInfoLoading(false));
+  }, []);
+
+  const handleStreamInfoSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setStreamInfoSaving(true);
+    setStreamInfoMessage(null);
+    setStreamInfoError(null);
+    void updateStreamInfo({
+      title: streamInfoForm.title,
+      category: streamInfoForm.category,
+      tags: streamInfoForm.tags,
+    })
+      .then(() => {
+        setStreamInfoMessage('Saved');
+        setActionMessage('Stream info saved');
+        refreshDashboardStatus();
+      })
+      .catch(error => {
+        setStreamInfoError(error instanceof Error ? error.message : 'Could not save stream info');
+      })
+      .finally(() => setStreamInfoSaving(false));
+  }, [refreshDashboardStatus, streamInfoForm]);
 
   const ctx: PanelCtx = {
     viewers,
@@ -416,6 +764,11 @@ export function DashboardPage() {
       <StatBar
         clock24={t.clock === '24h'}
         starfield={t.starfield}
+        onRunPreroll={handleRunPreroll}
+        onOpenStreamInfo={handleOpenStreamInfo}
+        prerollBusy={prerollBusy}
+        actionMessage={actionMessage}
+        twitchMissingScopes={status.twitchMissingScopes}
         streamActive={status.streamActive}
         uptimeSeconds={status.uptimeSeconds}
         uptimeSource={status.uptimeSource}
@@ -459,6 +812,19 @@ export function DashboardPage() {
           );
         })}
       </div>
+
+      {streamInfoOpen && (
+        <StreamInfoModal
+          form={streamInfoForm}
+          loading={streamInfoLoading}
+          saving={streamInfoSaving}
+          message={streamInfoMessage}
+          error={streamInfoError}
+          setForm={setStreamInfoForm}
+          onSubmit={handleStreamInfoSubmit}
+          onClose={() => setStreamInfoOpen(false)}
+        />
+      )}
 
       <TweaksPanel title="Display" open={tweaksOpen} onClose={() => setTweaksOpen(false)}>
         <TweakSection label="Live Data" />

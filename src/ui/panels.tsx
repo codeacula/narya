@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from './icons';
+import { sendChatMessage } from '../services/dashboard';
 import type { Viewer, ChatEntry, StreamEvent } from '../types';
 
 /* ---------------- types ---------------- */
@@ -155,11 +156,43 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
 }
 
 export function ChatInput({ channel }: { channel: string }) {
+  const [text, setText] = React.useState('');
+  const [sending, setSending] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const message = text.trim();
+
+  const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!message || sending) return;
+
+    setSending(true);
+    setError(null);
+    void sendChatMessage(message)
+      .then(() => setText(''))
+      .catch(error => {
+        setError(error instanceof Error ? error.message : 'Could not send chat message');
+      })
+      .finally(() => setSending(false));
+  }, [message, sending]);
+
   return (
-    <div className="chat-input">
-      <input placeholder={channel ? `Send a message as ${channel}...` : 'Send a message...'} />
-      <button className="chat-send">Chat</button>
-    </div>
+    <form className="chat-input" onSubmit={handleSubmit}>
+      <input
+        aria-label="Send Twitch chat message"
+        value={text}
+        maxLength={500}
+        disabled={sending}
+        placeholder={channel ? `Send a message to ${channel}...` : 'Send a message...'}
+        onChange={event => {
+          setText(event.target.value);
+          if (error) setError(null);
+        }}
+      />
+      <button className="chat-send" type="submit" disabled={!message || sending}>
+        {sending ? 'Sending' : 'Chat'}
+      </button>
+      {error ? <div className="chat-input-error" title={error}>{error}</div> : null}
+    </form>
   );
 }
 

@@ -154,7 +154,10 @@ const REQUIRED_TWITCH_OAUTH_SCOPES = [
   'bits:read',
   'channel:read:redemptions',
   'channel:read:ads',
+  'channel:edit:commercial',
+  'channel:manage:broadcast',
   'user:read:chat',
+  'user:write:chat',
 ] as const;
 
 const loadTwitchToken = db.prepare(`
@@ -236,6 +239,7 @@ function persistTwitchUserToken(tokenData: Required<Pick<TwitchTokenResponse, 'a
   runtimeUserToken = token;
   twitchStreamStatusCache = null;
   twitchAdScheduleCache = null;
+  twitchSenderId = null;
   return token;
 }
 
@@ -352,6 +356,7 @@ async function getTwitchUserApiHeaders(): Promise<{ 'Client-Id': string; Authori
 let eventSubWs: WebSocket | null = null;
 let eventSubConnected = false;
 let broadcasterId: string | null = null;
+let twitchSenderId: string | null = null;
 let eventSubKeepaliveMs = 20_000;
 let eventSubKeepaliveTimer: ReturnType<typeof setTimeout> | null = null;
 let adBreakEndsAt: string | null = null;
@@ -436,6 +441,19 @@ async function fetchBroadcasterId(clientId: string, userToken: string): Promise<
       `https://api.twitch.tv/helix/users?login=${encodeURIComponent(twitchChannel)}`,
       { headers: { 'Client-Id': clientId, 'Authorization': `Bearer ${userToken}` } }
     );
+    if (!res.ok) return null;
+    const data = await res.json() as { data: Array<{ id: string }> };
+    return data.data[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAuthenticatedTwitchUserId(clientId: string, userToken: string): Promise<string | null> {
+  try {
+    const res = await fetch('https://api.twitch.tv/helix/users', {
+      headers: { 'Client-Id': clientId, 'Authorization': `Bearer ${userToken}` },
+    });
     if (!res.ok) return null;
     const data = await res.json() as { data: Array<{ id: string }> };
     return data.data[0]?.id ?? null;
@@ -1079,6 +1097,7 @@ app.delete('/api/auth/twitch', (_request, response) => {
   deleteTwitchToken.run();
   runtimeUserToken = null;
   broadcasterId = null;
+  twitchSenderId = null;
   twitchStreamStatusCache = null;
   twitchAdScheduleCache = null;
   if (eventSubWs) {
@@ -1088,6 +1107,230 @@ app.delete('/api/auth/twitch', (_request, response) => {
   eventSubConnected = false;
   clearKeepaliveTimer();
   response.json({ ok: true, ...getTwitchAuthStatus() });
+});
+
+app.get('/api/twitch/stream-info', async (_request, response) => {
+  try {
+    const credentials = await getTwitchActionCredentials([]);
+    const res = await fetch(
+      `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
+      { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+    );
+
+    if (!res.ok) {
+      const message = await readTwitchError(res, 'Twitch channel information is unavailable.');
+      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+    }
+
+    const data = await res.json() as {
+      data?: Array<{
+        broadcaster_name?: string;
+        game_id?: string;
+        game_name?: string;
+        title?: string;
+        tags?: string[];
+      }>;
+    };
+    const channel = data.data?.[0];
+    if (!channel) throw new HttpRouteError(404, `No Twitch channel information found for "${twitchChannel}".`);
+
+    response.json({
+      broadcasterName: channel.broadcaster_name ?? twitchChannel,
+      categoryId: channel.game_id ?? '',
+      category: channel.game_name ?? '',
+      title: channel.title ?? '',
+      tags: normalizeTags(channel.tags ?? []),
+    });
+  } catch (error) {
+    sendRouteError(response, error);
+  }
+});
+
+app.get('/api/twitch/category-suggestions', async (request, response) => {
+  try {
+    const query = typeof request.query['query'] === 'string' ? request.query['query'].trim() : '';
+    if (query.length < 2) {
+      response.json([]);
+      return;
+    }
+
+    const headers = await getTwitchApiHeaders();
+    if (!headers) throw new HttpRouteError(401, 'Twitch API credentials are required.');
+
+    const categories = await searchTwitchCategories(query, {
+      clientId: headers['Client-Id'],
+      authorization: headers.Authorization,
+    });
+    response.json(categories);
+  } catch (error) {
+    sendRouteError(response, error);
+  }
+});
+
+app.get('/api/twitch/tag-suggestions', async (request, response) => {
+  try {
+    const query = typeof request.query['query'] === 'string' ? request.query['query'].trim() : '';
+    const credentials = await getTwitchActionCredentials([]);
+    const res = await fetch(
+      `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
+      { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+    );
+
+    if (!res.ok) {
+      const message = await readTwitchError(res, 'Twitch channel tags are unavailable.');
+      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+    }
+
+    const data = await res.json() as { data?: Array<{ tags?: string[] }> };
+    const existingTags = normalizeTags(data.data?.[0]?.tags ?? []);
+    const candidate = normalizeTwitchTagCandidate(query);
+    const suggestions = new Set<string>();
+    const lowerQuery = candidate.toLowerCase();
+
+    for (const tag of existingTags) {
+      if (!lowerQuery || tag.toLowerCase().includes(lowerQuery)) suggestions.add(tag);
+    }
+    if (candidate) suggestions.add(candidate);
+
+    response.json([...suggestions].slice(0, 8));
+  } catch (error) {
+    sendRouteError(response, error);
+  }
+});
+
+app.patch('/api/twitch/stream-info', async (request, response) => {
+  try {
+    const body = request.body as { title?: unknown; category?: unknown; tags?: unknown };
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const category = typeof body.category === 'string' ? body.category.trim() : '';
+    const tags = normalizeTags(body.tags);
+
+    if (!title) throw new HttpRouteError(400, 'Title is required.');
+    if (title.length > 140) throw new HttpRouteError(400, 'Title must be 140 characters or fewer.');
+    if (!category) throw new HttpRouteError(400, 'Category is required.');
+
+    const credentials = await getTwitchActionCredentials(['channel:manage:broadcast']);
+    const gameId = await resolveTwitchCategoryId(category, credentials);
+    const res = await fetch(
+      `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Client-Id': credentials.clientId,
+          Authorization: credentials.authorization,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title, game_id: gameId, tags }),
+      },
+    );
+
+    if (!res.ok) {
+      const message = await readTwitchError(res, 'Twitch channel update failed.');
+      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+    }
+
+    response.json({ ok: true, title, category, categoryId: gameId, tags });
+  } catch (error) {
+    sendRouteError(response, error);
+  }
+});
+
+app.post('/api/twitch/preroll', async (_request, response) => {
+  try {
+    const credentials = await getTwitchActionCredentials(['channel:edit:commercial']);
+    const res = await fetch('https://api.twitch.tv/helix/channels/commercial', {
+      method: 'POST',
+      headers: {
+        'Client-Id': credentials.clientId,
+        Authorization: credentials.authorization,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        broadcaster_id: credentials.broadcasterId,
+        length: TWITCH_PREROLL_COMMERCIAL_SECONDS,
+      }),
+    });
+
+    if (!res.ok) {
+      const message = await readTwitchError(res, 'Twitch commercial request failed.');
+      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+    }
+
+    const data = await res.json() as {
+      data?: Array<{ length?: number; message?: string; retry_after?: number }>;
+    };
+    const commercial = data.data?.[0] ?? {};
+    const durationSeconds = typeof commercial.length === 'number'
+      ? commercial.length
+      : TWITCH_PREROLL_COMMERCIAL_SECONDS;
+
+    adBreakEndsAt = new Date(Date.now() + durationSeconds * 1000).toISOString();
+    twitchAdScheduleCache = null;
+
+    response.json({
+      ok: true,
+      durationSeconds,
+      message: commercial.message ?? null,
+      retryAfterSeconds: typeof commercial.retry_after === 'number' ? commercial.retry_after : null,
+      adBreakEndsAt,
+    });
+  } catch (error) {
+    sendRouteError(response, error);
+  }
+});
+
+app.post('/api/twitch/chat-message', async (request, response) => {
+  try {
+    const body = request.body as { message?: unknown };
+    const message = typeof body.message === 'string' ? body.message.trim() : '';
+
+    if (!message) throw new HttpRouteError(400, 'Message is required.');
+    if (message.length > 500) throw new HttpRouteError(400, 'Message must be 500 characters or fewer.');
+
+    const credentials = await getTwitchActionCredentials(['user:write:chat']);
+    const senderId = twitchSenderId ?? await fetchAuthenticatedTwitchUserId(credentials.clientId, credentials.userToken);
+    if (!senderId) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
+    twitchSenderId = senderId;
+
+    const res = await fetch('https://api.twitch.tv/helix/chat/messages', {
+      method: 'POST',
+      headers: {
+        'Client-Id': credentials.clientId,
+        Authorization: credentials.authorization,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        broadcaster_id: credentials.broadcasterId,
+        sender_id: senderId,
+        message,
+      }),
+    });
+
+    if (!res.ok) {
+      const errorMessage = await readTwitchError(res, 'Twitch chat message failed.');
+      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
+    }
+
+    const data = await res.json() as {
+      data?: Array<{
+        message_id?: string;
+        is_sent?: boolean;
+        drop_reason?: { code?: string; message?: string } | null;
+      }>;
+    };
+    const sentMessage = data.data?.[0] ?? {};
+    const dropReason = sentMessage.drop_reason ?? null;
+    if (sentMessage.is_sent === false || dropReason) {
+      throw new HttpRouteError(422, dropReason?.message ?? 'Twitch did not send the message.');
+    }
+
+    response.json({
+      ok: true,
+      messageId: sentMessage.message_id ?? null,
+    });
+  } catch (error) {
+    sendRouteError(response, error);
+  }
 });
 
 app.get('/api/music/current', (_request, response) => {
@@ -1368,6 +1611,15 @@ type AdSchedule = {
 
 let twitchStreamStatusCache: { expiresAtMs: number; status: StreamActivityStatus } | null = null;
 let twitchAdScheduleCache: { expiresAtMs: number; schedule: AdSchedule } | null = null;
+const TWITCH_PREROLL_COMMERCIAL_SECONDS = 180;
+const TWITCH_STREAM_STATUS_CACHE_MS = 15_000;
+const TWITCH_AD_SCHEDULE_CACHE_MS = 5_000;
+
+class HttpRouteError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
 
 const emptyAdSchedule = (adScheduleStatus: AdScheduleStatus, adScheduleError: string | null = null): AdSchedule => ({
   adScheduleStatus,
@@ -1392,6 +1644,119 @@ function parseTwitchDate(value: unknown): string | null {
   if (typeof value !== 'string' || !value.trim()) return null;
   const timestamp = new Date(value).getTime();
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function clearExpiredAdBreak(nowMs = Date.now()) {
+  if (!adBreakEndsAt) return;
+  const endsAtMs = new Date(adBreakEndsAt).getTime();
+  if (!Number.isFinite(endsAtMs) || endsAtMs > nowMs) return;
+
+  adBreakEndsAt = null;
+  twitchAdScheduleCache = null;
+}
+
+function getCachedUserTokenForScopeChecks(): TwitchUserToken | null {
+  const token = runtimeUserToken ?? loadCachedTwitchUserToken();
+  if (token) runtimeUserToken = token;
+  return token;
+}
+
+function getMissingTwitchScopes(scopes: readonly string[]): string[] {
+  const token = getCachedUserTokenForScopeChecks();
+  if (!token) return [];
+  return scopes.filter(scope => !token.scopes.includes(scope));
+}
+
+async function getTwitchActionCredentials(scopes: readonly string[]) {
+  const headers = await getTwitchUserApiHeaders();
+  if (!headers) throw new HttpRouteError(401, 'Twitch login is required.');
+
+  const missingScopes = getMissingTwitchScopes(scopes);
+  if (missingScopes.length > 0) {
+    throw new HttpRouteError(403, `Reconnect Twitch to grant: ${missingScopes.join(', ')}`);
+  }
+
+  const bid = broadcasterId ?? await fetchBroadcasterId(headers['Client-Id'], headers.userToken);
+  if (!bid) throw new HttpRouteError(502, `Could not resolve broadcaster ID for "${twitchChannel}".`);
+  broadcasterId = bid;
+
+  return {
+    clientId: headers['Client-Id'],
+    authorization: headers.Authorization,
+    userToken: headers.userToken,
+    broadcasterId: bid,
+  };
+}
+
+async function readTwitchError(response: Response, fallback: string): Promise<string> {
+  try {
+    const data = await response.json() as { message?: string; error?: string };
+    return data.message ?? data.error ?? fallback;
+  } catch {
+    try {
+      const text = await response.text();
+      return text.trim() || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+}
+
+function sendRouteError(response: express.Response, error: unknown) {
+  if (error instanceof HttpRouteError) {
+    response.status(error.status).json({ error: error.message });
+    return;
+  }
+
+  console.error('Route error:', error);
+  response.status(500).json({ error: 'Internal server error' });
+}
+
+function normalizeTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const tag = normalizeTwitchTagCandidate(item);
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    seen.add(tag.toLowerCase());
+    tags.push(tag);
+    if (tags.length === 10) break;
+  }
+  return tags;
+}
+
+function normalizeTwitchTagCandidate(value: string): string {
+  return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
+}
+
+async function searchTwitchCategories(query: string, credentials: { clientId: string; authorization: string }) {
+  const res = await fetch(
+    `https://api.twitch.tv/helix/search/categories?query=${encodeURIComponent(query)}&first=20`,
+    { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+  );
+  if (!res.ok) {
+    const message = await readTwitchError(res, 'Twitch category search failed.');
+    throw new HttpRouteError(res.status === 401 ? 401 : 502, message);
+  }
+
+  const data = await res.json() as { data?: Array<{ id: string; name: string; box_art_url?: string }> };
+  return (data.data ?? []).map(category => ({
+    id: category.id,
+    name: category.name,
+    boxArtUrl: category.box_art_url ?? null,
+  }));
+}
+
+async function resolveTwitchCategoryId(category: string, credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>): Promise<string> {
+  const query = category.trim();
+  if (!query) throw new HttpRouteError(400, 'Category is required.');
+
+  const categories = await searchTwitchCategories(query, credentials);
+  const match = categories.find(item => item.name.toLowerCase() === query.toLowerCase()) ?? categories[0];
+  if (!match) throw new HttpRouteError(400, `No Twitch category matched "${query}".`);
+  return match.id;
 }
 
 async function getTwitchStreamStatus(): Promise<StreamActivityStatus> {
@@ -1437,7 +1802,7 @@ async function getTwitchStreamStatus(): Promise<StreamActivityStatus> {
         };
 
     twitchStreamStatusCache = {
-      expiresAtMs: Date.now() + 15_000,
+      expiresAtMs: Date.now() + TWITCH_STREAM_STATUS_CACHE_MS,
       status,
     };
 
@@ -1449,6 +1814,8 @@ async function getTwitchStreamStatus(): Promise<StreamActivityStatus> {
 }
 
 async function getTwitchAdSchedule(): Promise<AdSchedule> {
+  clearExpiredAdBreak();
+
   if (twitchAdScheduleCache && twitchAdScheduleCache.expiresAtMs > Date.now()) {
     return twitchAdScheduleCache.schedule;
   }
@@ -1506,7 +1873,7 @@ async function getTwitchAdSchedule(): Promise<AdSchedule> {
     };
 
     twitchAdScheduleCache = {
-      expiresAtMs: Date.now() + 15_000,
+      expiresAtMs: Date.now() + TWITCH_AD_SCHEDULE_CACHE_MS,
       schedule,
     };
 
@@ -1603,7 +1970,9 @@ async function getObsDashboardStats() {
   }
 }
 
-app.get('/api/dashboard/status', async (_request, response) => {
+async function getDashboardStatusSnapshot() {
+  clearExpiredAdBreak();
+
   const [twitchStreamStatus, obsStats, adSchedule] = await Promise.all([
     getTwitchStreamStatus(),
     getObsDashboardStats(),
@@ -1625,7 +1994,7 @@ app.get('/api/dashboard/status', async (_request, response) => {
         uptimeSource: _obsUptimeSource,
       };
 
-  response.json({
+  return {
     channel: twitchChannel,
     chatConnection: twitchClient.readyState?.() ?? 'UNKNOWN',
     obsConnected,
@@ -1638,7 +2007,11 @@ app.get('/api/dashboard/status', async (_request, response) => {
     knownChatters: getKnownChatterCount(),
     adBreakEndsAt,
     ...adSchedule,
-  });
+  };
+}
+
+app.get('/api/dashboard/status', async (_request, response) => {
+  response.json(await getDashboardStatusSnapshot());
 });
 
 app.get('/api/dashboard/viewers', (_request, response) => {
@@ -1760,7 +2133,18 @@ app.get('/api/dashboard/events', (_request, response) => {
   response.json([]);
 });
 
+function startDashboardHeartbeat() {
+  setInterval(() => {
+    if (sockets.size === 0) return;
+
+    void getDashboardStatusSnapshot()
+      .then(status => broadcast('dashboard:status', status))
+      .catch(error => console.error('Dashboard heartbeat failed:', error));
+  }, 5_000);
+}
+
 server.listen(port, () => {
   console.log(`Streamer Tools backend listening on http://localhost:${port}`);
+  startDashboardHeartbeat();
   void connectEventSub();
 });

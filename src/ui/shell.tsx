@@ -116,6 +116,11 @@ function Gauge({
 export function StatBar({
   clock24,
   starfield,
+  onRunPreroll,
+  onOpenStreamInfo,
+  prerollBusy,
+  actionMessage,
+  twitchMissingScopes,
   streamActive,
   uptimeSeconds,
   uptimeSource,
@@ -140,6 +145,11 @@ export function StatBar({
 }: {
   clock24: boolean;
   starfield: boolean;
+  onRunPreroll: () => void;
+  onOpenStreamInfo: () => void;
+  prerollBusy: boolean;
+  actionMessage: string | null;
+  twitchMissingScopes: string[];
   streamActive: boolean | null;
   uptimeSeconds: number | null;
   uptimeSource: 'twitch' | 'obs' | null;
@@ -294,7 +304,29 @@ export function StatBar({
             ? 'Status: Twitch login required'
             : adScheduleStatus === 'available'
               ? 'Status: no ad scheduled'
-              : `Status: ${adScheduleError ?? 'ad status unavailable'}`;
+            : `Status: ${adScheduleError ?? 'ad status unavailable'}`;
+  const activeAdBreak = (() => {
+    if (!adBreakEndsAt) return false;
+    const timestamp = new Date(adBreakEndsAt).getTime();
+    return Number.isFinite(timestamp) && timestamp > Date.now();
+  })();
+  const missingCommercialScope = twitchMissingScopes.includes('channel:edit:commercial');
+  const prerollAvailable = streamActive === true
+    && adScheduleStatus === 'available'
+    && !missingCommercialScope
+    && !activeAdBreak
+    && (prerollFreeTimeSeconds === null || prerollFreeTimeSeconds <= 0);
+  const prerollDisabledReason = streamActive !== true
+    ? 'Stream must be live'
+    : missingCommercialScope
+      ? 'Reconnect Twitch to grant channel:edit:commercial'
+    : adScheduleStatus !== 'available'
+      ? adScheduleError ?? 'Twitch ads are unavailable'
+      : activeAdBreak
+        ? 'Ads are already running'
+        : prerollFreeTimeSeconds !== null && prerollFreeTimeSeconds > 0
+          ? 'Pre-roll is already off'
+          : 'Run 3 minute ad break';
 
   return (
     <div className={'statbar' + (starfield ? ' starfield' : '')}>
@@ -308,6 +340,30 @@ export function StatBar({
       <Gauge label="Ad break" className={adClass}>
         <div className="gauge-value">{adCountdown !== null ? formatMM(adCountdown.seconds) : 'N/A'}</div>
         <div className="gauge-sub">{adSub}</div>
+      </Gauge>
+      <Gauge label="Actions">
+        <div className="stat-actions">
+          <button
+            className="stat-action"
+            type="button"
+            title={prerollDisabledReason}
+            disabled={!prerollAvailable || prerollBusy}
+            onClick={onRunPreroll}
+          >
+            <Icon name="play" size={13} />
+            <span>{prerollBusy ? 'Running' : '3m ads'}</span>
+          </button>
+          <button
+            className="stat-action"
+            type="button"
+            title="Edit stream information"
+            onClick={onOpenStreamInfo}
+          >
+            <Icon name="edit" size={13} />
+            <span>Info</span>
+          </button>
+        </div>
+        <div className="gauge-sub">{actionMessage ?? 'Twitch controls'}</div>
       </Gauge>
       <Gauge label="Chatters" icon={<Icon name="users" size={11} />}>
         <div className="gauge-value">{activeChatters}</div>

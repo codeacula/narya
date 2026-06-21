@@ -69,3 +69,36 @@ export type DashboardStatus = {
   snoozeCount: number | null;
   snoozeRefreshAt: string | null;
 };
+
+export type StreamInfo = {
+  broadcasterName: string;
+  categoryId: string;
+  category: string;
+  title: string;
+  tags: string[];
+};
+
+export type TwitchCategorySuggestion = {
+  id: string;
+  name: string;
+  boxArtUrl: string | null;
+};
+
+export type StreamInfoUpdate = {
+  title: string;
+  category: string;
+  tags: string[];
+};
+
+export type PrerollResult = {
+  ok: boolean;
+  durationSeconds: number;
+  message: string | null;
+  retryAfterSeconds: number | null;
+  adBreakEndsAt: string;
+};
+
+export type ChatSendResult = {
+  ok: boolean;
+  messageId: string | null;
+};

@@ -45,6 +45,13 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   bits: <path d="m13 2-9 11h7l-1 9 9-11h-7z"/>,
+  play: <path d="M5 5v14l14-7z"/>,
+  edit: (
+    <>
+      <path d="M12 20h9"/>
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>
+    </>
+  ),
   users: (
     <>
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
