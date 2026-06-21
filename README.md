@@ -21,6 +21,13 @@ bun run dev
 ```
 
 The Vite app runs on port `5173`; the backend API and WebSocket server run on port `4317`.
+Open `http://localhost:5173/tablet` on the desktop, or `http://<desktop-lan-ip>:5173/tablet` from a tablet on the same network.
+
+## OBS Controls
+
+Enable OBS WebSocket on port `4455`, then set `OBS_WEBSOCKET_PASSWORD` in `.env` if OBS requires a password. The backend connects to OBS on startup, keeps a live scene list/current scene state, and broadcasts OBS updates to the tablet panel.
+
+When OBS is connected, `/tablet` shows the live OBS scene list and highlights the current program scene. When OBS is unavailable, it falls back to the `OBS_SCENES` setting so the panel layout remains testable, but OBS buttons stay disabled until the connection returns.
 
 ## Docker
 

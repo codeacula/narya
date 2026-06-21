@@ -49,6 +49,21 @@ export type ControlConfig = {
   scenes: string[];
 };
 
+export type ObsStatus = {
+  connected: boolean;
+  scenes: string[];
+  currentProgramScene: string | null;
+  currentPreviewScene: string | null;
+  studioMode: boolean;
+  lastError: string | null;
+  updatedAt: string;
+};
+
+export type ControlResponse = {
+  ok: boolean;
+  obsStatus?: ObsStatus;
+};
+
 export type Viewer = {
   login: string;
   display: string;

@@ -11,6 +11,8 @@ import type {
   PrerollResult,
   ChatSendResult,
   ControlConfig,
+  ControlResponse,
+  ObsStatus,
   SoundButton,
   SoundPlayback,
 } from '../../shared/api';
@@ -93,6 +95,18 @@ export async function disconnectTwitch(): Promise<void> {
 
 export async function getControlConfig(): Promise<ControlConfig> {
   return fetchJson<ControlConfig>('/api/control/config');
+}
+
+export async function getObsStatus(): Promise<ObsStatus> {
+  return fetchJson<ObsStatus>('/api/obs/status');
+}
+
+export async function switchObsScene(sceneName: string): Promise<ControlResponse> {
+  return sendJson<ControlResponse>(`/api/obs/scenes/${encodeURIComponent(sceneName)}`, 'POST');
+}
+
+export async function triggerObsTransition(): Promise<ControlResponse> {
+  return sendJson<ControlResponse>('/api/obs/transition', 'POST');
 }
 
 export async function getSoundButtons(): Promise<SoundButton[]> {

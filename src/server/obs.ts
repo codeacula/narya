@@ -1,46 +1,179 @@
 import OBSWebSocket from 'obs-websocket-js';
+import type { ObsStatus } from '../shared/api';
 import { config } from './config';
+import { broadcast } from './realtime';
 
 const obs = new OBSWebSocket();
-let obsConnected = false;
-let obsConnectPromise: Promise<void> | null = null;
+const reconnectDelayMs = 5000;
 
-export function isObsConnected(): boolean {
-  return obsConnected;
+let obsConnectPromise: Promise<void> | null = null;
+let reconnectTimer: Timer | null = null;
+
+const obsStatus: ObsStatus = {
+  connected: false,
+  scenes: config.obsScenes,
+  currentProgramScene: null,
+  currentPreviewScene: null,
+  studioMode: false,
+  lastError: null,
+  updatedAt: new Date().toISOString(),
+};
+
+type SceneListResponse = {
+  scenes?: Array<{ sceneName?: string }>;
+  currentProgramSceneName?: string;
+  currentPreviewSceneName?: string;
+};
+
+type StudioModeResponse = {
+  studioModeEnabled?: boolean;
+};
+
+type SceneNameEvent = {
+  sceneName?: string;
+};
+
+type SceneListChangedEvent = {
+  scenes?: Array<{ sceneName?: string }>;
+};
+
+type StudioModeEvent = {
+  studioModeEnabled?: boolean;
+};
+
+function updateObsStatus(next: Partial<ObsStatus>) {
+  Object.assign(obsStatus, next, { updatedAt: new Date().toISOString() });
+  broadcast('obs:status', getObsStatus());
 }
 
-async function ensureObs() {
-  if (obsConnected) return;
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void connectObs();
+  }, reconnectDelayMs);
+}
+
+function clearReconnect() {
+  if (!reconnectTimer) return;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
+
+export function getObsStatus(): ObsStatus {
+  return {
+    ...obsStatus,
+    scenes: [...obsStatus.scenes],
+  };
+}
+
+export function isObsConnected(): boolean {
+  return obsStatus.connected;
+}
+
+export async function refreshObsStatus() {
+  const [sceneList, studioMode] = await Promise.all([
+    obs.call('GetSceneList') as Promise<SceneListResponse>,
+    obs.call('GetStudioModeEnabled') as Promise<StudioModeResponse>,
+  ]);
+  updateObsStatus({
+    connected: true,
+    scenes: (sceneList.scenes ?? []).map(scene => scene.sceneName).filter((name): name is string => Boolean(name)),
+    currentProgramScene: sceneList.currentProgramSceneName ?? null,
+    currentPreviewScene: sceneList.currentPreviewSceneName ?? null,
+    studioMode: studioMode.studioModeEnabled ?? false,
+    lastError: null,
+  });
+}
+
+export async function connectObs() {
+  if (obsStatus.connected) return;
   if (obsConnectPromise) return obsConnectPromise;
 
   obsConnectPromise = (async () => {
-    await obs.connect(config.obsUrl, config.obsPassword || undefined);
-    obsConnected = true;
+    try {
+      await obs.connect(config.obsUrl, config.obsPassword || undefined);
+      clearReconnect();
+      await refreshObsStatus();
+      console.log(`OBS: connected to ${config.obsUrl}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'OBS connection failed';
+      updateObsStatus({
+        connected: false,
+        scenes: config.obsScenes,
+        currentProgramScene: null,
+        currentPreviewScene: null,
+        studioMode: false,
+        lastError: message,
+      });
+      scheduleReconnect();
+      throw error;
+    } finally {
+      obsConnectPromise = null;
+    }
   })();
 
-  try {
-    await obsConnectPromise;
-  } catch (error) {
-    obsConnected = false;
-    throw error;
-  } finally {
-    obsConnectPromise = null;
-  }
+  return obsConnectPromise;
+}
+
+async function ensureObs() {
+  if (obsStatus.connected) return;
+  await connectObs();
 }
 
 obs.on('ConnectionClosed', () => {
-  obsConnected = false;
+  updateObsStatus({
+    connected: false,
+    scenes: config.obsScenes,
+    currentProgramScene: null,
+    currentPreviewScene: null,
+    studioMode: false,
+    lastError: 'OBS connection closed',
+  });
   obsConnectPromise = null;
+  scheduleReconnect();
 });
 
-export async function switchObsScene(sceneName: string) {
+obs.on('CurrentProgramSceneChanged', (event: SceneNameEvent) => {
+  updateObsStatus({ currentProgramScene: event.sceneName ?? null, lastError: null });
+});
+
+obs.on('CurrentPreviewSceneChanged', (event: SceneNameEvent) => {
+  updateObsStatus({ currentPreviewScene: event.sceneName ?? null, lastError: null });
+});
+
+obs.on('SceneListChanged', (event: SceneListChangedEvent) => {
+  updateObsStatus({
+    scenes: (event.scenes ?? []).map(scene => scene.sceneName).filter((name): name is string => Boolean(name)),
+    lastError: null,
+  });
+  void refreshObsStatus().catch((error: unknown) => {
+    console.error('OBS: failed to refresh scene list:', error);
+  });
+});
+
+obs.on('StudioModeStateChanged', (event: StudioModeEvent) => {
+  updateObsStatus({ studioMode: event.studioModeEnabled ?? false, lastError: null });
+  void refreshObsStatus().catch((error: unknown) => {
+    console.error('OBS: failed to refresh studio mode state:', error);
+  });
+});
+
+export async function switchObsScene(sceneName: string): Promise<ObsStatus> {
   await ensureObs();
+  if (obsStatus.scenes.length > 0 && !obsStatus.scenes.includes(sceneName)) {
+    throw new Error(`OBS scene "${sceneName}" was not found`);
+  }
   await obs.call('SetCurrentProgramScene', { sceneName });
+  updateObsStatus({ currentProgramScene: sceneName, lastError: null });
+  return getObsStatus();
 }
 
-export async function triggerObsTransition() {
+export async function triggerObsTransition(): Promise<ObsStatus> {
   await ensureObs();
   await obs.call('TriggerStudioModeTransition');
+  await refreshObsStatus();
+  return getObsStatus();
 }
 
 export async function getObsDashboardStats() {
@@ -114,7 +247,9 @@ export async function getObsDashboardStats() {
     };
   } catch (error) {
     console.error('OBS: dashboard stats unavailable:', error);
-    obsConnected = false;
+    updateObsStatus({
+      lastError: error instanceof Error ? error.message : 'OBS dashboard stats unavailable',
+    });
     return {
       streamActive: null,
       uptimeSeconds: null,

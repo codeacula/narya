@@ -56,6 +56,11 @@ button:hover {
   border-color: var(--gold);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .accent {
   background: var(--arcane);
 }
@@ -366,6 +371,122 @@ nav {
   padding: 16px;
 }
 
+.tabletControlGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.tabletControlGrid > section,
+.tabletPanel {
+  border: 1px solid #2a3a58;
+  border-radius: 8px;
+  background: var(--navy);
+  padding: 16px;
+}
+
+.obsPanel {
+  grid-row: span 2;
+}
+
+.tabletPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.tabletStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--silver);
+  font-size: 14px;
+}
+
+.tabletStatusDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.tabletStatusDot.connected {
+  background: #50fa7b;
+  box-shadow: 0 0 0 4px rgba(80, 250, 123, 0.12);
+}
+
+.tabletStatusDot.disconnected {
+  background: #ff5555;
+  box-shadow: 0 0 0 4px rgba(255, 85, 85, 0.12);
+}
+
+.obsSceneSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.obsSceneSummary > div {
+  min-width: 0;
+  border: 1px solid #2f4367;
+  border-radius: 8px;
+  background: var(--navy-deep);
+  padding: 12px;
+}
+
+.obsSceneSummary span,
+.sceneButton small,
+.transitionButton small {
+  display: block;
+  color: var(--silver);
+  font-size: 12px;
+}
+
+.obsSceneSummary b {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabletError {
+  margin-bottom: 14px;
+  border: 1px solid rgba(255, 85, 85, 0.36);
+  border-radius: 8px;
+  background: rgba(255, 85, 85, 0.1);
+  color: #ffb3b3;
+  padding: 10px 12px;
+}
+
+.tabletButtonGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.tabletButtonGrid button {
+  min-height: 86px;
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+
+.sceneButton {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.sceneButton.current {
+  border-color: var(--gold);
+  background: rgba(255, 184, 108, 0.16);
+  color: #ffe2bf;
+  opacity: 1;
+}
+
 .tablet {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -397,7 +518,9 @@ nav {
 
 @media (max-width: 900px) {
   .dashboardGrid,
-  .tablet {
+  .tablet,
+  .tabletControlGrid,
+  .obsSceneSummary {
     grid-template-columns: 1fr;
   }
 

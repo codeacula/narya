@@ -4,7 +4,7 @@ import { config } from './config';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
 import { clearManualMusic, getCurrentMusic, setManualMusic } from './music';
-import { isObsConnected, switchObsScene, triggerObsTransition } from './obs';
+import { getObsStatus, isObsConnected, switchObsScene, triggerObsTransition } from './obs';
 import type { RuntimeState } from './runtime';
 import { getSoundButtons, triggerQuackSound, triggerSoundButton } from './sounds';
 
@@ -32,7 +32,16 @@ export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
   });
 
   app.get('/api/control/config', (_request, response) => {
-    response.json({ scenes: config.obsScenes });
+    const obsStatus = getObsStatus();
+    response.json({ scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : config.obsScenes });
+  });
+
+  app.get('/api/obs/status', (_request, response) => {
+    const obsStatus = getObsStatus();
+    response.json({
+      ...obsStatus,
+      scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : config.obsScenes,
+    });
   });
 
   app.get('/api/runsheet', (_request, response) => {
@@ -125,17 +134,18 @@ export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
 
   app.post('/api/obs/scenes/:sceneName', async (request, response) => {
     try {
-      await switchObsScene(request.params.sceneName);
-      response.json({ ok: true });
+      const obsStatus = await switchObsScene(request.params.sceneName);
+      response.json({ ok: true, obsStatus });
     } catch (error) {
-      response.status(502).json({ error: error instanceof Error ? error.message : 'OBS scene switch failed' });
+      const message = error instanceof Error ? error.message : 'OBS scene switch failed';
+      response.status(message.includes('was not found') ? 400 : 502).json({ error: message });
     }
   });
 
   app.post('/api/obs/transition', async (_request, response) => {
     try {
-      await triggerObsTransition();
-      response.json({ ok: true });
+      const obsStatus = await triggerObsTransition();
+      response.json({ ok: true, obsStatus });
     } catch (error) {
       response.status(502).json({ error: error instanceof Error ? error.message : 'OBS transition failed' });
     }

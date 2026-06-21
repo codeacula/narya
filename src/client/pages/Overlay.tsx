@@ -1,5 +1,7 @@
 import React from 'react';
-import { ChatPanel, MusicPanel, useSoundEvents, quackSoundSources } from '../legacy';
+import { ChatPanel } from '../chat';
+import { MusicPanel } from '../music';
+import { quackSoundSources, useSoundEvents } from '../sounds';
 
 function SoundBank() {
   const audioRefs = React.useRef<Record<string, HTMLAudioElement | null>>({});

@@ -13,11 +13,11 @@ import {
   updateStreamInfo,
   runPrerollAds,
 } from '../services/dashboard';
-import { useSocket, type ChatMessage as LiveChatMessage, type ChatModerationEvent } from '../legacy';
+import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
-import type { Viewer, ChatEntry, StreamEvent, DashboardStatus } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent } from '../../shared/api';
 
 /* ---------------- constants ---------------- */
 
