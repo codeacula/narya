@@ -170,3 +170,15 @@ export type ChatSendResult = {
   ok: boolean;
   messageId: string | null;
 };
+
+export type ChatbotCommandActionType = 'chat_reply';
+
+export type ChatbotCommandSettings = {
+  enabled: boolean;
+  command: string;
+  response: string;
+};
+
+export type ChatbotCommandSettingsResponse = ChatbotCommandSettings & {
+  updatedAt: string | null;
+};

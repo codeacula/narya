@@ -543,6 +543,48 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .set-badge--ok::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #50fa7b; }
 .btn-primary { display: inline-block; padding: 7px 16px; border-radius: var(--radius-2); background: #9146FF; color: #fff; font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background 0.15s; }
 .btn-primary:hover { background: #772ce8; }
+.command-settings-form {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+.command-enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  color: var(--fg-1);
+  font-size: 13px;
+}
+.command-enabled input {
+  accent-color: var(--gold-500);
+}
+.command-example {
+  color: var(--fg-3);
+  font-size: 12px;
+}
+.command-example code {
+  color: var(--accent-fg);
+  font-family: var(--font-mono);
+}
+.command-settings-status {
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius-2);
+  padding: 9px 11px;
+  color: var(--success-fg);
+  background: var(--success-bg);
+  font-size: 12px;
+}
+.command-settings-status.error {
+  color: var(--danger-fg);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+.command-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 
 .live-data-list {
   display: grid;

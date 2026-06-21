@@ -180,6 +180,53 @@ async function getTwitchChatCredentials(state: RuntimeState) {
   };
 }
 
+export async function sendTwitchChatMessage(state: RuntimeState, message: string): Promise<{ messageId: string | null }> {
+  const trimmedMessage = message.trim();
+  if (!trimmedMessage) throw new HttpRouteError(400, 'Message is required.');
+  if (trimmedMessage.length > 500) throw new HttpRouteError(400, 'Message must be 500 characters or fewer.');
+
+  const credentials = await getTwitchChatCredentials(state);
+  const cachedSenderId = credentials.senderIdKey === 'bot' ? state.twitchBotSenderId : state.twitchSenderId;
+  const senderId = cachedSenderId ?? await fetchAuthenticatedTwitchUserId(credentials.clientId, credentials.userToken);
+  if (!senderId) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
+  if (credentials.senderIdKey === 'bot') state.twitchBotSenderId = senderId;
+  else state.twitchSenderId = senderId;
+
+  const res = await fetch('https://api.twitch.tv/helix/chat/messages', {
+    method: 'POST',
+    headers: {
+      'Client-Id': credentials.clientId,
+      Authorization: credentials.authorization,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      broadcaster_id: credentials.broadcasterId,
+      sender_id: senderId,
+      message: trimmedMessage,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorMessage = await readResponseError(res, 'Twitch chat message failed.');
+    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
+  }
+
+  const data = await res.json() as {
+    data?: Array<{
+      message_id?: string;
+      is_sent?: boolean;
+      drop_reason?: { code?: string; message?: string } | null;
+    }>;
+  };
+  const sentMessage = data.data?.[0] ?? {};
+  const dropReason = sentMessage.drop_reason ?? null;
+  if (sentMessage.is_sent === false || dropReason) {
+    throw new HttpRouteError(422, dropReason?.message ?? 'Twitch did not send the message.');
+  }
+
+  return { messageId: sentMessage.message_id ?? null };
+}
+
 export function normalizeTags(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -403,51 +450,11 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       const body = request.body as { message?: unknown };
       const message = typeof body.message === 'string' ? body.message.trim() : '';
 
-      if (!message) throw new HttpRouteError(400, 'Message is required.');
-      if (message.length > 500) throw new HttpRouteError(400, 'Message must be 500 characters or fewer.');
-
-      const credentials = await getTwitchChatCredentials(state);
-      const cachedSenderId = credentials.senderIdKey === 'bot' ? state.twitchBotSenderId : state.twitchSenderId;
-      const senderId = cachedSenderId ?? await fetchAuthenticatedTwitchUserId(credentials.clientId, credentials.userToken);
-      if (!senderId) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
-      if (credentials.senderIdKey === 'bot') state.twitchBotSenderId = senderId;
-      else state.twitchSenderId = senderId;
-
-      const res = await fetch('https://api.twitch.tv/helix/chat/messages', {
-        method: 'POST',
-        headers: {
-          'Client-Id': credentials.clientId,
-          Authorization: credentials.authorization,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          broadcaster_id: credentials.broadcasterId,
-          sender_id: senderId,
-          message,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorMessage = await readResponseError(res, 'Twitch chat message failed.');
-        throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
-      }
-
-      const data = await res.json() as {
-        data?: Array<{
-          message_id?: string;
-          is_sent?: boolean;
-          drop_reason?: { code?: string; message?: string } | null;
-        }>;
-      };
-      const sentMessage = data.data?.[0] ?? {};
-      const dropReason = sentMessage.drop_reason ?? null;
-      if (sentMessage.is_sent === false || dropReason) {
-        throw new HttpRouteError(422, dropReason?.message ?? 'Twitch did not send the message.');
-      }
+      const result = await sendTwitchChatMessage(state, message);
 
       response.json({
         ok: true,
-        messageId: sentMessage.message_id ?? null,
+        messageId: result.messageId,
       });
     } catch (error) {
       sendRouteError(response, error);

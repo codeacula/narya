@@ -66,6 +66,26 @@ db.exec(`
     updated_at text not null
   );
 
+  create table if not exists chatbot_commands (
+    id text primary key,
+    trigger text not null unique,
+    enabled integer not null default 1,
+    created_at text not null,
+    updated_at text not null
+  );
+
+  create table if not exists chatbot_command_actions (
+    id text primary key,
+    command_id text not null,
+    action_type text not null,
+    payload_json text not null,
+    enabled integer not null default 1,
+    position integer not null default 0,
+    created_at text not null,
+    updated_at text not null,
+    foreign key (command_id) references chatbot_commands(id) on delete cascade
+  );
+
   create table if not exists runsheet_items (
     id text primary key,
     text text not null,
@@ -86,6 +106,8 @@ db.exec(`
   create index if not exists idx_chat_messages_username on chat_messages(username);
   create index if not exists idx_runsheet_items_position on runsheet_items(position);
   create index if not exists idx_ticker_items_position on ticker_items(position);
+  create index if not exists idx_chatbot_commands_trigger on chatbot_commands(trigger);
+  create index if not exists idx_chatbot_command_actions_command on chatbot_command_actions(command_id, position);
 `);
 
 const allowedMigrationTables = new Set([
@@ -95,6 +117,8 @@ const allowedMigrationTables = new Set([
   'sound_buttons',
   'stream_events',
   'twitch_oauth',
+  'chatbot_commands',
+  'chatbot_command_actions',
   'runsheet_items',
   'ticker_items',
 ]);

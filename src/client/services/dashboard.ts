@@ -15,6 +15,8 @@ import type {
   ObsStatus,
   SoundButton,
   SoundPlayback,
+  ChatbotCommandSettings,
+  ChatbotCommandSettingsResponse,
 } from '../../shared/api';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
@@ -86,6 +88,14 @@ export async function runPrerollAds(): Promise<PrerollResult> {
 
 export async function sendChatMessage(message: string): Promise<ChatSendResult> {
   return sendJson('/api/twitch/chat-message', 'POST', { message });
+}
+
+export async function getChatbotCommandSettings(): Promise<ChatbotCommandSettingsResponse> {
+  return fetchJson<ChatbotCommandSettingsResponse>('/api/chatbot/command-settings');
+}
+
+export async function updateChatbotCommandSettings(settings: ChatbotCommandSettings): Promise<ChatbotCommandSettingsResponse> {
+  return sendJson<ChatbotCommandSettingsResponse>('/api/chatbot/command-settings', 'PUT', settings);
 }
 
 export async function disconnectTwitch(account: 'user' | 'bot' = 'user'): Promise<void> {

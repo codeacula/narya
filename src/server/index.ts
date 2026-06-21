@@ -1,4 +1,5 @@
 import { connectTwitchChat } from './chat';
+import { registerChatbotCommandRoutes } from './chatbotCommands';
 import { config } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
 import { connectEventSub, disconnectEventSub } from './eventsub';
@@ -21,11 +22,12 @@ registerTwitchAuthRoutes({
   disconnectEventSub: () => disconnectEventSub(runtimeState),
 });
 registerTwitchApiRoutes(app, runtimeState);
+registerChatbotCommandRoutes(app);
 registerDashboardRoutes(app, runtimeState);
 
 server.listen(config.port, () => {
   console.log(`Streamer Tools backend listening on http://localhost:${config.port}`);
-  connectTwitchChat();
+  connectTwitchChat(runtimeState);
   void connectObs().catch((error: unknown) => {
     console.error('OBS: initial connection failed:', error);
   });

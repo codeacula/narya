@@ -1,11 +1,14 @@
 import tmi from 'tmi.js';
 import type { ChatMessage } from '../shared/api';
+import { handleChatbotCommandMessage } from './chatbotCommands';
 import { config } from './config';
 import { db } from './db';
 import { broadcast } from './realtime';
+import type { RuntimeState } from './runtime';
 import { triggerQuackSound } from './sounds';
 
 let twitchRoomId: string | null = null;
+let runtimeState: RuntimeState | null = null;
 const sessionChatters = new Set<string>();
 
 const insertChat = db.prepare(`
@@ -124,6 +127,12 @@ twitchClient.on('message', (channel, tags, message, self) => {
   if (/^!quack\b/i.test(message.trim())) {
     triggerQuackSound();
   }
+
+  if (runtimeState) {
+    void handleChatbotCommandMessage(runtimeState, chatMessage).catch((error: unknown) => {
+      console.error('Chatbot command failed:', error);
+    });
+  }
 });
 
 twitchClient.on('messagedeleted', (channel, username, deletedMessage, tags) => {
@@ -193,7 +202,8 @@ twitchClient.on('clearchat', (channel) => {
   });
 });
 
-export function connectTwitchChat() {
+export function connectTwitchChat(state: RuntimeState) {
+  runtimeState = state;
   twitchClient.connect().catch((error: unknown) => {
     console.error('Failed to connect to Twitch chat:', error);
   });
