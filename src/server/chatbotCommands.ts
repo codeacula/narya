@@ -162,7 +162,7 @@ export async function handleChatbotCommandMessage(state: RuntimeState, chatMessa
     if (!template) continue;
     const message = renderTemplate(template, chatMessage).trim();
     if (!message) continue;
-    await sendTwitchChatMessage(state, message);
+    await sendTwitchChatMessage(state, message, 'bot');
   }
 }
 

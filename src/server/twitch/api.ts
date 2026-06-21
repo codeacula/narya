@@ -14,6 +14,7 @@ import {
 } from './auth';
 
 const TWITCH_PREROLL_COMMERCIAL_SECONDS = 180;
+type TwitchChatSender = 'user' | 'bot';
 
 export async function getEventSubCredentials(state: RuntimeState): Promise<{ clientId: string; userToken: string } | null> {
   const clientId = process.env.TWITCH_CLIENT_ID ?? '';
@@ -145,9 +146,11 @@ export async function getTwitchActionCredentials(state: RuntimeState, scopes: re
   };
 }
 
-async function getTwitchChatCredentials(state: RuntimeState) {
-  const botHeaders = await getTwitchBotApiHeaders(state);
-  if (botHeaders) {
+async function getTwitchChatCredentials(state: RuntimeState, sender: TwitchChatSender) {
+  if (sender === 'bot') {
+    const botHeaders = await getTwitchBotApiHeaders(state);
+    if (!botHeaders) throw new HttpRouteError(401, 'Twitch bot login is required.');
+
     const missingBotScopes = getMissingTwitchBotScopes(state, REQUIRED_TWITCH_BOT_OAUTH_SCOPES);
     if (missingBotScopes.length > 0) {
       throw new HttpRouteError(403, `Reconnect Twitch bot to grant: ${missingBotScopes.join(', ')}`);
@@ -180,12 +183,16 @@ async function getTwitchChatCredentials(state: RuntimeState) {
   };
 }
 
-export async function sendTwitchChatMessage(state: RuntimeState, message: string): Promise<{ messageId: string | null }> {
+export async function sendTwitchChatMessage(
+  state: RuntimeState,
+  message: string,
+  sender: TwitchChatSender,
+): Promise<{ messageId: string | null }> {
   const trimmedMessage = message.trim();
   if (!trimmedMessage) throw new HttpRouteError(400, 'Message is required.');
   if (trimmedMessage.length > 500) throw new HttpRouteError(400, 'Message must be 500 characters or fewer.');
 
-  const credentials = await getTwitchChatCredentials(state);
+  const credentials = await getTwitchChatCredentials(state, sender);
   const cachedSenderId = credentials.senderIdKey === 'bot' ? state.twitchBotSenderId : state.twitchSenderId;
   const senderId = cachedSenderId ?? await fetchAuthenticatedTwitchUserId(credentials.clientId, credentials.userToken);
   if (!senderId) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
@@ -450,7 +457,7 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       const body = request.body as { message?: unknown };
       const message = typeof body.message === 'string' ? body.message.trim() : '';
 
-      const result = await sendTwitchChatMessage(state, message);
+      const result = await sendTwitchChatMessage(state, message, 'user');
 
       response.json({
         ok: true,
