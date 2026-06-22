@@ -30,9 +30,7 @@ registerDashboardRoutes(app, runtimeState);
 server.listen(config.port, () => {
   console.log(`Streamer Tools backend listening on http://localhost:${config.port}`);
   connectTwitchChat(runtimeState);
-  void connectObs().catch((error: unknown) => {
-    console.error('OBS: initial connection failed:', error);
-  });
+  void connectObs();
   startMusicPolling();
   startDashboardHeartbeat(runtimeState);
   void connectEventSub(runtimeState);

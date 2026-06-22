@@ -60,6 +60,20 @@ function clearReconnect() {
   reconnectTimer = null;
 }
 
+function unavailableObsDashboardStats() {
+  return {
+    streamActive: null,
+    uptimeSeconds: null,
+    streamStartedAt: null,
+    uptimeSource: null,
+    bitrateKbps: null,
+    congestion: null,
+    totalFrames: null,
+    droppedFrames: null,
+    laggedFrames: null,
+  };
+}
+
 export function getObsStatus(): ObsStatus {
   return {
     ...obsStatus,
@@ -107,7 +121,6 @@ export async function connectObs() {
         lastError: message,
       });
       scheduleReconnect();
-      throw error;
     } finally {
       obsConnectPromise = null;
     }
@@ -119,6 +132,9 @@ export async function connectObs() {
 async function ensureObs() {
   if (obsStatus.connected) return;
   await connectObs();
+  if (!obsStatus.connected) {
+    throw new Error(obsStatus.lastError ?? 'OBS is not connected');
+  }
 }
 
 obs.on('ConnectionClosed', () => {
@@ -209,7 +225,14 @@ export async function getObsDashboardStats() {
   };
 
   try {
-    await withTimeout(ensureObs(), 1200);
+    if (!obsStatus.connected) {
+      await withTimeout(connectObs(), 1200).catch(() => undefined);
+    }
+
+    if (!obsStatus.connected) {
+      return unavailableObsDashboardStats();
+    }
+
     const [streamStatus, stats] = await Promise.all([
       withTimeout(obs.call('GetStreamStatus') as Promise<ObsStreamStatus>, 1200),
       withTimeout(obs.call('GetStats') as Promise<ObsStats>, 1200),
@@ -246,20 +269,9 @@ export async function getObsDashboardStats() {
       laggedFrames,
     };
   } catch (error) {
-    console.error('OBS: dashboard stats unavailable:', error);
     updateObsStatus({
       lastError: error instanceof Error ? error.message : 'OBS dashboard stats unavailable',
     });
-    return {
-      streamActive: null,
-      uptimeSeconds: null,
-      streamStartedAt: null,
-      uptimeSource: null,
-      bitrateKbps: null,
-      congestion: null,
-      totalFrames: null,
-      droppedFrames: null,
-      laggedFrames: null,
-    };
+    return unavailableObsDashboardStats();
   }
 }
