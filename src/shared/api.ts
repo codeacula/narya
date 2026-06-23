@@ -184,7 +184,41 @@ export type TwitchUserActionResult = {
   message: string;
 };
 
-export type ChatbotCommandActionType = 'chat_reply' | 'llm_response';
+export type ChatbotCommandActionType = 'chat_reply' | 'llm_response' | 'sound_play' | 'obs_scene' | 'obs_transition';
+
+export type ChatbotCommandActionPayload = {
+  template?: string;
+  soundId?: string;
+  sceneName?: string;
+};
+
+export type ChatbotCommandAction = {
+  id: string;
+  type: ChatbotCommandActionType;
+  enabled: boolean;
+  position: number;
+  payload: ChatbotCommandActionPayload;
+};
+
+export type ChatbotCommandActionInput = {
+  type: ChatbotCommandActionType;
+  enabled: boolean;
+  payload: ChatbotCommandActionPayload;
+};
+
+export type ChatbotCommand = {
+  id: string;
+  enabled: boolean;
+  command: string;
+  actions: ChatbotCommandAction[];
+  updatedAt: string;
+};
+
+export type ChatbotCommandUpsert = {
+  enabled: boolean;
+  command: string;
+  actions: ChatbotCommandActionInput[];
+};
 
 export type ChatbotCommandSettings = {
   enabled: boolean;

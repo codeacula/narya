@@ -15,8 +15,10 @@ import type {
   ObsStatus,
   SoundButton,
   SoundPlayback,
+  ChatbotCommand,
   ChatbotCommandSettings,
   ChatbotCommandSettingsResponse,
+  ChatbotCommandUpsert,
   LlmSettings,
   LlmSettingsUpdate,
   ViewerProfileUpdate,
@@ -127,6 +129,23 @@ export async function getChatbotCommandSettings(): Promise<ChatbotCommandSetting
 
 export async function updateChatbotCommandSettings(settings: ChatbotCommandSettings): Promise<ChatbotCommandSettingsResponse> {
   return sendJson<ChatbotCommandSettingsResponse>('/api/chatbot/command-settings', 'PUT', settings);
+}
+
+export async function getChatbotCommands(): Promise<ChatbotCommand[]> {
+  return fetchJson<ChatbotCommand[]>('/api/chatbot/commands');
+}
+
+export async function createChatbotCommand(settings: ChatbotCommandUpsert): Promise<ChatbotCommand> {
+  return sendJson<ChatbotCommand>('/api/chatbot/commands', 'POST', settings);
+}
+
+export async function updateChatbotCommand(id: string, settings: ChatbotCommandUpsert): Promise<ChatbotCommand> {
+  return sendJson<ChatbotCommand>(`/api/chatbot/commands/${encodeURIComponent(id)}`, 'PUT', settings);
+}
+
+export async function deleteChatbotCommand(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/chatbot/commands/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(await readApiError(response));
 }
 
 export async function getLlmSettings(): Promise<LlmSettings> {

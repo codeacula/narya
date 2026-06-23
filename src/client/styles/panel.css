@@ -566,6 +566,56 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .set-badge--ok::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #50fa7b; }
 .btn-primary { display: inline-block; padding: 7px 16px; border-radius: var(--radius-2); background: #9146FF; color: #fff; font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background 0.15s; }
 .btn-primary:hover { background: #772ce8; }
+.command-list {
+  display: grid;
+  gap: 8px;
+  padding: 14px 14px 0;
+}
+.command-empty {
+  color: var(--fg-3);
+  font-size: 13px;
+  padding: 8px 0;
+}
+.command-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: rgba(255,255,255,0.018);
+  padding: 10px;
+}
+.command-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.command-trigger {
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  margin-right: 8px;
+}
+.command-action-summary {
+  color: var(--fg-3);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-row-actions,
+.command-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.command-row-actions {
+  flex: none;
+}
+.command-editor-head {
+  justify-content: space-between;
+}
 .command-settings-form {
   display: grid;
   gap: 12px;
@@ -692,7 +742,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   color: var(--fg-3);
 }
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--border-1);
@@ -706,7 +757,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.field select:focus {
   border-color: var(--border-3);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
