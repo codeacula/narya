@@ -56,10 +56,15 @@ MUSIC_POLL_INTERVAL_MS=2000
 MUSIC_PLAYERCTL_PLAYER=strawberry
 QUACK_VOLUME=0.20
 TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
 TWITCH_USER_TOKEN=
+TWITCH_BOT_USER_TOKEN=
+TWITCH_REDIRECT_URI=http://localhost:5173/api/auth/twitch/callback
 ```
 
-Twitch EventSub uses `TWITCH_CLIENT_ID` and `TWITCH_USER_TOKEN` from `.env` only. Generate the user OAuth token outside the dashboard with the scopes needed for the channel events you want to receive.
+The dashboard Settings page is the primary Twitch setup path. Set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET`, register `TWITCH_REDIRECT_URI` in your Twitch app, then use Settings to log in the broadcaster account and the separate bot account.
+
+`TWITCH_USER_TOKEN` and `TWITCH_BOT_USER_TOKEN` are manual fallbacks for deployments that manage OAuth tokens outside the dashboard. Broadcaster credentials are used for EventSub, stream info, ads, moderation, shoutouts, and whispers. Bot credentials are used for dashboard chat sends and chat command replies.
 
 For Docker, OBS is configured as `ws://host.docker.internal:4455` so the container can reach OBS running on the host.
 Playerctl is best run locally because containers do not normally have access to the host desktop media session.

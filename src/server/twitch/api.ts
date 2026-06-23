@@ -593,7 +593,7 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       const body = request.body as { message?: unknown };
       const message = typeof body.message === 'string' ? body.message.trim() : '';
 
-      const result = await sendTwitchChatMessage(state, message, 'user');
+      const result = await sendTwitchChatMessage(state, message, 'bot');
 
       response.json({
         ok: true,
