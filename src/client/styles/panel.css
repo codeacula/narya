@@ -616,6 +616,66 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .command-editor-head {
   justify-content: space-between;
 }
+.settings-inline-status {
+  margin: 14px 14px 0;
+}
+.settings-editor-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border-1);
+}
+.settings-editor-section:last-child {
+  border-bottom: none;
+}
+.settings-mini-list {
+  display: grid;
+  gap: 8px;
+}
+.settings-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: rgba(255,255,255,0.018);
+  padding: 9px 10px;
+}
+.settings-item-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.settings-item-main b {
+  color: var(--fg-1);
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-item-main span {
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-mini-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.settings-wide-field {
+  grid-column: span 2;
+}
+.settings-checkbox-field {
+  align-self: center;
+  margin-bottom: 10px;
+}
 .command-settings-form {
   display: grid;
   gap: 12px;
@@ -666,6 +726,20 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 @media (max-width: 700px) {
   .llm-settings-grid {
     grid-template-columns: 1fr;
+  }
+  .settings-item-row,
+  .settings-mini-form {
+    grid-template-columns: 1fr;
+  }
+  .settings-item-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .settings-wide-field {
+    grid-column: auto;
+  }
+  .settings-checkbox-field {
+    margin-bottom: 0;
   }
 }
 

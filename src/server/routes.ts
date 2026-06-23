@@ -3,22 +3,83 @@ import { getTwitchRoomId } from './chat';
 import { config } from './config';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
+import { HttpRouteError, sendRouteError } from './http';
 import { clearManualMusic, getCurrentMusic, setManualMusic } from './music';
 import { getObsStatus, isObsConnected, switchObsScene, triggerObsTransition } from './obs';
 import type { RuntimeState } from './runtime';
-import { getSoundButtons, triggerQuackSound, triggerSoundButton } from './sounds';
+import {
+  createSoundButton,
+  deleteSoundButton,
+  getSoundButtons,
+  triggerQuackSound,
+  triggerSoundButton,
+  updateSoundButton,
+} from './sounds';
 
 const listRunsheetItems = db.prepare(`
-  select text, done
+  select id, text, done, position
   from runsheet_items
   order by position asc, text collate nocase
 `);
 
 const listTickerItems = db.prepare(`
-  select text
+  select id, text, position
   from ticker_items
   order by position asc, text collate nocase
 `);
+
+const createRunsheetItemRow = db.prepare(`
+  insert into runsheet_items (id, text, done, position)
+  values (?, ?, ?, ?)
+`);
+const updateRunsheetItemRow = db.prepare(`
+  update runsheet_items
+  set text = ?, done = ?
+  where id = ?
+`);
+const deleteRunsheetItemRow = db.prepare('delete from runsheet_items where id = ?');
+const getRunsheetItemRow = db.prepare('select id, text, done, position from runsheet_items where id = ?');
+const createTickerItemRow = db.prepare(`
+  insert into ticker_items (id, text, position)
+  values (?, ?, ?)
+`);
+const updateTickerItemRow = db.prepare(`
+  update ticker_items
+  set text = ?
+  where id = ?
+`);
+const deleteTickerItemRow = db.prepare('delete from ticker_items where id = ?');
+const getTickerItemRow = db.prepare('select id, text, position from ticker_items where id = ?');
+const getMaxRunsheetPosition = db.prepare('select coalesce(max(position), -1) as position from runsheet_items');
+const getMaxTickerPosition = db.prepare('select coalesce(max(position), -1) as position from ticker_items');
+
+function normalizeRunsheetBody(body: unknown) {
+  const value = body as { text?: unknown; done?: unknown };
+  const text = typeof value.text === 'string' ? value.text.trim() : '';
+  if (!text) throw new HttpRouteError(400, 'Runsheet item text is required.');
+  if (text.length > 240) throw new HttpRouteError(400, 'Runsheet item text must be 240 characters or fewer.');
+  return {
+    text,
+    done: typeof value.done === 'boolean' ? value.done : false,
+  };
+}
+
+function normalizeTickerBody(body: unknown) {
+  const value = body as { text?: unknown };
+  const text = typeof value.text === 'string' ? value.text.trim() : '';
+  if (!text) throw new HttpRouteError(400, 'Ticker item text is required.');
+  if (text.length > 160) throw new HttpRouteError(400, 'Ticker item text must be 160 characters or fewer.');
+  return { text };
+}
+
+function rowToRunItem(row: { id: string; text: string; done: number; position: number }) {
+  return {
+    id: row.id,
+    text: row.text,
+    done: row.done === 1,
+    position: row.position,
+  };
+}
 
 export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
   app.get('/api/health', (_request, response) => {
@@ -45,13 +106,84 @@ export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
   });
 
   app.get('/api/runsheet', (_request, response) => {
-    const rows = listRunsheetItems.all() as Array<{ text: string; done: number }>;
-    response.json(rows.map(row => ({ text: row.text, done: row.done === 1 })));
+    const rows = listRunsheetItems.all() as Array<{ id: string; text: string; done: number; position: number }>;
+    response.json(rows.map(rowToRunItem));
+  });
+
+  app.post('/api/runsheet', (request, response) => {
+    try {
+      const item = normalizeRunsheetBody(request.body);
+      const id = crypto.randomUUID();
+      const maxPosition = getMaxRunsheetPosition.get() as { position: number };
+      createRunsheetItemRow.run(id, item.text, item.done ? 1 : 0, maxPosition.position + 1);
+      const row = getRunsheetItemRow.get(id) as { id: string; text: string; done: number; position: number };
+      response.status(201).json(rowToRunItem(row));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.put('/api/runsheet/:id', (request, response) => {
+    try {
+      const existing = getRunsheetItemRow.get(request.params.id) as { id: string; text: string; done: number; position: number } | null;
+      if (!existing) throw new HttpRouteError(404, 'Runsheet item not found.');
+      const item = normalizeRunsheetBody(request.body);
+      updateRunsheetItemRow.run(item.text, item.done ? 1 : 0, request.params.id);
+      const row = getRunsheetItemRow.get(request.params.id) as { id: string; text: string; done: number; position: number };
+      response.json(rowToRunItem(row));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.delete('/api/runsheet/:id', (request, response) => {
+    try {
+      const existing = getRunsheetItemRow.get(request.params.id);
+      if (!existing) throw new HttpRouteError(404, 'Runsheet item not found.');
+      deleteRunsheetItemRow.run(request.params.id);
+      response.status(204).end();
+    } catch (error) {
+      sendRouteError(response, error);
+    }
   });
 
   app.get('/api/ticker', (_request, response) => {
-    const rows = listTickerItems.all() as Array<{ text: string }>;
-    response.json(rows.map(row => row.text));
+    response.json(listTickerItems.all());
+  });
+
+  app.post('/api/ticker', (request, response) => {
+    try {
+      const item = normalizeTickerBody(request.body);
+      const id = crypto.randomUUID();
+      const maxPosition = getMaxTickerPosition.get() as { position: number };
+      createTickerItemRow.run(id, item.text, maxPosition.position + 1);
+      response.status(201).json(getTickerItemRow.get(id));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.put('/api/ticker/:id', (request, response) => {
+    try {
+      const existing = getTickerItemRow.get(request.params.id);
+      if (!existing) throw new HttpRouteError(404, 'Ticker item not found.');
+      const item = normalizeTickerBody(request.body);
+      updateTickerItemRow.run(item.text, request.params.id);
+      response.json(getTickerItemRow.get(request.params.id));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.delete('/api/ticker/:id', (request, response) => {
+    try {
+      const existing = getTickerItemRow.get(request.params.id);
+      if (!existing) throw new HttpRouteError(404, 'Ticker item not found.');
+      deleteTickerItemRow.run(request.params.id);
+      response.status(204).end();
+    } catch (error) {
+      sendRouteError(response, error);
+    }
   });
 
   app.get('/api/music/current', (_request, response) => {
@@ -157,6 +289,31 @@ export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
 
   app.get('/api/sounds', (_request, response) => {
     response.json(getSoundButtons());
+  });
+
+  app.post('/api/sounds', (request, response) => {
+    try {
+      response.status(201).json(createSoundButton(request.body));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.put('/api/sounds/:id', (request, response) => {
+    try {
+      response.json(updateSoundButton(request.params.id, request.body));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.delete('/api/sounds/:id', (request, response) => {
+    try {
+      deleteSoundButton(request.params.id);
+      response.status(204).end();
+    } catch (error) {
+      sendRouteError(response, error);
+    }
   });
 
   app.post('/api/sounds/:id/play', (request, response) => {

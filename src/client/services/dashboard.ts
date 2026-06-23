@@ -4,6 +4,7 @@ import type {
   ChatEntry,
   StreamEvent,
   RunItem,
+  RunItemUpdate,
   DashboardStatus,
   StreamInfo,
   TwitchCategorySuggestion,
@@ -14,7 +15,10 @@ import type {
   ControlResponse,
   ObsStatus,
   SoundButton,
+  SoundButtonUpdate,
   SoundPlayback,
+  TickerItem,
+  TickerItemUpdate,
   ChatbotCommand,
   ChatbotCommandSettings,
   ChatbotCommandSettingsResponse,
@@ -182,6 +186,19 @@ export async function getSoundButtons(): Promise<SoundButton[]> {
   return fetchJson<SoundButton[]>('/api/sounds');
 }
 
+export async function createSoundButton(sound: SoundButtonUpdate): Promise<SoundButton> {
+  return sendJson<SoundButton>('/api/sounds', 'POST', sound);
+}
+
+export async function updateSoundButton(id: string, sound: SoundButtonUpdate): Promise<SoundButton> {
+  return sendJson<SoundButton>(`/api/sounds/${encodeURIComponent(id)}`, 'PUT', sound);
+}
+
+export async function deleteSoundButton(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/sounds/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(await readApiError(response));
+}
+
 export async function playSoundButton(id: string): Promise<SoundPlayback> {
   return sendJson<SoundPlayback>(`/api/sounds/${encodeURIComponent(id)}/play`, 'POST');
 }
@@ -190,6 +207,32 @@ export async function getRunsheet(): Promise<RunItem[]> {
   return fetchJson<RunItem[]>('/api/runsheet');
 }
 
-export async function getTicker(): Promise<string[]> {
-  return fetchJson<string[]>('/api/ticker');
+export async function createRunsheetItem(item: RunItemUpdate): Promise<RunItem> {
+  return sendJson<RunItem>('/api/runsheet', 'POST', item);
+}
+
+export async function updateRunsheetItem(id: string, item: RunItemUpdate): Promise<RunItem> {
+  return sendJson<RunItem>(`/api/runsheet/${encodeURIComponent(id)}`, 'PUT', item);
+}
+
+export async function deleteRunsheetItem(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/runsheet/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(await readApiError(response));
+}
+
+export async function getTicker(): Promise<TickerItem[]> {
+  return fetchJson<TickerItem[]>('/api/ticker');
+}
+
+export async function createTickerItem(item: TickerItemUpdate): Promise<TickerItem> {
+  return sendJson<TickerItem>('/api/ticker', 'POST', item);
+}
+
+export async function updateTickerItem(id: string, item: TickerItemUpdate): Promise<TickerItem> {
+  return sendJson<TickerItem>(`/api/ticker/${encodeURIComponent(id)}`, 'PUT', item);
+}
+
+export async function deleteTickerItem(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/ticker/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(await readApiError(response));
 }

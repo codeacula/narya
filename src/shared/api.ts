@@ -45,6 +45,11 @@ export type SoundButton = {
   filename: string;
 };
 
+export type SoundButtonUpdate = {
+  label: string;
+  filename: string;
+};
+
 export type ControlConfig = {
   scenes: string[];
 };
@@ -106,8 +111,25 @@ export type StreamEvent = {
 };
 
 export type RunItem = {
+  id: string;
   text: string;
   done: boolean;
+  position: number;
+};
+
+export type RunItemUpdate = {
+  text: string;
+  done: boolean;
+};
+
+export type TickerItem = {
+  id: string;
+  text: string;
+  position: number;
+};
+
+export type TickerItemUpdate = {
+  text: string;
 };
 
 export type DashboardStatus = {
