@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getViewers } from '../services/dashboard';
+import { getViewers, updateViewerProfile } from '../services/dashboard';
 import { Spotlight } from '../ui/panels';
 import type { PanelCtx } from '../ui/panels';
 import type { Viewer } from '../../shared/api';
@@ -23,6 +23,22 @@ export function ViewerWindowPage() {
     events: [],
     channel: '',
     openViewerPopout: () => {},
+    updateViewerProfile: async (profileLogin, profile) => {
+      const updated = await updateViewerProfile(profileLogin, profile);
+      setViewers(current => {
+        const key = profileLogin.toLowerCase();
+        const viewer = current[key];
+        if (!viewer) return current;
+        return {
+          ...current,
+          [key]: {
+            ...viewer,
+            ...updated,
+          },
+        };
+      });
+      return updated;
+    },
     loadOlderChat: async () => false,
   };
 

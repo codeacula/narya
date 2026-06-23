@@ -12,6 +12,7 @@ import {
   getStreamInfo,
   updateStreamInfo,
   runPrerollAds,
+  updateViewerProfile,
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
@@ -277,6 +278,22 @@ export function DashboardPage() {
     openViewerPopout: login => {
       const windowName = `viewer_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       window.open(`/viewer?login=${encodeURIComponent(login)}`, windowName, 'width=380,height=560');
+    },
+    updateViewerProfile: async (login, profile) => {
+      const updated = await updateViewerProfile(login, profile);
+      setViewers(current => {
+        const key = login.toLowerCase();
+        const viewer = current[key];
+        if (!viewer) return current;
+        return {
+          ...current,
+          [key]: {
+            ...viewer,
+            ...updated,
+          },
+        };
+      });
+      return updated;
     },
     loadOlderChat: async () => {
       const oldest = chat[0];

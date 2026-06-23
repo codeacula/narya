@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from './icons';
 import { sendChatMessage } from '../services/dashboard';
-import type { Viewer, ChatEntry, StreamEvent } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, ViewerProfileUpdate } from '../../shared/api';
 
 /* ---------------- types ---------------- */
 
@@ -11,6 +11,7 @@ export type PanelCtx = {
   events: StreamEvent[];
   channel: string;
   openViewerPopout: (login: string) => void;
+  updateViewerProfile: (login: string, profile: ViewerProfileUpdate) => Promise<ViewerProfileUpdate>;
   loadOlderChat: () => Promise<boolean>;
 };
 
@@ -31,6 +32,8 @@ const ROLE_BADGE: Record<string, string> = {
   sub: '%',
 };
 
+const MAX_VIEWER_TAGS = 12;
+
 function badgesFor(viewer: Viewer | undefined): string[] {
   if (!viewer) return [];
   const out: string[] = [];
@@ -39,6 +42,18 @@ function badgesFor(viewer: Viewer | undefined): string[] {
   if (viewer.roles.includes('vip')) out.push('vip');
   if (viewer.roles.includes('sub')) out.push('sub');
   return out;
+}
+
+function normalizeProfileTag(value: string): string {
+  return value.trim().replace(/^#/, '').slice(0, 32);
+}
+
+function addProfileTag(tags: string[], value: string): string[] {
+  const tag = normalizeProfileTag(value);
+  if (!tag || tags.length >= MAX_VIEWER_TAGS) return tags;
+  const existing = new Set(tags.map(item => item.toLowerCase()));
+  if (existing.has(tag.toLowerCase())) return tags;
+  return [...tags, tag];
 }
 
 /* ---------------- Chat ---------------- */
@@ -196,10 +211,148 @@ export function ChatInput({ channel }: { channel: string }) {
   );
 }
 
+function ViewerProfileModal({
+  viewer,
+  onSave,
+  onClose,
+}: {
+  viewer: Viewer;
+  onSave: (profile: ViewerProfileUpdate) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [form, setForm] = React.useState<ViewerProfileUpdate>({
+    realName: viewer.realName,
+    tags: viewer.tags,
+    note: viewer.note,
+  });
+  const [tagInput, setTagInput] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setForm({
+      realName: viewer.realName,
+      tags: viewer.tags,
+      note: viewer.note,
+    });
+    setTagInput('');
+    setError(null);
+  }, [viewer.login, viewer.note, viewer.realName, viewer.tags]);
+
+  const addTag = React.useCallback((value: string) => {
+    setForm(current => ({ ...current, tags: addProfileTag(current.tags, value) }));
+    setTagInput('');
+  }, []);
+
+  const removeTag = React.useCallback((tag: string) => {
+    setForm(current => ({ ...current, tags: current.tags.filter(item => item !== tag) }));
+  }, []);
+
+  const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving) return;
+
+    setSaving(true);
+    setError(null);
+    const tags = tagInput ? addProfileTag(form.tags, tagInput) : form.tags;
+    void onSave({
+      realName: form.realName.trim(),
+      tags: tags.map(normalizeProfileTag).filter(Boolean),
+      note: form.note.trim(),
+    })
+      .then(onClose)
+      .catch(saveError => {
+        setError(saveError instanceof Error ? saveError.message : 'Could not save viewer profile');
+      })
+      .finally(() => setSaving(false));
+  }, [form, onClose, onSave, saving, tagInput]);
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <form className="stream-info-modal viewer-profile-modal" onSubmit={handleSubmit}>
+        <div className="modal-head">
+          <div>
+            <h2>Viewer Profile</h2>
+            <div className="viewer-profile-login">@{viewer.login}</div>
+          </div>
+          <button className="icon-btn" type="button" title="Close" onClick={onClose}>
+            <Icon name="x" />
+          </button>
+        </div>
+
+        <label className="field">
+          <span>Real name</span>
+          <input
+            value={form.realName}
+            maxLength={120}
+            disabled={saving}
+            onChange={event => setForm(current => ({ ...current, realName: event.target.value }))}
+          />
+          <small>{form.realName.length}/120</small>
+        </label>
+
+        <div className="field">
+          <span>Tags</span>
+          <div className="tag-chip-list">
+            {form.tags.map(tag => (
+              <span className="tag-chip" key={tag}>
+                {tag}
+                <button type="button" title={`Remove ${tag}`} disabled={saving} onClick={() => removeTag(tag)}>
+                  <Icon name="x" size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+          <input
+            aria-label="Add viewer tag"
+            value={tagInput}
+            maxLength={32}
+            disabled={saving || form.tags.length >= MAX_VIEWER_TAGS}
+            placeholder={form.tags.length >= MAX_VIEWER_TAGS ? 'Tag limit reached' : 'Type a tag and press Enter'}
+            onChange={event => setTagInput(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter' || event.key === ',') {
+                event.preventDefault();
+                addTag(tagInput);
+              }
+            }}
+          />
+          <small>{form.tags.length}/12</small>
+        </div>
+
+        <label className="field">
+          <span>Notes</span>
+          <textarea
+            value={form.note}
+            maxLength={1000}
+            rows={7}
+            disabled={saving}
+            onChange={event => setForm(current => ({ ...current, note: event.target.value }))}
+          />
+          <small>{form.note.length}/1000</small>
+        </label>
+
+        {error && <div className="modal-status error">{error}</div>}
+
+        <div className="modal-actions">
+          <button className="modbtn" type="button" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="modbtn gold" type="submit" disabled={saving}>
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ---------------- Spotlight ---------------- */
 
 export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
-  const viewer = login ? ctx.viewers[login] : null;
+  const normalizedLogin = login?.toLowerCase();
+  const viewer = normalizedLogin ? ctx.viewers[normalizedLogin] : null;
+  const [profileOpen, setProfileOpen] = React.useState(false);
 
   if (!viewer) {
     return (
@@ -213,65 +366,86 @@ export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
     );
   }
 
+  const hasProfile = Boolean(viewer.realName || viewer.tags.length > 0 || viewer.note);
+  const saveProfile = async (profile: ViewerProfileUpdate) => {
+    await ctx.updateViewerProfile(viewer.login, profile);
+  };
+
   return (
-    <div className="spot">
-      <div className="spot-head">
-        <div className="spot-avatar" style={{ background: viewer.color }}>
-          {viewer.display[0].toUpperCase()}
-        </div>
-        <div className="spot-id">
-          <div className="spot-name" style={{ color: viewer.color }}>{viewer.display}</div>
-          <div className="spot-pronouns">{viewer.pronouns} · {viewer.accountAge}</div>
-          <div className="spot-roles">
-            {viewer.roles.includes('mod') && <span className="rolepill mod">moderator</span>}
-            {viewer.roles.includes('vip') && <span className="rolepill vip">vip</span>}
-            {viewer.roles.includes('sub') && <span className="rolepill sub">subscriber</span>}
-            {viewer.roles.length === 0 && (
-              <span className="rolepill" style={{ color: 'var(--fg-3)', borderColor: 'var(--border-1)' }}>
-                viewer
-              </span>
-            )}
+    <>
+      <div className="spot">
+        <div className="spot-head">
+          <div className="spot-avatar" style={{ background: viewer.color }}>
+            {viewer.display[0].toUpperCase()}
+          </div>
+          <div className="spot-id">
+            <div className="spot-name" style={{ color: viewer.color }}>{viewer.display}</div>
+            {viewer.realName && <div className="spot-real-name">{viewer.realName}</div>}
+            <div className="spot-pronouns">{viewer.pronouns} · {viewer.accountAge}</div>
+            <div className="spot-roles">
+              {viewer.roles.includes('mod') && <span className="rolepill mod">moderator</span>}
+              {viewer.roles.includes('vip') && <span className="rolepill vip">vip</span>}
+              {viewer.roles.includes('sub') && <span className="rolepill sub">subscriber</span>}
+              {viewer.roles.length === 0 && (
+                <span className="rolepill" style={{ color: 'var(--fg-3)', borderColor: 'var(--border-1)' }}>
+                  viewer
+                </span>
+              )}
+              {viewer.tags.map(tag => (
+                <span className="profile-tag" key={tag}>{tag}</span>
+              ))}
+            </div>
           </div>
         </div>
+
+        <div className="spot-stats">
+          <div className="stat">
+            <div className="k">Following</div><div className="v">{viewer.followed}</div>
+          </div>
+          <div className="stat">
+            <div className="k">Subscription</div><div className="v">{viewer.subbed}</div>
+          </div>
+          <div className="stat">
+            <div className="k">Messages</div><div className="v">{viewer.msgs.toLocaleString()} all-time</div>
+          </div>
+          <div className="stat">
+            <div className="k">First seen</div><div className="v">{viewer.seen}</div>
+          </div>
+        </div>
+
+        {viewer.note && <div className="spot-note">{viewer.note}</div>}
+
+        <div>
+          <div className="spot-section-label" style={{ marginBottom: '9px' }}>Recent in chat</div>
+          <div className="spot-recent">
+            {viewer.recent.map((r, i) => (
+              <div className={'rmsg' + (r.kind ? ' ' + r.kind : '')} key={i}>
+                <span className="ago">{r.ago}</span>
+                <span className="body">{r.t}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="spot-actions">
+          <button className="modbtn gold">shout out</button>
+          <button className="modbtn">whisper</button>
+          <button className="modbtn" onClick={() => setProfileOpen(true)}>
+            {hasProfile ? 'edit profile' : 'add note'}
+          </button>
+          <button className="modbtn">timeout</button>
+          <button className="modbtn danger">ban</button>
+        </div>
       </div>
 
-      <div className="spot-stats">
-        <div className="stat">
-          <div className="k">Following</div><div className="v">{viewer.followed}</div>
-        </div>
-        <div className="stat">
-          <div className="k">Subscription</div><div className="v">{viewer.subbed}</div>
-        </div>
-        <div className="stat">
-          <div className="k">Messages</div><div className="v">{viewer.msgs.toLocaleString()} all-time</div>
-        </div>
-        <div className="stat">
-          <div className="k">First seen</div><div className="v">{viewer.seen}</div>
-        </div>
-      </div>
-
-      {viewer.note && <div className="spot-note">{viewer.note}</div>}
-
-      <div>
-        <div className="spot-section-label" style={{ marginBottom: '9px' }}>Recent in chat</div>
-        <div className="spot-recent">
-          {viewer.recent.map((r, i) => (
-            <div className={'rmsg' + (r.kind ? ' ' + r.kind : '')} key={i}>
-              <span className="ago">{r.ago}</span>
-              <span className="body">{r.t}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="spot-actions">
-        <button className="modbtn gold">shout out</button>
-        <button className="modbtn">whisper</button>
-        <button className="modbtn">add note</button>
-        <button className="modbtn">timeout</button>
-        <button className="modbtn danger">ban</button>
-      </div>
-    </div>
+      {profileOpen && (
+        <ViewerProfileModal
+          viewer={viewer}
+          onSave={saveProfile}
+          onClose={() => setProfileOpen(false)}
+        />
+      )}
+    </>
   );
 }
 

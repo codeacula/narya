@@ -19,6 +19,7 @@ import type {
   ChatbotCommandSettingsResponse,
   LlmSettings,
   LlmSettingsUpdate,
+  ViewerProfileUpdate,
 } from '../../shared/api';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
@@ -50,6 +51,10 @@ async function sendJson<T>(path: string, method: string, body?: unknown): Promis
 
 export async function getViewers(): Promise<Record<string, Viewer>> {
   return fetchJson<Record<string, Viewer>>('/api/dashboard/viewers');
+}
+
+export async function updateViewerProfile(login: string, profile: ViewerProfileUpdate): Promise<ViewerProfileUpdate> {
+  return sendJson<ViewerProfileUpdate>(`/api/dashboard/viewers/${encodeURIComponent(login)}/profile`, 'PATCH', profile);
 }
 
 export async function getChatEntries(): Promise<ChatEntry[]> {

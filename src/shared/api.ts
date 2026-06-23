@@ -68,6 +68,8 @@ export type Viewer = {
   login: string;
   display: string;
   color: string;
+  realName: string;
+  tags: string[];
   pronouns: string;
   roles: string[];
   followed: string;
@@ -77,6 +79,12 @@ export type Viewer = {
   accountAge: string;
   note: string;
   recent: Array<{ t: string; ago: string; kind?: string }>;
+};
+
+export type ViewerProfileUpdate = {
+  realName: string;
+  tags: string[];
+  note: string;
 };
 
 export type ChatEntry = {

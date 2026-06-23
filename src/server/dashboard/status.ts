@@ -9,6 +9,7 @@ import { getViewerRolesFromBadges } from '../../shared/roles';
 import { getSessionChatterCount, twitchClient } from '../chat';
 import { config } from '../config';
 import { db } from '../db';
+import { HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
 import { broadcast, getSocketCount } from '../realtime';
 import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus } from '../runtime';
@@ -52,6 +53,43 @@ function parseBadgesJson(value: string | null): Record<string, string> | null {
     console.error('Chat: failed to parse badges JSON:', error);
     return null;
   }
+}
+
+function parseTagsJson(value: string): string[] {
+  try {
+    const tags = JSON.parse(value) as unknown;
+    if (!Array.isArray(tags)) return [];
+    return tags.filter((tag): tag is string => typeof tag === 'string');
+  } catch (error) {
+    console.error('Dashboard: failed to parse viewer tags JSON:', error);
+    return [];
+  }
+}
+
+function normalizeViewerProfileBody(body: unknown) {
+  const value = body as { realName?: unknown; tags?: unknown; note?: unknown };
+  const realName = typeof value.realName === 'string' ? value.realName.trim() : '';
+  const note = typeof value.note === 'string' ? value.note.trim() : '';
+  if (realName.length > 120) throw new HttpRouteError(400, 'Real name must be 120 characters or fewer.');
+  if (note.length > 1000) throw new HttpRouteError(400, 'Note must be 1000 characters or fewer.');
+
+  const inputTags = Array.isArray(value.tags) ? value.tags : [];
+  if (inputTags.length > 12) throw new HttpRouteError(400, 'A viewer can have at most 12 tags.');
+
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const item of inputTags) {
+    if (typeof item !== 'string') throw new HttpRouteError(400, 'Tags must be strings.');
+    const tag = item.trim();
+    if (!tag) continue;
+    if (tag.length > 32) throw new HttpRouteError(400, 'Tags must be 32 characters or fewer.');
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+  }
+
+  return { realName, tags, note };
 }
 
 function fallbackColor(login: string): string {
@@ -286,6 +324,15 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
     `).all() as Array<{ login: string; msgs: number; firstSeen: string }>;
 
     const counts = new Map(countRows.map(row => [row.login, row]));
+    const profileRows = db.prepare(`
+      select login, real_name as realName, tags_json as tagsJson, note
+      from viewer_profiles
+    `).all() as Array<{ login: string; realName: string; tagsJson: string; note: string }>;
+    const profiles = new Map(profileRows.map(row => [row.login, {
+      realName: row.realName,
+      tags: parseTagsJson(row.tagsJson),
+      note: row.note,
+    }]));
     const recentRows = db.prepare(`
       select username, display_name as displayName, color, message, received_at as receivedAt, badges_json as badgesJson
       from chat_messages
@@ -304,6 +351,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
       login: string;
       display: string;
       color: string;
+      realName: string;
+      tags: string[];
       pronouns: string;
       roles: string[];
       followed: string;
@@ -324,10 +373,13 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
       if (!viewers[login]) {
         const badges = parseBadgesJson(row.badgesJson);
         const roles = getViewerRolesFromBadges(badges);
+        const profile = profiles.get(login);
         viewers[login] = {
           login,
           display: row.displayName,
           color: row.color ?? fallbackColor(login),
+          realName: profile?.realName ?? '',
+          tags: profile?.tags ?? [],
           pronouns: 'not available',
           roles,
           followed: 'not available',
@@ -335,7 +387,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           seen: formatFirstSeen(count.firstSeen),
           msgs: count.msgs,
           accountAge: 'not available',
-          note: '',
+          note: profile?.note ?? '',
           recent: [],
         };
       }
@@ -349,6 +401,29 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
     }
 
     response.json(viewers);
+  });
+
+  app.patch('/api/dashboard/viewers/:login/profile', (request, response) => {
+    try {
+      const login = request.params.login.trim().toLowerCase();
+      if (!login) throw new HttpRouteError(400, 'Viewer login is required.');
+
+      const profile = normalizeViewerProfileBody(request.body);
+      const now = new Date().toISOString();
+      db.prepare(`
+        insert into viewer_profiles (login, real_name, tags_json, note, created_at, updated_at)
+        values (?, ?, ?, ?, ?, ?)
+        on conflict(login) do update set
+          real_name = excluded.real_name,
+          tags_json = excluded.tags_json,
+          note = excluded.note,
+          updated_at = excluded.updated_at
+      `).run(login, profile.realName, JSON.stringify(profile.tags), profile.note, now, now);
+
+      response.json(profile);
+    } catch (error) {
+      sendRouteError(response, error);
+    }
   });
 
   app.get('/api/dashboard/chat', (_request, response) => {

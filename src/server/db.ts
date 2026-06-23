@@ -66,6 +66,15 @@ db.exec(`
     updated_at text not null
   );
 
+  create table if not exists viewer_profiles (
+    login text primary key,
+    real_name text not null default '',
+    tags_json text not null default '[]',
+    note text not null default '',
+    created_at text not null,
+    updated_at text not null
+  );
+
   create table if not exists chatbot_commands (
     id text primary key,
     trigger text not null unique,
