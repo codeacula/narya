@@ -30,6 +30,7 @@ import {
   updateSoundButton,
   updateTickerItem,
   updateLlmSettings,
+  testLlm,
 } from '../services/dashboard';
 
 type CommandForm = {
@@ -236,6 +237,9 @@ export function SettingsPage({
   const [llmSettings, setLlmSettings] = useState<LlmSettingsForm>(EMPTY_LLM_SETTINGS);
   const [llmLoading, setLlmLoading] = useState(true);
   const [llmSaving, setLlmSaving] = useState(false);
+  const [llmTesting, setLlmTesting] = useState(false);
+  const [llmTestQuestion, setLlmTestQuestion] = useState('why is CSS like this?');
+  const [llmTestReply, setLlmTestReply] = useState<string | null>(null);
   const [llmMessage, setLlmMessage] = useState<string | null>(null);
   const [llmError, setLlmError] = useState<string | null>(null);
   const [runsheetItems, setRunsheetItems] = useState<RunItem[]>([]);
@@ -515,6 +519,21 @@ export function SettingsPage({
         setLlmError(error instanceof Error ? error.message : 'Could not save LLM settings');
       })
       .finally(() => setLlmSaving(false));
+  };
+
+  const handleLlmTest = () => {
+    setLlmTesting(true);
+    setLlmMessage(null);
+    setLlmError(null);
+    setLlmTestReply(null);
+    void testLlm(llmTestQuestion)
+      .then(result => {
+        setLlmTestReply(result.reply);
+      })
+      .catch(error => {
+        setLlmError(error instanceof Error ? error.message : 'Could not test LLM');
+      })
+      .finally(() => setLlmTesting(false));
   };
 
   return (
@@ -1079,6 +1098,29 @@ export function SettingsPage({
 
             <div className="command-example">
               LM Studio default: <code>http://localhost:1234/v1</code>. Use <code>!ponder why is CSS like this?</code>
+            </div>
+
+            <div className="llm-test-panel">
+              <label className="field">
+                <span>Test question</span>
+                <input
+                  value={llmTestQuestion}
+                  disabled={llmLoading || llmSaving || llmTesting}
+                  maxLength={500}
+                  onChange={event => setLlmTestQuestion(event.target.value)}
+                />
+              </label>
+              <div className="command-settings-actions">
+                <button
+                  className="modbtn"
+                  type="button"
+                  disabled={llmLoading || llmSaving || llmTesting}
+                  onClick={handleLlmTest}
+                >
+                  {llmTesting ? 'Testing...' : 'Test LLM'}
+                </button>
+              </div>
+              {llmTestReply && <div className="llm-test-reply">{llmTestReply}</div>}
             </div>
 
             {(llmMessage || llmError) && (

@@ -260,4 +260,33 @@ export function registerLlmRoutes(app: express.Express) {
       sendRouteError(response, error);
     }
   });
+
+  app.post('/api/llm/test', async (request, response) => {
+    try {
+      const body = request.body as { question?: unknown };
+      const question = typeof body.question === 'string' && body.question.trim()
+        ? body.question.trim()
+        : 'Give me one short stream-chat-safe test reply.';
+      if (question.length > 500) throw new HttpRouteError(400, 'Test question must be 500 characters or fewer.');
+
+      const reply = await askPonderLlm({
+        id: 'llm-settings-test',
+        channel: 'settings',
+        username: 'settings',
+        displayName: 'Settings',
+        color: null,
+        message: `!ponder ${question}`,
+        receivedAt: new Date().toISOString(),
+        deletedAt: null,
+        deletedReason: null,
+        badges: null,
+        emotes: null,
+        isFirstTimer: false,
+      }, question);
+
+      response.json({ ok: true, reply });
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
 }

@@ -275,3 +275,8 @@ export type LlmSettingsUpdate = {
   maxOutputTokens: number;
   timeoutMs: number;
 };
+
+export type LlmTestResult = {
+  ok: boolean;
+  reply: string;
+};

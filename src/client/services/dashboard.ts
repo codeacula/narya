@@ -25,6 +25,7 @@ import type {
   ChatbotCommandUpsert,
   LlmSettings,
   LlmSettingsUpdate,
+  LlmTestResult,
   ViewerProfileUpdate,
   TwitchUserActionResult,
 } from '../../shared/api';
@@ -158,6 +159,10 @@ export async function getLlmSettings(): Promise<LlmSettings> {
 
 export async function updateLlmSettings(settings: LlmSettingsUpdate): Promise<LlmSettings> {
   return sendJson<LlmSettings>('/api/llm/settings', 'PUT', settings);
+}
+
+export async function testLlm(question: string): Promise<LlmTestResult> {
+  return sendJson<LlmTestResult>('/api/llm/test', 'POST', { question });
 }
 
 export async function disconnectTwitch(account: 'user' | 'bot' = 'user'): Promise<void> {

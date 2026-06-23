@@ -723,6 +723,23 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
+.llm-test-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: rgba(255,255,255,0.018);
+  padding: 10px;
+}
+.llm-test-reply {
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-void);
+  color: var(--fg-1);
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 10px 11px;
+}
 @media (max-width: 700px) {
   .llm-settings-grid {
     grid-template-columns: 1fr;
