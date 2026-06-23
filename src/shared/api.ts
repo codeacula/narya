@@ -179,6 +179,11 @@ export type ChatSendResult = {
   messageId: string | null;
 };
 
+export type TwitchUserActionResult = {
+  ok: boolean;
+  message: string;
+};
+
 export type ChatbotCommandActionType = 'chat_reply' | 'llm_response';
 
 export type ChatbotCommandSettings = {

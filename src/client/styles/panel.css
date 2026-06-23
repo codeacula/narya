@@ -419,6 +419,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   padding: 8px 10px; border-left: 2px solid var(--accent);
   background: var(--accent-soft); border-radius: 0 var(--radius-2) var(--radius-2) 0;
 }
+.spot-action-status {
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius-2);
+  padding: 8px 10px;
+  color: var(--success-fg);
+  background: var(--success-bg);
+  font-size: 12px;
+}
+.spot-action-status.error {
+  color: var(--danger-fg);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
 .spot-section-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-3); }
 .spot-recent { display: flex; flex-direction: column; gap: 6px; }
 .spot-recent .rmsg { display: flex; gap: 10px; font-size: 12px; color: var(--ivory-100); }
@@ -434,10 +447,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
 }
 .modbtn:hover { border-color: var(--silver-400); background: rgba(255,255,255,0.03); }
+.modbtn:disabled { cursor: not-allowed; opacity: 0.5; }
+.modbtn:disabled:hover { border-color: var(--border-2); background: transparent; }
 .modbtn.danger { color: var(--danger-fg); border-color: var(--danger-border); }
 .modbtn.danger:hover { background: var(--danger-bg); border-color: var(--danger-base); }
 .modbtn.gold { color: var(--accent-fg); border-color: var(--border-3); }
 .modbtn.gold:hover { background: var(--accent-soft); }
+.modbtn.danger:disabled:hover,
+.modbtn.gold:disabled:hover { background: transparent; }
 
 .empty-state {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;

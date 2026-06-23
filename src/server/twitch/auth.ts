@@ -13,8 +13,11 @@ export const REQUIRED_TWITCH_OAUTH_SCOPES = [
   'channel:read:ads',
   'channel:edit:commercial',
   'channel:manage:broadcast',
+  'moderator:manage:banned_users',
+  'moderator:manage:shoutouts',
   'user:read:chat',
   'user:write:chat',
+  'user:manage:whispers',
 ] as const;
 
 export const REQUIRED_TWITCH_BOT_OAUTH_SCOPES = [

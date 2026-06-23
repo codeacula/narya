@@ -20,6 +20,7 @@ import type {
   LlmSettings,
   LlmSettingsUpdate,
   ViewerProfileUpdate,
+  TwitchUserActionResult,
 } from '../../shared/api';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
@@ -95,6 +96,29 @@ export async function runPrerollAds(): Promise<PrerollResult> {
 
 export async function sendChatMessage(message: string): Promise<ChatSendResult> {
   return sendJson('/api/twitch/chat-message', 'POST', { message });
+}
+
+export async function sendViewerShoutout(login: string): Promise<TwitchUserActionResult> {
+  return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/shoutout`, 'POST');
+}
+
+export async function sendViewerWhisper(login: string, message: string): Promise<TwitchUserActionResult> {
+  return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/whisper`, 'POST', { message });
+}
+
+export async function timeoutViewer(
+  login: string,
+  durationSeconds: number,
+  reason: string,
+): Promise<TwitchUserActionResult> {
+  return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/timeout`, 'POST', {
+    durationSeconds,
+    reason,
+  });
+}
+
+export async function banViewer(login: string, reason: string): Promise<TwitchUserActionResult> {
+  return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/ban`, 'POST', { reason });
 }
 
 export async function getChatbotCommandSettings(): Promise<ChatbotCommandSettingsResponse> {

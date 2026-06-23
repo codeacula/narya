@@ -14,6 +14,8 @@ import {
 } from './auth';
 
 const TWITCH_PREROLL_COMMERCIAL_SECONDS = 180;
+const TWITCH_DEFAULT_TIMEOUT_SECONDS = 600;
+const TWITCH_MAX_TIMEOUT_SECONDS = 1_209_600;
 type TwitchChatSender = 'user' | 'bot';
 
 export async function getEventSubCredentials(state: RuntimeState): Promise<{ clientId: string; userToken: string } | null> {
@@ -108,6 +110,140 @@ export async function fetchAuthenticatedTwitchUserId(clientId: string, userToken
   } catch (error) {
     console.error('Twitch API: failed to resolve authenticated user ID:', error);
     return null;
+  }
+}
+
+async function resolveTwitchUserId(login: string, credentials: { clientId: string; authorization: string }): Promise<string> {
+  const normalizedLogin = login.trim().replace(/^@/, '').toLowerCase();
+  if (!normalizedLogin) throw new HttpRouteError(400, 'Twitch login is required.');
+
+  const res = await fetch(
+    `https://api.twitch.tv/helix/users?login=${encodeURIComponent(normalizedLogin)}`,
+    { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+  );
+  if (!res.ok) {
+    const message = await readResponseError(res, 'Twitch user lookup failed.');
+    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+  }
+
+  const data = await res.json() as { data?: Array<{ id?: string }> };
+  const userId = data.data?.[0]?.id;
+  if (!userId) throw new HttpRouteError(404, `No Twitch user found for "${normalizedLogin}".`);
+  return userId;
+}
+
+async function getAuthenticatedActionUserId(
+  state: RuntimeState,
+  credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
+): Promise<string> {
+  const userId = state.twitchSenderId ?? await fetchAuthenticatedTwitchUserId(credentials.clientId, credentials.userToken);
+  if (!userId) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
+  state.twitchSenderId = userId;
+  return userId;
+}
+
+function normalizeUserActionReason(value: unknown): string {
+  return typeof value === 'string' ? value.trim().slice(0, 500) : '';
+}
+
+function normalizeTimeoutSeconds(value: unknown): number {
+  if (value === undefined || value === null || value === '') return TWITCH_DEFAULT_TIMEOUT_SECONDS;
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) throw new HttpRouteError(400, 'Timeout duration must be a number.');
+  const seconds = Math.round(numeric);
+  if (seconds < 1 || seconds > TWITCH_MAX_TIMEOUT_SECONDS) {
+    throw new HttpRouteError(400, 'Timeout duration must be between 1 second and 14 days.');
+  }
+  return seconds;
+}
+
+async function sendTwitchShoutout(state: RuntimeState, login: string) {
+  const credentials = await getTwitchActionCredentials(state, ['moderator:manage:shoutouts']);
+  const [moderatorId, targetId] = await Promise.all([
+    getAuthenticatedActionUserId(state, credentials),
+    resolveTwitchUserId(login, credentials),
+  ]);
+  const params = new URLSearchParams({
+    from_broadcaster_id: credentials.broadcasterId,
+    to_broadcaster_id: targetId,
+    moderator_id: moderatorId,
+  });
+
+  const res = await fetch(`https://api.twitch.tv/helix/chat/shoutouts?${params.toString()}`, {
+    method: 'POST',
+    headers: {
+      'Client-Id': credentials.clientId,
+      Authorization: credentials.authorization,
+    },
+  });
+  if (!res.ok) {
+    const message = await readResponseError(res, 'Twitch shoutout failed.');
+    throw new HttpRouteError(res.status === 401 || res.status === 403 || res.status === 429 ? res.status : 502, message);
+  }
+}
+
+async function sendTwitchWhisper(state: RuntimeState, login: string, message: string) {
+  const trimmedMessage = message.trim();
+  if (!trimmedMessage) throw new HttpRouteError(400, 'Whisper message is required.');
+  if (trimmedMessage.length > 500) throw new HttpRouteError(400, 'Whisper message must be 500 characters or fewer.');
+
+  const credentials = await getTwitchActionCredentials(state, ['user:manage:whispers']);
+  const [fromUserId, toUserId] = await Promise.all([
+    getAuthenticatedActionUserId(state, credentials),
+    resolveTwitchUserId(login, credentials),
+  ]);
+  const params = new URLSearchParams({
+    from_user_id: fromUserId,
+    to_user_id: toUserId,
+  });
+
+  const res = await fetch(`https://api.twitch.tv/helix/whispers?${params.toString()}`, {
+    method: 'POST',
+    headers: {
+      'Client-Id': credentials.clientId,
+      Authorization: credentials.authorization,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ message: trimmedMessage }),
+  });
+  if (!res.ok) {
+    const errorMessage = await readResponseError(res, 'Twitch whisper failed.');
+    throw new HttpRouteError(res.status === 401 || res.status === 403 || res.status === 429 ? res.status : 502, errorMessage);
+  }
+}
+
+async function moderateTwitchUser(
+  state: RuntimeState,
+  login: string,
+  action: 'ban' | 'timeout',
+  options: { durationSeconds?: unknown; reason?: unknown },
+) {
+  const credentials = await getTwitchActionCredentials(state, ['moderator:manage:banned_users']);
+  const [moderatorId, targetId] = await Promise.all([
+    getAuthenticatedActionUserId(state, credentials),
+    resolveTwitchUserId(login, credentials),
+  ]);
+  const params = new URLSearchParams({
+    broadcaster_id: credentials.broadcasterId,
+    moderator_id: moderatorId,
+  });
+  const reason = normalizeUserActionReason(options.reason);
+  const data: { user_id: string; duration?: number; reason?: string } = { user_id: targetId };
+  if (action === 'timeout') data.duration = normalizeTimeoutSeconds(options.durationSeconds);
+  if (reason) data.reason = reason;
+
+  const res = await fetch(`https://api.twitch.tv/helix/moderation/bans?${params.toString()}`, {
+    method: 'POST',
+    headers: {
+      'Client-Id': credentials.clientId,
+      Authorization: credentials.authorization,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ data }),
+  });
+  if (!res.ok) {
+    const errorMessage = await readResponseError(res, `Twitch ${action} failed.`);
+    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
   }
 }
 
@@ -463,6 +599,49 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
         ok: true,
         messageId: result.messageId,
       });
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.post('/api/twitch/users/:login/shoutout', async (request, response) => {
+    try {
+      await sendTwitchShoutout(state, request.params.login);
+      response.json({ ok: true, message: `Shoutout sent to @${request.params.login}.` });
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.post('/api/twitch/users/:login/whisper', async (request, response) => {
+    try {
+      const body = request.body as { message?: unknown };
+      const message = typeof body.message === 'string' ? body.message : '';
+      await sendTwitchWhisper(state, request.params.login, message);
+      response.json({ ok: true, message: `Whisper sent to @${request.params.login}.` });
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.post('/api/twitch/users/:login/timeout', async (request, response) => {
+    try {
+      const body = request.body as { durationSeconds?: unknown; reason?: unknown };
+      await moderateTwitchUser(state, request.params.login, 'timeout', {
+        durationSeconds: body.durationSeconds,
+        reason: body.reason,
+      });
+      response.json({ ok: true, message: `@${request.params.login} timed out.` });
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.post('/api/twitch/users/:login/ban', async (request, response) => {
+    try {
+      const body = request.body as { reason?: unknown };
+      await moderateTwitchUser(state, request.params.login, 'ban', { reason: body.reason });
+      response.json({ ok: true, message: `@${request.params.login} banned.` });
     } catch (error) {
       sendRouteError(response, error);
     }

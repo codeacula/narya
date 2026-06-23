@@ -1,6 +1,12 @@
 import React from 'react';
 import { Icon } from './icons';
-import { sendChatMessage } from '../services/dashboard';
+import {
+  banViewer,
+  sendChatMessage,
+  sendViewerShoutout,
+  sendViewerWhisper,
+  timeoutViewer,
+} from '../services/dashboard';
 import type { Viewer, ChatEntry, StreamEvent, ViewerProfileUpdate } from '../../shared/api';
 
 /* ---------------- types ---------------- */
@@ -33,6 +39,7 @@ const ROLE_BADGE: Record<string, string> = {
 };
 
 const MAX_VIEWER_TAGS = 12;
+type ViewerActionKind = 'whisper' | 'timeout' | 'ban';
 
 function badgesFor(viewer: Viewer | undefined): string[] {
   if (!viewer) return [];
@@ -347,12 +354,122 @@ function ViewerProfileModal({
   );
 }
 
+function ViewerActionModal({
+  viewer,
+  action,
+  busy,
+  error,
+  onSubmit,
+  onClose,
+}: {
+  viewer: Viewer;
+  action: ViewerActionKind;
+  busy: boolean;
+  error: string | null;
+  onSubmit: (payload: { message?: string; durationMinutes?: number; reason?: string }) => void;
+  onClose: () => void;
+}) {
+  const [message, setMessage] = React.useState('');
+  const [reason, setReason] = React.useState('');
+  const [durationMinutes, setDurationMinutes] = React.useState(10);
+  const isWhisper = action === 'whisper';
+  const isTimeout = action === 'timeout';
+  const title = isWhisper ? 'Whisper' : isTimeout ? 'Timeout Viewer' : 'Ban Viewer';
+  const submitLabel = busy ? 'Working...' : isWhisper ? 'Send whisper' : isTimeout ? 'Timeout' : 'Ban';
+
+  const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSubmit({
+      message,
+      durationMinutes,
+      reason,
+    });
+  }, [durationMinutes, message, onSubmit, reason]);
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <form className="stream-info-modal viewer-action-modal" onSubmit={handleSubmit}>
+        <div className="modal-head">
+          <div>
+            <h2>{title}</h2>
+            <div className="viewer-profile-login">@{viewer.login}</div>
+          </div>
+          <button className="icon-btn" type="button" title="Close" onClick={onClose}>
+            <Icon name="x" />
+          </button>
+        </div>
+
+        {isWhisper ? (
+          <label className="field">
+            <span>Message</span>
+            <textarea
+              value={message}
+              maxLength={500}
+              rows={5}
+              disabled={busy}
+              onChange={event => setMessage(event.target.value)}
+            />
+            <small>{message.length}/500</small>
+          </label>
+        ) : (
+          <>
+            {isTimeout && (
+              <label className="field">
+                <span>Duration minutes</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={20_160}
+                  value={durationMinutes}
+                  disabled={busy}
+                  onChange={event => setDurationMinutes(Number(event.target.value))}
+                />
+                <small>1 minute to 14 days</small>
+              </label>
+            )}
+            <label className="field">
+              <span>Reason</span>
+              <textarea
+                value={reason}
+                maxLength={500}
+                rows={4}
+                disabled={busy}
+                onChange={event => setReason(event.target.value)}
+              />
+              <small>{reason.length}/500</small>
+            </label>
+          </>
+        )}
+
+        {error && <div className="modal-status error">{error}</div>}
+
+        <div className="modal-actions">
+          <button className="modbtn" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button
+            className={'modbtn ' + (action === 'ban' ? 'danger' : 'gold')}
+            type="submit"
+            disabled={busy || (isWhisper && !message.trim())}
+          >
+            {submitLabel}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ---------------- Spotlight ---------------- */
 
 export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
   const normalizedLogin = login?.toLowerCase();
   const viewer = normalizedLogin ? ctx.viewers[normalizedLogin] : null;
   const [profileOpen, setProfileOpen] = React.useState(false);
+  const [actionOpen, setActionOpen] = React.useState<ViewerActionKind | null>(null);
+  const [busyAction, setBusyAction] = React.useState<ViewerActionKind | 'shoutout' | null>(null);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
 
   if (!viewer) {
     return (
@@ -369,6 +486,45 @@ export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
   const hasProfile = Boolean(viewer.realName || viewer.tags.length > 0 || viewer.note);
   const saveProfile = async (profile: ViewerProfileUpdate) => {
     await ctx.updateViewerProfile(viewer.login, profile);
+  };
+  const openAction = (action: ViewerActionKind) => {
+    setActionOpen(action);
+    setActionError(null);
+    setActionMessage(null);
+  };
+  const handleShoutout = () => {
+    setBusyAction('shoutout');
+    setActionError(null);
+    setActionMessage(null);
+    void sendViewerShoutout(viewer.login)
+      .then(result => setActionMessage(result.message))
+      .catch(error => setActionError(error instanceof Error ? error.message : 'Shoutout failed'))
+      .finally(() => setBusyAction(null));
+  };
+  const handleActionSubmit = (payload: { message?: string; durationMinutes?: number; reason?: string }) => {
+    if (!actionOpen) return;
+    const action = actionOpen;
+    setBusyAction(action);
+    setActionError(null);
+    setActionMessage(null);
+
+    const request = action === 'whisper'
+      ? sendViewerWhisper(viewer.login, payload.message ?? '')
+      : action === 'timeout'
+        ? timeoutViewer(
+            viewer.login,
+            Math.round(Math.min(Math.max(payload.durationMinutes ?? 10, 1), 20_160) * 60),
+            payload.reason ?? '',
+          )
+        : banViewer(viewer.login, payload.reason ?? '');
+
+    void request
+      .then(result => {
+        setActionMessage(result.message);
+        setActionOpen(null);
+      })
+      .catch(error => setActionError(error instanceof Error ? error.message : 'Viewer action failed'))
+      .finally(() => setBusyAction(null));
   };
 
   return (
@@ -415,6 +571,12 @@ export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
 
         {viewer.note && <div className="spot-note">{viewer.note}</div>}
 
+        {(actionMessage || (!actionOpen && actionError)) && (
+          <div className={'spot-action-status' + (actionError ? ' error' : '')}>
+            {actionError ?? actionMessage}
+          </div>
+        )}
+
         <div>
           <div className="spot-section-label" style={{ marginBottom: '9px' }}>Recent in chat</div>
           <div className="spot-recent">
@@ -428,13 +590,15 @@ export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
         </div>
 
         <div className="spot-actions">
-          <button className="modbtn gold">shout out</button>
-          <button className="modbtn">whisper</button>
+          <button className="modbtn gold" disabled={busyAction !== null} onClick={handleShoutout}>
+            {busyAction === 'shoutout' ? 'sending...' : 'shout out'}
+          </button>
+          <button className="modbtn" disabled={busyAction !== null} onClick={() => openAction('whisper')}>whisper</button>
           <button className="modbtn" onClick={() => setProfileOpen(true)}>
             {hasProfile ? 'edit profile' : 'add note'}
           </button>
-          <button className="modbtn">timeout</button>
-          <button className="modbtn danger">ban</button>
+          <button className="modbtn" disabled={busyAction !== null} onClick={() => openAction('timeout')}>timeout</button>
+          <button className="modbtn danger" disabled={busyAction !== null} onClick={() => openAction('ban')}>ban</button>
         </div>
       </div>
 
@@ -443,6 +607,19 @@ export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
           viewer={viewer}
           onSave={saveProfile}
           onClose={() => setProfileOpen(false)}
+        />
+      )}
+      {actionOpen && (
+        <ViewerActionModal
+          viewer={viewer}
+          action={actionOpen}
+          busy={busyAction === actionOpen}
+          error={actionError}
+          onSubmit={handleActionSubmit}
+          onClose={() => {
+            setActionOpen(null);
+            setActionError(null);
+          }}
         />
       )}
     </>
