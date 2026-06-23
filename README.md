@@ -35,7 +35,13 @@ When OBS is connected, `/tablet` shows the live OBS scene list and highlights th
 docker compose up --build
 ```
 
-SQLite data is persisted in `./data/streamer-tools.sqlite`.
+The container runs the production backend and built React UI as one service on `http://localhost:4317`. SQLite data is persisted in `./data/streamer-tools.sqlite`.
+
+The Compose service uses `restart: unless-stopped`, so it will come back automatically when Docker starts. To run it in the background:
+
+```sh
+docker compose up --build -d
+```
 
 Chat is stored in two layers:
 
@@ -62,9 +68,10 @@ TWITCH_BOT_USER_TOKEN=
 TWITCH_REDIRECT_URI=http://localhost:5173/api/auth/twitch/callback
 ```
 
+Use `http://localhost:4317/api/auth/twitch/callback` for `TWITCH_REDIRECT_URI` when running with Docker, or `http://localhost:5173/api/auth/twitch/callback` for local dev via Vite.
+
 The dashboard Settings page is the primary Twitch setup path. Set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET`, register `TWITCH_REDIRECT_URI` in your Twitch app, then use Settings to log in the broadcaster account and the separate bot account.
 
 `TWITCH_USER_TOKEN` and `TWITCH_BOT_USER_TOKEN` are manual fallbacks for deployments that manage OAuth tokens outside the dashboard. Broadcaster credentials are used for EventSub, stream info, ads, moderation, shoutouts, and whispers. Bot credentials are used for dashboard chat sends and chat command replies.
 
-For Docker, OBS is configured as `ws://host.docker.internal:4455` so the container can reach OBS running on the host.
-Playerctl is best run locally because containers do not normally have access to the host desktop media session.
+For Docker, OBS is configured as `ws://host.docker.internal:4455` so the container can reach OBS running on the host. The Docker default disables playerctl polling with `MUSIC_POLL_INTERVAL_MS=0` because containers do not normally have access to the host desktop media session.

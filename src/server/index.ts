@@ -9,6 +9,7 @@ import { connectObs } from './obs';
 import { app, server } from './realtime';
 import { registerCoreRoutes } from './routes';
 import { RuntimeState } from './runtime';
+import { registerStaticRoutes } from './static';
 import { hydrateTwitchAuthState, registerTwitchAuthRoutes } from './twitch/auth';
 import { registerTwitchApiRoutes } from './twitch/api';
 
@@ -26,6 +27,7 @@ registerTwitchApiRoutes(app, runtimeState);
 registerChatbotCommandRoutes(app);
 registerLlmRoutes(app);
 registerDashboardRoutes(app, runtimeState);
+registerStaticRoutes(app);
 
 server.listen(config.port, () => {
   console.log(`Streamer Tools backend listening on http://localhost:${config.port}`);

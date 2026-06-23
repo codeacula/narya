@@ -8,6 +8,7 @@
     "dev": "concurrently -n server,client -c blue,green \"bun run dev:server\" \"bun run dev:client\"",
     "dev:client": "vite --host 0.0.0.0",
     "dev:server": "bun --watch src/server/index.ts",
+    "start": "bun src/server/index.ts",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit"

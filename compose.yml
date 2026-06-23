@@ -1,17 +1,28 @@
 services:
   streamer-tools:
     build: .
+    restart: unless-stopped
     ports:
-      - "5173:5173"
       - "4317:4317"
     environment:
       PORT: 4317
-      TWITCH_CHANNEL: codeacula
+      TWITCH_CHANNEL: ${TWITCH_CHANNEL:-codeacula}
       TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
+      TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
       TWITCH_USER_TOKEN: ${TWITCH_USER_TOKEN:-}
+      TWITCH_BOT_USER_TOKEN: ${TWITCH_BOT_USER_TOKEN:-}
+      TWITCH_REDIRECT_URI: ${TWITCH_REDIRECT_URI:-http://localhost:4317/api/auth/twitch/callback}
       OBS_WEBSOCKET_URL: ws://host.docker.internal:4455
       OBS_WEBSOCKET_PASSWORD: ${OBS_WEBSOCKET_PASSWORD:-}
+      MUSIC_POLL_INTERVAL_MS: ${MUSIC_POLL_INTERVAL_MS:-0}
+      MUSIC_PLAYERCTL_PLAYER: ${MUSIC_PLAYERCTL_PLAYER:-strawberry}
+      QUACK_VOLUME: ${QUACK_VOLUME:-0.20}
     volumes:
       - ./data:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:4317/api/health'); if (!r.ok) process.exit(1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
