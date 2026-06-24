@@ -28,6 +28,7 @@ type LlmSettingsRow = {
 type ResponsesApiResponse = {
   output_text?: unknown;
   output?: Array<{
+    type?: string;
     content?: Array<{
       type?: string;
       text?: unknown;
@@ -170,20 +171,57 @@ function responsesUrl(baseUrl: string): string {
   return `${normalizeUrl(baseUrl)}/responses`;
 }
 
-function extractOutputText(data: ResponsesApiResponse): string {
+function extractResponseText(data: ResponsesApiResponse): string {
   if (typeof data.output_text === 'string' && data.output_text.trim()) {
     return data.output_text.trim();
   }
-
-  const parts: string[] = [];
   for (const item of data.output ?? []) {
-    for (const content of item.content ?? []) {
-      if (content.type === 'output_text' && typeof content.text === 'string') {
-        parts.push(content.text);
+    for (const part of item.content ?? []) {
+      if (part.type === 'output_text' && typeof part.text === 'string' && part.text.trim()) {
+        return part.text.trim();
       }
     }
   }
-  return parts.join(' ').trim();
+  return '';
+}
+
+async function callLlm(settings: LlmSettingsRow, userContent: string): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), settings.timeoutMs);
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
+
+    const response = await fetch(responsesUrl(settings.baseUrl), {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: settings.model,
+        instructions: settings.personalityPrompt,
+        input: userContent,
+        temperature: settings.temperature,
+        max_output_tokens: settings.maxOutputTokens,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      let detail = text.slice(0, 300);
+      try {
+        const parsed = JSON.parse(text) as { error?: { message?: unknown } };
+        if (typeof parsed.error?.message === 'string') detail = parsed.error.message;
+      } catch { /* ignore */ }
+      throw new Error(`LLM request failed (${response.status}): ${detail}`);
+    }
+
+    const data = await response.json() as ResponsesApiResponse;
+    const answer = extractResponseText(data);
+    if (!answer) throw new Error('LLM response included no text content.');
+    return answer;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function twitchMessage(value: string, maxLength = 500): string {
@@ -201,6 +239,10 @@ export function formatPonderReply(chatMessage: ChatMessage, text: string): strin
   return twitchMessage(`${prefix}${text}`, 500);
 }
 
+function userContent(chatMessage: ChatMessage, question: string): string {
+  return `A Twitch chatter named ${chatMessage.displayName || chatMessage.username} asks: ${question}\nAnswer them in one concise chat message.`;
+}
+
 export async function askPonderLlm(chatMessage: ChatMessage, question: string): Promise<string> {
   const settings = getSettingsRowOrDefault();
   if (settings.enabled !== 1) {
@@ -209,40 +251,12 @@ export async function askPonderLlm(chatMessage: ChatMessage, question: string): 
   if (!settings.baseUrl || !settings.model) {
     return formatPonderReply(chatMessage, '!ponder needs an LLM base URL and model in Settings first. Naturally, the void forgot its paperwork.');
   }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), settings.timeoutMs);
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
-
-    const response = await fetch(responsesUrl(settings.baseUrl), {
-      method: 'POST',
-      headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: settings.model,
-        instructions: settings.personalityPrompt,
-        input: `A Twitch chatter named ${chatMessage.displayName || chatMessage.username} asks: ${question}\nAnswer them in one concise chat message.`,
-        temperature: settings.temperature,
-        max_output_tokens: settings.maxOutputTokens,
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`LLM request failed with ${response.status}: ${text.slice(0, 300)}`);
-    }
-
-    const data = await response.json() as ResponsesApiResponse;
-    const answer = extractOutputText(data);
-    if (!answer) throw new Error('LLM response did not include output text.');
+    const answer = await callLlm(settings, userContent(chatMessage, question));
     return formatPonderReply(chatMessage, answer);
   } catch (error) {
     console.error('LLM: ponder request failed:', error);
     return formatPonderReply(chatMessage, 'the thinking machine tripped over its own shoelaces. Try again in a bit.');
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -269,7 +283,11 @@ export function registerLlmRoutes(app: express.Express) {
         : 'Give me one short stream-chat-safe test reply.';
       if (question.length > 500) throw new HttpRouteError(400, 'Test question must be 500 characters or fewer.');
 
-      const reply = await askPonderLlm({
+      const settings = getSettingsRowOrDefault();
+      if (!settings.enabled) throw new HttpRouteError(400, 'LLM is disabled in settings.');
+      if (!settings.baseUrl || !settings.model) throw new HttpRouteError(400, 'LLM base URL and model are required.');
+
+      const fakeChatMessage = {
         id: 'llm-settings-test',
         channel: 'settings',
         username: 'settings',
@@ -284,8 +302,15 @@ export function registerLlmRoutes(app: express.Express) {
         isFirstTimer: false,
         isFirstThisSession: false,
         isFirstEver: false,
-      }, question);
-
+      };
+      let answer: string;
+      try {
+        answer = await callLlm(settings, userContent(fakeChatMessage, question));
+      } catch (llmError) {
+        const msg = llmError instanceof Error ? llmError.message : 'LLM request failed.';
+        throw new HttpRouteError(502, msg);
+      }
+      const reply = formatPonderReply(fakeChatMessage, answer);
       response.json({ ok: true, reply });
     } catch (error) {
       sendRouteError(response, error);

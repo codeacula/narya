@@ -417,6 +417,9 @@ export function Panel({
   className = '',
   bodyClass = '',
   footer,
+  tabs,
+  activeTab,
+  onTabChange,
   children,
 }: {
   id: string;
@@ -428,6 +431,9 @@ export function Panel({
   className?: string;
   bodyClass?: string;
   footer?: React.ReactNode;
+  tabs?: Array<{ id: string; label: string }>;
+  activeTab?: string;
+  onTabChange?: (id: string) => void;
   children: React.ReactNode;
 }) {
   if (popped) {
@@ -449,6 +455,20 @@ export function Panel({
           {dot && <span className="tdot" />}
           {title}
         </span>
+        {tabs && tabs.length > 0 && (
+          <div className="panel-tabs">
+            {tabs.map(t => (
+              <button
+                key={t.id}
+                className={'panel-tab' + (activeTab === t.id ? ' active' : '')}
+                onClick={() => onTabChange?.(t.id)}
+                type="button"
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         {count != null && <span className="panel-count">{count}</span>}
         <span className="panel-actions">
           <button className="icon-btn" title="Pop out" onClick={() => onPop(id, true)}>

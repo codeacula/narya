@@ -674,10 +674,8 @@ export function SettingsPage({
   return (
     <div className="settings-page">
       <div className="settings-inner">
-        <div className="eyebrow" style={{ marginBottom: '6px' }}>settings</div>
-        <h2 style={{ margin: '0 0 4px', fontFamily: 'var(--font-display)', fontSize: '28px', fontWeight: 500 }}>
-          Control room
-        </h2>
+        <div className="settings-eyebrow">settings</div>
+        <h2 className="settings-title">Control room</h2>
         <p className="set-intro">
           Twitch connection and backend integration settings.
         </p>
@@ -731,7 +729,7 @@ export function SettingsPage({
         <div className="set-group">
           <div className="set-group-label">Discord Go Live</div>
           {(goLiveMessage || goLiveError) && (
-            <div className={'command-settings-status settings-inline-status' + (goLiveError ? ' error' : '')}>
+            <div className={'set-status' + (goLiveError ? ' error' : '')}>
               {goLiveError ?? goLiveMessage}
             </div>
           )}
@@ -751,6 +749,7 @@ export function SettingsPage({
             )}
           </SettingsRow>
 
+          <div className="settings-editor-section">
           <form className="settings-mini-form" onSubmit={handleGoLiveSettingsSubmit}>
             <label className="field">
               <span>Starting scene</span>
@@ -825,6 +824,7 @@ export function SettingsPage({
               </button>
             </div>
           </form>
+          </div>
         </div>
 
         <div className="set-group">

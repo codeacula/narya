@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
-import { ChatInput, MODULES, PanelCtx } from '../ui/panels';
+import { ChatInput, ControlsPanel, ChattersPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
 import {
   disconnectTwitch,
@@ -9,17 +9,20 @@ import {
   getChatEntriesBefore,
   getStreamEvents,
   getDashboardStatus,
+  getObsStatus,
   getStreamInfo,
   updateStreamInfo,
   runPrerollAds,
   updateViewerProfile,
   runGoLive,
+  switchObsScene,
+  getChatters,
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
-import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter } from '../../shared/api';
 
 /* ---------------- audio ---------------- */
 
@@ -103,6 +106,11 @@ export function DashboardPage() {
   const [prerollBusy, setPrerollBusy] = useState(false);
   const [goLiveBusy, setGoLiveBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [obsScenes, setObsScenes] = useState<string[]>([]);
+  const [sceneSwitching, setSceneSwitching] = useState(false);
+  const [chatters, setChatters] = useState<Chatter[]>([]);
+  const [chattersError, setChattersError] = useState<string | null>(null);
+  const [rightTab, setRightTab] = useState<'activity' | 'chatters'>('activity');
   const lastChatAt = React.useRef<number>(0);
 
   useEffect(() => {
@@ -110,20 +118,34 @@ export function DashboardPage() {
 
     const refreshAll = async () => {
       try {
-        const [nextViewers, nextChat, nextEvents, nextStatus] = await Promise.all([
+        const [nextViewers, nextChat, nextEvents, nextStatus, nextObsStatus] = await Promise.all([
           getViewers(),
           getChatEntries(),
           getStreamEvents(),
           getDashboardStatus(),
+          getObsStatus().catch(() => null),
         ]);
         if (cancelled) return;
         setViewers(nextViewers);
         setChat(nextChat);
         setEvents(nextEvents);
         setStatus(nextStatus);
+        if (nextObsStatus) setObsScenes(nextObsStatus.scenes);
       } catch (error) {
         console.error('Failed to refresh dashboard data:', error);
         if (!cancelled) setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
+      }
+    };
+
+    const refreshChatters = async () => {
+      try {
+        const result = await getChatters();
+        if (!cancelled) {
+          setChatters(result.chatters);
+          setChattersError(null);
+        }
+      } catch (error) {
+        if (!cancelled) setChattersError(error instanceof Error ? error.message : 'Could not load chatters');
       }
     };
 
@@ -138,13 +160,16 @@ export function DashboardPage() {
     };
 
     void refreshAll();
+    void refreshChatters();
     const fullRefresh = setInterval(refreshAll, DASHBOARD_FULL_REFRESH_MS);
     const statusRefresh = setInterval(refreshStatus, DASHBOARD_STATUS_REFRESH_MS);
+    const chattersRefresh = setInterval(refreshChatters, 30_000);
 
     return () => {
       cancelled = true;
       clearInterval(fullRefresh);
       clearInterval(statusRefresh);
+      clearInterval(chattersRefresh);
     };
   }, []);
 
@@ -283,6 +308,15 @@ export function DashboardPage() {
       .finally(() => setGoLiveBusy(false));
   }, [refreshDashboardStatus]);
 
+  const handleSwitchScene = React.useCallback((sceneName: string) => {
+    setSceneSwitching(true);
+    void switchObsScene(sceneName)
+      .catch(error => {
+        console.error('Failed to switch OBS scene:', error);
+      })
+      .finally(() => setSceneSwitching(false));
+  }, []);
+
   const handleOpenStreamInfo = React.useCallback(() => {
     setStreamInfoOpen(true);
     setStreamInfoLoading(true);
@@ -395,8 +429,44 @@ export function DashboardPage() {
   const dashboardLayout = (
     <div className="stage stage--cockpit">
       {slot('chat')}
-      <div className="col-stack">
-        {slot('events')}
+      <div className="col-stack s2-top-auto">
+        <Panel
+          id="controls"
+          title="stream controls"
+          dot={false}
+          popped={false}
+          onPop={() => undefined}
+        >
+          <ControlsPanel
+            status={status}
+            obsScenes={obsScenes}
+            onGoLive={handleGoLive}
+            onRunPreroll={handleRunPreroll}
+            onOpenStreamInfo={handleOpenStreamInfo}
+            goLiveBusy={goLiveBusy}
+            prerollBusy={prerollBusy}
+            onSwitchScene={handleSwitchScene}
+            sceneSwitching={sceneSwitching}
+          />
+        </Panel>
+        <Panel
+          id="events"
+          title="activity feed"
+          dot={true}
+          count={rightTab === 'activity' ? MODULES.events.count?.(ctx) : chatters.length}
+          popped={!!popped['events']}
+          onPop={handlePop}
+          tabs={[
+            { id: 'activity', label: 'Activity' },
+            { id: 'chatters', label: 'Chatters' },
+          ]}
+          activeTab={rightTab}
+          onTabChange={id => setRightTab(id as 'activity' | 'chatters')}
+        >
+          {rightTab === 'activity'
+            ? MODULES.events.render(ctx)
+            : <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />}
+        </Panel>
       </div>
     </div>
   );

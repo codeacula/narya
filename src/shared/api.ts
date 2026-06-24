@@ -343,3 +343,14 @@ export type LlmTestResult = {
   ok: boolean;
   reply: string;
 };
+
+export type Chatter = {
+  userId: string;
+  userLogin: string;
+  userName: string;
+};
+
+export type ChattersResponse = {
+  chatters: Chatter[];
+  total: number;
+};

@@ -15,6 +15,7 @@ import type {
   ControlConfig,
   ControlResponse,
   ObsStatus,
+  ChattersResponse,
   SoundButton,
   SoundButtonUpdate,
   SoundPlayback,
@@ -271,4 +272,8 @@ export async function updateTickerItem(id: string, item: TickerItemUpdate): Prom
 export async function deleteTickerItem(id: string): Promise<void> {
   const response = await fetch(`${API_BASE}/api/ticker/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!response.ok) throw new Error(await readApiError(response));
+}
+
+export async function getChatters(): Promise<ChattersResponse> {
+  return fetchJson<ChattersResponse>('/api/chatters');
 }

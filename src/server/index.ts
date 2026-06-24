@@ -1,3 +1,4 @@
+import { registerChattersRoutes } from './chatters';
 import { connectTwitchChat } from './chat';
 import { registerChatbotCommandRoutes } from './chatbotCommands';
 import { config } from './config';
@@ -30,6 +31,7 @@ registerChatbotCommandRoutes(app);
 registerLlmRoutes(app);
 registerDiscordRoutes(app);
 registerGoLiveRoutes(app);
+registerChattersRoutes(app, runtimeState);
 registerDashboardRoutes(app, runtimeState);
 registerStaticRoutes(app);
 

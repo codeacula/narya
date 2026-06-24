@@ -7,7 +7,7 @@ import {
   sendViewerWhisper,
   timeoutViewer,
 } from '../services/dashboard';
-import type { Viewer, ChatEntry, StreamEvent, ViewerProfileUpdate, ChatSender } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter } from '../../shared/api';
 
 /* ---------------- types ---------------- */
 
@@ -652,23 +652,232 @@ const EVT_ICON: Record<string, string> = {
   redeem: 'star',
 };
 
+const EVT_TONE_OVERRIDE: Partial<Record<string, string>> = {
+  follow: 'note',
+  raid: 'note',
+};
+
 function EventFeed({ ctx }: { ctx: PanelCtx }) {
   return (
     <div className="evt-list">
-      {ctx.events.map((e) => (
-        <div className={'evt tone-' + e.tone} key={e.id}>
-          <div className="evt-icon">
-            <Icon name={EVT_ICON[e.kind] ?? 'star'} />
-          </div>
-          <div className="evt-body">
-            <div className="evt-actor">
-              {e.actor} <span className="verb">{e.kind === 'follow' ? 'followed' : ''}</span>
+      {ctx.events.map((e) => {
+        const tone = EVT_TONE_OVERRIDE[e.kind] ?? e.tone;
+        return (
+          <div className={'evt tone-' + tone} key={e.id}>
+            <div className="evt-icon">
+              <Icon name={EVT_ICON[e.kind] ?? 'star'} />
             </div>
-            {e.kind !== 'follow' && <div className="evt-detail">{e.detail}</div>}
+            <div className="evt-body">
+              <div className="evt-actor">
+                {e.actor} <span className="verb">{e.kind === 'follow' ? 'followed' : ''}</span>
+              </div>
+              {e.kind !== 'follow' && <div className="evt-detail">{e.detail}</div>}
+            </div>
+            <div className="evt-ago">{e.ago}</div>
           </div>
-          <div className="evt-ago">{e.ago}</div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------------- Controls Panel ---------------- */
+
+function formatUptime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+  return `${m}m ${String(s).padStart(2, '0')}s`;
+}
+
+export function ControlsPanel({
+  status,
+  obsScenes,
+  onGoLive,
+  onRunPreroll,
+  onOpenStreamInfo,
+  goLiveBusy,
+  prerollBusy,
+  onSwitchScene,
+  sceneSwitching,
+}: {
+  status: DashboardStatus;
+  obsScenes: string[];
+  onGoLive: () => void;
+  onRunPreroll: () => void;
+  onOpenStreamInfo: () => void;
+  goLiveBusy: boolean;
+  prerollBusy: boolean;
+  onSwitchScene: (sceneName: string) => void;
+  sceneSwitching: boolean;
+}) {
+  const [selectedScene, setSelectedScene] = React.useState('');
+
+  React.useEffect(() => {
+    setSelectedScene('');
+  }, [obsScenes]);
+
+  const prerollAvailable = status.streamActive === true &&
+    status.adScheduleStatus !== 'not_configured' &&
+    status.adBreakEndsAt === null &&
+    !(status.prerollFreeTimeSeconds !== null && status.prerollFreeTimeSeconds > 0);
+
+  return (
+    <div className="ctrl-panel">
+      <div className="ctrl-section">
+        <span className="ctrl-label">status</span>
+        <span className={'ctrl-status' + (status.streamActive ? ' live' : '')}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: status.streamActive ? 'var(--success-base)' : 'var(--silver-600)', display: 'inline-block', flexShrink: 0, boxShadow: status.streamActive ? '0 0 6px rgba(127,200,163,0.6)' : 'none' }} />
+          {status.streamActive
+            ? (status.uptimeSeconds !== null ? formatUptime(status.uptimeSeconds) : 'live')
+            : 'offline'}
+        </span>
+      </div>
+
+      <div className="ctrl-section">
+        <span className="ctrl-label">actions</span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button
+            className="stat-action gold"
+            type="button"
+            title={status.obsConnected ? 'Start stream, OBS scene, Discord announcement' : 'OBS must be connected'}
+            disabled={!status.obsConnected || goLiveBusy}
+            onClick={onGoLive}
+          >
+            <Icon name="play" size={12} />
+            <span>{goLiveBusy ? 'Starting...' : 'Go Live'}</span>
+          </button>
+          <button
+            className="stat-action"
+            type="button"
+            title={prerollAvailable ? 'Run 3 minute ad break' : 'Ads not available'}
+            disabled={!prerollAvailable || prerollBusy}
+            onClick={onRunPreroll}
+          >
+            <span>{prerollBusy ? 'Running...' : '3m ads'}</span>
+          </button>
+          <button
+            className="stat-action"
+            type="button"
+            title="Edit stream title, category, and tags"
+            onClick={onOpenStreamInfo}
+          >
+            <Icon name="edit" size={12} />
+            <span>Info</span>
+          </button>
         </div>
-      ))}
+      </div>
+
+      {status.obsConnected && obsScenes.length > 0 && (
+        <div className="ctrl-section">
+          <span className="ctrl-label">scene</span>
+          <select
+            className="ctrl-scene-select"
+            value={selectedScene}
+            disabled={sceneSwitching}
+            onChange={event => setSelectedScene(event.target.value)}
+          >
+            <option value="">switch scene…</option>
+            {obsScenes.map(scene => (
+              <option value={scene} key={scene}>{scene}</option>
+            ))}
+          </select>
+          <button
+            className="modbtn gold"
+            type="button"
+            disabled={!selectedScene || sceneSwitching}
+            onClick={() => {
+              if (selectedScene) onSwitchScene(selectedScene);
+            }}
+            style={{ flexShrink: 0 }}
+          >
+            {sceneSwitching ? '…' : 'Switch'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Chatters Panel ---------------- */
+
+const ROLE_SORT_ORDER: Record<string, number> = { broadcaster: 0, mod: 1, vip: 2, sub: 3 };
+
+function chatterSortKey(chatter: Chatter, viewers: Record<string, Viewer>): number {
+  const viewer = viewers[chatter.userLogin.toLowerCase()];
+  if (!viewer) return 4;
+  for (const role of ['broadcaster', 'mod', 'vip', 'sub']) {
+    if (viewer.roles.includes(role)) return ROLE_SORT_ORDER[role] ?? 4;
+  }
+  return 4;
+}
+
+export function ChattersPanel({
+  chatters,
+  viewers,
+  error,
+  onOpenViewer,
+}: {
+  chatters: Chatter[];
+  viewers: Record<string, Viewer>;
+  error: string | null;
+  onOpenViewer: (login: string) => void;
+}) {
+  if (error) {
+    const isScopeError = error.toLowerCase().includes('scope') || error.toLowerCase().includes('moderator:read:chatters');
+    return (
+      <div className="empty-state">
+        <div className="es-orb" />
+        <div className="es-title">{isScopeError ? 'Permission needed' : 'Unavailable'}</div>
+        <div className="es-sub">
+          {isScopeError
+            ? 'Reconnect Twitch and grant the moderator:read:chatters scope to view live chatters.'
+            : error}
+        </div>
+      </div>
+    );
+  }
+
+  if (chatters.length === 0) {
+    return (
+      <div className="empty-state">
+        <div className="es-orb" />
+        <div className="es-title">No chatters yet</div>
+        <div className="es-sub">People in your chat room will appear here.</div>
+      </div>
+    );
+  }
+
+  const sorted = [...chatters].sort((a, b) => {
+    const diff = chatterSortKey(a, viewers) - chatterSortKey(b, viewers);
+    return diff !== 0 ? diff : a.userLogin.localeCompare(b.userLogin);
+  });
+
+  return (
+    <div className="chatter-list">
+      {sorted.map(chatter => {
+        const viewer = viewers[chatter.userLogin.toLowerCase()];
+        const badges = viewer ? badgesFor(viewer) : [];
+        return (
+          <div
+            className="chatter-row"
+            key={chatter.userId}
+            onClick={() => onOpenViewer(chatter.userLogin)}
+          >
+            <span className="chatter-name" style={{ color: viewer?.color ?? 'var(--fg-1)' }}>
+              {chatter.userName}
+            </span>
+            {badges.length > 0 && (
+              <span className="chatter-badges">
+                {badges.map(b => (
+                  <span className={'cbadge ' + b} key={b} title={b}>{ROLE_BADGE[b]}</span>
+                ))}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
