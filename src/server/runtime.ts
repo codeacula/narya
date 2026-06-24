@@ -46,6 +46,9 @@ export class RuntimeState {
   runtimeBotToken: TwitchUserToken | null = null;
   twitchAppToken: { accessToken: string; expiresAtMs: number } | null = null;
   eventSubWs: WebSocket | null = null;
+  eventSubConnectPromise: Promise<void> | null = null;
+  eventSubReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  eventSubConnectGeneration = 0;
   eventSubConnected = false;
   broadcasterId: string | null = null;
   twitchSenderId: string | null = null;

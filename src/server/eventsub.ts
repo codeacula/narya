@@ -134,6 +134,13 @@ export function clearKeepaliveTimer(state: RuntimeState) {
   }
 }
 
+function clearReconnectTimer(state: RuntimeState) {
+  if (state.eventSubReconnectTimer !== null) {
+    clearTimeout(state.eventSubReconnectTimer);
+    state.eventSubReconnectTimer = null;
+  }
+}
+
 function resetKeepaliveTimer(state: RuntimeState) {
   clearKeepaliveTimer(state);
   state.eventSubKeepaliveTimer = setTimeout(() => {
@@ -142,7 +149,22 @@ function resetKeepaliveTimer(state: RuntimeState) {
   }, state.eventSubKeepaliveMs);
 }
 
+function scheduleReconnect(state: RuntimeState) {
+  if (state.eventSubReconnectTimer !== null) return;
+  state.eventSubReconnectTimer = setTimeout(() => {
+    state.eventSubReconnectTimer = null;
+    void connectEventSub(state);
+  }, EVENTSUB_RECONNECT_DELAY_MS);
+}
+
+function isActiveSocket(socket: WebSocket | null): boolean {
+  return socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN;
+}
+
 export function disconnectEventSub(state: RuntimeState) {
+  state.eventSubConnectGeneration += 1;
+  state.eventSubConnectPromise = null;
+  clearReconnectTimer(state);
   if (state.eventSubWs) {
     try {
       state.eventSubWs.close();
@@ -155,7 +177,31 @@ export function disconnectEventSub(state: RuntimeState) {
 }
 
 export async function connectEventSub(state: RuntimeState, reconnectUrl?: string) {
+  if (!reconnectUrl) {
+    clearReconnectTimer(state);
+    if (isActiveSocket(state.eventSubWs)) return;
+    if (state.eventSubConnectPromise) return state.eventSubConnectPromise;
+  }
+
+  const generation = state.eventSubConnectGeneration;
+  const connectTask = connectEventSubSocket(state, generation, reconnectUrl);
+  if (!reconnectUrl) {
+    state.eventSubConnectPromise = connectTask;
+  }
+
+  try {
+    await connectTask;
+  } finally {
+    if (!reconnectUrl && state.eventSubConnectPromise === connectTask) {
+      state.eventSubConnectPromise = null;
+    }
+  }
+}
+
+async function connectEventSubSocket(state: RuntimeState, generation: number, reconnectUrl?: string) {
   const creds = await getEventSubCredentials(state);
+  if (generation !== state.eventSubConnectGeneration) return;
+
   if (!creds) {
     console.log('EventSub: no credentials configured, skipping');
     return;
@@ -253,8 +299,9 @@ export async function connectEventSub(state: RuntimeState, reconnectUrl?: string
     if (ws !== state.eventSubWs) return;
     state.eventSubConnected = false;
     clearKeepaliveTimer(state);
+    state.clearEventSubSocket();
     console.log(`EventSub: disconnected (code ${(evt as CloseEvent).code}), retrying in 10s...`);
-    setTimeout(() => { void connectEventSub(state); }, EVENTSUB_RECONNECT_DELAY_MS);
+    scheduleReconnect(state);
   });
 
   ws.addEventListener('error', () => {
