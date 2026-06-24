@@ -20,6 +20,22 @@ import { SettingsPage } from './SettingsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent } from '../../shared/api';
 
+/* ---------------- audio ---------------- */
+
+function playTone(freq: number, durationMs: number, volume: number) {
+  const ctx = new AudioContext();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(volume, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
+  osc.start();
+  osc.stop(ctx.currentTime + durationMs / 1000);
+  osc.onended = () => void ctx.close();
+}
+
 /* ---------------- constants ---------------- */
 
 const POP_DEFAULTS: Record<string, { w: number; h: number }> = {
@@ -83,6 +99,7 @@ export function DashboardPage() {
   const [streamInfoError, setStreamInfoError] = useState<string | null>(null);
   const [prerollBusy, setPrerollBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const lastChatAt = React.useRef<number>(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,13 +150,30 @@ export function DashboardPage() {
   }, []));
 
   useSocket<LiveChatMessage>('chat:message', React.useCallback((message) => {
+    const now = Date.now();
+    if (lastChatAt.current > 0 && now - lastChatAt.current > 5 * 60 * 1000) {
+      playTone(880, 180, 0.15);
+    }
+    lastChatAt.current = now;
+
+    const isMention = message.message.toLowerCase().includes('codeacula');
+    if (isMention) {
+      playTone(660, 80, 0.3);
+      setTimeout(() => playTone(880, 120, 0.25), 90);
+    }
+
     const login = message.username.toLowerCase();
     const nextEntry: ChatEntry = {
       id: message.id,
       user: login,
       text: message.message,
       time: new Date(message.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
-      highlight: message.isFirstTimer ? 'first' : message.badges?.subscriber ? 'sub' : undefined,
+      highlight: message.isFirstTimer ? 'first'
+        : message.badges?.broadcaster ? 'broadcaster'
+        : message.badges?.moderator   ? 'mod'
+        : message.badges?.vip         ? 'vip'
+        : message.badges?.subscriber  ? 'sub'
+        : undefined,
     };
 
     setChat(current => current.some(entry => entry.id === nextEntry.id) ? current : [...current, nextEntry]);

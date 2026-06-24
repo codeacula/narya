@@ -87,7 +87,9 @@ twitchClient.on('message', (channel, tags, message, self) => {
 
   const occurredAt = new Date().toISOString();
   const username = (tags.username ?? 'unknown').toLowerCase();
-  const isFirstTimer = !sessionChatters.has(username);
+  const badges = (tags.badges as Record<string, string> | null) ?? null;
+  const isChannelOwner = username === config.twitchChannel.toLowerCase() || Boolean(badges?.broadcaster);
+  const isFirstTimer = !isChannelOwner && !sessionChatters.has(username);
   sessionChatters.add(username);
 
   const chatMessage: ChatMessage = {
@@ -100,7 +102,7 @@ twitchClient.on('message', (channel, tags, message, self) => {
     receivedAt: occurredAt,
     deletedAt: null,
     deletedReason: null,
-    badges: (tags.badges as Record<string, string> | null) ?? null,
+    badges,
     emotes: (tags.emotes as Record<string, string[]> | null) ?? null,
     isFirstTimer,
   };

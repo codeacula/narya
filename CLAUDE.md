@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Verification
+
+After any code change, run typecheck/build and verify in-browser before declaring done. For dev servers, confirm the target port is free first (e.g. `lsof -i :PORT`) and kill stale processes before restarting.
+
+## Workflow
+
+For any non-trivial feature, write a short plan first and confirm the approach before implementing across multiple files.
+
+## Preferences
+
+Prefer the simplest approach that meets the requirement. Avoid building full OAuth flows, token storage, or elaborate UI when simple env-based credentials suffice; ask before adding heavy infrastructure.
+
+## Editing
+
+When editing files with multi-byte/Unicode characters (powerline glyphs, emoji), expect the Edit tool to fail and fall back to a Python or sed-based replacement rather than retrying Edit repeatedly.
+
 ## Stack
 
 Bun-powered Vite + React + TypeScript SPA with an Express/Bun backend. No test suite; validation is via typecheck and build.

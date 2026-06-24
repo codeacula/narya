@@ -97,7 +97,7 @@ export type ChatEntry = {
   user: string;
   text: string;
   time: string;
-  highlight?: 'first' | 'sub';
+  highlight?: 'first' | 'broadcaster' | 'sub' | 'mod' | 'vip';
 };
 
 export type StreamEvent = {
@@ -200,6 +200,8 @@ export type ChatSendResult = {
   ok: boolean;
   messageId: string | null;
 };
+
+export type ChatSender = 'user' | 'bot';
 
 export type TwitchUserActionResult = {
   ok: boolean;

@@ -590,10 +590,11 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
 
   app.post('/api/twitch/chat-message', async (request, response) => {
     try {
-      const body = request.body as { message?: unknown };
+      const body = request.body as { message?: unknown; sender?: unknown };
       const message = typeof body.message === 'string' ? body.message.trim() : '';
+      const sender = body.sender === 'bot' ? 'bot' : 'user';
 
-      const result = await sendTwitchChatMessage(state, message, 'bot');
+      const result = await sendTwitchChatMessage(state, message, sender);
 
       response.json({
         ok: true,

@@ -11,6 +11,7 @@ import type {
   StreamInfoUpdate,
   PrerollResult,
   ChatSendResult,
+  ChatSender,
   ControlConfig,
   ControlResponse,
   ObsStatus,
@@ -101,8 +102,8 @@ export async function runPrerollAds(): Promise<PrerollResult> {
   return sendJson('/api/twitch/preroll', 'POST');
 }
 
-export async function sendChatMessage(message: string): Promise<ChatSendResult> {
-  return sendJson('/api/twitch/chat-message', 'POST', { message });
+export async function sendChatMessage(message: string, sender: ChatSender): Promise<ChatSendResult> {
+  return sendJson('/api/twitch/chat-message', 'POST', { message, sender });
 }
 
 export async function sendViewerShoutout(login: string): Promise<TwitchUserActionResult> {

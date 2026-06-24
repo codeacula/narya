@@ -286,14 +286,19 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
     uptimeSource: _obsUptimeSource,
     ...obsHealthStats
   } = obsStats;
-  const streamStatus = twitchStreamStatus.uptimeSource === 'twitch'
+  const obsStreamStatus: StreamActivityStatus = {
+    streamActive: _obsStreamActive,
+    uptimeSeconds: _obsUptimeSeconds,
+    streamStartedAt: _obsStreamStartedAt,
+    uptimeSource: _obsUptimeSource,
+  };
+  const streamStatus = twitchStreamStatus.streamActive === true
     ? twitchStreamStatus
-    : {
-        streamActive: _obsStreamActive,
-        uptimeSeconds: _obsUptimeSeconds,
-        streamStartedAt: _obsStreamStartedAt,
-        uptimeSource: _obsUptimeSource,
-      };
+    : obsStreamStatus.streamActive === true
+      ? obsStreamStatus
+      : twitchStreamStatus.uptimeSource === 'twitch'
+        ? twitchStreamStatus
+        : obsStreamStatus;
 
   return {
     channel: config.twitchChannel,
@@ -451,7 +456,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         user: row.username.toLowerCase(),
         text: row.message,
         time: formatClockTime(row.receivedAt),
-        highlight: badges?.subscriber ? 'sub' : undefined,
+        highlight: badges?.broadcaster ? 'broadcaster' : badges?.subscriber ? 'sub' : undefined,
       };
     }));
   });

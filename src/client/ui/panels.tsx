@@ -7,7 +7,7 @@ import {
   sendViewerWhisper,
   timeoutViewer,
 } from '../services/dashboard';
-import type { Viewer, ChatEntry, StreamEvent, ViewerProfileUpdate } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, ViewerProfileUpdate, ChatSender } from '../../shared/api';
 
 /* ---------------- types ---------------- */
 
@@ -159,7 +159,10 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
             <div className={'msg' + hlClass} key={m.id}>
               <span className="msg-time">{m.time}</span>
               {m.highlight === 'first' && <span className="hl-tag">first time</span>}
-              {m.highlight === 'sub' && <span className="hl-tag">new sub</span>}
+              {m.highlight === 'broadcaster' && <span className="hl-tag" title="broadcaster">♛</span>}
+              {m.highlight === 'mod' && <span className="hl-tag" title="moderator">⚔</span>}
+              {m.highlight === 'vip' && <span className="hl-tag" title="VIP">★</span>}
+              {m.highlight === 'sub' && <span className="hl-tag">sub</span>}
               <span className="badges">
                 {badgesFor(viewer).map(b => (
                   <span className={'cbadge ' + b} key={b} title={b}>{ROLE_BADGE[b]}</span>
@@ -179,6 +182,7 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
 
 export function ChatInput({ channel }: { channel: string }) {
   const [text, setText] = React.useState('');
+  const [sender, setSender] = React.useState<ChatSender>('user');
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const message = text.trim();
@@ -189,16 +193,26 @@ export function ChatInput({ channel }: { channel: string }) {
 
     setSending(true);
     setError(null);
-    void sendChatMessage(message)
+    void sendChatMessage(message, sender)
       .then(() => setText(''))
       .catch(error => {
         setError(error instanceof Error ? error.message : 'Could not send chat message');
       })
       .finally(() => setSending(false));
-  }, [message, sending]);
+  }, [message, sender, sending]);
 
   return (
     <form className="chat-input" onSubmit={handleSubmit}>
+      <select
+        aria-label="Send chat as"
+        className="chat-sender"
+        value={sender}
+        disabled={sending}
+        onChange={event => setSender(event.target.value as ChatSender)}
+      >
+        <option value="user">user</option>
+        <option value="bot">bot</option>
+      </select>
       <input
         aria-label="Send Twitch chat message"
         value={text}
