@@ -70,7 +70,12 @@ export function useChat(expireAfterMs = 0) {
     if (expireAfterMs > 0) return;
     fetch('/api/chat/recent')
       .then(r => r.json())
-      .then((data: ChatMessage[]) => setMessages(data.map(m => ({ ...m, isFirstTimer: false }))))
+      .then((data: ChatMessage[]) => setMessages(data.map(m => ({
+        ...m,
+        isFirstTimer: Boolean(m.isFirstEver),
+        isFirstThisSession: Boolean(m.isFirstThisSession),
+        isFirstEver: Boolean(m.isFirstEver),
+      }))))
       .catch(() => setMessages([]));
   }, [expireAfterMs]);
 

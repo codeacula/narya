@@ -120,6 +120,35 @@ db.exec(`
     text text not null,
     position integer not null default 0
   );
+
+  create table if not exists stream_sessions (
+    id text primary key,
+    started_at text not null,
+    ended_at text,
+    source text not null,
+    discord_message_id text,
+    discord_channel_id text
+  );
+
+  create table if not exists stream_session_chatters (
+    session_id text not null,
+    login text not null,
+    first_message_id text not null,
+    first_seen_at text not null,
+    primary key (session_id, login),
+    foreign key (session_id) references stream_sessions(id) on delete cascade
+  );
+
+  create table if not exists go_live_settings (
+    id text primary key,
+    obs_scene_name text not null,
+    discord_guild_id text not null default '',
+    discord_guild_name text not null default '',
+    discord_channel_id text not null default '',
+    discord_channel_name text not null default '',
+    discord_message text not null,
+    updated_at text not null
+  );
 `);
 
 db.exec(`
@@ -130,6 +159,8 @@ db.exec(`
   create index if not exists idx_ticker_items_position on ticker_items(position);
   create index if not exists idx_chatbot_commands_trigger on chatbot_commands(trigger);
   create index if not exists idx_chatbot_command_actions_command on chatbot_command_actions(command_id, position);
+  create index if not exists idx_stream_sessions_active on stream_sessions(ended_at, started_at);
+  create index if not exists idx_stream_session_chatters_login on stream_session_chatters(login);
 `);
 
 const allowedMigrationTables = new Set([
@@ -144,14 +175,29 @@ const allowedMigrationTables = new Set([
   'llm_settings',
   'runsheet_items',
   'ticker_items',
+  'stream_sessions',
+  'stream_session_chatters',
+  'go_live_settings',
 ]);
-const allowedMigrationColumns = new Set(['deleted_at', 'deleted_reason', 'moderation_event_id', 'badges_json', 'emotes_json']);
+const allowedMigrationColumns = new Set([
+  'deleted_at',
+  'deleted_reason',
+  'moderation_event_id',
+  'badges_json',
+  'emotes_json',
+  'stream_session_id',
+  'is_first_in_session',
+  'is_first_ever',
+]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
   deleted_reason: 'text',
   moderation_event_id: 'text',
   badges_json: 'text',
   emotes_json: 'text',
+  stream_session_id: 'text',
+  is_first_in_session: 'integer not null default 0',
+  is_first_ever: 'integer not null default 0',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -178,3 +224,8 @@ addColumnIfMissing('chat_messages', 'deleted_reason', 'text');
 addColumnIfMissing('chat_messages', 'moderation_event_id', 'text');
 addColumnIfMissing('chat_messages', 'badges_json', 'text');
 addColumnIfMissing('chat_messages', 'emotes_json', 'text');
+addColumnIfMissing('chat_messages', 'stream_session_id', 'text');
+addColumnIfMissing('chat_messages', 'is_first_in_session', 'integer not null default 0');
+addColumnIfMissing('chat_messages', 'is_first_ever', 'integer not null default 0');
+
+db.exec('create index if not exists idx_chat_messages_stream_session on chat_messages(stream_session_id)');

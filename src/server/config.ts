@@ -16,4 +16,7 @@ export const config = {
     .map(scene => scene.trim())
     .filter(Boolean),
   twitchRedirectUri: process.env.TWITCH_REDIRECT_URI ?? 'http://localhost:5173/api/auth/twitch/callback',
+  discordClientId: process.env.DISCORD_CLIENT_ID ?? '',
+  discordBotToken: process.env.DISCORD_BOT_TOKEN ?? '',
+  discordRedirectUri: process.env.DISCORD_REDIRECT_URI ?? 'http://localhost:5173/api/auth/discord/callback',
 };

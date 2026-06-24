@@ -282,6 +282,8 @@ export function registerLlmRoutes(app: express.Express) {
         badges: null,
         emotes: null,
         isFirstTimer: false,
+        isFirstThisSession: false,
+        isFirstEver: false,
       }, question);
 
       response.json({ ok: true, reply });

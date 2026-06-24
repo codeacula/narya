@@ -158,7 +158,8 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
           return (
             <div className={'msg' + hlClass} key={m.id}>
               <span className="msg-time">{m.time}</span>
-              {m.highlight === 'first' && <span className="hl-tag">first time</span>}
+              {m.highlight === 'first-ever' && <span className="hl-tag">first time</span>}
+              {m.highlight === 'first-session' && <span className="hl-tag">first this stream</span>}
               {m.highlight === 'broadcaster' && <span className="hl-tag" title="broadcaster">♛</span>}
               {m.highlight === 'mod' && <span className="hl-tag" title="moderator">⚔</span>}
               {m.highlight === 'vip' && <span className="hl-tag" title="VIP">★</span>}

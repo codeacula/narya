@@ -4,6 +4,10 @@ import type {
   ChatbotCommandActionInput,
   ChatbotCommandActionType,
   DashboardStatus,
+  DiscordChannel,
+  DiscordGuild,
+  DiscordStatus,
+  GoLiveSettings,
   LlmSettingsUpdate,
   ObsStatus,
   RunItem,
@@ -20,6 +24,10 @@ import {
   deleteSoundButton,
   deleteTickerItem,
   getChatbotCommands,
+  getDiscordChannels,
+  getDiscordGuilds,
+  getDiscordStatus,
+  getGoLiveSettings,
   getLlmSettings,
   getObsStatus,
   getRunsheet,
@@ -27,6 +35,7 @@ import {
   getTicker,
   updateRunsheetItem,
   updateChatbotCommand,
+  updateGoLiveSettings,
   updateSoundButton,
   updateTickerItem,
   updateLlmSettings,
@@ -60,6 +69,8 @@ type TickerForm = {
   text: string;
 };
 
+type GoLiveSettingsForm = GoLiveSettings;
+
 const EMPTY_COMMAND_FORM: CommandForm = {
   id: null,
   enabled: true,
@@ -85,6 +96,25 @@ const EMPTY_RUNSHEET_FORM: RunsheetForm = {
 const EMPTY_TICKER_FORM: TickerForm = {
   id: null,
   text: '',
+};
+
+const EMPTY_DISCORD_STATUS: DiscordStatus = {
+  clientIdConfigured: false,
+  botTokenConfigured: false,
+  ready: false,
+  botUser: null,
+  installUrl: null,
+  error: null,
+};
+
+const EMPTY_GO_LIVE_SETTINGS: GoLiveSettingsForm = {
+  obsSceneName: '',
+  discordGuildId: '',
+  discordGuildName: '',
+  discordChannelId: '',
+  discordChannelName: '',
+  discordMessage: '',
+  updatedAt: null,
 };
 
 type LlmSettingsForm = LlmSettingsUpdate & {
@@ -251,6 +281,25 @@ export function SettingsPage({
   const [contentSaving, setContentSaving] = useState(false);
   const [contentMessage, setContentMessage] = useState<string | null>(null);
   const [contentError, setContentError] = useState<string | null>(null);
+  const [discordStatus, setDiscordStatus] = useState<DiscordStatus>(EMPTY_DISCORD_STATUS);
+  const [discordGuilds, setDiscordGuilds] = useState<DiscordGuild[]>([]);
+  const [discordChannels, setDiscordChannels] = useState<DiscordChannel[]>([]);
+  const [goLiveSettings, setGoLiveSettings] = useState<GoLiveSettingsForm>(EMPTY_GO_LIVE_SETTINGS);
+  const [goLiveLoading, setGoLiveLoading] = useState(true);
+  const [goLiveSaving, setGoLiveSaving] = useState(false);
+  const [goLiveMessage, setGoLiveMessage] = useState<string | null>(null);
+  const [goLiveError, setGoLiveError] = useState<string | null>(null);
+  const [discordChannelsLoading, setDiscordChannelsLoading] = useState(false);
+  const discordConnectionSub = !discordStatus.clientIdConfigured
+    ? 'Set DISCORD_CLIENT_ID in .env to enable bot install'
+    : !discordStatus.botTokenConfigured
+      ? 'Set DISCORD_BOT_TOKEN in .env after creating the bot'
+      : discordStatus.ready
+        ? `Connected as ${discordStatus.botUser ?? 'Discord bot'}`
+        : discordStatus.error ?? 'Discord bot unavailable';
+  const goLiveSceneOptions = goLiveSettings.obsSceneName && !obsScenes.includes(goLiveSettings.obsSceneName)
+    ? [goLiveSettings.obsSceneName, ...obsScenes]
+    : obsScenes;
 
   useEffect(() => {
     let cancelled = false;
@@ -328,6 +377,39 @@ export function SettingsPage({
       })
       .finally(() => {
         if (!cancelled) setLlmLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setGoLiveLoading(true);
+    void Promise.all([getDiscordStatus(), getGoLiveSettings()])
+      .then(async ([nextDiscordStatus, nextGoLiveSettings]) => {
+        let nextGuilds: DiscordGuild[] = [];
+        let nextChannels: DiscordChannel[] = [];
+        if (nextDiscordStatus.ready) {
+          nextGuilds = await getDiscordGuilds();
+          if (nextGoLiveSettings.discordGuildId) {
+            nextChannels = await getDiscordChannels(nextGoLiveSettings.discordGuildId);
+          }
+        }
+        if (!cancelled) {
+          setDiscordStatus(nextDiscordStatus);
+          setGoLiveSettings(nextGoLiveSettings);
+          setDiscordGuilds(nextGuilds);
+          setDiscordChannels(nextChannels);
+          setGoLiveError(null);
+        }
+      })
+      .catch(error => {
+        if (!cancelled) setGoLiveError(error instanceof Error ? error.message : 'Could not load Discord settings');
+      })
+      .finally(() => {
+        if (!cancelled) setGoLiveLoading(false);
       });
 
     return () => {
@@ -484,6 +566,59 @@ export function SettingsPage({
       .finally(() => setContentSaving(false));
   };
 
+  const handleDiscordGuildChange = (guildId: string) => {
+    const guild = discordGuilds.find(item => item.id === guildId);
+    setGoLiveSettings(current => ({
+      ...current,
+      discordGuildId: guild?.id ?? '',
+      discordGuildName: guild?.name ?? '',
+      discordChannelId: '',
+      discordChannelName: '',
+    }));
+    setDiscordChannels([]);
+    setGoLiveMessage(null);
+    setGoLiveError(null);
+
+    if (!guildId) return;
+    setDiscordChannelsLoading(true);
+    void getDiscordChannels(guildId)
+      .then(setDiscordChannels)
+      .catch(error => setGoLiveError(error instanceof Error ? error.message : 'Could not load Discord channels'))
+      .finally(() => setDiscordChannelsLoading(false));
+  };
+
+  const handleDiscordChannelChange = (channelId: string) => {
+    const channel = discordChannels.find(item => item.id === channelId);
+    setGoLiveSettings(current => ({
+      ...current,
+      discordChannelId: channel?.id ?? '',
+      discordChannelName: channel?.name ?? '',
+    }));
+    setGoLiveMessage(null);
+    setGoLiveError(null);
+  };
+
+  const handleGoLiveSettingsSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setGoLiveSaving(true);
+    setGoLiveMessage(null);
+    setGoLiveError(null);
+    void updateGoLiveSettings({
+      obsSceneName: goLiveSettings.obsSceneName,
+      discordGuildId: goLiveSettings.discordGuildId,
+      discordGuildName: goLiveSettings.discordGuildName,
+      discordChannelId: goLiveSettings.discordChannelId,
+      discordChannelName: goLiveSettings.discordChannelName,
+      discordMessage: goLiveSettings.discordMessage,
+    })
+      .then(saved => {
+        setGoLiveSettings(saved);
+        setGoLiveMessage('Go Live settings saved');
+      })
+      .catch(error => setGoLiveError(error instanceof Error ? error.message : 'Could not save Go Live settings'))
+      .finally(() => setGoLiveSaving(false));
+  };
+
   const handleLlmSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLlmSaving(true);
@@ -591,6 +726,105 @@ export function SettingsPage({
               <span className="set-badge">Disconnected</span>
             )}
           </SettingsRow>
+        </div>
+
+        <div className="set-group">
+          <div className="set-group-label">Discord Go Live</div>
+          {(goLiveMessage || goLiveError) && (
+            <div className={'command-settings-status settings-inline-status' + (goLiveError ? ' error' : '')}>
+              {goLiveError ?? goLiveMessage}
+            </div>
+          )}
+
+          <SettingsRow
+            label="Discord bot"
+            sub={discordConnectionSub}
+          >
+            {discordStatus.installUrl ? (
+              <a className="btn-primary" href="/api/auth/discord">
+                Install Bot
+              </a>
+            ) : discordStatus.ready ? (
+              <span className="set-badge set-badge--ok">Configured</span>
+            ) : (
+              <span className="set-badge">Not configured</span>
+            )}
+          </SettingsRow>
+
+          <form className="settings-mini-form" onSubmit={handleGoLiveSettingsSubmit}>
+            <label className="field">
+              <span>Starting scene</span>
+              {goLiveSceneOptions.length > 0 ? (
+                <select
+                  value={goLiveSettings.obsSceneName}
+                  disabled={goLiveLoading || goLiveSaving}
+                  onChange={event => setGoLiveSettings(current => ({ ...current, obsSceneName: event.target.value }))}
+                >
+                  <option value="">Select a scene</option>
+                  {goLiveSceneOptions.map(scene => (
+                    <option value={scene} key={scene}>{scene}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={goLiveSettings.obsSceneName}
+                  disabled={goLiveLoading || goLiveSaving}
+                  maxLength={160}
+                  placeholder="Starting Soon"
+                  onChange={event => setGoLiveSettings(current => ({ ...current, obsSceneName: event.target.value }))}
+                />
+              )}
+            </label>
+
+            <label className="field">
+              <span>Server</span>
+              <select
+                value={goLiveSettings.discordGuildId}
+                disabled={goLiveLoading || goLiveSaving || discordGuilds.length === 0}
+                onChange={event => handleDiscordGuildChange(event.target.value)}
+              >
+                <option value="">Select a server</option>
+                {discordGuilds.map(guild => (
+                  <option value={guild.id} key={guild.id}>{guild.name}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Channel</span>
+              <select
+                value={goLiveSettings.discordChannelId}
+                disabled={goLiveLoading || goLiveSaving || discordChannelsLoading || discordChannels.length === 0}
+                onChange={event => handleDiscordChannelChange(event.target.value)}
+              >
+                <option value="">{discordChannelsLoading ? 'Loading channels...' : 'Select a channel'}</option>
+                {discordChannels.map(channel => (
+                  <option value={channel.id} key={channel.id}>
+                    #{channel.name}{channel.type === 'announcement' ? ' (announcement)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field settings-wide-field">
+              <span>Announcement</span>
+              <textarea
+                value={goLiveSettings.discordMessage}
+                disabled={goLiveLoading || goLiveSaving}
+                maxLength={2000}
+                rows={4}
+                placeholder="I'm live now: https://twitch.tv/{channel}"
+                onChange={event => setGoLiveSettings(current => ({ ...current, discordMessage: event.target.value }))}
+              />
+              <small>{goLiveSettings.discordMessage.length}/2000</small>
+            </label>
+
+            <div className="command-settings-actions">
+              <button className="modbtn gold" type="submit" disabled={goLiveLoading || goLiveSaving}>
+                {goLiveSaving ? 'Saving...' : 'Save Go Live'}
+              </button>
+            </div>
+          </form>
         </div>
 
         <div className="set-group">

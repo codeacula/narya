@@ -192,6 +192,16 @@ export async function triggerObsTransition(): Promise<ObsStatus> {
   return getObsStatus();
 }
 
+export async function startObsStream(): Promise<ObsStatus> {
+  await ensureObs();
+  const streamStatus = await obs.call('GetStreamStatus') as { outputActive?: boolean };
+  if (!streamStatus.outputActive) {
+    await obs.call('StartStream');
+  }
+  await refreshObsStatus();
+  return getObsStatus();
+}
+
 export async function getObsDashboardStats() {
   type ObsStreamStatus = {
     outputActive?: boolean;

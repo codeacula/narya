@@ -13,6 +13,7 @@ import {
   updateStreamInfo,
   runPrerollAds,
   updateViewerProfile,
+  runGoLive,
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
@@ -65,6 +66,8 @@ const EMPTY_STATUS: DashboardStatus = {
   activeChatters: 0,
   sessionChatters: 0,
   knownChatters: 0,
+  streamSessionId: null,
+  streamSessionStartedAt: null,
   bitrateKbps: null,
   congestion: null,
   totalFrames: null,
@@ -98,6 +101,7 @@ export function DashboardPage() {
   const [streamInfoMessage, setStreamInfoMessage] = useState<string | null>(null);
   const [streamInfoError, setStreamInfoError] = useState<string | null>(null);
   const [prerollBusy, setPrerollBusy] = useState(false);
+  const [goLiveBusy, setGoLiveBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const lastChatAt = React.useRef<number>(0);
 
@@ -168,7 +172,8 @@ export function DashboardPage() {
       user: login,
       text: message.message,
       time: new Date(message.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
-      highlight: message.isFirstTimer ? 'first'
+      highlight: message.isFirstEver ? 'first-ever'
+        : message.isFirstThisSession ? 'first-session'
         : message.badges?.broadcaster ? 'broadcaster'
         : message.badges?.moderator   ? 'mod'
         : message.badges?.vip         ? 'vip'
@@ -262,6 +267,20 @@ export function DashboardPage() {
         setActionMessage(error instanceof Error ? error.message : 'Ad request failed');
       })
       .finally(() => setPrerollBusy(false));
+  }, [refreshDashboardStatus]);
+
+  const handleGoLive = React.useCallback(() => {
+    setGoLiveBusy(true);
+    setActionMessage(null);
+    void runGoLive()
+      .then(result => {
+        setActionMessage(`Live session started · Discord #${result.discord.channelName || result.discord.channelId}`);
+        refreshDashboardStatus();
+      })
+      .catch(error => {
+        setActionMessage(error instanceof Error ? error.message : 'Go Live failed');
+      })
+      .finally(() => setGoLiveBusy(false));
   }, [refreshDashboardStatus]);
 
   const handleOpenStreamInfo = React.useCallback(() => {
@@ -394,8 +413,10 @@ export function DashboardPage() {
       <StatBar
         clock24={false}
         starfield={true}
+        onGoLive={handleGoLive}
         onRunPreroll={handleRunPreroll}
         onOpenStreamInfo={handleOpenStreamInfo}
+        goLiveBusy={goLiveBusy}
         prerollBusy={prerollBusy}
         actionMessage={actionMessage}
         twitchMissingScopes={status.twitchMissingScopes}

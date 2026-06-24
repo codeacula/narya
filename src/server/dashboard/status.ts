@@ -6,13 +6,14 @@ import {
   TWITCH_STREAM_STATUS_CACHE_MS,
 } from '../../shared/constants';
 import { getViewerRolesFromBadges } from '../../shared/roles';
-import { getSessionChatterCount, twitchClient } from '../chat';
+import { twitchClient } from '../chat';
 import { config } from '../config';
 import { db } from '../db';
 import { HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
 import { broadcast, getSocketCount } from '../realtime';
 import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus } from '../runtime';
+import { getActiveStreamSession, getSessionChatterCount } from '../streamSession';
 import { getTwitchAuthStatus, REQUIRED_TWITCH_OAUTH_SCOPES } from '../twitch/auth';
 import { fetchBroadcasterId, getTwitchApiHeaders, getTwitchUserApiHeaders } from '../twitch/api';
 
@@ -299,6 +300,7 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
       : twitchStreamStatus.uptimeSource === 'twitch'
         ? twitchStreamStatus
         : obsStreamStatus;
+  const activeStreamSession = getActiveStreamSession();
 
   return {
     channel: config.twitchChannel,
@@ -311,6 +313,8 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
     activeChatters: getActiveChatterCount(),
     sessionChatters: getSessionChatterCount(),
     knownChatters: getKnownChatterCount(),
+    streamSessionId: activeStreamSession?.id ?? null,
+    streamSessionStartedAt: activeStreamSession?.startedAt ?? null,
     adBreakEndsAt: state.adBreakEndsAt,
     ...adSchedule,
   };
@@ -436,18 +440,48 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
 
     const rows = beforeId
       ? db.prepare(`
-          select id, username, message, received_at as receivedAt, badges_json as badgesJson
+          select
+            id,
+            username,
+            message,
+            received_at as receivedAt,
+            badges_json as badgesJson,
+            is_first_in_session as isFirstThisSession,
+            is_first_ever as isFirstEver
           from chat_messages
           where received_at < (select received_at from chat_messages where id = ?)
           order by received_at desc
           limit 80
-        `).all(beforeId) as Array<{ id: string; username: string; message: string; receivedAt: string; badgesJson: string | null }>
+        `).all(beforeId) as Array<{
+          id: string;
+          username: string;
+          message: string;
+          receivedAt: string;
+          badgesJson: string | null;
+          isFirstThisSession: number;
+          isFirstEver: number;
+        }>
       : db.prepare(`
-          select id, username, message, received_at as receivedAt, badges_json as badgesJson
+          select
+            id,
+            username,
+            message,
+            received_at as receivedAt,
+            badges_json as badgesJson,
+            is_first_in_session as isFirstThisSession,
+            is_first_ever as isFirstEver
           from chat_messages
           order by received_at desc
           limit 80
-        `).all() as Array<{ id: string; username: string; message: string; receivedAt: string; badgesJson: string | null }>;
+        `).all() as Array<{
+          id: string;
+          username: string;
+          message: string;
+          receivedAt: string;
+          badgesJson: string | null;
+          isFirstThisSession: number;
+          isFirstEver: number;
+        }>;
 
     response.json(rows.reverse().map((row) => {
       const badges = parseBadgesJson(row.badgesJson);
@@ -456,7 +490,11 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         user: row.username.toLowerCase(),
         text: row.message,
         time: formatClockTime(row.receivedAt),
-        highlight: badges?.broadcaster ? 'broadcaster' : badges?.subscriber ? 'sub' : undefined,
+        highlight: row.isFirstEver ? 'first-ever'
+          : row.isFirstThisSession ? 'first-session'
+          : badges?.broadcaster ? 'broadcaster'
+          : badges?.subscriber ? 'sub'
+          : undefined,
       };
     }));
   });

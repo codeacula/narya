@@ -11,6 +11,8 @@ export type ChatMessage = {
   badges: Record<string, string> | null;
   emotes: Record<string, string[]> | null;
   isFirstTimer: boolean;
+  isFirstThisSession: boolean;
+  isFirstEver: boolean;
   isExiting?: boolean;
 };
 
@@ -97,7 +99,7 @@ export type ChatEntry = {
   user: string;
   text: string;
   time: string;
-  highlight?: 'first' | 'broadcaster' | 'sub' | 'mod' | 'vip';
+  highlight?: 'first-session' | 'first-ever' | 'broadcaster' | 'sub' | 'mod' | 'vip';
 };
 
 export type StreamEvent = {
@@ -152,6 +154,8 @@ export type DashboardStatus = {
   activeChatters: number;
   sessionChatters: number;
   knownChatters: number;
+  streamSessionId: string | null;
+  streamSessionStartedAt: string | null;
   bitrateKbps: number | null;
   congestion: number | null;
   totalFrames: number | null;
@@ -166,6 +170,63 @@ export type DashboardStatus = {
   prerollFreeTimeSeconds: number | null;
   snoozeCount: number | null;
   snoozeRefreshAt: string | null;
+};
+
+export type DiscordStatus = {
+  clientIdConfigured: boolean;
+  botTokenConfigured: boolean;
+  ready: boolean;
+  botUser: string | null;
+  installUrl: string | null;
+  error: string | null;
+};
+
+export type DiscordGuild = {
+  id: string;
+  name: string;
+  icon: string | null;
+};
+
+export type DiscordChannel = {
+  id: string;
+  guildId: string;
+  name: string;
+  type: 'text' | 'announcement';
+  position: number;
+  parentId: string | null;
+};
+
+export type GoLiveSettings = {
+  obsSceneName: string;
+  discordGuildId: string;
+  discordGuildName: string;
+  discordChannelId: string;
+  discordChannelName: string;
+  discordMessage: string;
+  updatedAt: string | null;
+};
+
+export type GoLiveSettingsUpdate = {
+  obsSceneName: string;
+  discordGuildId: string;
+  discordGuildName: string;
+  discordChannelId: string;
+  discordChannelName: string;
+  discordMessage: string;
+};
+
+export type GoLiveResult = {
+  ok: boolean;
+  sessionId: string;
+  sessionStartedAt: string;
+  obsStatus: ObsStatus;
+  discord: {
+    guildId: string;
+    guildName: string;
+    channelId: string;
+    channelName: string;
+    messageId: string;
+  };
 };
 
 export type StreamInfo = {

@@ -218,7 +218,9 @@ export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
           deleted_at as deletedAt,
           deleted_reason as deletedReason,
           badges_json as badgesJson,
-          emotes_json as emotesJson
+          emotes_json as emotesJson,
+          is_first_in_session as isFirstThisSession,
+          is_first_ever as isFirstEver
         from chat_messages
         order by received_at desc
         limit 40
@@ -232,6 +234,9 @@ export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
           ...rest,
           badges: badgesJson ? JSON.parse(badgesJson) : null,
           emotes: emotesJson ? JSON.parse(emotesJson) : null,
+          isFirstTimer: Boolean(r.isFirstEver),
+          isFirstThisSession: Boolean(r.isFirstThisSession),
+          isFirstEver: Boolean(r.isFirstEver),
         };
       });
 

@@ -116,8 +116,10 @@ function Gauge({
 export function StatBar({
   clock24,
   starfield,
+  onGoLive,
   onRunPreroll,
   onOpenStreamInfo,
+  goLiveBusy,
   prerollBusy,
   actionMessage,
   twitchMissingScopes,
@@ -145,8 +147,10 @@ export function StatBar({
 }: {
   clock24: boolean;
   starfield: boolean;
+  onGoLive: () => void;
   onRunPreroll: () => void;
   onOpenStreamInfo: () => void;
+  goLiveBusy: boolean;
   prerollBusy: boolean;
   actionMessage: string | null;
   twitchMissingScopes: string[];
@@ -343,6 +347,16 @@ export function StatBar({
       </Gauge>
       <Gauge label="Actions">
         <div className="stat-actions">
+          <button
+            className="stat-action gold"
+            type="button"
+            title={obsConnected ? 'Start stream session, OBS stream, and Discord announcement' : 'OBS must be connected'}
+            disabled={!obsConnected || goLiveBusy}
+            onClick={onGoLive}
+          >
+            <Icon name="play" size={13} />
+            <span>{goLiveBusy ? 'Starting' : 'Go Live'}</span>
+          </button>
           <button
             className="stat-action"
             type="button"

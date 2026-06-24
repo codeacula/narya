@@ -169,6 +169,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .stat-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .stat-action {
@@ -194,6 +195,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   color: var(--accent-fg);
   border-color: var(--border-3);
   background: var(--accent-soft);
+}
+.stat-action.gold {
+  color: var(--accent-fg);
+  border-color: var(--border-3);
+  background: rgba(255, 184, 108, 0.12);
+}
+.stat-action.gold:hover:not(:disabled) {
+  background: rgba(255, 184, 108, 0.2);
 }
 .stat-action:disabled {
   cursor: not-allowed;
@@ -337,7 +346,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .msg-text { color: var(--ivory-100); }
 .msg-time { float: right; font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); opacity: 0; transition: opacity var(--dur-fast); }
 .msg:hover .msg-time { opacity: 1; }
-.msg.hl-first { border-left-color: var(--info-base); background: rgba(106,168,212,0.06); }
+.msg.hl-first,
+.msg.hl-first-ever { border-left-color: var(--info-base); background: rgba(106,168,212,0.06); }
+.msg.hl-first-session { border-left-color: var(--success-base); background: rgba(127,200,163,0.06); }
 .msg.hl-broadcaster { border-left-color: var(--gold-500); background: rgba(255,184,108,0.07); }
 .msg.hl-sub { border-left-color: var(--gold-500); background: rgba(255,184,108,0.05); }
 .msg.hl-mod { border-left-color: var(--success-base); background: rgba(80,250,123,0.05); }
@@ -349,7 +360,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   text-transform: uppercase; padding: 1px 6px; border-radius: var(--radius-pill);
   margin-right: 6px; vertical-align: middle;
 }
-.msg.hl-first .hl-tag { color: var(--info-fg); border: 1px solid var(--info-border); background: var(--info-bg); }
+.msg.hl-first .hl-tag,
+.msg.hl-first-ever .hl-tag { color: var(--info-fg); border: 1px solid var(--info-border); background: var(--info-bg); }
+.msg.hl-first-session .hl-tag { color: var(--success-fg); border: 1px solid var(--success-border); background: var(--success-bg); }
 .msg.hl-broadcaster .hl-tag { color: var(--warning-fg); border: 1px solid var(--warning-border); background: var(--warning-bg); }
 .msg.hl-sub .hl-tag { color: var(--warning-fg); border: 1px solid var(--warning-border); background: var(--warning-bg); }
 .msg.selected { background: rgba(255,184,108,0.07); border-left-color: var(--accent); }

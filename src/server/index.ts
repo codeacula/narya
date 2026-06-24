@@ -2,7 +2,9 @@ import { connectTwitchChat } from './chat';
 import { registerChatbotCommandRoutes } from './chatbotCommands';
 import { config } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
+import { registerDiscordRoutes } from './discord';
 import { connectEventSub, disconnectEventSub } from './eventsub';
+import { registerGoLiveRoutes } from './goLive';
 import { registerLlmRoutes } from './llm';
 import { startMusicPolling } from './music';
 import { connectObs } from './obs';
@@ -26,6 +28,8 @@ registerTwitchAuthRoutes({
 registerTwitchApiRoutes(app, runtimeState);
 registerChatbotCommandRoutes(app);
 registerLlmRoutes(app);
+registerDiscordRoutes(app);
+registerGoLiveRoutes(app);
 registerDashboardRoutes(app, runtimeState);
 registerStaticRoutes(app);
 

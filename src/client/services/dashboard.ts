@@ -29,6 +29,12 @@ import type {
   LlmTestResult,
   ViewerProfileUpdate,
   TwitchUserActionResult,
+  DiscordStatus,
+  DiscordGuild,
+  DiscordChannel,
+  GoLiveSettings,
+  GoLiveSettingsUpdate,
+  GoLiveResult,
 } from '../../shared/api';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
@@ -127,6 +133,30 @@ export async function timeoutViewer(
 
 export async function banViewer(login: string, reason: string): Promise<TwitchUserActionResult> {
   return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/ban`, 'POST', { reason });
+}
+
+export async function getDiscordStatus(): Promise<DiscordStatus> {
+  return fetchJson<DiscordStatus>('/api/discord/status');
+}
+
+export async function getDiscordGuilds(): Promise<DiscordGuild[]> {
+  return fetchJson<DiscordGuild[]>('/api/discord/guilds');
+}
+
+export async function getDiscordChannels(guildId: string): Promise<DiscordChannel[]> {
+  return fetchJson<DiscordChannel[]>(`/api/discord/guilds/${encodeURIComponent(guildId)}/channels`);
+}
+
+export async function getGoLiveSettings(): Promise<GoLiveSettings> {
+  return fetchJson<GoLiveSettings>('/api/go-live/settings');
+}
+
+export async function updateGoLiveSettings(settings: GoLiveSettingsUpdate): Promise<GoLiveSettings> {
+  return sendJson<GoLiveSettings>('/api/go-live/settings', 'PUT', settings);
+}
+
+export async function runGoLive(): Promise<GoLiveResult> {
+  return sendJson<GoLiveResult>('/api/go-live', 'POST');
 }
 
 export async function getChatbotCommandSettings(): Promise<ChatbotCommandSettingsResponse> {

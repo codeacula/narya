@@ -6,16 +6,34 @@ import { db } from './db';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { triggerQuackSound } from './sounds';
+import {
+  hasSeenChatterBefore,
+  recordCurrentSessionChatter,
+} from './streamSession';
 
 let twitchRoomId: string | null = null;
 let runtimeState: RuntimeState | null = null;
-const sessionChatters = new Set<string>();
 
 const insertChat = db.prepare(`
   insert or ignore into chat_messages
-    (id, channel, username, display_name, color, message, received_at, deleted_at, deleted_reason, badges_json, emotes_json)
+    (
+      id,
+      channel,
+      username,
+      display_name,
+      color,
+      message,
+      received_at,
+      deleted_at,
+      deleted_reason,
+      badges_json,
+      emotes_json,
+      stream_session_id,
+      is_first_in_session,
+      is_first_ever
+    )
   values
-    (?, ?, ?, ?, ?, ?, ?, null, null, ?, ?)
+    (?, ?, ?, ?, ?, ?, ?, null, null, ?, ?, ?, ?, ?)
 `);
 
 const insertChatEvent = db.prepare(`
@@ -52,10 +70,6 @@ export function getTwitchRoomId(): string | null {
   return twitchRoomId;
 }
 
-export function getSessionChatterCount(): number {
-  return sessionChatters.size;
-}
-
 function appendChatEvent(
   type: string,
   channel: string,
@@ -89,11 +103,14 @@ twitchClient.on('message', (channel, tags, message, self) => {
   const username = (tags.username ?? 'unknown').toLowerCase();
   const badges = (tags.badges as Record<string, string> | null) ?? null;
   const isChannelOwner = username === config.twitchChannel.toLowerCase() || Boolean(badges?.broadcaster);
-  const isFirstTimer = !isChannelOwner && !sessionChatters.has(username);
-  sessionChatters.add(username);
+  const messageId = tags.id ?? crypto.randomUUID();
+  const isFirstEver = !isChannelOwner && !hasSeenChatterBefore(username);
+  const sessionChatter = !isChannelOwner
+    ? recordCurrentSessionChatter(username, messageId, occurredAt)
+    : { sessionId: null, isFirstInSession: false };
 
   const chatMessage: ChatMessage = {
-    id: tags.id ?? crypto.randomUUID(),
+    id: messageId,
     channel: channel.replace(/^#/, ''),
     username: tags.username ?? 'unknown',
     displayName: tags['display-name'] ?? tags.username ?? 'unknown',
@@ -104,7 +121,9 @@ twitchClient.on('message', (channel, tags, message, self) => {
     deletedReason: null,
     badges,
     emotes: (tags.emotes as Record<string, string[]> | null) ?? null,
-    isFirstTimer,
+    isFirstTimer: isFirstEver,
+    isFirstThisSession: sessionChatter.isFirstInSession,
+    isFirstEver,
   };
 
   appendChatEvent('message.created', chatMessage.channel, { tags, message }, {
@@ -123,6 +142,9 @@ twitchClient.on('message', (channel, tags, message, self) => {
     chatMessage.receivedAt,
     chatMessage.badges ? JSON.stringify(chatMessage.badges) : null,
     chatMessage.emotes ? JSON.stringify(chatMessage.emotes) : null,
+    sessionChatter.sessionId,
+    chatMessage.isFirstThisSession ? 1 : 0,
+    chatMessage.isFirstEver ? 1 : 0,
   );
   broadcast('chat:message', chatMessage);
 
