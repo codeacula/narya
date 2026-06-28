@@ -7,7 +7,7 @@ import { HttpRouteError, sendRouteError } from './http';
 import { startObsStream, switchObsScene } from './obs';
 import {
   attachDiscordAnnouncementToSession,
-  startStreamSession,
+  getOrStartStreamSession,
 } from './streamSession';
 
 const SETTINGS_ID = 'default';
@@ -127,6 +127,41 @@ function renderDiscordMessage(template: string): string {
     .replaceAll('{twitchUrl}', twitchUrl);
 }
 
+const twitchAnnouncementTasks = new Map<string, Promise<void>>();
+
+export async function announceTwitchStreamOnline(streamId: string, startedAt: string): Promise<void> {
+  const normalizedStreamId = streamId.trim();
+  if (!normalizedStreamId) throw new Error('Twitch stream ID is required for a live announcement.');
+
+  const activeTask = twitchAnnouncementTasks.get(normalizedStreamId);
+  if (activeTask) return activeTask;
+
+  const task = (async () => {
+    const session = getOrStartStreamSession(`twitch:${normalizedStreamId}`, startedAt);
+    if (session.discordMessageId) return;
+
+    const settings = getGoLiveSettings();
+    if (!settings.discordChannelId) {
+      console.warn('Discord: Twitch went live, but no announcement channel is configured.');
+      return;
+    }
+
+    const message = await sendDiscordMessage(
+      settings.discordChannelId,
+      renderDiscordMessage(settings.discordMessage),
+    );
+    attachDiscordAnnouncementToSession(session.id, message.channelId, message.id);
+    console.log(`Discord: announced Twitch stream ${normalizedStreamId} in channel ${message.channelId}`);
+  })();
+
+  twitchAnnouncementTasks.set(normalizedStreamId, task);
+  try {
+    await task;
+  } finally {
+    twitchAnnouncementTasks.delete(normalizedStreamId);
+  }
+}
+
 async function runGoLiveStep<T>(label: string, action: () => Promise<T>): Promise<T> {
   try {
     return await action();
@@ -144,32 +179,14 @@ export async function runGoLive(): Promise<GoLiveResult> {
 
   const settings = getGoLiveSettings();
   if (!settings.obsSceneName) throw new HttpRouteError(400, 'Configure an OBS starting scene before going live.');
-  if (!settings.discordGuildId || !settings.discordChannelId) {
-    throw new HttpRouteError(400, 'Configure a Discord server and channel before going live.');
-  }
-
   goLiveRunning = true;
   try {
     await runGoLiveStep('OBS scene switch', () => switchObsScene(settings.obsSceneName));
     const obsStatus = await runGoLiveStep<ObsStatus>('OBS stream start', () => startObsStream());
-    const session = startStreamSession('go_live');
-    const discordMessage = await runGoLiveStep('Discord announcement', () =>
-      sendDiscordMessage(settings.discordChannelId, renderDiscordMessage(settings.discordMessage)),
-    );
-    attachDiscordAnnouncementToSession(session.id, discordMessage.channelId, discordMessage.id);
 
     return {
       ok: true,
-      sessionId: session.id,
-      sessionStartedAt: session.startedAt,
       obsStatus,
-      discord: {
-        guildId: settings.discordGuildId,
-        guildName: settings.discordGuildName,
-        channelId: settings.discordChannelId,
-        channelName: settings.discordChannelName,
-        messageId: discordMessage.id,
-      },
     };
   } finally {
     goLiveRunning = false;

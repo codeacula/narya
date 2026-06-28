@@ -5,9 +5,11 @@ import {
 } from '../shared/constants';
 import { config } from './config';
 import { db } from './db';
+import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
-import { fetchBroadcasterId, getEventSubCredentials } from './twitch/api';
+import { endActiveStreamSession } from './streamSession';
+import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials } from './twitch/api';
 
 const insertStreamEvent = db.prepare(`
   insert or ignore into stream_events (id, kind, actor, detail, tone, received_at)
@@ -27,8 +29,19 @@ function tierLabel(tier: string): string {
   return 'Tier 1';
 }
 
-function handleEventSubNotification(state: RuntimeState, type: string, event: Record<string, unknown>) {
+export async function handleEventSubNotification(state: RuntimeState, type: string, event: Record<string, unknown>) {
   switch (type) {
+    case 'stream.online': {
+      const streamId = typeof event.id === 'string' ? event.id : '';
+      const startedAt = typeof event.started_at === 'string' ? event.started_at : new Date().toISOString();
+      state.clearTwitchCaches();
+      await announceTwitchStreamOnline(streamId, startedAt);
+      break;
+    }
+    case 'stream.offline':
+      state.clearTwitchCaches();
+      endActiveStreamSession();
+      break;
     case 'channel.follow':
       emitStreamEvent('follow', event.user_name as string, 'followed', 'silver');
       break;
@@ -115,7 +128,11 @@ async function createEventSubSubscription(
 }
 
 async function subscribeToAllEvents(clientId: string, userToken: string, sessionId: string, bid: string): Promise<boolean> {
-  const requiredSubs: Array<[string, string, Record<string, string>]> = [
+  const lifecycleSubs: Array<[string, string, Record<string, string>]> = [
+    ['stream.online', '1', { broadcaster_user_id: bid }],
+    ['stream.offline', '1', { broadcaster_user_id: bid }],
+  ];
+  const interactionSubs: Array<[string, string, Record<string, string>]> = [
     ['channel.follow', '2', { broadcaster_user_id: bid, moderator_user_id: bid }],
     ['channel.subscribe', '1', { broadcaster_user_id: bid }],
     ['channel.subscription.gift', '1', { broadcaster_user_id: bid }],
@@ -129,8 +146,14 @@ async function subscribeToAllEvents(clientId: string, userToken: string, session
     ['channel.ad_break.begin', '1', { broadcaster_user_id: bid }],
   ];
 
+  let lifecycleSuccessCount = 0;
+  for (const [type, version, condition] of lifecycleSubs) {
+    const ok = await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
+    if (ok) lifecycleSuccessCount++;
+  }
+
   let successCount = 0;
-  for (const [type, version, condition] of requiredSubs) {
+  for (const [type, version, condition] of interactionSubs) {
     const ok = await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
     if (ok) successCount++;
   }
@@ -138,12 +161,15 @@ async function subscribeToAllEvents(clientId: string, userToken: string, session
     await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
   }
 
-  if (successCount === 0) {
-    console.error('EventSub: all required subscriptions failed — re-authorize Twitch or check token scopes');
+  if (lifecycleSuccessCount !== lifecycleSubs.length) {
+    console.error('EventSub: Twitch stream lifecycle subscriptions failed; live announcements are unavailable');
     return false;
   }
+  if (successCount === 0) {
+    console.warn('EventSub: interaction subscriptions failed — re-authorize Twitch or check token scopes');
+  }
 
-  console.log(`EventSub: ${successCount}/${requiredSubs.length} required subscriptions active`);
+  console.log(`EventSub: ${lifecycleSuccessCount}/${lifecycleSubs.length} lifecycle and ${successCount}/${interactionSubs.length} interaction subscriptions active`);
   return true;
 }
 
@@ -287,6 +313,14 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
               try { ws.close(); } catch { /* ignore */ }
               return;
             }
+            const currentStream = await fetchCurrentTwitchStream(creds.clientId, creds.userToken);
+            if (currentStream) {
+              try {
+                await announceTwitchStreamOnline(currentStream.id, currentStream.startedAt);
+              } catch (error) {
+                console.error('EventSub: failed to reconcile the current Twitch stream:', error);
+              }
+            }
           } else {
             console.error(`EventSub: could not resolve broadcaster ID for "${config.twitchChannel}"`);
           }
@@ -317,7 +351,9 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
     } else if (msgType === 'notification') {
       const subType = msg.payload.subscription?.type ?? '';
       const event = msg.payload.event ?? {};
-      handleEventSubNotification(state, subType, event);
+      void handleEventSubNotification(state, subType, event).catch(error => {
+        console.error(`EventSub: failed to handle ${subType}:`, error);
+      });
 
     } else if (msgType === 'revocation') {
       const sub = msg.payload.subscription;

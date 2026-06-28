@@ -365,7 +365,7 @@ export function StatBar({
           <button
             className="stat-action gold"
             type="button"
-            title={obsConnected ? 'Start stream session, OBS stream, and Discord announcement' : 'OBS must be connected'}
+            title={obsConnected ? 'Switch to the starting scene and start OBS streaming' : 'OBS must be connected'}
             disabled={!obsConnected || goLiveBusy}
             onClick={onGoLive}
           >

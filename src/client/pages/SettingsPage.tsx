@@ -727,7 +727,7 @@ export function SettingsPage({
         </div>
 
         <div className="set-group">
-          <div className="set-group-label">Discord Go Live</div>
+          <div className="set-group-label">Twitch live announcement</div>
           {(goLiveMessage || goLiveError) && (
             <div className={'set-status' + (goLiveError ? ' error' : '')}>
               {goLiveError ?? goLiveMessage}
@@ -820,7 +820,7 @@ export function SettingsPage({
 
             <div className="command-settings-actions">
               <button className="modbtn gold" type="submit" disabled={goLiveLoading || goLiveSaving}>
-                {goLiveSaving ? 'Saving...' : 'Save Go Live'}
+                {goLiveSaving ? 'Saving...' : 'Save live settings'}
               </button>
             </div>
           </form>

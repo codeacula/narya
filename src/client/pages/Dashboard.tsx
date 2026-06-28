@@ -309,8 +309,8 @@ export function DashboardPage() {
     setGoLiveBusy(true);
     setActionMessage(null);
     void runGoLive()
-      .then(result => {
-        setActionMessage(`Live session started · Discord #${result.discord.channelName || result.discord.channelId}`);
+      .then(() => {
+        setActionMessage('OBS stream started · Discord will announce when Twitch confirms you are live');
         refreshDashboardStatus();
       })
       .catch(error => {

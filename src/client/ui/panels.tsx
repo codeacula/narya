@@ -796,7 +796,7 @@ export function ControlsPanel({
           <button
             className="stat-action gold"
             type="button"
-            title={status.obsConnected ? 'Start stream, OBS scene, Discord announcement' : 'OBS must be connected'}
+            title={status.obsConnected ? 'Switch to the starting scene and start OBS streaming' : 'OBS must be connected'}
             disabled={!status.obsConnected || goLiveBusy}
             onClick={onGoLive}
           >

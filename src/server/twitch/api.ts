@@ -99,6 +99,30 @@ export async function fetchBroadcasterId(clientId: string, userToken: string): P
   }
 }
 
+export type TwitchLiveStream = {
+  id: string;
+  startedAt: string;
+};
+
+export async function fetchCurrentTwitchStream(clientId: string, userToken: string): Promise<TwitchLiveStream | null> {
+  try {
+    const res = await fetch(
+      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(config.twitchChannel)}`,
+      { headers: { 'Client-Id': clientId, Authorization: `Bearer ${userToken}` } },
+    );
+    if (!res.ok) {
+      console.error(`Twitch API: current stream lookup failed (${res.status}):`, await res.text());
+      return null;
+    }
+    const data = await res.json() as { data?: Array<{ id?: string; started_at?: string }> };
+    const stream = data.data?.[0];
+    return stream?.id && stream.started_at ? { id: stream.id, startedAt: stream.started_at } : null;
+  } catch (error) {
+    console.error('Twitch API: current stream lookup errored:', error);
+    return null;
+  }
+}
+
 export async function fetchAuthenticatedTwitchUserId(clientId: string, userToken: string): Promise<string | null> {
   try {
     const res = await fetch('https://api.twitch.tv/helix/users', {

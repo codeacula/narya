@@ -218,16 +218,7 @@ export type GoLiveSettingsUpdate = {
 
 export type GoLiveResult = {
   ok: boolean;
-  sessionId: string;
-  sessionStartedAt: string;
   obsStatus: ObsStatus;
-  discord: {
-    guildId: string;
-    guildName: string;
-    channelId: string;
-    channelName: string;
-    messageId: string;
-  };
 };
 
 export type StreamInfo = {

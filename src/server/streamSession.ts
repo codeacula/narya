@@ -23,6 +23,19 @@ const getActiveSessionRow = db.prepare(`
   limit 1
 `);
 
+const getSessionBySourceRow = db.prepare(`
+  select
+    id,
+    started_at as startedAt,
+    ended_at as endedAt,
+    source,
+    discord_message_id as discordMessageId,
+    discord_channel_id as discordChannelId
+  from stream_sessions
+  where source = ?
+  limit 1
+`);
+
 const endActiveSessions = db.prepare(`
   update stream_sessions
   set ended_at = ?
@@ -83,6 +96,27 @@ export function startStreamSession(source: string): StreamSession {
     throw new Error('Could not create stream session.');
   }
   return session;
+}
+
+export function getOrStartStreamSession(source: string, startedAt: string): StreamSession {
+  const existing = rowToStreamSession(getSessionBySourceRow.get(source));
+  if (existing) return existing;
+
+  const id = crypto.randomUUID();
+  const createSession = db.transaction(() => {
+    const duplicate = rowToStreamSession(getSessionBySourceRow.get(source));
+    if (duplicate) return duplicate;
+    endActiveSessions.run(startedAt);
+    insertStreamSession.run(id, startedAt, source);
+    return rowToStreamSession(getSessionBySourceRow.get(source));
+  });
+  const session = createSession();
+  if (!session) throw new Error('Could not create stream session.');
+  return session;
+}
+
+export function endActiveStreamSession(endedAt = new Date().toISOString()) {
+  endActiveSessions.run(endedAt);
 }
 
 export function attachDiscordAnnouncementToSession(sessionId: string, channelId: string, messageId: string) {
