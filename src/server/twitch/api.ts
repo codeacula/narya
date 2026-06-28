@@ -394,12 +394,16 @@ export async function sendTwitchChatMessage(
   return { messageId: sentMessage.message_id ?? null };
 }
 
-export async function runTwitchCommercial(state: RuntimeState): Promise<{
+type TwitchCommercialResult = {
   durationSeconds: number;
   message: string | null;
   retryAfterSeconds: number | null;
   adBreakEndsAt: string;
-}> {
+};
+
+const twitchCommercialTasks = new WeakMap<RuntimeState, Promise<TwitchCommercialResult>>();
+
+async function executeTwitchCommercial(state: RuntimeState): Promise<TwitchCommercialResult> {
   const credentials = await getTwitchActionCredentials(state, ['channel:edit:commercial']);
   const res = await fetch('https://api.twitch.tv/helix/channels/commercial', {
     method: 'POST',
@@ -446,6 +450,19 @@ export async function runTwitchCommercial(state: RuntimeState): Promise<{
     retryAfterSeconds: typeof commercial.retry_after === 'number' ? commercial.retry_after : null,
     adBreakEndsAt: state.adBreakEndsAt,
   };
+}
+
+export async function runTwitchCommercial(state: RuntimeState): Promise<TwitchCommercialResult> {
+  const activeTask = twitchCommercialTasks.get(state);
+  if (activeTask) return activeTask;
+
+  const task = executeTwitchCommercial(state);
+  twitchCommercialTasks.set(state, task);
+  try {
+    return await task;
+  } finally {
+    if (twitchCommercialTasks.get(state) === task) twitchCommercialTasks.delete(state);
+  }
 }
 
 export function normalizeTags(value: unknown): string[] {

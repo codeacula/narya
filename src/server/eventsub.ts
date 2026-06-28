@@ -9,7 +9,7 @@ import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { endActiveStreamSession } from './streamSession';
-import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials } from './twitch/api';
+import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials, runTwitchCommercial } from './twitch/api';
 
 const insertStreamEvent = db.prepare(`
   insert or ignore into stream_events (id, kind, actor, detail, tone, received_at)
@@ -35,7 +35,14 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       const streamId = typeof event.id === 'string' ? event.id : '';
       const startedAt = typeof event.started_at === 'string' ? event.started_at : new Date().toISOString();
       state.clearTwitchCaches();
-      await announceTwitchStreamOnline(streamId, startedAt);
+      const tasks: Promise<unknown>[] = [announceTwitchStreamOnline(streamId, startedAt)];
+      if (streamId && state.streamStartAdStreamId !== streamId) {
+        state.streamStartAdStreamId = streamId;
+        tasks.push(runTwitchCommercial(state)
+          .then(commercial => console.log(`Twitch ads: started a ${commercial.durationSeconds}s stream-start commercial.`))
+          .catch(error => console.error('Twitch ads: stream-start commercial failed:', error)));
+      }
+      await Promise.all(tasks);
       break;
     }
     case 'stream.offline':
