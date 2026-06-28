@@ -729,16 +729,6 @@ export function ControlsPanel({
   return (
     <div className="ctrl-panel">
       <div className="ctrl-section">
-        <span className="ctrl-label">status</span>
-        <span className={'ctrl-status' + (status.streamActive ? ' live' : '')}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: status.streamActive ? 'var(--success-base)' : 'var(--silver-600)', display: 'inline-block', flexShrink: 0, boxShadow: status.streamActive ? '0 0 6px rgba(127,200,163,0.6)' : 'none' }} />
-          {status.streamActive
-            ? (status.uptimeSeconds !== null ? formatUptime(status.uptimeSeconds) : 'live')
-            : 'offline'}
-        </span>
-      </div>
-
-      <div className="ctrl-section">
         <span className="ctrl-label">actions</span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <button
