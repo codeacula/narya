@@ -147,7 +147,7 @@ export function clearExpiredAdBreak(state: RuntimeState, nowMs = Date.now()) {
   state.twitchAdScheduleCache = null;
 }
 
-async function getTwitchStreamStatus(state: RuntimeState): Promise<StreamActivityStatus> {
+export async function getTwitchStreamStatus(state: RuntimeState): Promise<StreamActivityStatus> {
   if (state.twitchStreamStatusCache && state.twitchStreamStatusCache.expiresAtMs > Date.now()) {
     return state.twitchStreamStatusCache.status;
   }
@@ -201,7 +201,7 @@ async function getTwitchStreamStatus(state: RuntimeState): Promise<StreamActivit
   }
 }
 
-async function getTwitchAdSchedule(state: RuntimeState): Promise<AdSchedule> {
+export async function getTwitchAdSchedule(state: RuntimeState): Promise<AdSchedule> {
   clearExpiredAdBreak(state);
 
   if (state.twitchAdScheduleCache && state.twitchAdScheduleCache.expiresAtMs > Date.now()) {

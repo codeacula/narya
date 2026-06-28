@@ -1,3 +1,4 @@
+import { startAutomaticAds } from './automaticAds';
 import { registerChattersRoutes } from './chatters';
 import { connectTwitchChat } from './chat';
 import { registerChatbotCommandRoutes } from './chatbotCommands';
@@ -42,5 +43,6 @@ server.listen(config.port, () => {
   void connectObs();
   startMusicPolling();
   startDashboardHeartbeat(runtimeState);
+  startAutomaticAds(runtimeState);
   void connectEventSub(runtimeState);
 });

@@ -13,7 +13,7 @@ import {
   REQUIRED_TWITCH_OAUTH_SCOPES,
 } from './auth';
 
-const TWITCH_PREROLL_COMMERCIAL_SECONDS = 180;
+export const TWITCH_COMMERCIAL_SECONDS = 180;
 const TWITCH_DEFAULT_TIMEOUT_SECONDS = 600;
 const TWITCH_MAX_TIMEOUT_SECONDS = 1_209_600;
 type TwitchChatSender = 'user' | 'bot';
@@ -394,6 +394,60 @@ export async function sendTwitchChatMessage(
   return { messageId: sentMessage.message_id ?? null };
 }
 
+export async function runTwitchCommercial(state: RuntimeState): Promise<{
+  durationSeconds: number;
+  message: string | null;
+  retryAfterSeconds: number | null;
+  adBreakEndsAt: string;
+}> {
+  const credentials = await getTwitchActionCredentials(state, ['channel:edit:commercial']);
+  const res = await fetch('https://api.twitch.tv/helix/channels/commercial', {
+    method: 'POST',
+    headers: {
+      'Client-Id': credentials.clientId,
+      Authorization: credentials.authorization,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      broadcaster_id: credentials.broadcasterId,
+      length: TWITCH_COMMERCIAL_SECONDS,
+    }),
+  });
+
+  if (!res.ok) {
+    const message = await readResponseError(res, 'Twitch commercial request failed.');
+    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+  }
+
+  const data = await res.json() as {
+    data?: Array<{ length?: number; message?: string; retry_after?: number }>;
+  };
+  const commercial = data.data?.[0] ?? {};
+  const durationSeconds = typeof commercial.length === 'number'
+    ? commercial.length
+    : TWITCH_COMMERCIAL_SECONDS;
+
+  state.adBreakEndsAt = new Date(Date.now() + durationSeconds * 1000).toISOString();
+  state.twitchAdScheduleCache = null;
+
+  try {
+    await sendTwitchChatMessage(
+      state,
+      `Ads are running for the next ${Math.ceil(durationSeconds / 60)} minutes. Thanks for hanging out — we'll be right back!`,
+      'bot',
+    );
+  } catch (error) {
+    console.error('Twitch commercial started, but the bot chat announcement failed:', error);
+  }
+
+  return {
+    durationSeconds,
+    message: commercial.message ?? null,
+    retryAfterSeconds: typeof commercial.retry_after === 'number' ? commercial.retry_after : null,
+    adBreakEndsAt: state.adBreakEndsAt,
+  };
+}
+
 export function normalizeTags(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -570,43 +624,7 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
 
   app.post('/api/twitch/preroll', async (_request, response) => {
     try {
-      const credentials = await getTwitchActionCredentials(state, ['channel:edit:commercial']);
-      const res = await fetch('https://api.twitch.tv/helix/channels/commercial', {
-        method: 'POST',
-        headers: {
-          'Client-Id': credentials.clientId,
-          Authorization: credentials.authorization,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          broadcaster_id: credentials.broadcasterId,
-          length: TWITCH_PREROLL_COMMERCIAL_SECONDS,
-        }),
-      });
-
-      if (!res.ok) {
-        const message = await readResponseError(res, 'Twitch commercial request failed.');
-        throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
-      }
-
-      const data = await res.json() as {
-        data?: Array<{ length?: number; message?: string; retry_after?: number }>;
-      };
-      const commercial = data.data?.[0] ?? {};
-      const durationSeconds = typeof commercial.length === 'number'
-        ? commercial.length
-        : TWITCH_PREROLL_COMMERCIAL_SECONDS;
-
-      state.adBreakEndsAt = new Date(Date.now() + durationSeconds * 1000).toISOString();
-      state.twitchAdScheduleCache = null;
-
-      response.json({
-        ok: true,
-        durationSeconds,
-        message: commercial.message ?? null,
-        retryAfterSeconds: typeof commercial.retry_after === 'number' ? commercial.retry_after : null,
-        adBreakEndsAt: state.adBreakEndsAt,
-      });
+      response.json({ ok: true, ...await runTwitchCommercial(state) });
     } catch (error) {
       sendRouteError(response, error);
     }
