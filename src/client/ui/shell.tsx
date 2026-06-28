@@ -144,6 +144,8 @@ export function StatBar({
   chatConnection,
   obsConnected,
   eventSubConnected,
+  eventSubError,
+  onReconnectEventSub,
 }: {
   clock24: boolean;
   starfield: boolean;
@@ -175,6 +177,8 @@ export function StatBar({
   chatConnection: string;
   obsConnected: boolean;
   eventSubConnected: boolean;
+  eventSubError: string | null;
+  onReconnectEventSub: () => void;
 }) {
   const [currentTime, setCurrentTime] = useState('');
   const [displaySeconds, setDisplaySeconds] = useState(uptimeSeconds ?? 0);
@@ -336,7 +340,18 @@ export function StatBar({
     <div className={'statbar' + (starfield ? ' starfield' : '')}>
       <Gauge label="Stream" className={streamClass} icon={<span className={'live-dot' + (streamActive ? '' : ' offline')} />}>
         <div className="gauge-value">{streamLabel}</div>
-        <div className="gauge-sub">{uptimeSourceLabel} · chat {chatConnection.toLowerCase()} · events {eventSubConnected ? 'open' : 'closed'}</div>
+        <div className="gauge-sub">
+          {uptimeSourceLabel} · chat {chatConnection.toLowerCase()} · events {eventSubConnected ? 'open' : eventSubError ? 'error' : 'closed'}
+          {eventSubError && !eventSubConnected && (
+            <button
+              className="eventsub-retry-btn"
+              title="Re-authorize Twitch, then click to retry EventSub"
+              onClick={onReconnectEventSub}
+            >
+              retry
+            </button>
+          )}
+        </div>
       </Gauge>
       <Gauge label="Local time">
         <div className="gauge-value">{currentTime}</div>

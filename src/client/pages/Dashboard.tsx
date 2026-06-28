@@ -17,6 +17,7 @@ import {
   runGoLive,
   switchObsScene,
   getChatters,
+  reconnectEventSub,
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
@@ -54,6 +55,7 @@ const EMPTY_STATUS: DashboardStatus = {
   chatConnection: 'UNKNOWN',
   obsConnected: false,
   eventSubConnected: false,
+  eventSubError: null,
   twitchAuthenticated: false,
   twitchAuthSource: null,
   twitchTokenExpiresAt: null,
@@ -243,6 +245,15 @@ export function DashboardPage() {
       .then(setStatus)
       .catch((error: unknown) => {
         console.error('Failed to disconnect Twitch bot:', error);
+      });
+  }, []);
+
+  const handleReconnectEventSub = React.useCallback(() => {
+    void reconnectEventSub()
+      .then(() => getDashboardStatus())
+      .then(setStatus)
+      .catch((error: unknown) => {
+        console.error('Failed to reconnect EventSub:', error);
       });
   }, []);
 
@@ -511,6 +522,8 @@ export function DashboardPage() {
         chatConnection={status.chatConnection}
         obsConnected={status.obsConnected}
         eventSubConnected={status.eventSubConnected}
+        eventSubError={status.eventSubError}
+        onReconnectEventSub={handleReconnectEventSub}
       />
       {page === 'dashboard' ? dashboardLayout : (
         <SettingsPage

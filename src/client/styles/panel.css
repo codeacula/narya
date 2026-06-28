@@ -1064,3 +1064,17 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   justify-content: flex-end;
   gap: 8px;
 }
+
+.eventsub-retry-btn {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--warning-base);
+  border: 1px solid var(--warning-border);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  line-height: 16px;
+}
+.eventsub-retry-btn:hover { background: var(--warning-bg); }
