@@ -7,6 +7,7 @@ import type { RuntimeState, TwitchTokenResponse, TwitchUserToken } from '../runt
 
 export const REQUIRED_TWITCH_OAUTH_SCOPES = [
   'moderator:read:followers',
+  'moderator:read:chatters',
   'channel:read:subscriptions',
   'bits:read',
   'channel:read:redemptions',
