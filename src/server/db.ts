@@ -229,3 +229,10 @@ addColumnIfMissing('chat_messages', 'is_first_in_session', 'integer not null def
 addColumnIfMissing('chat_messages', 'is_first_ever', 'integer not null default 0');
 
 db.exec('create index if not exists idx_chat_messages_stream_session on chat_messages(stream_session_id)');
+
+// Backfill ad break events that were stored as 'redeem' before the ad_break kind existed.
+db.exec(`
+  UPDATE stream_events
+  SET kind = 'ad_break'
+  WHERE kind = 'redeem' AND actor = 'Twitch' AND detail LIKE 'ad break%'
+`);
