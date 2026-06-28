@@ -307,6 +307,7 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
     chatConnection: twitchClient.readyState?.() ?? 'UNKNOWN',
     obsConnected: isObsConnected(),
     eventSubConnected: state.eventSubConnected,
+    eventSubError: state.eventSubError,
     ...getTwitchAuthStatus(state),
     ...streamStatus,
     ...obsHealthStats,
