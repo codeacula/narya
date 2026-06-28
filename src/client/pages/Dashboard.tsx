@@ -23,7 +23,7 @@ import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
-import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage } from '../../shared/api';
 
 /* ---------------- audio ---------------- */
 
@@ -224,6 +224,19 @@ export function DashboardPage() {
     }).catch((error: unknown) => {
       console.error('Failed to refresh chat after moderation event:', error);
     });
+  }, []));
+
+  useSocket<WhisperMessage>('whisper:message', React.useCallback((msg) => {
+    playTone(520, 80, 0.2);
+    setTimeout(() => playTone(660, 100, 0.15), 90);
+    const entry: ChatEntry = {
+      id: msg.id,
+      user: msg.fromLogin,
+      text: msg.text,
+      time: new Date(msg.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+      kind: 'whisper',
+    };
+    setChat(current => current.some(e => e.id === entry.id) ? current : [...current, entry]);
   }, []));
 
   useSocket<DashboardStatus>('dashboard:status', React.useCallback((nextStatus) => {
@@ -437,29 +450,28 @@ export function DashboardPage() {
     );
   }
 
+  const showControls = status.obsConnected;
+
   const dashboardLayout = (
     <div className="stage stage--cockpit">
       {slot('chat')}
-      <div className="col-stack s2-top-auto">
-        <Panel
-          id="controls"
-          title="stream controls"
-          dot={false}
-          popped={false}
-          onPop={() => undefined}
-        >
-          <ControlsPanel
-            status={status}
-            obsScenes={obsScenes}
-            onGoLive={handleGoLive}
-            onRunPreroll={handleRunPreroll}
-            onOpenStreamInfo={handleOpenStreamInfo}
-            goLiveBusy={goLiveBusy}
-            prerollBusy={prerollBusy}
-            onSwitchScene={handleSwitchScene}
-            sceneSwitching={sceneSwitching}
-          />
-        </Panel>
+      <div className={`col-stack${showControls ? ' s2-top-auto' : ''}`}>
+        {showControls && (
+          <Panel
+            id="controls"
+            title="stream controls"
+            dot={false}
+            popped={false}
+            onPop={() => undefined}
+          >
+            <ControlsPanel
+              status={status}
+              obsScenes={obsScenes}
+              onSwitchScene={handleSwitchScene}
+              sceneSwitching={sceneSwitching}
+            />
+          </Panel>
+        )}
         <Panel
           id="events"
           title="activity feed"

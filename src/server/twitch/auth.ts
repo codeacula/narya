@@ -19,6 +19,7 @@ export const REQUIRED_TWITCH_OAUTH_SCOPES = [
   'user:read:chat',
   'user:write:chat',
   'user:manage:whispers',
+  'user:read:whispers',
 ] as const;
 
 export const REQUIRED_TWITCH_BOT_OAUTH_SCOPES = [

@@ -93,6 +93,17 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       }
       break;
     }
+    case 'user.whisper.message': {
+      const whisper = event.whisper as Record<string, unknown> | undefined;
+      broadcast('whisper:message', {
+        id: typeof event.whisper_id === 'string' ? event.whisper_id : crypto.randomUUID(),
+        fromLogin: typeof event.from_user_login === 'string' ? event.from_user_login : 'unknown',
+        fromDisplayName: typeof event.from_user_name === 'string' ? event.from_user_name : (event.from_user_login as string ?? 'unknown'),
+        text: typeof whisper?.text === 'string' ? whisper.text : '',
+        receivedAt: new Date().toISOString(),
+      });
+      break;
+    }
   }
 }
 
@@ -144,6 +155,7 @@ async function subscribeToAllEvents(clientId: string, userToken: string, session
   const optionalSubs: Array<[string, string, Record<string, string>]> = [
     ['channel.channel_points_custom_reward_redemption.add', '1', { broadcaster_user_id: bid }],
     ['channel.ad_break.begin', '1', { broadcaster_user_id: bid }],
+    ['user.whisper.message', '1', { user_id: bid }],
   ];
 
   let lifecycleSuccessCount = 0;

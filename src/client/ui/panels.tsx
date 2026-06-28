@@ -74,6 +74,7 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   const [atBottom, setAtBottom] = React.useState(true);
   const [newCount, setNewCount] = React.useState(0);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
+  const [chatSearch, setChatSearch] = React.useState('');
 
   React.useLayoutEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -119,6 +120,7 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   }, [ctx]);
 
   React.useEffect(() => {
+    if (chatSearch) return;
     const lastId = ctx.chat[ctx.chat.length - 1]?.id ?? '';
     if (lastId === lastIdRef.current) return;
     lastIdRef.current = lastId;
@@ -128,7 +130,15 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
       return;
     }
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [ctx.chat]);
+  }, [ctx.chat, chatSearch]);
+
+  const displayedChat = React.useMemo(() => {
+    if (!chatSearch.trim()) return ctx.chat;
+    const q = chatSearch.toLowerCase();
+    return ctx.chat.filter(m =>
+      m.text.toLowerCase().includes(q) || m.user.toLowerCase().includes(q)
+    );
+  }, [ctx.chat, chatSearch]);
 
   const scrollToBottom = React.useCallback(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -140,20 +150,38 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   return (
     <>
       <div className="chat-bar">
-        {!atBottom && (
-          <button className="chat-bar-scroll-btn" onClick={scrollToBottom}>
-            <Icon name="chevron-down" size={12} />
-            {newCount > 0 ? `${newCount} new` : 'latest'}
-          </button>
-        )}
+        <input
+          className="chat-search"
+          placeholder="search chat..."
+          value={chatSearch}
+          onChange={e => setChatSearch(e.target.value)}
+        />
+        <button className="chat-bar-scroll-btn" onClick={scrollToBottom}>
+          <Icon name="chevron-down" size={12} />
+          {newCount > 0 ? `${newCount} new` : 'latest'}
+        </button>
       </div>
       <div className="chat-list" ref={listRef} onScroll={handleScroll}>
         {loadingOlder && <div className="chat-loading">loading…</div>}
-        {ctx.chat.map((m) => {
+        {displayedChat.map((m) => {
           const login = m.user.toLowerCase();
           const viewer = ctx.viewers[login];
           const color = viewer?.color ?? '#d7dce2';
           const display = viewer?.display ?? m.user;
+
+          if (m.kind === 'whisper') {
+            return (
+              <div className="msg msg-whisper" key={m.id}>
+                <span className="msg-time">{m.time}</span>
+                <span className="hl-tag whisper-tag">whisper</span>
+                <span className="msg-user" style={{ color }} onClick={() => ctx.openViewerPopout(m.user)}>
+                  {display}
+                </span>
+                <span className="msg-text">{m.text}</span>
+              </div>
+            );
+          }
+
           const hlClass = m.highlight ? ' hl-' + m.highlight : '';
           return (
             <div className={'msg' + hlClass} key={m.id}>
@@ -181,6 +209,43 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   );
 }
 
+function parseSlashCommand(raw: string): { action: () => Promise<unknown>; label: string } | null {
+  const text = raw.trim();
+  if (!text.startsWith('/')) return null;
+  const [cmd, ...rest] = text.slice(1).split(/\s+/);
+  const command = (cmd ?? '').toLowerCase();
+
+  if (command === 'shoutout' || command === 'so') {
+    const login = rest[0] ?? '';
+    if (!login) return null;
+    return { action: () => sendViewerShoutout(login.replace(/^@/, '')), label: 'Shoutout' };
+  }
+
+  if (command === 'whisper' || command === 'w') {
+    const login = rest[0] ?? '';
+    const msg = rest.slice(1).join(' ');
+    if (!login || !msg) return null;
+    return { action: () => sendViewerWhisper(login.replace(/^@/, ''), msg), label: 'Whisper' };
+  }
+
+  if (command === 'timeout') {
+    const login = rest[0] ?? '';
+    if (!login) return null;
+    const seconds = rest[1] && /^\d+$/.test(rest[1]) ? Number(rest[1]) : 600;
+    const reason = (rest[1] && /^\d+$/.test(rest[1]) ? rest.slice(2) : rest.slice(1)).join(' ');
+    return { action: () => timeoutViewer(login.replace(/^@/, ''), seconds, reason), label: 'Timeout' };
+  }
+
+  if (command === 'ban') {
+    const login = rest[0] ?? '';
+    if (!login) return null;
+    const reason = rest.slice(1).join(' ');
+    return { action: () => banViewer(login.replace(/^@/, ''), reason), label: 'Ban' };
+  }
+
+  return null;
+}
+
 export function ChatInput({ channel }: { channel: string }) {
   const [text, setText] = React.useState('');
   const [sender, setSender] = React.useState<ChatSender>('user');
@@ -192,12 +257,14 @@ export function ChatInput({ channel }: { channel: string }) {
     event.preventDefault();
     if (!message || sending) return;
 
+    const slashCmd = parseSlashCommand(message);
     setSending(true);
     setError(null);
-    void sendChatMessage(message, sender)
+    const task = slashCmd ? slashCmd.action() : sendChatMessage(message, sender);
+    void task
       .then(() => setText(''))
-      .catch(error => {
-        setError(error instanceof Error ? error.message : 'Could not send chat message');
+      .catch(err => {
+        setError(err instanceof Error ? err.message : 'Could not send');
       })
       .finally(() => setSending(false));
   }, [message, sender, sending]);
@@ -687,6 +754,25 @@ function saveHiddenKinds(hidden: Set<string>): void {
 
 function EventFeed({ ctx }: { ctx: PanelCtx }) {
   const [hiddenKinds, setHiddenKinds] = React.useState<Set<string>>(() => loadHiddenKinds());
+  const [evtSearch, setEvtSearch] = React.useState('');
+  const [filterOpen, setFilterOpen] = React.useState(false);
+  const filterRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!filterOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setFilterOpen(false);
+      }
+    };
+    const keyHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') setFilterOpen(false); };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', keyHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', keyHandler);
+    };
+  }, [filterOpen]);
 
   const toggleKind = React.useCallback((kind: string) => {
     setHiddenKinds(prev => {
@@ -703,23 +789,59 @@ function EventFeed({ ctx }: { ctx: PanelCtx }) {
     [ctx.events],
   );
 
-  const visibleEvents = ctx.events.filter(e => !hiddenKinds.has(e.kind));
+  const hiddenCount = React.useMemo(
+    () => knownKinds.filter(k => hiddenKinds.has(k)).length,
+    [knownKinds, hiddenKinds],
+  );
+
+  const visibleEvents = React.useMemo(() => {
+    const q = evtSearch.trim().toLowerCase();
+    return ctx.events.filter(e => {
+      if (hiddenKinds.has(e.kind)) return false;
+      if (!q) return true;
+      return (
+        e.actor.toLowerCase().includes(q) ||
+        (e.detail ?? '').toLowerCase().includes(q) ||
+        (EVT_KIND_LABEL[e.kind] ?? e.kind).toLowerCase().includes(q)
+      );
+    });
+  }, [ctx.events, hiddenKinds, evtSearch]);
 
   return (
     <div className="evt-feed">
-      {knownKinds.length > 0 && (
-        <div className="evt-filters">
-          {knownKinds.map(kind => (
+      <div className="evt-toolbar">
+        <input
+          className="evt-search"
+          placeholder="search..."
+          value={evtSearch}
+          onChange={e => setEvtSearch(e.target.value)}
+        />
+        {knownKinds.length > 0 && (
+          <div className="evt-filter-anchor" ref={filterRef}>
             <button
-              key={kind}
-              className={'evt-filter-chip' + (hiddenKinds.has(kind) ? ' off' : '')}
-              onClick={() => toggleKind(kind)}
+              className={'evt-filter-btn' + (filterOpen ? ' open' : '')}
+              onClick={() => setFilterOpen(o => !o)}
+              title="Toggle event filters"
             >
-              {EVT_KIND_LABEL[kind] ?? kind}
+              Filters{hiddenCount > 0 ? ` (${hiddenCount})` : ''}
             </button>
-          ))}
-        </div>
-      )}
+            {filterOpen && (
+              <div className="evt-filter-menu">
+                {knownKinds.map(kind => (
+                  <label key={kind} className="evt-filter-item">
+                    <input
+                      type="checkbox"
+                      checked={!hiddenKinds.has(kind)}
+                      onChange={() => toggleKind(kind)}
+                    />
+                    {EVT_KIND_LABEL[kind] ?? kind}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       <div className="evt-list">
         {visibleEvents.map((e) => {
           const tone = EVT_TONE_OVERRIDE[e.kind] ?? e.tone;
@@ -758,21 +880,11 @@ const switchableScenePrefix = 'Scene -';
 export function ControlsPanel({
   status,
   obsScenes,
-  onGoLive,
-  onRunPreroll,
-  onOpenStreamInfo,
-  goLiveBusy,
-  prerollBusy,
   onSwitchScene,
   sceneSwitching,
 }: {
   status: DashboardStatus;
   obsScenes: string[];
-  onGoLive: () => void;
-  onRunPreroll: () => void;
-  onOpenStreamInfo: () => void;
-  goLiveBusy: boolean;
-  prerollBusy: boolean;
   onSwitchScene: (sceneName: string) => void;
   sceneSwitching: boolean;
 }) {
@@ -783,46 +895,18 @@ export function ControlsPanel({
     setSelectedScene('');
   }, [obsScenes]);
 
-  const prerollAvailable = status.streamActive === true &&
-    status.adScheduleStatus !== 'not_configured' &&
-    status.adBreakEndsAt === null &&
-    !(status.prerollFreeTimeSeconds !== null && status.prerollFreeTimeSeconds > 0);
+  const sceneName = selectedScene
+    ? selectedScene.replace(switchableScenePrefix, '').trim()
+    : '';
 
   return (
     <div className="ctrl-panel">
-      <div className="ctrl-section">
-        <span className="ctrl-label">actions</span>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button
-            className="stat-action gold"
-            type="button"
-            title={status.obsConnected ? 'Switch to the starting scene and start OBS streaming' : 'OBS must be connected'}
-            disabled={!status.obsConnected || goLiveBusy}
-            onClick={onGoLive}
-          >
-            <Icon name="play" size={12} />
-            <span>{goLiveBusy ? 'Starting...' : 'Go Live'}</span>
-          </button>
-          <button
-            className="stat-action"
-            type="button"
-            title={prerollAvailable ? 'Run 3 minute ad break' : 'Ads not available'}
-            disabled={!prerollAvailable || prerollBusy}
-            onClick={onRunPreroll}
-          >
-            <span>{prerollBusy ? 'Running...' : '3m ads'}</span>
-          </button>
-          <button
-            className="stat-action"
-            type="button"
-            title="Edit stream title, category, and tags"
-            onClick={onOpenStreamInfo}
-          >
-            <Icon name="edit" size={12} />
-            <span>Info</span>
-          </button>
+      {selectedScene && (
+        <div className="ctrl-scene-preview">
+          <span className="ctrl-scene-eyebrow">switching to</span>
+          <span className="ctrl-scene-name">{sceneName}</span>
         </div>
-      </div>
+      )}
 
       {status.obsConnected && switchableScenes.length > 0 && (
         <div className="ctrl-section">
@@ -835,7 +919,9 @@ export function ControlsPanel({
           >
             <option value="">switch scene…</option>
             {switchableScenes.map(scene => (
-              <option value={scene} key={scene}>{scene}</option>
+              <option value={scene} key={scene}>
+                {scene.replace(switchableScenePrefix, '').trim()}
+              </option>
             ))}
           </select>
           <button

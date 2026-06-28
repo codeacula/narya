@@ -100,6 +100,15 @@ export type ChatEntry = {
   text: string;
   time: string;
   highlight?: 'first-session' | 'first-ever' | 'broadcaster' | 'sub' | 'mod' | 'vip';
+  kind?: 'whisper';
+};
+
+export type WhisperMessage = {
+  id: string;
+  fromLogin: string;
+  fromDisplayName: string;
+  text: string;
+  receivedAt: string;
 };
 
 export type StreamEvent = {

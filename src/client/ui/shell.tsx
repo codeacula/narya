@@ -338,7 +338,7 @@ export function StatBar({
 
   return (
     <div className={'statbar' + (starfield ? ' starfield' : '')}>
-      <Gauge label="Stream" className={streamClass} icon={<span className={'live-dot' + (streamActive ? '' : ' offline')} />}>
+      <Gauge label="Stream" className={'stream-gauge ' + streamClass} icon={<span className={'live-dot' + (streamActive ? '' : ' offline')} />}>
         <div className="gauge-value">{streamLabel}</div>
         <div className="gauge-sub">
           {uptimeSourceLabel} · chat {chatConnection.toLowerCase()} · events {eventSubConnected ? 'open' : eventSubError ? 'error' : 'closed'}
