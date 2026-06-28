@@ -875,66 +875,47 @@ function formatUptime(seconds: number): string {
   return `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
-const switchableScenePrefix = 'Scene -';
+const dashboardScenes = [
+  { label: 'Starting', sceneName: 'Scene - Starting' },
+  { label: 'Desktop', sceneName: 'Scene - Desktop' },
+  { label: 'Gaming', sceneName: 'Scene - Gaming' },
+  { label: 'BRB', sceneName: 'Scene - BRB' },
+  { label: 'Ending', sceneName: 'Scene - Ending' },
+] as const;
 
 export function ControlsPanel({
   status,
-  obsScenes,
+  currentScene,
   onSwitchScene,
   sceneSwitching,
 }: {
   status: DashboardStatus;
-  obsScenes: string[];
+  currentScene: string | null;
   onSwitchScene: (sceneName: string) => void;
   sceneSwitching: boolean;
 }) {
-  const [selectedScene, setSelectedScene] = React.useState('');
-  const switchableScenes = obsScenes.filter(scene => scene.startsWith(switchableScenePrefix));
-
-  React.useEffect(() => {
-    setSelectedScene('');
-  }, [obsScenes]);
-
-  const sceneName = selectedScene
-    ? selectedScene.replace(switchableScenePrefix, '').trim()
-    : '';
-
   return (
     <div className="ctrl-panel">
-      {selectedScene && (
-        <div className="ctrl-scene-preview">
-          <span className="ctrl-scene-eyebrow">switching to</span>
-          <span className="ctrl-scene-name">{sceneName}</span>
-        </div>
-      )}
-
-      {status.obsConnected && switchableScenes.length > 0 && (
-        <div className="ctrl-section">
+      {status.obsConnected && (
+        <div className="ctrl-section ctrl-scene-section">
           <span className="ctrl-label">scene</span>
-          <select
-            className="ctrl-scene-select"
-            value={selectedScene}
-            disabled={sceneSwitching}
-            onChange={event => setSelectedScene(event.target.value)}
-          >
-            <option value="">switch scene…</option>
-            {switchableScenes.map(scene => (
-              <option value={scene} key={scene}>
-                {scene.replace(switchableScenePrefix, '').trim()}
-              </option>
-            ))}
-          </select>
-          <button
-            className="modbtn gold"
-            type="button"
-            disabled={!selectedScene || sceneSwitching}
-            onClick={() => {
-              if (selectedScene) onSwitchScene(selectedScene);
-            }}
-            style={{ flexShrink: 0 }}
-          >
-            {sceneSwitching ? '…' : 'Switch'}
-          </button>
+          <div className="ctrl-scene-grid" role="group" aria-label="Switch OBS scene">
+            {dashboardScenes.map(scene => {
+              const isActive = currentScene === scene.sceneName;
+              return (
+                <button
+                  className={`ctrl-scene-button${isActive ? ' active' : ''}`}
+                  type="button"
+                  aria-pressed={isActive}
+                  disabled={sceneSwitching || isActive}
+                  key={scene.sceneName}
+                  onClick={() => onSwitchScene(scene.sceneName)}
+                >
+                  {scene.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

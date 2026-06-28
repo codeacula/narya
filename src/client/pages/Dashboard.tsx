@@ -23,7 +23,7 @@ import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
-import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
 
 /* ---------------- audio ---------------- */
 
@@ -89,6 +89,16 @@ const EMPTY_STATUS: DashboardStatus = {
   snoozeRefreshAt: null,
 };
 
+const EMPTY_OBS_STATUS: ObsStatus = {
+  connected: false,
+  scenes: [],
+  currentProgramScene: null,
+  currentPreviewScene: null,
+  studioMode: false,
+  lastError: null,
+  updatedAt: new Date(0).toISOString(),
+};
+
 /* ---------------- Dashboard page ---------------- */
 
 export function DashboardPage() {
@@ -108,7 +118,7 @@ export function DashboardPage() {
   const [prerollBusy, setPrerollBusy] = useState(false);
   const [goLiveBusy, setGoLiveBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [obsScenes, setObsScenes] = useState<string[]>([]);
+  const [obsStatus, setObsStatus] = useState<ObsStatus>(EMPTY_OBS_STATUS);
   const [sceneSwitching, setSceneSwitching] = useState(false);
   const [chatters, setChatters] = useState<Chatter[]>([]);
   const [chattersError, setChattersError] = useState<string | null>(null);
@@ -132,7 +142,7 @@ export function DashboardPage() {
         setChat(nextChat);
         setEvents(nextEvents);
         setStatus(nextStatus);
-        if (nextObsStatus) setObsScenes(nextObsStatus.scenes);
+        if (nextObsStatus) setObsStatus(nextObsStatus);
       } catch (error) {
         console.error('Failed to refresh dashboard data:', error);
         if (!cancelled) setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
@@ -243,6 +253,10 @@ export function DashboardPage() {
     setStatus(nextStatus);
   }, []));
 
+  useSocket<ObsStatus>('obs:status', React.useCallback((nextStatus) => {
+    setObsStatus(nextStatus);
+  }, []));
+
   const handleTwitchLogout = React.useCallback(() => {
     void disconnectTwitch()
       .then(() => getDashboardStatus())
@@ -335,6 +349,9 @@ export function DashboardPage() {
   const handleSwitchScene = React.useCallback((sceneName: string) => {
     setSceneSwitching(true);
     void switchObsScene(sceneName)
+      .then(result => {
+        if (result.obsStatus) setObsStatus(result.obsStatus);
+      })
       .catch(error => {
         console.error('Failed to switch OBS scene:', error);
       })
@@ -466,7 +483,7 @@ export function DashboardPage() {
           >
             <ControlsPanel
               status={status}
-              obsScenes={obsScenes}
+              currentScene={obsStatus.currentProgramScene}
               onSwitchScene={handleSwitchScene}
               sceneSwitching={sceneSwitching}
             />
