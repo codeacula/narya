@@ -5,6 +5,13 @@ import { HttpRouteError, readResponseError, sendRouteError } from './http';
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_BOT_PERMISSIONS = String((1 << 10) | (1 << 11)); // VIEW_CHANNEL + SEND_MESSAGES
+const DISCORD_STATUS_CACHE_MS = 30_000;
+
+let discordStatusCache: { status: DiscordStatus; expiresAtMs: number } | null = null;
+
+export function clearDiscordStatusCache() {
+  discordStatusCache = null;
+}
 
 type DiscordUserResponse = {
   id?: string;
@@ -50,6 +57,13 @@ async function discordFetch<T>(path: string, init: RequestInit = {}): Promise<T>
   });
 
   if (!response.ok) {
+    if (response.status === 429) {
+      const data = await response.json().catch(() => ({})) as { retry_after?: number; global?: boolean };
+      const retryAfter = typeof data.retry_after === 'number' ? data.retry_after : null;
+      const scope = data.global ? 'global rate limit' : 'rate limit';
+      const retryMsg = retryAfter !== null ? ` Retry after ${retryAfter.toFixed(1)}s.` : '';
+      throw new HttpRouteError(429, `Discord ${scope} hit.${retryMsg}`);
+    }
     const message = await readResponseError(response, `Discord request failed (${response.status}).`);
     throw new HttpRouteError(response.status === 401 || response.status === 403 ? response.status : 502, message);
   }
@@ -75,6 +89,10 @@ function displayBotUser(user: DiscordUserResponse): string | null {
 }
 
 export async function getDiscordStatus(): Promise<DiscordStatus> {
+  if (discordStatusCache && discordStatusCache.expiresAtMs > Date.now()) {
+    return discordStatusCache.status;
+  }
+
   const baseStatus = {
     clientIdConfigured: Boolean(config.discordClientId),
     botTokenConfigured: Boolean(config.discordBotToken),
@@ -85,24 +103,20 @@ export async function getDiscordStatus(): Promise<DiscordStatus> {
   };
 
   if (!config.discordBotToken) {
-    return {
-      ...baseStatus,
-      error: 'DISCORD_BOT_TOKEN is not configured.',
-    };
+    const status = { ...baseStatus, error: 'DISCORD_BOT_TOKEN is not configured.' };
+    discordStatusCache = { status, expiresAtMs: Date.now() + DISCORD_STATUS_CACHE_MS };
+    return status;
   }
 
   try {
     const user = await discordFetch<DiscordUserResponse>('/users/@me');
-    return {
-      ...baseStatus,
-      ready: true,
-      botUser: displayBotUser(user),
-    };
+    const status = { ...baseStatus, ready: true, botUser: displayBotUser(user) };
+    discordStatusCache = { status, expiresAtMs: Date.now() + DISCORD_STATUS_CACHE_MS };
+    return status;
   } catch (error) {
-    return {
-      ...baseStatus,
-      error: error instanceof Error ? error.message : 'Discord bot check failed.',
-    };
+    const status = { ...baseStatus, error: error instanceof Error ? error.message : 'Discord bot check failed.' };
+    discordStatusCache = { status, expiresAtMs: Date.now() + 5_000 };
+    return status;
   }
 }
 
@@ -172,6 +186,11 @@ export function registerDiscordRoutes(app: express.Express) {
   });
 
   app.get('/api/discord/status', async (_request, response) => {
+    response.json(await getDiscordStatus());
+  });
+
+  app.post('/api/discord/status/refresh', async (_request, response) => {
+    clearDiscordStatusCache();
     response.json(await getDiscordStatus());
   });
 

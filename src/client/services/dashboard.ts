@@ -177,6 +177,10 @@ export async function getDiscordStatus(): Promise<DiscordStatus> {
   return fetchJson<DiscordStatus>('/api/discord/status');
 }
 
+export async function refreshDiscordStatus(): Promise<DiscordStatus> {
+  return sendJson<DiscordStatus>('/api/discord/status/refresh', 'POST');
+}
+
 export async function getDiscordGuilds(): Promise<DiscordGuild[]> {
   return fetchJson<DiscordGuild[]>('/api/discord/guilds');
 }
@@ -191,6 +195,10 @@ export async function getGoLiveSettings(): Promise<GoLiveSettings> {
 
 export async function updateGoLiveSettings(settings: GoLiveSettingsUpdate): Promise<GoLiveSettings> {
   return sendJson<GoLiveSettings>('/api/go-live/settings', 'PUT', settings);
+}
+
+export async function clearDiscordGoLiveSettings(): Promise<GoLiveSettings> {
+  return sendJson<GoLiveSettings>('/api/go-live/settings/discord', 'DELETE');
 }
 
 export async function runGoLive(): Promise<GoLiveResult> {

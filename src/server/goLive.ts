@@ -2,13 +2,15 @@ import type express from 'express';
 import type { GoLiveResult, GoLiveSettings, GoLiveSettingsUpdate, ObsStatus } from '../shared/api';
 import { config } from './config';
 import { db } from './db';
-import { sendDiscordMessage } from './discord';
+import { clearDiscordStatusCache, sendDiscordMessage } from './discord';
 import { HttpRouteError, sendRouteError } from './http';
 import { startObsStream, switchObsScene } from './obs';
+import type { RuntimeState } from './runtime';
 import {
   attachDiscordAnnouncementToSession,
   getOrStartStreamSession,
 } from './streamSession';
+import { fetchCurrentTwitchStream, getEventSubCredentials } from './twitch/api';
 
 const SETTINGS_ID = 'default';
 
@@ -119,17 +121,19 @@ export function saveGoLiveSettings(body: unknown): GoLiveSettings {
   return getGoLiveSettings();
 }
 
-function renderDiscordMessage(template: string): string {
+function renderDiscordMessage(template: string, vars: { title: string; category: string }): string {
   const twitchUrl = `https://twitch.tv/${config.twitchChannel}`;
   return template
     .replaceAll('{channel}', config.twitchChannel)
     .replaceAll('{url}', twitchUrl)
-    .replaceAll('{twitchUrl}', twitchUrl);
+    .replaceAll('{twitchUrl}', twitchUrl)
+    .replaceAll('{title}', vars.title)
+    .replaceAll('{category}', vars.category);
 }
 
 const twitchAnnouncementTasks = new Map<string, Promise<void>>();
 
-export async function announceTwitchStreamOnline(streamId: string, startedAt: string): Promise<void> {
+export async function announceTwitchStreamOnline(streamId: string, startedAt: string, state: RuntimeState): Promise<void> {
   const normalizedStreamId = streamId.trim();
   if (!normalizedStreamId) throw new Error('Twitch stream ID is required for a live announcement.');
 
@@ -146,9 +150,20 @@ export async function announceTwitchStreamOnline(streamId: string, startedAt: st
       return;
     }
 
+    let title = '';
+    let category = '';
+    const creds = await getEventSubCredentials(state);
+    if (creds) {
+      const stream = await fetchCurrentTwitchStream(creds.clientId, creds.userToken);
+      if (stream) {
+        title = stream.title;
+        category = stream.category;
+      }
+    }
+
     const message = await sendDiscordMessage(
       settings.discordChannelId,
-      renderDiscordMessage(settings.discordMessage),
+      renderDiscordMessage(settings.discordMessage, { title, category }),
     );
     attachDiscordAnnouncementToSession(session.id, message.channelId, message.id);
     console.log(`Discord: announced Twitch stream ${normalizedStreamId} in channel ${message.channelId}`);
@@ -193,6 +208,19 @@ export async function runGoLive(): Promise<GoLiveResult> {
   }
 }
 
+const clearDiscordGoLiveSettingsRow = db.prepare(`
+  update go_live_settings
+  set discord_guild_id = '', discord_guild_name = '', discord_channel_id = '', discord_channel_name = '',
+      updated_at = ?
+  where id = ?
+`);
+
+export function clearDiscordGoLiveSettings(): GoLiveSettings {
+  clearDiscordGoLiveSettingsRow.run(new Date().toISOString(), SETTINGS_ID);
+  clearDiscordStatusCache();
+  return getGoLiveSettings();
+}
+
 export function registerGoLiveRoutes(app: express.Express) {
   app.get('/api/go-live/settings', (_request, response) => {
     response.json(getGoLiveSettings());
@@ -204,6 +232,10 @@ export function registerGoLiveRoutes(app: express.Express) {
     } catch (error) {
       sendRouteError(response, error);
     }
+  });
+
+  app.delete('/api/go-live/settings/discord', (_request, response) => {
+    response.json(clearDiscordGoLiveSettings());
   });
 
   app.post('/api/go-live', async (_request, response) => {

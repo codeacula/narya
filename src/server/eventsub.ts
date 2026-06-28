@@ -35,7 +35,7 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       const streamId = typeof event.id === 'string' ? event.id : '';
       const startedAt = typeof event.started_at === 'string' ? event.started_at : new Date().toISOString();
       state.clearTwitchCaches();
-      const tasks: Promise<unknown>[] = [announceTwitchStreamOnline(streamId, startedAt)];
+      const tasks: Promise<unknown>[] = [announceTwitchStreamOnline(streamId, startedAt, state)];
       if (streamId && state.streamStartAdStreamId !== streamId) {
         state.streamStartAdStreamId = streamId;
         tasks.push(runTwitchCommercial(state)
@@ -323,19 +323,21 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
           if (!state.broadcasterId) {
             state.broadcasterId = await fetchBroadcasterId(creds.clientId, creds.userToken);
           }
+          if (generation !== state.eventSubConnectGeneration) return;
           if (state.broadcasterId) {
             const ok = await subscribeToAllEvents(creds.clientId, creds.userToken, session.id, state.broadcasterId);
+            if (generation !== state.eventSubConnectGeneration) return;
             if (!ok) {
               state.eventSubError = 'subscription_failed';
               clearKeepaliveTimer(state);
-              state.clearEventSubSocket();
               try { ws.close(); } catch { /* ignore */ }
+              scheduleReconnect(state);
               return;
             }
             const currentStream = await fetchCurrentTwitchStream(creds.clientId, creds.userToken);
             if (currentStream) {
               try {
-                await announceTwitchStreamOnline(currentStream.id, currentStream.startedAt);
+                await announceTwitchStreamOnline(currentStream.id, currentStream.startedAt, state);
               } catch (error) {
                 console.error('EventSub: failed to reconcile the current Twitch stream:', error);
               }

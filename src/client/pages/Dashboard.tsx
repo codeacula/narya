@@ -69,6 +69,7 @@ const EMPTY_STATUS: DashboardStatus = {
   uptimeSeconds: null,
   streamStartedAt: null,
   uptimeSource: null,
+  viewerCount: null,
   activeChatters: 0,
   sessionChatters: 0,
   knownChatters: 0,
@@ -550,9 +551,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: 'da
         streamActive={status.streamActive}
         uptimeSeconds={status.uptimeSeconds}
         uptimeSource={status.uptimeSource}
-        activeChatters={status.activeChatters}
-        sessionChatters={status.sessionChatters}
-        knownChatters={status.knownChatters}
+        viewerCount={status.viewerCount}
         bitrateKbps={status.bitrateKbps}
         congestion={status.congestion}
         totalFrames={status.totalFrames}
@@ -578,7 +577,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: 'da
           status={status}
           onTwitchLogout={handleTwitchLogout}
           onTwitchBotLogout={handleTwitchBotLogout}
-          onOpenRewards={() => changePage('rewards')}
         />
       )}
 

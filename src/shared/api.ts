@@ -161,6 +161,7 @@ export type DashboardStatus = {
   uptimeSeconds: number | null;
   streamStartedAt: string | null;
   uptimeSource: 'twitch' | 'obs' | null;
+  viewerCount: number | null;
   activeChatters: number;
   sessionChatters: number;
   knownChatters: number;

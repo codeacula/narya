@@ -25,6 +25,7 @@ export type StreamActivityStatus = {
   uptimeSeconds: number | null;
   streamStartedAt: string | null;
   uptimeSource: StreamStatusSource;
+  viewerCount: number | null;
 };
 
 export type AdScheduleStatus = 'available' | 'not_configured' | 'missing_scope' | 'unauthorized' | 'unavailable';

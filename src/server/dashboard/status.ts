@@ -157,6 +157,7 @@ export async function getTwitchStreamStatus(state: RuntimeState): Promise<Stream
     uptimeSeconds: null,
     streamStartedAt: null,
     uptimeSource: null,
+    viewerCount: null,
   };
 
   const headers = await getTwitchApiHeaders(state);
@@ -173,20 +174,23 @@ export async function getTwitchStreamStatus(state: RuntimeState): Promise<Stream
       return unavailable;
     }
 
-    const data = await res.json() as { data?: Array<{ started_at?: string }> };
-    const startedAt = data.data?.[0]?.started_at ?? null;
+    const data = await res.json() as { data?: Array<{ started_at?: string; viewer_count?: number }> };
+    const stream = data.data?.[0] ?? null;
+    const startedAt = stream?.started_at ?? null;
     const status: StreamActivityStatus = startedAt
       ? {
           streamActive: true,
           uptimeSeconds: Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)),
           streamStartedAt: startedAt,
           uptimeSource: 'twitch',
+          viewerCount: typeof stream?.viewer_count === 'number' ? stream.viewer_count : null,
         }
       : {
           streamActive: false,
           uptimeSeconds: null,
           streamStartedAt: null,
           uptimeSource: 'twitch',
+          viewerCount: null,
         };
 
     state.twitchStreamStatusCache = {
@@ -292,6 +296,7 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
     uptimeSeconds: _obsUptimeSeconds,
     streamStartedAt: _obsStreamStartedAt,
     uptimeSource: _obsUptimeSource,
+    viewerCount: null,
   };
   const streamStatus = twitchStreamStatus.streamActive === true
     ? twitchStreamStatus

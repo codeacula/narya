@@ -102,6 +102,8 @@ export async function fetchBroadcasterId(clientId: string, userToken: string): P
 export type TwitchLiveStream = {
   id: string;
   startedAt: string;
+  title: string;
+  category: string;
 };
 
 export async function fetchCurrentTwitchStream(clientId: string, userToken: string): Promise<TwitchLiveStream | null> {
@@ -114,9 +116,11 @@ export async function fetchCurrentTwitchStream(clientId: string, userToken: stri
       console.error(`Twitch API: current stream lookup failed (${res.status}):`, await res.text());
       return null;
     }
-    const data = await res.json() as { data?: Array<{ id?: string; started_at?: string }> };
+    const data = await res.json() as { data?: Array<{ id?: string; started_at?: string; title?: string; game_name?: string }> };
     const stream = data.data?.[0];
-    return stream?.id && stream.started_at ? { id: stream.id, startedAt: stream.started_at } : null;
+    return stream?.id && stream.started_at
+      ? { id: stream.id, startedAt: stream.started_at, title: stream.title ?? '', category: stream.game_name ?? '' }
+      : null;
   } catch (error) {
     console.error('Twitch API: current stream lookup errored:', error);
     return null;

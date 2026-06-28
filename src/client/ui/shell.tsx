@@ -71,7 +71,13 @@ export function NavBar({
           dashboard
         </button>
         <button
-          className={'navlink' + (page === 'settings' || page === 'rewards' ? ' active' : '')}
+          className={'navlink' + (page === 'rewards' ? ' active' : '')}
+          onClick={() => setPage('rewards')}
+        >
+          viewer rewards
+        </button>
+        <button
+          className={'navlink' + (page === 'settings' ? ' active' : '')}
           onClick={() => setPage('settings')}
         >
           settings
@@ -126,9 +132,7 @@ export function StatBar({
   streamActive,
   uptimeSeconds,
   uptimeSource,
-  activeChatters,
-  sessionChatters,
-  knownChatters,
+  viewerCount,
   bitrateKbps,
   congestion,
   totalFrames,
@@ -159,9 +163,7 @@ export function StatBar({
   streamActive: boolean | null;
   uptimeSeconds: number | null;
   uptimeSource: 'twitch' | 'obs' | null;
-  activeChatters: number;
-  sessionChatters: number;
-  knownChatters: number;
+  viewerCount: number | null;
   bitrateKbps: number | null;
   congestion: number | null;
   totalFrames: number | null;
@@ -394,9 +396,9 @@ export function StatBar({
         </div>
         <div className="gauge-sub">{actionMessage ?? 'Twitch controls'}</div>
       </Gauge>
-      <Gauge label="Chatters" icon={<Icon name="users" size={11} />}>
-        <div className="gauge-value">{activeChatters}</div>
-        <div className="gauge-sub">session {sessionChatters} · known {knownChatters}</div>
+      <Gauge label="Viewers" icon={<Icon name="users" size={11} />}>
+        <div className="gauge-value">{viewerCount ?? '—'}</div>
+        <div className="gauge-sub">{viewerCount === null ? 'Twitch viewer count' : 'concurrent viewers'}</div>
       </Gauge>
       <Gauge label="Stream health">
         <div className="gauge-value health">
