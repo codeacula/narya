@@ -8,7 +8,7 @@ Five targeted fixes to the Narya streaming dashboard:
 2. Chatters `moderator:read:chatters` scope added to OAuth flow
 3. Activity feed height capped to 5-row scrollable viewport when not popped out
 4. Remove duplicate status row from stream controls panel
-5. EventSub reconnection loop: root-cause fix + logging + exponential backoff
+5. EventSub reconnection loop: root-cause fix + logging + halt-and-notify on failure
 
 ---
 
@@ -16,6 +16,17 @@ Five targeted fixes to the Narya streaming dashboard:
 
 ### Problem
 Ad breaks fire as `kind: 'redeem'` with `actor: 'Twitch'`. There is no way to hide them without also hiding other redeems. The user wants to suppress ad break events by default while being able to reveal them quickly.
+
+### DB migration
+Existing `stream_events` rows for ad breaks are stored as `kind = 'redeem'` with `actor = 'Twitch'` and `detail LIKE 'ad break%'`. A one-time migration in `src/server/db.ts` updates these to `kind = 'ad_break'` so historical events are correctly filtered:
+
+```sql
+UPDATE stream_events
+SET kind = 'ad_break'
+WHERE kind = 'redeem' AND actor = 'Twitch' AND detail LIKE 'ad break%';
+```
+
+This runs on server startup alongside existing schema migrations. No rollback needed — it's idempotent (rows already migrated have `kind = 'ad_break'` and won't match the `WHERE` clause).
 
 ### Data model change
 Add `'ad_break'` to `StreamEvent.kind` in `src/shared/api.ts`:
@@ -161,6 +172,7 @@ Add a `POST /api/eventsub/reconnect` route that calls `disconnectEventSub` then 
 | File | Change |
 |------|--------|
 | `src/shared/api.ts` | Add `'ad_break'` to `StreamEvent.kind`; add `eventSubError` to `DashboardStatus` |
+| `src/server/db.ts` | One-time migration: backfill `stream_events` rows from `kind='redeem'` to `kind='ad_break'` where applicable |
 | `src/server/eventsub.ts` | Subscription result logging, required/optional split, halt + notify on total failure, manual retry route |
 | `src/server/runtime.ts` | Add `eventSubError: string | null` field |
 | `src/server/twitch/auth.ts` | Add `moderator:read:chatters` to required scopes |
