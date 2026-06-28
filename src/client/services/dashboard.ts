@@ -42,7 +42,7 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http:
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, { cache: 'no-store' });
-  if (!response.ok) throw new Error(`${path} failed with ${response.status}`);
+  if (!response.ok) throw new Error(await readApiError(response));
   return response.json() as Promise<T>;
 }
 

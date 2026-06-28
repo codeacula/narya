@@ -20,6 +20,8 @@ const emptyObsStatus: ObsStatus = {
   updatedAt: new Date(0).toISOString(),
 };
 
+const switchableScenePrefix = 'Scene -';
+
 function useObsStatus() {
   const [obsStatus, setObsStatus] = React.useState<ObsStatus>(emptyObsStatus);
   const [error, setError] = React.useState<string | null>(null);
@@ -52,7 +54,7 @@ export function TabletPage() {
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [commandError, setCommandError] = React.useState<string | null>(null);
 
-  const scenes = obsStatus.scenes;
+  const scenes = obsStatus.scenes.filter(scene => scene.startsWith(switchableScenePrefix));
   const obsUnavailable = !obsStatus.connected;
   const hasScenes = scenes.length > 0;
   const controlsDisabled = obsUnavailable || Boolean(pendingAction);

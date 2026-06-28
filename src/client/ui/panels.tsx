@@ -691,6 +691,8 @@ function formatUptime(seconds: number): string {
   return `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
+const switchableScenePrefix = 'Scene -';
+
 export function ControlsPanel({
   status,
   obsScenes,
@@ -713,6 +715,7 @@ export function ControlsPanel({
   sceneSwitching: boolean;
 }) {
   const [selectedScene, setSelectedScene] = React.useState('');
+  const switchableScenes = obsScenes.filter(scene => scene.startsWith(switchableScenePrefix));
 
   React.useEffect(() => {
     setSelectedScene('');
@@ -769,7 +772,7 @@ export function ControlsPanel({
         </div>
       </div>
 
-      {status.obsConnected && obsScenes.length > 0 && (
+      {status.obsConnected && switchableScenes.length > 0 && (
         <div className="ctrl-section">
           <span className="ctrl-label">scene</span>
           <select
@@ -779,7 +782,7 @@ export function ControlsPanel({
             onChange={event => setSelectedScene(event.target.value)}
           >
             <option value="">switch scene…</option>
-            {obsScenes.map(scene => (
+            {switchableScenes.map(scene => (
               <option value={scene} key={scene}>{scene}</option>
             ))}
           </select>
