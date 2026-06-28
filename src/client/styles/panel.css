@@ -1094,3 +1094,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   text-decoration: line-through;
 }
 .evt-filter-chip:hover { border-color: var(--fg-3); }
+
+/* Cap the activity feed to ~5 rows in the dashboard panel; popout is unconstrained */
+.panel-body .evt-list { max-height: 215px; overflow-y: auto; }
