@@ -104,7 +104,7 @@ export type ChatEntry = {
 
 export type StreamEvent = {
   id: string;
-  kind: 'raid' | 'gift' | 'sub' | 'cheer' | 'follow' | 'redeem';
+  kind: 'raid' | 'gift' | 'sub' | 'cheer' | 'follow' | 'redeem' | 'ad_break';
   actor: string;
   detail: string;
   ago: string;
@@ -139,6 +139,7 @@ export type DashboardStatus = {
   chatConnection: 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED' | 'UNKNOWN';
   obsConnected: boolean;
   eventSubConnected: boolean;
+  eventSubError: string | null;
   twitchAuthenticated: boolean;
   twitchAuthSource: 'oauth' | 'env' | null;
   twitchTokenExpiresAt: string | null;
