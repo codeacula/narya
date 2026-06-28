@@ -36,6 +36,10 @@ import type {
   GoLiveSettings,
   GoLiveSettingsUpdate,
   GoLiveResult,
+  ViewerRewardCategory,
+  ViewerRewardCategoryToggleResult,
+  ViewerRewardsResponse,
+  ViewerRewardUpsert,
 } from '../../shared/api';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
@@ -134,6 +138,39 @@ export async function timeoutViewer(
 
 export async function banViewer(login: string, reason: string): Promise<TwitchUserActionResult> {
   return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/ban`, 'POST', { reason });
+}
+
+export async function getViewerRewards(): Promise<ViewerRewardsResponse> {
+  return fetchJson<ViewerRewardsResponse>('/api/twitch/rewards');
+}
+
+export async function createViewerReward(reward: ViewerRewardUpsert): Promise<ViewerRewardsResponse> {
+  return sendJson<ViewerRewardsResponse>('/api/twitch/rewards', 'POST', reward);
+}
+
+export async function updateViewerReward(id: string, reward: Partial<ViewerRewardUpsert>): Promise<ViewerRewardsResponse> {
+  return sendJson<ViewerRewardsResponse>(`/api/twitch/rewards/${encodeURIComponent(id)}`, 'PATCH', reward);
+}
+
+export async function deleteViewerReward(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/twitch/rewards/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(await readApiError(response));
+}
+
+export async function createViewerRewardCategory(name: string): Promise<ViewerRewardCategory> {
+  return sendJson<ViewerRewardCategory>('/api/twitch/reward-categories', 'POST', { name });
+}
+
+export async function updateViewerRewardCategory(
+  id: string,
+  update: { name?: string; enabled?: boolean },
+): Promise<ViewerRewardCategoryToggleResult> {
+  return sendJson<ViewerRewardCategoryToggleResult>(`/api/twitch/reward-categories/${encodeURIComponent(id)}`, 'PATCH', update);
+}
+
+export async function deleteViewerRewardCategory(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/twitch/reward-categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(await readApiError(response));
 }
 
 export async function getDiscordStatus(): Promise<DiscordStatus> {

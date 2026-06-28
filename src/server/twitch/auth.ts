@@ -10,7 +10,7 @@ export const REQUIRED_TWITCH_OAUTH_SCOPES = [
   'moderator:read:chatters',
   'channel:read:subscriptions',
   'bits:read',
-  'channel:read:redemptions',
+  'channel:manage:redemptions',
   'channel:read:ads',
   'channel:edit:commercial',
   'channel:manage:broadcast',

@@ -27,7 +27,8 @@ function App() {
   if (path === '/overlay/nowplaying') return <OverlayNowPlayingPage />;
   if (path === '/tablet') return <TabletPage />;
   if (path === '/viewer') return <ViewerWindowPage />;
-  return <DashboardPage />;
+  const initialPage = path === '/settings/rewards' ? 'rewards' : path === '/settings' ? 'settings' : 'dashboard';
+  return <DashboardPage initialPage={initialPage} />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

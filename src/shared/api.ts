@@ -270,6 +270,45 @@ export type TwitchUserActionResult = {
   message: string;
 };
 
+export type ViewerRewardCategory = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  rewardCount: number;
+};
+
+export type ViewerReward = {
+  id: string;
+  title: string;
+  prompt: string;
+  cost: number;
+  isEnabled: boolean;
+  isPaused: boolean;
+  isInStock: boolean;
+  canManage: boolean;
+  imageUrl: string | null;
+  backgroundColor: string;
+  categoryId: string | null;
+};
+
+export type ViewerRewardsResponse = {
+  categories: ViewerRewardCategory[];
+  rewards: ViewerReward[];
+};
+
+export type ViewerRewardUpsert = {
+  title: string;
+  prompt: string;
+  cost: number;
+  isEnabled: boolean;
+  categoryId: string | null;
+};
+
+export type ViewerRewardCategoryToggleResult = ViewerRewardsResponse & {
+  updatedCount: number;
+  skippedReadOnlyCount: number;
+};
+
 export type ChatbotCommandActionType = 'chat_reply' | 'llm_response' | 'sound_play' | 'obs_scene' | 'obs_transition';
 
 export type ChatbotCommandActionPayload = {

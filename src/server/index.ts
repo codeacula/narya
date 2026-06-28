@@ -16,6 +16,7 @@ import { RuntimeState } from './runtime';
 import { registerStaticRoutes } from './static';
 import { hydrateTwitchAuthState, registerTwitchAuthRoutes } from './twitch/auth';
 import { registerTwitchApiRoutes } from './twitch/api';
+import { registerViewerRewardRoutes } from './viewerRewards';
 
 const runtimeState = new RuntimeState();
 hydrateTwitchAuthState(runtimeState);
@@ -28,6 +29,7 @@ registerTwitchAuthRoutes({
   disconnectEventSub: () => disconnectEventSub(runtimeState),
 });
 registerTwitchApiRoutes(app, runtimeState);
+registerViewerRewardRoutes(app, runtimeState);
 registerChatbotCommandRoutes(app);
 registerLlmRoutes(app);
 registerDiscordRoutes(app);

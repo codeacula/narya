@@ -71,7 +71,7 @@ export function NavBar({
           dashboard
         </button>
         <button
-          className={'navlink' + (page === 'settings' ? ' active' : '')}
+          className={'navlink' + (page === 'settings' || page === 'rewards' ? ' active' : '')}
           onClick={() => setPage('settings')}
         >
           settings

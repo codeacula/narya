@@ -235,10 +235,12 @@ export function SettingsPage({
   status,
   onTwitchLogout,
   onTwitchBotLogout,
+  onOpenRewards,
 }: {
   status: DashboardStatus;
   onTwitchLogout: () => void;
   onTwitchBotLogout: () => void;
+  onOpenRewards: () => void;
 }) {
   const missingTwitchScopes = status.twitchMissingScopes.length > 0
     ? status.twitchMissingScopes.join(', ')
@@ -674,6 +676,10 @@ export function SettingsPage({
   return (
     <div className="settings-page">
       <div className="settings-inner">
+        <div className="settings-subnav" aria-label="Settings sections">
+          <button className="active" type="button">General</button>
+          <button type="button" onClick={onOpenRewards}>Viewer rewards</button>
+        </div>
         <div className="settings-eyebrow">settings</div>
         <h2 className="settings-title">Control room</h2>
         <p className="set-intro">

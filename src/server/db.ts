@@ -149,6 +149,21 @@ db.exec(`
     discord_message text not null,
     updated_at text not null
   );
+
+  create table if not exists viewer_reward_categories (
+    id text primary key,
+    name text not null unique,
+    enabled integer not null default 1,
+    created_at text not null,
+    updated_at text not null
+  );
+
+  create table if not exists viewer_reward_category_members (
+    reward_id text primary key,
+    category_id text not null,
+    updated_at text not null,
+    foreign key (category_id) references viewer_reward_categories(id) on delete cascade
+  );
 `);
 
 db.exec(`
@@ -161,6 +176,7 @@ db.exec(`
   create index if not exists idx_chatbot_command_actions_command on chatbot_command_actions(command_id, position);
   create index if not exists idx_stream_sessions_active on stream_sessions(ended_at, started_at);
   create index if not exists idx_stream_session_chatters_login on stream_session_chatters(login);
+  create index if not exists idx_viewer_reward_category_members_category on viewer_reward_category_members(category_id);
 `);
 
 const allowedMigrationTables = new Set([
@@ -178,6 +194,8 @@ const allowedMigrationTables = new Set([
   'stream_sessions',
   'stream_session_chatters',
   'go_live_settings',
+  'viewer_reward_categories',
+  'viewer_reward_category_members',
 ]);
 const allowedMigrationColumns = new Set([
   'deleted_at',

@@ -22,6 +22,7 @@ import {
 import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
+import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
 
@@ -101,8 +102,8 @@ const EMPTY_OBS_STATUS: ObsStatus = {
 
 /* ---------------- Dashboard page ---------------- */
 
-export function DashboardPage() {
-  const [page, setPage] = useState('dashboard');
+export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: 'dashboard' | 'settings' | 'rewards' }) {
+  const [page, setPage] = useState(initialPage);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [popped, setPopped] = useState<Record<string, PoppedState>>({});
   const [viewers, setViewers] = useState<Record<string, Viewer>>({});
@@ -124,6 +125,22 @@ export function DashboardPage() {
   const [chattersError, setChattersError] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<'activity' | 'chatters'>('activity');
   const lastChatAt = React.useRef<number>(0);
+
+  const changePage = React.useCallback((nextPage: string) => {
+    const normalized = nextPage === 'settings' || nextPage === 'rewards' ? nextPage : 'dashboard';
+    const path = normalized === 'settings' ? '/settings' : normalized === 'rewards' ? '/settings/rewards' : '/dashboard';
+    window.history.pushState({}, '', path);
+    setPage(normalized);
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      setPage(path === '/settings/rewards' ? 'rewards' : path === '/settings' ? 'settings' : 'dashboard');
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -515,7 +532,7 @@ export function DashboardPage() {
     <div className="cockpit">
       <NavBar
         page={page}
-        setPage={setPage}
+        setPage={changePage}
         tweaksOpen={tweaksOpen}
         onTweaksToggle={() => setTweaksOpen(o => !o)}
         channel={status.channel}
@@ -554,11 +571,14 @@ export function DashboardPage() {
         eventSubError={status.eventSubError}
         onReconnectEventSub={handleReconnectEventSub}
       />
-      {page === 'dashboard' ? dashboardLayout : (
+      {page === 'dashboard' ? dashboardLayout : page === 'rewards' ? (
+        <ViewerRewardsPage onBack={() => changePage('settings')} />
+      ) : (
         <SettingsPage
           status={status}
           onTwitchLogout={handleTwitchLogout}
           onTwitchBotLogout={handleTwitchBotLogout}
+          onOpenRewards={() => changePage('rewards')}
         />
       )}
 
