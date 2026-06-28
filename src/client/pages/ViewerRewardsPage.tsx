@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
 import {
+  applyViewerRewardCategoryColor,
   createViewerReward,
   createViewerRewardCategory,
   deleteViewerReward,
@@ -16,6 +17,10 @@ const EMPTY_REWARD: ViewerRewardUpsert = {
   cost: 100,
   isEnabled: true,
   categoryId: null,
+  isUserInputRequired: false,
+  backgroundColor: '#9147FF',
+  maxPerStream: { enabled: false, max: 1 },
+  maxPerUserPerStream: { enabled: false, max: 1 },
 };
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -29,6 +34,10 @@ function formFromReward(reward: ViewerReward): ViewerRewardUpsert {
     cost: reward.cost,
     isEnabled: reward.isEnabled,
     categoryId: reward.categoryId,
+    isUserInputRequired: reward.isUserInputRequired,
+    backgroundColor: reward.backgroundColor,
+    maxPerStream: reward.maxPerStream,
+    maxPerUserPerStream: reward.maxPerUserPerStream,
   };
 }
 
@@ -83,7 +92,7 @@ function RewardEditor({
           />
         </label>
         <label className="field reward-form-prompt">
-          <span>Prompt</span>
+          <span>Description</span>
           <textarea
             maxLength={200}
             rows={3}
@@ -103,6 +112,68 @@ function RewardEditor({
             <option value="">Uncategorized</option>
             {categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
+        </label>
+        <label className="field">
+          <span>Background color</span>
+          <input
+            type="color"
+            disabled={busy}
+            value={form.backgroundColor}
+            onChange={event => onChange(current => ({ ...current, backgroundColor: event.target.value }))}
+          />
+        </label>
+        <div className="field reward-form-limits">
+          <span>Max per stream</span>
+          <div className="reward-limit-row">
+            <label className="command-enabled">
+              <input
+                type="checkbox"
+                checked={form.maxPerStream.enabled}
+                disabled={busy}
+                onChange={event => onChange(current => ({ ...current, maxPerStream: { ...current.maxPerStream, enabled: event.target.checked } }))}
+              />
+              Enable
+            </label>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              disabled={busy || !form.maxPerStream.enabled}
+              value={form.maxPerStream.max}
+              onChange={event => onChange(current => ({ ...current, maxPerStream: { ...current.maxPerStream, max: Number(event.target.value) } }))}
+            />
+          </div>
+        </div>
+        <div className="field reward-form-limits">
+          <span>Max per user per stream</span>
+          <div className="reward-limit-row">
+            <label className="command-enabled">
+              <input
+                type="checkbox"
+                checked={form.maxPerUserPerStream.enabled}
+                disabled={busy}
+                onChange={event => onChange(current => ({ ...current, maxPerUserPerStream: { ...current.maxPerUserPerStream, enabled: event.target.checked } }))}
+              />
+              Enable
+            </label>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              disabled={busy || !form.maxPerUserPerStream.enabled}
+              value={form.maxPerUserPerStream.max}
+              onChange={event => onChange(current => ({ ...current, maxPerUserPerStream: { ...current.maxPerUserPerStream, max: Number(event.target.value) } }))}
+            />
+          </div>
+        </div>
+        <label className="command-enabled reward-form-enabled">
+          <input
+            type="checkbox"
+            checked={form.isUserInputRequired}
+            disabled={busy}
+            onChange={event => onChange(current => ({ ...current, isUserInputRequired: event.target.checked }))}
+          />
+          Viewers must enter text when redeeming
         </label>
         <label className="command-enabled reward-form-enabled">
           <input
@@ -207,7 +278,9 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   useEffect(() => { void refresh(); }, []);
 
   const startCreate = (categoryId: string | null = null) => {
-    setRewardForm({ ...EMPTY_REWARD, categoryId });
+    const category = categoryId ? data.categories.find(c => c.id === categoryId) : null;
+    const backgroundColor = category?.defaultBackgroundColor ?? EMPTY_REWARD.backgroundColor;
+    setRewardForm({ ...EMPTY_REWARD, categoryId, backgroundColor });
     setEditingId(null);
     setShowEditor(true);
     setError(null);
@@ -328,6 +401,34 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
     }
   };
 
+  const handleCategoryColorChange = async (category: ViewerRewardCategory, color: string) => {
+    setBusyId(category.id + '-color');
+    setError(null);
+    setMessage(null);
+    try {
+      const next = await updateViewerRewardCategory(category.id, { defaultBackgroundColor: color });
+      setData(next);
+    } catch (updateError) {
+      setError(errorMessage(updateError, 'Could not update category color.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleApplyCategoryColor = async (category: ViewerRewardCategory) => {
+    setBusyId(category.id + '-apply');
+    setError(null);
+    setMessage(null);
+    try {
+      setData(await applyViewerRewardCategoryColor(category.id));
+      setMessage(`Color applied to all manageable rewards in "${category.name}".`);
+    } catch (applyError) {
+      setError(errorMessage(applyError, 'Could not apply category color.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const renderGroup = (category: ViewerRewardCategory | null) => {
     const categoryId = category?.id ?? null;
     const rewards = groupedRewards.get(categoryId) ?? [];
@@ -351,6 +452,18 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
                   />
                   <span>{category.enabled ? 'Enabled' : 'Disabled'}</span>
                 </label>
+                <label className="reward-category-color" title="Default color for this category">
+                  <span className="sr-only">Default color</span>
+                  <input
+                    type="color"
+                    value={category.defaultBackgroundColor ?? '#9147FF'}
+                    disabled={Boolean(busyId)}
+                    onChange={event => void handleCategoryColorChange(category, event.target.value)}
+                  />
+                </label>
+                {category.defaultBackgroundColor ? (
+                  <button className="modbtn" type="button" disabled={Boolean(busyId)} onClick={() => void handleApplyCategoryColor(category)}>Apply color to all</button>
+                ) : null}
                 <button className="modbtn danger" type="button" disabled={Boolean(busyId)} onClick={() => void handleCategoryDelete(category)}>Delete group</button>
               </>
             ) : null}
@@ -379,10 +492,6 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   return (
     <div className="settings-page rewards-page">
       <div className="settings-inner rewards-inner">
-        <div className="settings-subnav" aria-label="Settings sections">
-          <button type="button" onClick={onBack}>General</button>
-          <button className="active" type="button">Viewer rewards</button>
-        </div>
         <div className="rewards-header">
           <div>
             <div className="settings-eyebrow">settings</div>

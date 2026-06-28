@@ -276,6 +276,7 @@ export type ViewerRewardCategory = {
   name: string;
   enabled: boolean;
   rewardCount: number;
+  defaultBackgroundColor: string | null;
 };
 
 export type ViewerReward = {
@@ -290,6 +291,9 @@ export type ViewerReward = {
   imageUrl: string | null;
   backgroundColor: string;
   categoryId: string | null;
+  isUserInputRequired: boolean;
+  maxPerStream: { enabled: boolean; max: number };
+  maxPerUserPerStream: { enabled: boolean; max: number };
 };
 
 export type ViewerRewardsResponse = {
@@ -303,6 +307,10 @@ export type ViewerRewardUpsert = {
   cost: number;
   isEnabled: boolean;
   categoryId: string | null;
+  isUserInputRequired: boolean;
+  backgroundColor: string;
+  maxPerStream: { enabled: boolean; max: number };
+  maxPerUserPerStream: { enabled: boolean; max: number };
 };
 
 export type ViewerRewardCategoryToggleResult = ViewerRewardsResponse & {

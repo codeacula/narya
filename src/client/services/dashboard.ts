@@ -163,9 +163,13 @@ export async function createViewerRewardCategory(name: string): Promise<ViewerRe
 
 export async function updateViewerRewardCategory(
   id: string,
-  update: { name?: string; enabled?: boolean },
+  update: { name?: string; enabled?: boolean; defaultBackgroundColor?: string | null },
 ): Promise<ViewerRewardCategoryToggleResult> {
   return sendJson<ViewerRewardCategoryToggleResult>(`/api/twitch/reward-categories/${encodeURIComponent(id)}`, 'PATCH', update);
+}
+
+export async function applyViewerRewardCategoryColor(id: string): Promise<ViewerRewardsResponse> {
+  return sendJson<ViewerRewardsResponse>(`/api/twitch/reward-categories/${encodeURIComponent(id)}/apply-color`, 'POST', {});
 }
 
 export async function deleteViewerRewardCategory(id: string): Promise<void> {

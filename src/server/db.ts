@@ -206,6 +206,7 @@ const allowedMigrationColumns = new Set([
   'stream_session_id',
   'is_first_in_session',
   'is_first_ever',
+  'default_background_color',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
@@ -216,6 +217,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   stream_session_id: 'text',
   is_first_in_session: 'integer not null default 0',
   is_first_ever: 'integer not null default 0',
+  default_background_color: 'text',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -245,6 +247,7 @@ addColumnIfMissing('chat_messages', 'emotes_json', 'text');
 addColumnIfMissing('chat_messages', 'stream_session_id', 'text');
 addColumnIfMissing('chat_messages', 'is_first_in_session', 'integer not null default 0');
 addColumnIfMissing('chat_messages', 'is_first_ever', 'integer not null default 0');
+addColumnIfMissing('viewer_reward_categories', 'default_background_color', 'text');
 
 db.exec('create index if not exists idx_chat_messages_stream_session on chat_messages(stream_session_id)');
 

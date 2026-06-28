@@ -22,15 +22,19 @@ type TwitchReward = {
   is_enabled: boolean;
   is_paused: boolean;
   is_in_stock: boolean;
+  is_user_input_required: boolean;
   background_color: string;
   image: { url_1x?: string } | null;
   default_image: { url_1x?: string };
+  max_per_stream_setting: { is_enabled: boolean; max_per_stream: number };
+  max_per_user_per_stream_setting: { is_enabled: boolean; max_per_user_per_stream: number };
 };
 
 type CategoryRow = {
   id: string;
   name: string;
   enabled: number;
+  default_background_color: string | null;
 };
 
 const listCategories = db.prepare(`
@@ -49,7 +53,7 @@ const insertCategory = db.prepare(`
 `);
 const updateCategory = db.prepare(`
   update viewer_reward_categories
-  set name = ?, enabled = ?, updated_at = ?
+  set name = ?, enabled = ?, default_background_color = ?, updated_at = ?
   where id = ?
 `);
 const deleteCategoryMembers = db.prepare(`delete from viewer_reward_category_members where category_id = ?`);
@@ -124,6 +128,15 @@ async function fetchRewards(
     imageUrl: reward.image?.url_1x ?? reward.default_image?.url_1x ?? null,
     backgroundColor: reward.background_color,
     categoryId: categoryIds.get(reward.id) ?? null,
+    isUserInputRequired: reward.is_user_input_required ?? false,
+    maxPerStream: {
+      enabled: reward.max_per_stream_setting?.is_enabled ?? false,
+      max: reward.max_per_stream_setting?.max_per_stream ?? 1,
+    },
+    maxPerUserPerStream: {
+      enabled: reward.max_per_user_per_stream_setting?.is_enabled ?? false,
+      max: reward.max_per_user_per_stream_setting?.max_per_user_per_stream ?? 1,
+    },
   }));
 }
 
@@ -137,6 +150,7 @@ function getCategories(rewards: ViewerReward[]): ViewerRewardCategory[] {
     name: category.name,
     enabled: category.enabled === 1,
     rewardCount: rewardCounts.get(category.id) ?? 0,
+    defaultBackgroundColor: category.default_background_color ?? null,
   }));
 }
 
@@ -160,20 +174,38 @@ function normalizeCategoryId(value: unknown): string | null {
   return value;
 }
 
+function normalizeHexColor(value: unknown, fallback = '#9147FF'): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim().toUpperCase();
+  return /^#[0-9A-F]{6}$/.test(trimmed) ? trimmed : fallback;
+}
+
 function normalizeReward(body: unknown): ViewerRewardUpsert {
   const value = body as Partial<ViewerRewardUpsert>;
   const title = typeof value.title === 'string' ? value.title.trim() : '';
   const prompt = typeof value.prompt === 'string' ? value.prompt.trim() : '';
   const cost = typeof value.cost === 'number' ? Math.round(value.cost) : Number(value.cost);
   if (!title || title.length > 45) throw new HttpRouteError(400, 'Reward title must be between 1 and 45 characters.');
-  if (prompt.length > 200) throw new HttpRouteError(400, 'Reward prompt must be 200 characters or fewer.');
+  if (prompt.length > 200) throw new HttpRouteError(400, 'Reward description must be 200 characters or fewer.');
   if (!Number.isSafeInteger(cost) || cost < 1) throw new HttpRouteError(400, 'Reward cost must be a positive whole number.');
+
+  const mps = value.maxPerStream;
+  const mpuPS = value.maxPerUserPerStream;
+  const maxPerStreamEnabled = typeof mps === 'object' && mps !== null ? Boolean(mps.enabled) : false;
+  const maxPerStreamVal = typeof mps === 'object' && mps !== null ? Math.max(1, Math.round(Number(mps.max) || 1)) : 1;
+  const maxPerUserEnabled = typeof mpuPS === 'object' && mpuPS !== null ? Boolean(mpuPS.enabled) : false;
+  const maxPerUserVal = typeof mpuPS === 'object' && mpuPS !== null ? Math.max(1, Math.round(Number(mpuPS.max) || 1)) : 1;
+
   return {
     title,
     prompt,
     cost,
     isEnabled: value.isEnabled !== false,
     categoryId: normalizeCategoryId(value.categoryId),
+    isUserInputRequired: value.isUserInputRequired === true,
+    backgroundColor: normalizeHexColor(value.backgroundColor),
+    maxPerStream: { enabled: maxPerStreamEnabled, max: maxPerStreamVal },
+    maxPerUserPerStream: { enabled: maxPerUserEnabled, max: maxPerUserVal },
   };
 }
 
@@ -221,7 +253,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
         }
         throw error;
       }
-      response.status(201).json({ id, name, enabled: true, rewardCount: 0 } satisfies ViewerRewardCategory);
+      response.status(201).json({ id, name, enabled: true, rewardCount: 0, defaultBackgroundColor: null } satisfies ViewerRewardCategory);
     } catch (error) {
       sendRouteError(response, error);
     }
@@ -233,6 +265,11 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       if (!current) throw new HttpRouteError(404, 'Reward category not found.');
       const name = request.body?.name === undefined ? current.name : normalizeCategoryName(request.body.name);
       const enabled = typeof request.body?.enabled === 'boolean' ? request.body.enabled : current.enabled === 1;
+      const defaultBackgroundColor = request.body?.defaultBackgroundColor === undefined
+        ? current.default_background_color
+        : (typeof request.body.defaultBackgroundColor === 'string'
+          ? normalizeHexColor(request.body.defaultBackgroundColor, current.default_background_color ?? '#9147FF')
+          : null);
 
       let updatedCount = 0;
       let skippedReadOnlyCount = 0;
@@ -256,7 +293,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       }
 
       try {
-        updateCategory.run(name, enabled ? 1 : 0, new Date().toISOString(), current.id);
+        updateCategory.run(name, enabled ? 1 : 0, defaultBackgroundColor ?? null, new Date().toISOString(), current.id);
       } catch (error) {
         if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
           throw new HttpRouteError(409, `A category named "${name}" already exists.`);
@@ -286,6 +323,30 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     }
   });
 
+  app.post('/api/twitch/reward-categories/:id/apply-color', async (request, response) => {
+    try {
+      const category = getCategory.get(request.params.id) as CategoryRow | null;
+      if (!category) throw new HttpRouteError(404, 'Reward category not found.');
+      if (!category.default_background_color) throw new HttpRouteError(400, 'This category has no default color set.');
+      const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
+      const rewards = await fetchRewards(credentials);
+      const categoryRewardIds = new Set(
+        (listCategoryRewardIds.all(category.id) as Array<{ rewardId: string }>).map(item => item.rewardId),
+      );
+      const manageable = rewards.filter(r => categoryRewardIds.has(r.id) && r.canManage);
+      const results = await Promise.allSettled(
+        manageable.map(r => sendTwitchRewardUpdate(credentials, r.id, { background_color: category.default_background_color })),
+      );
+      const failed = results.filter(r => r.status === 'rejected');
+      if (failed.length > 0) {
+        throw new HttpRouteError(502, `${failed.length} reward${failed.length === 1 ? '' : 's'} could not be updated on Twitch.`);
+      }
+      response.json(await getRewardsResponse(state));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
   app.post('/api/twitch/rewards', async (request, response) => {
     try {
       const reward = normalizeReward(request.body);
@@ -300,6 +361,16 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
           prompt: reward.prompt,
           cost: reward.cost,
           is_enabled: category?.enabled === 0 ? false : reward.isEnabled,
+          is_user_input_required: reward.isUserInputRequired,
+          background_color: reward.backgroundColor,
+          max_per_stream_setting: {
+            is_enabled: reward.maxPerStream.enabled,
+            max_per_stream: reward.maxPerStream.max,
+          },
+          max_per_user_per_stream_setting: {
+            is_enabled: reward.maxPerUserPerStream.enabled,
+            max_per_user_per_stream: reward.maxPerUserPerStream.max,
+          },
         }),
       });
       if (!twitchResponse.ok) {
@@ -326,7 +397,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       const categoryId = request.body?.categoryId === undefined
         ? current.categoryId
         : normalizeCategoryId(request.body.categoryId);
-      const hasTwitchFields = ['title', 'prompt', 'cost', 'isEnabled'].some(key => request.body?.[key] !== undefined);
+      const hasTwitchFields = ['title', 'prompt', 'cost', 'isEnabled', 'isUserInputRequired', 'backgroundColor', 'maxPerStream', 'maxPerUserPerStream'].some(key => request.body?.[key] !== undefined);
       if (hasTwitchFields) {
         if (!current.canManage) throw new HttpRouteError(403, 'Twitch only allows this app to edit rewards that it created.');
         const reward = normalizeReward({
@@ -334,6 +405,10 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
           prompt: request.body.prompt ?? current.prompt,
           cost: request.body.cost ?? current.cost,
           isEnabled: request.body.isEnabled ?? current.isEnabled,
+          isUserInputRequired: request.body.isUserInputRequired ?? current.isUserInputRequired,
+          backgroundColor: request.body.backgroundColor ?? current.backgroundColor,
+          maxPerStream: request.body.maxPerStream ?? current.maxPerStream,
+          maxPerUserPerStream: request.body.maxPerUserPerStream ?? current.maxPerUserPerStream,
           categoryId,
         });
         const category = categoryId ? getCategory.get(categoryId) as CategoryRow : null;
@@ -342,6 +417,16 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
           prompt: reward.prompt,
           cost: reward.cost,
           is_enabled: category?.enabled === 0 ? false : reward.isEnabled,
+          is_user_input_required: reward.isUserInputRequired,
+          background_color: reward.backgroundColor,
+          max_per_stream_setting: {
+            is_enabled: reward.maxPerStream.enabled,
+            max_per_stream: reward.maxPerStream.max,
+          },
+          max_per_user_per_stream_setting: {
+            is_enabled: reward.maxPerUserPerStream.enabled,
+            max_per_user_per_stream: reward.maxPerUserPerStream.max,
+          },
         });
       } else if (categoryId !== current.categoryId && categoryId && current.canManage) {
         const category = getCategory.get(categoryId) as CategoryRow;
