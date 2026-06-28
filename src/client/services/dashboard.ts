@@ -277,3 +277,7 @@ export async function deleteTickerItem(id: string): Promise<void> {
 export async function getChatters(): Promise<ChattersResponse> {
   return fetchJson<ChattersResponse>('/api/chatters');
 }
+
+export async function reconnectEventSub(): Promise<{ ok: boolean }> {
+  return sendJson<{ ok: boolean }>('/api/eventsub/reconnect', 'POST');
+}
