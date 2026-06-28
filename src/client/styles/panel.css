@@ -1078,3 +1078,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   line-height: 16px;
 }
 .eventsub-retry-btn:hover { background: var(--warning-bg); }
+
+.evt-feed { display: flex; flex-direction: column; }
+.evt-filters {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 6px 10px; border-bottom: 1px solid var(--border-1);
+}
+.evt-filter-chip {
+  padding: 2px 8px; border-radius: 10px; font-size: 11px; cursor: pointer;
+  border: 1px solid var(--border-2); background: var(--bg-2); color: var(--fg-1);
+  line-height: 18px;
+}
+.evt-filter-chip.off {
+  background: transparent; color: var(--fg-3); border-color: var(--border-1);
+  text-decoration: line-through;
+}
+.evt-filter-chip:hover { border-color: var(--fg-3); }

@@ -650,6 +650,7 @@ const EVT_ICON: Record<string, string> = {
   cheer: 'bits',
   raid: 'swords',
   redeem: 'star',
+  ad_break: 'play',
 };
 
 const EVT_TONE_OVERRIDE: Partial<Record<string, string>> = {
@@ -657,26 +658,87 @@ const EVT_TONE_OVERRIDE: Partial<Record<string, string>> = {
   raid: 'note',
 };
 
+const EVT_KIND_LABEL: Record<string, string> = {
+  follow: 'Follows',
+  sub: 'Subs',
+  gift: 'Gifts',
+  cheer: 'Cheers',
+  raid: 'Raids',
+  redeem: 'Redeems',
+  ad_break: 'Ad Breaks',
+};
+
+const EVT_FILTER_KEY = 'eventFeedHiddenKinds';
+const EVT_DEFAULT_HIDDEN = new Set(['ad_break']);
+
+function loadHiddenKinds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EVT_FILTER_KEY);
+    if (raw === null) return new Set(EVT_DEFAULT_HIDDEN);
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set(EVT_DEFAULT_HIDDEN);
+  }
+}
+
+function saveHiddenKinds(hidden: Set<string>): void {
+  localStorage.setItem(EVT_FILTER_KEY, JSON.stringify([...hidden]));
+}
+
 function EventFeed({ ctx }: { ctx: PanelCtx }) {
+  const [hiddenKinds, setHiddenKinds] = React.useState<Set<string>>(() => loadHiddenKinds());
+
+  const toggleKind = React.useCallback((kind: string) => {
+    setHiddenKinds(prev => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      saveHiddenKinds(next);
+      return next;
+    });
+  }, []);
+
+  const knownKinds = React.useMemo(
+    () => [...new Set(ctx.events.map(e => e.kind))],
+    [ctx.events],
+  );
+
+  const visibleEvents = ctx.events.filter(e => !hiddenKinds.has(e.kind));
+
   return (
-    <div className="evt-list">
-      {ctx.events.map((e) => {
-        const tone = EVT_TONE_OVERRIDE[e.kind] ?? e.tone;
-        return (
-          <div className={'evt tone-' + tone} key={e.id}>
-            <div className="evt-icon">
-              <Icon name={EVT_ICON[e.kind] ?? 'star'} />
-            </div>
-            <div className="evt-body">
-              <div className="evt-actor">
-                {e.actor} <span className="verb">{e.kind === 'follow' ? 'followed' : ''}</span>
+    <div className="evt-feed">
+      {knownKinds.length > 0 && (
+        <div className="evt-filters">
+          {knownKinds.map(kind => (
+            <button
+              key={kind}
+              className={'evt-filter-chip' + (hiddenKinds.has(kind) ? ' off' : '')}
+              onClick={() => toggleKind(kind)}
+            >
+              {EVT_KIND_LABEL[kind] ?? kind}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="evt-list">
+        {visibleEvents.map((e) => {
+          const tone = EVT_TONE_OVERRIDE[e.kind] ?? e.tone;
+          return (
+            <div className={'evt tone-' + tone} key={e.id}>
+              <div className="evt-icon">
+                <Icon name={EVT_ICON[e.kind] ?? 'star'} />
               </div>
-              {e.kind !== 'follow' && <div className="evt-detail">{e.detail}</div>}
+              <div className="evt-body">
+                <div className="evt-actor">
+                  {e.actor} <span className="verb">{e.kind === 'follow' ? 'followed' : ''}</span>
+                </div>
+                {e.kind !== 'follow' && <div className="evt-detail">{e.detail}</div>}
+              </div>
+              <div className="evt-ago">{e.ago}</div>
             </div>
-            <div className="evt-ago">{e.ago}</div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
