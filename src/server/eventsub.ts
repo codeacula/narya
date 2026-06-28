@@ -1,3 +1,4 @@
+import type { Express } from 'express';
 import {
   EVENTSUB_RECONNECT_DELAY_MS,
   EVENTSUB_STALE_SOCKET_CLOSE_MS,
@@ -66,7 +67,7 @@ function handleEventSubNotification(state: RuntimeState, type: string, event: Re
       const startedAt = new Date(event.started_at as string);
       state.adBreakEndsAt = new Date(startedAt.getTime() + durationSecs * 1000).toISOString();
       state.twitchAdScheduleCache = null;
-      emitStreamEvent('redeem', 'Twitch', `ad break · ${durationSecs}s`, 'info');
+      emitStreamEvent('ad_break', 'Twitch', `ad break · ${durationSecs}s`, 'info');
       break;
     }
     case 'channel.chat.notification': {
@@ -89,7 +90,7 @@ async function createEventSubSubscription(
   type: string,
   version: string,
   condition: Record<string, string>,
-) {
+): Promise<boolean> {
   try {
     const res = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
       method: 'POST',
@@ -103,28 +104,47 @@ async function createEventSubSubscription(
     if (!res.ok) {
       const text = await res.text();
       console.error(`EventSub: failed to subscribe to ${type} (${res.status}):`, text);
+      return false;
     }
+    console.log(`EventSub: subscribed to ${type}`);
+    return true;
   } catch (err) {
     console.error(`EventSub: error subscribing to ${type}:`, err);
+    return false;
   }
 }
 
-async function subscribeToAllEvents(clientId: string, userToken: string, sessionId: string, bid: string) {
-  const subs: Array<[string, string, Record<string, string>]> = [
+async function subscribeToAllEvents(clientId: string, userToken: string, sessionId: string, bid: string): Promise<boolean> {
+  const requiredSubs: Array<[string, string, Record<string, string>]> = [
     ['channel.follow', '2', { broadcaster_user_id: bid, moderator_user_id: bid }],
     ['channel.subscribe', '1', { broadcaster_user_id: bid }],
     ['channel.subscription.gift', '1', { broadcaster_user_id: bid }],
     ['channel.subscription.message', '1', { broadcaster_user_id: bid }],
     ['channel.cheer', '1', { broadcaster_user_id: bid }],
     ['channel.raid', '1', { to_broadcaster_user_id: bid }],
-    ['channel.channel_points_custom_reward_redemption.add', '1', { broadcaster_user_id: bid }],
-    ['channel.ad_break.begin', '1', { broadcaster_user_id: bid }],
     ['channel.chat.notification', '1', { broadcaster_user_id: bid, user_id: bid }],
   ];
-  for (const [type, version, condition] of subs) {
+  const optionalSubs: Array<[string, string, Record<string, string>]> = [
+    ['channel.channel_points_custom_reward_redemption.add', '1', { broadcaster_user_id: bid }],
+    ['channel.ad_break.begin', '1', { broadcaster_user_id: bid }],
+  ];
+
+  let successCount = 0;
+  for (const [type, version, condition] of requiredSubs) {
+    const ok = await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
+    if (ok) successCount++;
+  }
+  for (const [type, version, condition] of optionalSubs) {
     await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
   }
-  console.log('EventSub: all subscriptions created');
+
+  if (successCount === 0) {
+    console.error('EventSub: all required subscriptions failed — re-authorize Twitch or check token scopes');
+    return false;
+  }
+
+  console.log(`EventSub: ${successCount}/${requiredSubs.length} required subscriptions active`);
+  return true;
 }
 
 export function clearKeepaliveTimer(state: RuntimeState) {
@@ -259,11 +279,21 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
             state.broadcasterId = await fetchBroadcasterId(creds.clientId, creds.userToken);
           }
           if (state.broadcasterId) {
-            await subscribeToAllEvents(creds.clientId, creds.userToken, session.id, state.broadcasterId);
+            const ok = await subscribeToAllEvents(creds.clientId, creds.userToken, session.id, state.broadcasterId);
+            if (!ok) {
+              state.eventSubError = 'subscription_failed';
+              clearKeepaliveTimer(state);
+              state.clearEventSubSocket();
+              try { ws.close(); } catch { /* ignore */ }
+              return;
+            }
           } else {
             console.error(`EventSub: could not resolve broadcaster ID for "${config.twitchChannel}"`);
           }
+          state.eventSubError = null;
         })();
+      } else {
+        state.eventSubError = null;
       }
 
     } else if (msgType === 'session_keepalive') {
@@ -306,5 +336,13 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
 
   ws.addEventListener('error', () => {
     console.error('EventSub: WebSocket error');
+  });
+}
+
+export function registerEventSubRoutes(app: Express, state: RuntimeState) {
+  app.post('/api/eventsub/reconnect', (_req, res) => {
+    disconnectEventSub(state);
+    void connectEventSub(state);
+    res.json({ ok: true });
   });
 }

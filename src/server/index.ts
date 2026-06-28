@@ -4,7 +4,7 @@ import { registerChatbotCommandRoutes } from './chatbotCommands';
 import { config } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
 import { registerDiscordRoutes } from './discord';
-import { connectEventSub, disconnectEventSub } from './eventsub';
+import { connectEventSub, disconnectEventSub, registerEventSubRoutes } from './eventsub';
 import { registerGoLiveRoutes } from './goLive';
 import { registerLlmRoutes } from './llm';
 import { startMusicPolling } from './music';
@@ -32,6 +32,7 @@ registerLlmRoutes(app);
 registerDiscordRoutes(app);
 registerGoLiveRoutes(app);
 registerChattersRoutes(app, runtimeState);
+registerEventSubRoutes(app, runtimeState);
 registerDashboardRoutes(app, runtimeState);
 registerStaticRoutes(app);
 

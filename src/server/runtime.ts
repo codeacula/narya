@@ -55,6 +55,7 @@ export class RuntimeState {
   twitchBotSenderId: string | null = null;
   eventSubKeepaliveMs = EVENTSUB_DEFAULT_KEEPALIVE_MS;
   eventSubKeepaliveTimer: ReturnType<typeof setTimeout> | null = null;
+  eventSubError: string | null = null;
   adBreakEndsAt: string | null = null;
   twitchStreamStatusCache: { expiresAtMs: number; status: StreamActivityStatus } | null = null;
   twitchAdScheduleCache: { expiresAtMs: number; schedule: AdSchedule } | null = null;
