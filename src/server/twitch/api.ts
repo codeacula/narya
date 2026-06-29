@@ -1,6 +1,6 @@
 import type express from 'express';
 import { TOKEN_EXPIRY_REFRESH_BUFFER_MS } from '../../shared/constants';
-import { config } from '../config';
+import { appConfig } from '../appConfig';
 import { HttpRouteError, readResponseError, sendRouteError } from '../http';
 import type { RuntimeState } from '../runtime';
 import {
@@ -19,14 +19,14 @@ const TWITCH_MAX_TIMEOUT_SECONDS = 1_209_600;
 type TwitchChatSender = 'user' | 'bot';
 
 export async function getEventSubCredentials(state: RuntimeState): Promise<{ clientId: string; userToken: string } | null> {
-  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  const clientId = appConfig.twitchClientId;
   const userToken = await getTwitchUserAccessToken(state);
   if (!clientId || !userToken) return null;
   return { clientId, userToken };
 }
 
 export async function getTwitchApiHeaders(state: RuntimeState): Promise<{ 'Client-Id': string; Authorization: string } | null> {
-  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  const clientId = appConfig.twitchClientId;
   if (!clientId) return null;
 
   const userToken = await getTwitchUserAccessToken(state);
@@ -34,7 +34,7 @@ export async function getTwitchApiHeaders(state: RuntimeState): Promise<{ 'Clien
     return { 'Client-Id': clientId, Authorization: `Bearer ${userToken}` };
   }
 
-  const clientSecret = process.env.TWITCH_CLIENT_SECRET ?? '';
+  const clientSecret = appConfig.twitchClientSecret;
   if (!clientSecret) return null;
 
   if (state.twitchAppToken && state.twitchAppToken.expiresAtMs > Date.now() + TOKEN_EXPIRY_REFRESH_BUFFER_MS) {
@@ -71,14 +71,14 @@ export async function getTwitchApiHeaders(state: RuntimeState): Promise<{ 'Clien
 }
 
 export async function getTwitchUserApiHeaders(state: RuntimeState): Promise<{ 'Client-Id': string; Authorization: string; userToken: string } | null> {
-  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  const clientId = appConfig.twitchClientId;
   const userToken = await getTwitchUserAccessToken(state);
   if (!clientId || !userToken) return null;
   return { 'Client-Id': clientId, Authorization: `Bearer ${userToken}`, userToken };
 }
 
 export async function getTwitchBotApiHeaders(state: RuntimeState): Promise<{ 'Client-Id': string; Authorization: string; userToken: string } | null> {
-  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+  const clientId = appConfig.twitchClientId;
   const userToken = await getTwitchBotAccessToken(state);
   if (!clientId || !userToken) return null;
   return { 'Client-Id': clientId, Authorization: `Bearer ${userToken}`, userToken };
@@ -87,14 +87,14 @@ export async function getTwitchBotApiHeaders(state: RuntimeState): Promise<{ 'Cl
 export async function fetchBroadcasterId(clientId: string, userToken: string): Promise<string | null> {
   try {
     const res = await fetch(
-      `https://api.twitch.tv/helix/users?login=${encodeURIComponent(config.twitchChannel)}`,
+      `https://api.twitch.tv/helix/users?login=${encodeURIComponent(appConfig.twitchChannel)}`,
       { headers: { 'Client-Id': clientId, 'Authorization': `Bearer ${userToken}` } },
     );
     if (!res.ok) return null;
     const data = await res.json() as { data: Array<{ id: string }> };
     return data.data[0]?.id ?? null;
   } catch (error) {
-    console.error(`Twitch API: failed to resolve broadcaster ID for "${config.twitchChannel}":`, error);
+    console.error(`Twitch API: failed to resolve broadcaster ID for "${appConfig.twitchChannel}":`, error);
     return null;
   }
 }
@@ -109,7 +109,7 @@ export type TwitchLiveStream = {
 export async function fetchCurrentTwitchStream(clientId: string, userToken: string): Promise<TwitchLiveStream | null> {
   try {
     const res = await fetch(
-      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(config.twitchChannel)}`,
+      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(appConfig.twitchChannel)}`,
       { headers: { 'Client-Id': clientId, Authorization: `Bearer ${userToken}` } },
     );
     if (!res.ok) {
@@ -299,7 +299,7 @@ export async function getTwitchActionCredentials(state: RuntimeState, scopes: re
   }
 
   const bid = state.broadcasterId ?? await fetchBroadcasterId(headers['Client-Id'], headers.userToken);
-  if (!bid) throw new HttpRouteError(502, `Could not resolve broadcaster ID for "${config.twitchChannel}".`);
+  if (!bid) throw new HttpRouteError(502, `Could not resolve broadcaster ID for "${appConfig.twitchChannel}".`);
   state.broadcasterId = bid;
 
   return {
@@ -321,7 +321,7 @@ async function getTwitchChatCredentials(state: RuntimeState, sender: TwitchChatS
     }
 
     const bid = state.broadcasterId ?? await fetchBroadcasterId(botHeaders['Client-Id'], botHeaders.userToken);
-    if (!bid) throw new HttpRouteError(502, `Could not resolve broadcaster ID for "${config.twitchChannel}".`);
+    if (!bid) throw new HttpRouteError(502, `Could not resolve broadcaster ID for "${appConfig.twitchChannel}".`);
     state.broadcasterId = bid;
 
     return {
@@ -540,10 +540,10 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
         }>;
       };
       const channel = data.data?.[0];
-      if (!channel) throw new HttpRouteError(404, `No Twitch channel information found for "${config.twitchChannel}".`);
+      if (!channel) throw new HttpRouteError(404, `No Twitch channel information found for "${appConfig.twitchChannel}".`);
 
       response.json({
-        broadcasterName: channel.broadcaster_name ?? config.twitchChannel,
+        broadcasterName: channel.broadcaster_name ?? appConfig.twitchChannel,
         categoryId: channel.game_id ?? '',
         category: channel.game_name ?? '',
         title: channel.title ?? '',

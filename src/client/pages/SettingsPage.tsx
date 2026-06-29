@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Icon } from '../ui/icons';
+import { useToast } from '../ui/notifications';
 import type {
+  AppConfig,
   ChatbotCommand,
   ChatbotCommandActionInput,
   ChatbotCommandActionType,
@@ -14,8 +16,12 @@ import type {
   RunItem,
   SoundButton,
   TickerItem,
+  TtsSettings,
+  TtsVoice,
 } from '../../shared/api';
 import {
+  getAppConfig,
+  updateAppConfig,
   clearDiscordGoLiveSettings,
   createRunsheetItem,
   createChatbotCommand,
@@ -36,6 +42,10 @@ import {
   getRunsheet,
   getSoundButtons,
   getTicker,
+  getTtsSettings,
+  getTtsVoices,
+  testTtsSpeak,
+  updateTtsSettings,
   updateRunsheetItem,
   updateChatbotCommand,
   updateGoLiveSettings,
@@ -53,6 +63,77 @@ type CommandForm = {
   response: string;
   soundId: string;
   sceneName: string;
+};
+
+type AppConfigForm = {
+  twitchChannel: string;
+  twitchClientId: string;
+  twitchClientSecret: string;
+  twitchClientSecretConfigured: boolean;
+  clearTwitchClientSecret: boolean;
+  obsUrl: string;
+  obsPassword: string;
+  obsPasswordConfigured: boolean;
+  clearObsPassword: boolean;
+  obsScenes: string;
+  discordClientId: string;
+  discordBotToken: string;
+  discordBotTokenConfigured: boolean;
+  clearDiscordBotToken: boolean;
+  elevenLabsApiKey: string;
+  elevenLabsApiKeyConfigured: boolean;
+  clearElevenLabsApiKey: boolean;
+  musicPollIntervalMs: number;
+  musicPlayerctlPlayer: string;
+  quackVolume: number;
+};
+
+function appConfigToForm(config: AppConfig): AppConfigForm {
+  return {
+    twitchChannel: config.twitchChannel,
+    twitchClientId: config.twitchClientId,
+    twitchClientSecret: '',
+    twitchClientSecretConfigured: config.twitchClientSecretConfigured,
+    clearTwitchClientSecret: false,
+    obsUrl: config.obsUrl,
+    obsPassword: '',
+    obsPasswordConfigured: config.obsPasswordConfigured,
+    clearObsPassword: false,
+    obsScenes: config.obsScenes.join(', '),
+    discordClientId: config.discordClientId,
+    discordBotToken: '',
+    discordBotTokenConfigured: config.discordBotTokenConfigured,
+    clearDiscordBotToken: false,
+    elevenLabsApiKey: '',
+    elevenLabsApiKeyConfigured: config.elevenLabsApiKeyConfigured,
+    clearElevenLabsApiKey: false,
+    musicPollIntervalMs: config.musicPollIntervalMs,
+    musicPlayerctlPlayer: config.musicPlayerctlPlayer,
+    quackVolume: config.quackVolume,
+  };
+}
+
+const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
+  twitchChannel: '',
+  twitchClientId: '',
+  twitchClientSecret: '',
+  twitchClientSecretConfigured: false,
+  clearTwitchClientSecret: false,
+  obsUrl: '',
+  obsPassword: '',
+  obsPasswordConfigured: false,
+  clearObsPassword: false,
+  obsScenes: '',
+  discordClientId: '',
+  discordBotToken: '',
+  discordBotTokenConfigured: false,
+  clearDiscordBotToken: false,
+  elevenLabsApiKey: '',
+  elevenLabsApiKeyConfigured: false,
+  clearElevenLabsApiKey: false,
+  musicPollIntervalMs: 2000,
+  musicPlayerctlPlayer: '',
+  quackVolume: 0.2,
 };
 
 type SoundForm = {
@@ -259,6 +340,12 @@ export function SettingsPage({
     : status.twitchBotAuthenticated
       ? `Bot credentials cached on backend${status.twitchBotAuthSource ? ` via ${status.twitchBotAuthSource}` : ''}`
       : 'Login as a bot account for dashboard chat messages';
+  const { pushToast } = useToast();
+  const [appConfigForm, setAppConfigForm] = useState<AppConfigForm>(EMPTY_APP_CONFIG_FORM);
+  const [appConfigLoading, setAppConfigLoading] = useState(true);
+  const [appConfigSaving, setAppConfigSaving] = useState(false);
+  const [appConfigMessage, setAppConfigMessage] = useState<string | null>(null);
+  const [appConfigError, setAppConfigError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ChatbotCommand[]>([]);
   const [commandForm, setCommandForm] = useState<CommandForm>(EMPTY_COMMAND_FORM);
   const [soundButtons, setSoundButtons] = useState<SoundButton[]>([]);
@@ -296,16 +383,43 @@ export function SettingsPage({
   const [discordHelpOpen, setDiscordHelpOpen] = useState(false);
   const [discordDisconnecting, setDiscordDisconnecting] = useState(false);
   const [discordRefreshing, setDiscordRefreshing] = useState(false);
+  const [ttsSettings, setTtsSettings] = useState<TtsSettings>({ enabled: false, voiceId: '', speed: 1.0, volume: 0.8, updatedAt: null });
+  const [ttsVoices, setTtsVoices] = useState<TtsVoice[]>([]);
+  const [ttsLoading, setTtsLoading] = useState(true);
+  const [ttsSaving, setTtsSaving] = useState(false);
+  const [ttsTesting, setTtsTesting] = useState(false);
+  const [ttsTestText, setTtsTestText] = useState('Hello, I am your stream assistant.');
+  const [ttsMessage, setTtsMessage] = useState<string | null>(null);
+  const [ttsError, setTtsError] = useState<string | null>(null);
   const discordConnectionSub = !discordStatus.clientIdConfigured
-    ? 'Set DISCORD_CLIENT_ID in .env to enable bot install'
+    ? 'Set the Discord client ID under Connections to enable bot install'
     : !discordStatus.botTokenConfigured
-      ? 'Set DISCORD_BOT_TOKEN in .env after creating the bot'
+      ? 'Set the Discord bot token under Connections after creating the bot'
       : discordStatus.ready
         ? `Connected as ${discordStatus.botUser ?? 'Discord bot'}`
         : discordStatus.error ?? 'Discord bot unavailable';
   const goLiveSceneOptions = goLiveSettings.obsSceneName && !obsScenes.includes(goLiveSettings.obsSceneName)
     ? [goLiveSettings.obsSceneName, ...obsScenes]
     : obsScenes;
+
+  useEffect(() => {
+    let cancelled = false;
+    setAppConfigLoading(true);
+    void getAppConfig()
+      .then(config => {
+        if (!cancelled) {
+          setAppConfigForm(appConfigToForm(config));
+          setAppConfigError(null);
+        }
+      })
+      .catch(error => {
+        if (!cancelled) setAppConfigError(error instanceof Error ? error.message : 'Could not load configuration');
+      })
+      .finally(() => {
+        if (!cancelled) setAppConfigLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -388,6 +502,26 @@ export function SettingsPage({
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTtsLoading(true);
+    void Promise.all([getTtsSettings(), getTtsVoices().catch(() => [] as TtsVoice[])])
+      .then(([settings, voices]) => {
+        if (!cancelled) {
+          setTtsSettings(settings);
+          setTtsVoices(voices);
+          setTtsError(null);
+        }
+      })
+      .catch(error => {
+        if (!cancelled) setTtsError(error instanceof Error ? error.message : 'Could not load TTS settings');
+      })
+      .finally(() => {
+        if (!cancelled) setTtsLoading(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -671,6 +805,42 @@ export function SettingsPage({
       .finally(() => setGoLiveSaving(false));
   };
 
+  const handleAppConfigSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAppConfigSaving(true);
+    setAppConfigMessage(null);
+    setAppConfigError(null);
+    void updateAppConfig({
+      twitchChannel: appConfigForm.twitchChannel,
+      twitchClientId: appConfigForm.twitchClientId,
+      twitchClientSecret: appConfigForm.twitchClientSecret || undefined,
+      clearTwitchClientSecret: appConfigForm.clearTwitchClientSecret,
+      obsUrl: appConfigForm.obsUrl,
+      obsPassword: appConfigForm.obsPassword || undefined,
+      clearObsPassword: appConfigForm.clearObsPassword,
+      obsScenes: appConfigForm.obsScenes.split(',').map(s => s.trim()).filter(Boolean),
+      discordClientId: appConfigForm.discordClientId,
+      discordBotToken: appConfigForm.discordBotToken || undefined,
+      clearDiscordBotToken: appConfigForm.clearDiscordBotToken,
+      elevenLabsApiKey: appConfigForm.elevenLabsApiKey || undefined,
+      clearElevenLabsApiKey: appConfigForm.clearElevenLabsApiKey,
+      musicPollIntervalMs: appConfigForm.musicPollIntervalMs,
+      musicPlayerctlPlayer: appConfigForm.musicPlayerctlPlayer,
+      quackVolume: appConfigForm.quackVolume,
+    })
+      .then(config => {
+        setAppConfigForm(appConfigToForm(config));
+        setAppConfigMessage('Saved — reconnecting affected services.');
+        pushToast({ kind: 'success', title: 'Connections saved', message: 'Reconnecting affected services…' });
+      })
+      .catch(error => {
+        const message = error instanceof Error ? error.message : 'Could not save configuration';
+        setAppConfigError(message);
+        pushToast({ kind: 'error', title: 'Could not save connections', message });
+      })
+      .finally(() => setAppConfigSaving(false));
+  };
+
   const handleLlmSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLlmSaving(true);
@@ -721,6 +891,41 @@ export function SettingsPage({
         setLlmError(error instanceof Error ? error.message : 'Could not test LLM');
       })
       .finally(() => setLlmTesting(false));
+  };
+
+  const handleTtsSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTtsSaving(true);
+    setTtsMessage(null);
+    setTtsError(null);
+    void updateTtsSettings({
+      enabled: ttsSettings.enabled,
+      voiceId: ttsSettings.voiceId,
+      speed: ttsSettings.speed,
+      volume: ttsSettings.volume,
+    })
+      .then(saved => {
+        setTtsSettings(saved);
+        setTtsMessage('TTS settings saved.');
+      })
+      .catch(error => {
+        setTtsError(error instanceof Error ? error.message : 'Could not save TTS settings');
+      })
+      .finally(() => setTtsSaving(false));
+  };
+
+  const handleTtsTest = () => {
+    setTtsTesting(true);
+    setTtsMessage(null);
+    setTtsError(null);
+    void testTtsSpeak(ttsTestText)
+      .then(() => {
+        setTtsMessage('Sent — check the overlay for audio.');
+      })
+      .catch(error => {
+        setTtsError(error instanceof Error ? error.message : 'TTS test failed');
+      })
+      .finally(() => setTtsTesting(false));
   };
 
   return (
@@ -776,6 +981,227 @@ export function SettingsPage({
               <span className="set-badge">Disconnected</span>
             )}
           </SettingsRow>
+        </div>
+
+        <div className="set-group">
+          <div className="set-group-label">Connections &amp; credentials</div>
+          <p className="set-intro" style={{ marginTop: 0 }}>
+            Everything the app needs to talk to Twitch, OBS, Discord, and ElevenLabs. Saving
+            reconnects the affected services automatically — no restart required.
+          </p>
+
+          {!appConfigLoading && (!appConfigForm.twitchClientId || !appConfigForm.twitchClientSecretConfigured) && (
+            <div className="settings-alert settings-alert--warn">
+              <span className="settings-alert-icon">!</span>
+              <span>
+                Twitch app credentials are required for EventSub, uptime, and the ad schedule.
+                Create an application at{' '}
+                <a href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener noreferrer">
+                  dev.twitch.tv/console/apps
+                </a>{' '}
+                and paste the Client ID and Client Secret below.
+              </span>
+            </div>
+          )}
+          {!appConfigLoading && appConfigForm.twitchClientId && appConfigForm.twitchClientSecretConfigured
+            && !status.eventSubConnected && (
+            <div className="settings-alert settings-alert--info">
+              <span className="settings-alert-icon">i</span>
+              <span>
+                Twitch app credentials are set but EventSub is not connected. Use “Login with Twitch”
+                above to authorize, then events will start flowing.
+              </span>
+            </div>
+          )}
+
+          <form className="command-settings-form" onSubmit={handleAppConfigSubmit}>
+            <label className="field">
+              <span>Twitch channel</span>
+              <input
+                value={appConfigForm.twitchChannel}
+                disabled={appConfigLoading || appConfigSaving}
+                placeholder="codeacula"
+                onChange={event => setAppConfigForm(current => ({ ...current, twitchChannel: event.target.value }))}
+              />
+            </label>
+
+            <label className="field">
+              <span>Twitch client ID</span>
+              <input
+                value={appConfigForm.twitchClientId}
+                disabled={appConfigLoading || appConfigSaving}
+                placeholder="From your Twitch developer application"
+                onChange={event => setAppConfigForm(current => ({ ...current, twitchClientId: event.target.value }))}
+              />
+            </label>
+
+            <label className="field">
+              <span>Twitch client secret</span>
+              <input
+                type="password"
+                value={appConfigForm.twitchClientSecret}
+                disabled={appConfigLoading || appConfigSaving || appConfigForm.clearTwitchClientSecret}
+                placeholder={appConfigForm.twitchClientSecretConfigured ? 'Configured — leave blank to keep' : 'Client secret'}
+                onChange={event => setAppConfigForm(current => ({ ...current, twitchClientSecret: event.target.value, clearTwitchClientSecret: false }))}
+              />
+            </label>
+            {appConfigForm.twitchClientSecretConfigured && (
+              <label className="command-enabled">
+                <input
+                  type="checkbox"
+                  checked={appConfigForm.clearTwitchClientSecret}
+                  disabled={appConfigLoading || appConfigSaving}
+                  onChange={event => setAppConfigForm(current => ({ ...current, clearTwitchClientSecret: event.target.checked, twitchClientSecret: '' }))}
+                />
+                <span>Clear stored client secret</span>
+              </label>
+            )}
+
+            <label className="field">
+              <span>OBS WebSocket URL</span>
+              <input
+                value={appConfigForm.obsUrl}
+                disabled={appConfigLoading || appConfigSaving}
+                placeholder="ws://127.0.0.1:4455"
+                onChange={event => setAppConfigForm(current => ({ ...current, obsUrl: event.target.value }))}
+              />
+            </label>
+
+            <label className="field">
+              <span>OBS WebSocket password</span>
+              <input
+                type="password"
+                value={appConfigForm.obsPassword}
+                disabled={appConfigLoading || appConfigSaving || appConfigForm.clearObsPassword}
+                placeholder={appConfigForm.obsPasswordConfigured ? 'Configured — leave blank to keep' : 'Optional'}
+                onChange={event => setAppConfigForm(current => ({ ...current, obsPassword: event.target.value, clearObsPassword: false }))}
+              />
+            </label>
+            {appConfigForm.obsPasswordConfigured && (
+              <label className="command-enabled">
+                <input
+                  type="checkbox"
+                  checked={appConfigForm.clearObsPassword}
+                  disabled={appConfigLoading || appConfigSaving}
+                  onChange={event => setAppConfigForm(current => ({ ...current, clearObsPassword: event.target.checked, obsPassword: '' }))}
+                />
+                <span>Clear stored OBS password</span>
+              </label>
+            )}
+
+            <label className="field">
+              <span>OBS scenes</span>
+              <input
+                value={appConfigForm.obsScenes}
+                disabled={appConfigLoading || appConfigSaving}
+                placeholder="Coding, BRB, Starting Soon, Ending"
+                onChange={event => setAppConfigForm(current => ({ ...current, obsScenes: event.target.value }))}
+              />
+              <small>Comma-separated fallback scene list used before OBS connects.</small>
+            </label>
+
+            <label className="field">
+              <span>Discord client ID</span>
+              <input
+                value={appConfigForm.discordClientId}
+                disabled={appConfigLoading || appConfigSaving}
+                placeholder="Discord application client ID"
+                onChange={event => setAppConfigForm(current => ({ ...current, discordClientId: event.target.value }))}
+              />
+            </label>
+
+            <label className="field">
+              <span>Discord bot token</span>
+              <input
+                type="password"
+                value={appConfigForm.discordBotToken}
+                disabled={appConfigLoading || appConfigSaving || appConfigForm.clearDiscordBotToken}
+                placeholder={appConfigForm.discordBotTokenConfigured ? 'Configured — leave blank to keep' : 'Bot token'}
+                onChange={event => setAppConfigForm(current => ({ ...current, discordBotToken: event.target.value, clearDiscordBotToken: false }))}
+              />
+            </label>
+            {appConfigForm.discordBotTokenConfigured && (
+              <label className="command-enabled">
+                <input
+                  type="checkbox"
+                  checked={appConfigForm.clearDiscordBotToken}
+                  disabled={appConfigLoading || appConfigSaving}
+                  onChange={event => setAppConfigForm(current => ({ ...current, clearDiscordBotToken: event.target.checked, discordBotToken: '' }))}
+                />
+                <span>Clear stored Discord bot token</span>
+              </label>
+            )}
+
+            <label className="field">
+              <span>ElevenLabs API key</span>
+              <input
+                type="password"
+                value={appConfigForm.elevenLabsApiKey}
+                disabled={appConfigLoading || appConfigSaving || appConfigForm.clearElevenLabsApiKey}
+                placeholder={appConfigForm.elevenLabsApiKeyConfigured ? 'Configured — leave blank to keep' : 'Required for Text-to-Speech'}
+                onChange={event => setAppConfigForm(current => ({ ...current, elevenLabsApiKey: event.target.value, clearElevenLabsApiKey: false }))}
+              />
+            </label>
+            {appConfigForm.elevenLabsApiKeyConfigured && (
+              <label className="command-enabled">
+                <input
+                  type="checkbox"
+                  checked={appConfigForm.clearElevenLabsApiKey}
+                  disabled={appConfigLoading || appConfigSaving}
+                  onChange={event => setAppConfigForm(current => ({ ...current, clearElevenLabsApiKey: event.target.checked, elevenLabsApiKey: '' }))}
+                />
+                <span>Clear stored ElevenLabs key</span>
+              </label>
+            )}
+
+            <div className="llm-settings-grid">
+              <label className="field">
+                <span>Music poll interval (ms)</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="60000"
+                  step="500"
+                  value={appConfigForm.musicPollIntervalMs}
+                  disabled={appConfigLoading || appConfigSaving}
+                  onChange={event => setAppConfigForm(current => ({ ...current, musicPollIntervalMs: Number(event.target.value) }))}
+                />
+              </label>
+              <label className="field">
+                <span>playerctl player</span>
+                <input
+                  value={appConfigForm.musicPlayerctlPlayer}
+                  disabled={appConfigLoading || appConfigSaving}
+                  placeholder="strawberry"
+                  onChange={event => setAppConfigForm(current => ({ ...current, musicPlayerctlPlayer: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>Quack volume (0–1)</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={appConfigForm.quackVolume}
+                  disabled={appConfigLoading || appConfigSaving}
+                  onChange={event => setAppConfigForm(current => ({ ...current, quackVolume: Number(event.target.value) }))}
+                />
+              </label>
+            </div>
+
+            {(appConfigMessage || appConfigError) && (
+              <div className={'command-settings-status' + (appConfigError ? ' error' : '')}>
+                {appConfigError ?? appConfigMessage}
+              </div>
+            )}
+
+            <div className="command-settings-actions">
+              <button className="modbtn gold" type="submit" disabled={appConfigLoading || appConfigSaving}>
+                {appConfigSaving ? 'Saving...' : 'Save connections'}
+              </button>
+            </div>
+          </form>
         </div>
 
         <div className="set-group">
@@ -856,11 +1282,11 @@ export function SettingsPage({
                   </li>
                   <li>
                     Under <b>Bot</b>, click <b>Add Bot</b>, then copy the token.
-                    Set it as <code>DISCORD_BOT_TOKEN</code> in your <code>.env</code>.
+                    Paste it into <b>Discord bot token</b> under Connections &amp; credentials.
                   </li>
                   <li>
                     Copy the <b>Application ID</b> from the General Information page.
-                    Set it as <code>DISCORD_CLIENT_ID</code> in your <code>.env</code>.
+                    Paste it into <b>Discord client ID</b> under Connections &amp; credentials.
                   </li>
                   <li>
                     Under <b>OAuth2 → Redirects</b>, add the redirect URI that matches your setup:
@@ -868,9 +1294,9 @@ export function SettingsPage({
                       <li><b>Local dev (Vite):</b> <code>http://localhost:5173/api/auth/discord/callback</code></li>
                       <li><b>Docker / production:</b> <code>http://localhost:4317/api/auth/discord/callback</code></li>
                     </ul>
-                    Set <code>DISCORD_REDIRECT_URI</code> in your <code>.env</code> to match.
+                    Set <code>DISCORD_REDIRECT_URI</code> in your <code>.env</code> to match (deploy-specific).
                   </li>
-                  <li>Restart the server, then click <b>Install Bot</b> here to add it to your server.</li>
+                  <li>Click <b>Install Bot</b> here to add it to your server.</li>
                 </ol>
                 <div className="modal-actions">
                   <button className="modbtn gold" type="button" onClick={() => setDiscordHelpOpen(false)}>Got it</button>
@@ -1362,6 +1788,110 @@ export function SettingsPage({
               </div>
             </form>
           </div>
+        </div>
+
+        <div className="set-group">
+          <div className="set-group-label">Text-to-Speech</div>
+          <form className="command-settings-form" onSubmit={handleTtsSubmit}>
+            <label className="command-enabled">
+              <input
+                type="checkbox"
+                checked={ttsSettings.enabled}
+                disabled={ttsLoading || ttsSaving}
+                onChange={event => setTtsSettings(current => ({ ...current, enabled: event.target.checked }))}
+              />
+              <span>Enabled</span>
+            </label>
+
+            <label className="field">
+              <span>Voice</span>
+              {ttsVoices.length > 0 ? (
+                <select
+                  value={ttsSettings.voiceId}
+                  disabled={ttsLoading || ttsSaving}
+                  onChange={event => setTtsSettings(current => ({ ...current, voiceId: event.target.value }))}
+                >
+                  <option value="">Select a voice</option>
+                  {ttsVoices.map(voice => (
+                    <option key={voice.id} value={voice.id}>{voice.name} ({voice.category})</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={ttsSettings.voiceId}
+                  disabled={ttsLoading || ttsSaving}
+                  placeholder="Voice ID (set the ElevenLabs API key under Connections to browse)"
+                  onChange={event => setTtsSettings(current => ({ ...current, voiceId: event.target.value }))}
+                />
+              )}
+            </label>
+
+            <div className="llm-settings-grid">
+              <label className="field">
+                <span>Speed</span>
+                <input
+                  type="number"
+                  min="0.7"
+                  max="1.2"
+                  step="0.05"
+                  value={ttsSettings.speed}
+                  disabled={ttsLoading || ttsSaving}
+                  onChange={event => setTtsSettings(current => ({ ...current, speed: Number(event.target.value) }))}
+                />
+              </label>
+
+              <label className="field">
+                <span>Volume</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={ttsSettings.volume}
+                  disabled={ttsLoading || ttsSaving}
+                  onChange={event => setTtsSettings(current => ({ ...current, volume: Number(event.target.value) }))}
+                />
+              </label>
+            </div>
+
+            <div className="command-example">
+              Triggered via <code>!tts &lt;text&gt;</code> (broadcaster/mod/VIP) or per channel point reward. Audio plays on the overlay browser source. Requires an ElevenLabs API key set under Connections &amp; credentials.
+            </div>
+
+            <div className="llm-test-panel">
+              <label className="field">
+                <span>Test phrase</span>
+                <input
+                  value={ttsTestText}
+                  disabled={ttsLoading || ttsSaving || ttsTesting}
+                  maxLength={500}
+                  onChange={event => setTtsTestText(event.target.value)}
+                />
+              </label>
+              <div className="command-settings-actions">
+                <button
+                  className="modbtn"
+                  type="button"
+                  disabled={ttsLoading || ttsSaving || ttsTesting || !ttsSettings.enabled}
+                  onClick={handleTtsTest}
+                >
+                  {ttsTesting ? 'Sending...' : 'Test TTS'}
+                </button>
+              </div>
+            </div>
+
+            {(ttsMessage || ttsError) && (
+              <div className={'command-settings-status' + (ttsError ? ' error' : '')}>
+                {ttsError ?? ttsMessage}
+              </div>
+            )}
+
+            <div className="command-settings-actions">
+              <button className="modbtn gold" type="submit" disabled={ttsLoading || ttsSaving}>
+                {ttsSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </form>
         </div>
 
         <div className="set-group">

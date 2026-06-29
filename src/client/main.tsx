@@ -7,6 +7,8 @@ import { DashboardPage } from './pages/Dashboard';
 import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage } from './pages/Overlay';
 import { TabletPage } from './pages/Tablet';
 import { ViewerWindowPage } from './pages/ViewerWindow';
+import { ToastProvider } from './ui/notifications';
+import { ServiceStatusToasts } from './ui/serviceStatus';
 
 function App() {
   const path = window.location.pathname;
@@ -28,7 +30,12 @@ function App() {
   if (path === '/tablet') return <TabletPage />;
   if (path === '/viewer') return <ViewerWindowPage />;
   const initialPage = path === '/settings/rewards' ? 'rewards' : path === '/settings' ? 'settings' : 'dashboard';
-  return <DashboardPage initialPage={initialPage} />;
+  return (
+    <ToastProvider>
+      <ServiceStatusToasts />
+      <DashboardPage initialPage={initialPage} />
+    </ToastProvider>
+  );
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

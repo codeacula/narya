@@ -1,6 +1,6 @@
 import type express from 'express';
 import { getTwitchRoomId } from './chat';
-import { config } from './config';
+import { appConfig } from './appConfig';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
 import { HttpRouteError, sendRouteError } from './http';
@@ -15,6 +15,15 @@ import {
   triggerSoundButton,
   updateSoundButton,
 } from './sounds';
+import {
+  fetchElevenLabsVoices,
+  getTtsEnabledRewardIds,
+  getTtsSettings,
+  isTtsRewardEnabled,
+  setTtsRewardEnabled,
+  speakText,
+  updateTtsSettings,
+} from './tts';
 
 const listRunsheetItems = db.prepare(`
   select id, text, done, position
@@ -85,7 +94,7 @@ export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
   app.get('/api/health', (_request, response) => {
     response.json({
       ok: true,
-      twitchChannel: config.twitchChannel,
+      twitchChannel: appConfig.twitchChannel,
       obsConnected: isObsConnected(),
       twitchRoomId: getTwitchRoomId(),
       eventSubConnected: state.eventSubConnected,
@@ -94,14 +103,14 @@ export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
 
   app.get('/api/control/config', (_request, response) => {
     const obsStatus = getObsStatus();
-    response.json({ scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : config.obsScenes });
+    response.json({ scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : appConfig.obsScenes });
   });
 
   app.get('/api/obs/status', (_request, response) => {
     const obsStatus = getObsStatus();
     response.json({
       ...obsStatus,
-      scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : config.obsScenes,
+      scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : appConfig.obsScenes,
     });
   });
 
@@ -332,5 +341,62 @@ export function registerCoreRoutes(app: express.Express, state: RuntimeState) {
 
   app.get('/api/emotes', async (_request, response) => {
     response.json(await getEmoteMap(getTwitchRoomId()));
+  });
+
+  app.get('/api/tts/settings', (_request, response) => {
+    response.json(getTtsSettings());
+  });
+
+  app.put('/api/tts/settings', (request, response) => {
+    try {
+      const body = request.body as { enabled?: unknown; voiceId?: unknown; speed?: unknown; volume?: unknown };
+      const enabled = typeof body.enabled === 'boolean' ? body.enabled : false;
+      const voiceId = typeof body.voiceId === 'string' ? body.voiceId.trim() : '';
+      if (!voiceId) throw new HttpRouteError(400, 'voiceId is required.');
+      const speed = typeof body.speed === 'number' ? body.speed : 1.0;
+      const volume = typeof body.volume === 'number' ? body.volume : 0.8;
+      response.json(updateTtsSettings({ enabled, voiceId, speed, volume }));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.get('/api/tts/voices', async (_request, response) => {
+    try {
+      response.json(await fetchElevenLabsVoices());
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.post('/api/tts/speak', async (request, response) => {
+    try {
+      const body = request.body as { text?: unknown };
+      const text = typeof body.text === 'string' ? body.text.trim() : '';
+      if (!text) throw new HttpRouteError(400, 'text is required.');
+      await speakText(text);
+      response.json({ ok: true });
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.get('/api/tts/rewards', (_request, response) => {
+    response.json(getTtsEnabledRewardIds());
+  });
+
+  app.get('/api/tts/reward/:rewardId', (request, response) => {
+    response.json({ enabled: isTtsRewardEnabled(request.params.rewardId) });
+  });
+
+  app.put('/api/tts/reward/:rewardId', (request, response) => {
+    try {
+      const body = request.body as { enabled?: unknown };
+      const enabled = typeof body.enabled === 'boolean' ? body.enabled : false;
+      setTtsRewardEnabled(request.params.rewardId, enabled);
+      response.json({ enabled });
+    } catch (error) {
+      sendRouteError(response, error);
+    }
   });
 }

@@ -3,12 +3,13 @@ import {
   EVENTSUB_RECONNECT_DELAY_MS,
   EVENTSUB_STALE_SOCKET_CLOSE_MS,
 } from '../shared/constants';
-import { config } from './config';
+import { appConfig } from './appConfig';
 import { db } from './db';
 import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { endActiveStreamSession } from './streamSession';
+import { isTtsRewardEnabled, speakText } from './tts';
 import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials, runTwitchCommercial } from './twitch/api';
 
 const insertStreamEvent = db.prepare(`
@@ -77,11 +78,17 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
         event.from_broadcaster_user_name as string,
         `raided with ${event.viewers} viewer${(event.viewers as number) !== 1 ? 's' : ''}`, 'note');
       break;
-    case 'channel.channel_points_custom_reward_redemption.add':
-      emitStreamEvent('redeem',
-        event.user_name as string,
-        `redeemed "${(event.reward as { title: string }).title}"`, 'info');
+    case 'channel.channel_points_custom_reward_redemption.add': {
+      const reward = event.reward as { id: string; title: string };
+      emitStreamEvent('redeem', event.user_name as string, `redeemed "${reward.title}"`, 'info');
+      const userInput = typeof event.user_input === 'string' ? event.user_input.trim() : '';
+      if (userInput && isTtsRewardEnabled(reward.id)) {
+        void speakText(userInput).catch((err: unknown) => {
+          console.error('TTS: failed to speak redemption text:', err);
+        });
+      }
       break;
+    }
     case 'channel.ad_break.begin': {
       const durationSecs = event.duration_seconds as number;
       const startedAt = new Date(event.started_at as string);
@@ -343,7 +350,7 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
               }
             }
           } else {
-            console.error(`EventSub: could not resolve broadcaster ID for "${config.twitchChannel}"`);
+            console.error(`EventSub: could not resolve broadcaster ID for "${appConfig.twitchChannel}"`);
           }
           state.eventSubError = null;
         })();

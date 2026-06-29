@@ -6,7 +6,9 @@ import {
   createViewerRewardCategory,
   deleteViewerReward,
   deleteViewerRewardCategory,
+  getTtsEnabledRewards,
   getViewerRewards,
+  setTtsRewardEnabled,
   updateViewerReward,
   updateViewerRewardCategory,
 } from '../services/dashboard';
@@ -198,16 +200,20 @@ function RewardRow({
   reward,
   categories,
   busy,
+  ttsEnabled,
   onEdit,
   onDelete,
   onCategoryChange,
+  onTtsToggle,
 }: {
   reward: ViewerReward;
   categories: ViewerRewardCategory[];
   busy: boolean;
+  ttsEnabled: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onCategoryChange: (categoryId: string | null) => void;
+  onTtsToggle: () => void;
 }) {
   return (
     <div className={'reward-row' + (reward.isEnabled ? '' : ' disabled')}>
@@ -234,6 +240,17 @@ function RewardRow({
         </select>
       </label>
       <div className="reward-actions">
+        {reward.isUserInputRequired && (
+          <button
+            className={'modbtn' + (ttsEnabled ? ' gold' : '')}
+            type="button"
+            disabled={busy}
+            title={ttsEnabled ? 'TTS enabled — click to disable' : 'Enable TTS for this reward'}
+            onClick={onTtsToggle}
+          >
+            TTS
+          </button>
+        )}
         <button className="modbtn" type="button" disabled={busy || !reward.canManage} onClick={onEdit}>Edit</button>
         <button className="modbtn danger" type="button" disabled={busy || !reward.canManage} onClick={onDelete}>Delete</button>
       </div>
@@ -251,6 +268,7 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   const [showEditor, setShowEditor] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rewardForm, setRewardForm] = useState<ViewerRewardUpsert>(EMPTY_REWARD);
+  const [ttsEnabledIds, setTtsEnabledIds] = useState<Set<string>>(new Set());
 
   const groupedRewards = useMemo(() => {
     const groups = new Map<string | null, ViewerReward[]>();
@@ -267,7 +285,9 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
     setLoading(true);
     setError(null);
     try {
-      setData(await getViewerRewards());
+      const [rewards, ttsIds] = await Promise.all([getViewerRewards(), getTtsEnabledRewards()]);
+      setData(rewards);
+      setTtsEnabledIds(new Set(ttsIds));
     } catch (loadError) {
       setError(errorMessage(loadError, 'Could not load viewer rewards.'));
     } finally {
@@ -276,6 +296,24 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   };
 
   useEffect(() => { void refresh(); }, []);
+
+  const handleTtsToggle = async (reward: ViewerReward) => {
+    const next = !ttsEnabledIds.has(reward.id);
+    setBusyId(reward.id);
+    try {
+      await setTtsRewardEnabled(reward.id, next);
+      setTtsEnabledIds(current => {
+        const updated = new Set(current);
+        if (next) updated.add(reward.id); else updated.delete(reward.id);
+        return updated;
+      });
+      setMessage(next ? `TTS enabled for "${reward.title}".` : `TTS disabled for "${reward.title}".`);
+    } catch (toggleError) {
+      setError(errorMessage(toggleError, 'Could not update TTS setting.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const startCreate = (categoryId: string | null = null) => {
     const category = categoryId ? data.categories.find(c => c.id === categoryId) : null;
@@ -479,9 +517,11 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
               reward={reward}
               categories={data.categories}
               busy={Boolean(busyId)}
+              ttsEnabled={ttsEnabledIds.has(reward.id)}
               onEdit={() => startEdit(reward)}
               onDelete={() => void handleRewardDelete(reward)}
               onCategoryChange={categoryId => void handleCategoryAssignment(reward, categoryId)}
+              onTtsToggle={() => void handleTtsToggle(reward)}
             />
           ))}
         </div>

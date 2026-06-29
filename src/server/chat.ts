@@ -1,7 +1,8 @@
 import tmi from 'tmi.js';
 import type { ChatMessage } from '../shared/api';
+import { getRoleFromBadges } from '../shared/roles';
+import { appConfig } from './appConfig';
 import { handleChatbotCommandMessage } from './chatbotCommands';
-import { config } from './config';
 import { db } from './db';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
@@ -10,6 +11,7 @@ import {
   hasSeenChatterBefore,
   recordCurrentSessionChatter,
 } from './streamSession';
+import { speakText } from './tts';
 
 let twitchRoomId: string | null = null;
 let runtimeState: RuntimeState | null = null;
@@ -63,8 +65,10 @@ const markChannelMessagesDeleted = db.prepare(`
 
 export const twitchClient = new tmi.Client({
   connection: { reconnect: true, secure: true },
-  channels: [config.twitchChannel],
+  channels: appConfig.twitchChannel ? [appConfig.twitchChannel] : [],
 });
+
+let joinedChannel = appConfig.twitchChannel;
 
 export function getTwitchRoomId(): string | null {
   return twitchRoomId;
@@ -102,7 +106,7 @@ twitchClient.on('message', (channel, tags, message, self) => {
   const occurredAt = new Date().toISOString();
   const username = (tags.username ?? 'unknown').toLowerCase();
   const badges = (tags.badges as Record<string, string> | null) ?? null;
-  const isChannelOwner = username === config.twitchChannel.toLowerCase() || Boolean(badges?.broadcaster);
+  const isChannelOwner = username === appConfig.twitchChannel.toLowerCase() || Boolean(badges?.broadcaster);
   const messageId = tags.id ?? crypto.randomUUID();
   const isFirstEver = !isChannelOwner && !hasSeenChatterBefore(username);
   const sessionChatter = !isChannelOwner
@@ -150,6 +154,16 @@ twitchClient.on('message', (channel, tags, message, self) => {
 
   if (/^!quack\b/i.test(message.trim())) {
     triggerQuackSound();
+  }
+
+  const ttsMatch = /^!tts\s+(.+)/i.exec(message.trim());
+  if (ttsMatch) {
+    const role = getRoleFromBadges(badges);
+    if (role === 'broadcaster' || role === 'moderator' || role === 'vip') {
+      void speakText(ttsMatch[1]).catch((err: unknown) => {
+        console.error('TTS: !tts command failed:', err);
+      });
+    }
   }
 
   if (runtimeState) {
@@ -228,7 +242,24 @@ twitchClient.on('clearchat', (channel) => {
 
 export function connectTwitchChat(state: RuntimeState) {
   runtimeState = state;
+  joinedChannel = appConfig.twitchChannel;
   twitchClient.connect().catch((error: unknown) => {
     console.error('Failed to connect to Twitch chat:', error);
   });
+}
+
+// Join the currently-configured channel, leaving the previous one. Used when the
+// channel is changed from Settings without restarting the process.
+export async function applyTwitchChannel() {
+  const next = appConfig.twitchChannel;
+  if (next === joinedChannel) return;
+
+  const previous = joinedChannel;
+  joinedChannel = next;
+  try {
+    if (previous) await twitchClient.part(previous);
+    if (next) await twitchClient.join(next);
+  } catch (error) {
+    console.error('Twitch chat: failed to switch channel:', error);
+  }
 }

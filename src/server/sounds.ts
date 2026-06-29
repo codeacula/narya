@@ -1,4 +1,5 @@
 import type { SoundButton, SoundButtonUpdate, SoundPlayback } from '../shared/api';
+import { appConfig } from './appConfig';
 import { config } from './config';
 import { db } from './db';
 import { HttpRouteError } from './http';
@@ -90,7 +91,7 @@ export function deleteSoundButton(id: string) {
   deleteSoundButtonRow.run(id);
 }
 
-function playSound(src: string, volume = config.quackVolume): SoundPlayback {
+function playSound(src: string, volume = appConfig.quackVolume): SoundPlayback {
   const payload = {
     id: crypto.randomUUID(),
     src,

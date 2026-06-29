@@ -41,7 +41,7 @@ curl http://localhost:4317/api/music/current
 
 ## Architecture
 
-**Modular backend** — `src/server/index.ts` wires the Express HTTP routes and startup sequence. Backend modules own narrower responsibilities: `config.ts` for environment defaults, `db.ts` for SQLite setup, `realtime.ts` for `/socket` broadcasts, `chat.ts` for Twitch chat ingestion and moderation persistence, `emotes.ts` for BTTV/7TV emote aggregation, `obs.ts` for OBS WebSocket calls and stats, `music.ts` for playerctl/manual now-playing state, `sounds.ts` for sound playback broadcasts, and `http.ts` for route helpers.
+**Modular backend** — `src/server/index.ts` wires the Express HTTP routes and startup sequence. Backend modules own narrower responsibilities: `config.ts` for boot/infra-only env values (`PORT`, OAuth redirect URIs, static asset paths), `appConfig.ts` for the database-backed runtime config (Twitch/OBS/Discord/ElevenLabs credentials, channel, music + quack settings) edited from Settings, `db.ts` for SQLite setup, `realtime.ts` for `/socket` broadcasts, `chat.ts` for Twitch chat ingestion and moderation persistence, `emotes.ts` for BTTV/7TV emote aggregation, `obs.ts` for OBS WebSocket calls and stats, `music.ts` for playerctl/manual now-playing state, `sounds.ts` for sound playback broadcasts, and `http.ts` for route helpers.
 
 **Modular frontend** — `src/client/main.tsx` is a thin router (pathname-based, no router library): `/overlay` → `OverlayPage`, `/tablet` → `TabletPage`, default → `DashboardPage`. Source layout:
 
@@ -101,12 +101,8 @@ src/
 
 ## Configuration
 
-`.env` (copy from `.env.example`):
-```
-TWITCH_CHANNEL=codeacula
-OBS_WEBSOCKET_URL=ws://127.0.0.1:4455
-OBS_WEBSOCKET_PASSWORD=
-MUSIC_POLL_INTERVAL_MS=2000
-```
+Runtime config (Twitch/OBS/Discord/ElevenLabs credentials, channel, OBS scenes, music + quack settings) lives in the database (`app_config` table) and is edited from **Settings → Connections & credentials**. Secrets are never returned to the client — `getAppConfig()` exposes `*Configured` booleans (the LLM `apiKeyConfigured` pattern). Saving via `PUT /api/config` reconnects only the affected services (`reconcileServices` in `index.ts`) and broadcasts `settings:updated`; no restart needed. The app boots gracefully with nothing configured.
+
+`.env` is now minimal (copy from `.env.example`): only `PORT`, `TWITCH_REDIRECT_URI`, `DISCORD_REDIRECT_URI`, and `VITE_*` are read from the environment at runtime/build. The legacy credential vars are read **once on first boot** to seed `app_config` (see `seedFromEnv` in `appConfig.ts`), so existing setups migrate transparently; after that, edit values from the UI.
 
 Docker OBS URL uses `ws://host.docker.internal:4455`. `data/streamer-tools.sqlite` is private runtime data — never commit it.

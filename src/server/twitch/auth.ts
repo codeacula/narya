@@ -1,5 +1,6 @@
 import type express from 'express';
 import { TOKEN_EXPIRY_REFRESH_BUFFER_MS } from '../../shared/constants';
+import { appConfig } from '../appConfig';
 import { config } from '../config';
 import { db } from '../db';
 import { parseCookies } from '../http';
@@ -161,8 +162,8 @@ function persistTwitchBotToken(
 }
 
 async function refreshTwitchToken(account: TwitchAuthAccount, state: RuntimeState, token: TwitchUserToken): Promise<TwitchUserToken | null> {
-  const clientId = process.env.TWITCH_CLIENT_ID ?? '';
-  const clientSecret = process.env.TWITCH_CLIENT_SECRET ?? '';
+  const clientId = appConfig.twitchClientId;
+  const clientSecret = appConfig.twitchClientSecret;
   if (!clientId || !clientSecret || !token.refreshToken) return null;
 
   try {
@@ -280,7 +281,7 @@ export function registerTwitchAuthRoutes({
   disconnectEventSub: () => void;
 }) {
   function startTwitchLogin(account: TwitchAuthAccount, request: express.Request, response: express.Response) {
-    const clientId = process.env.TWITCH_CLIENT_ID ?? '';
+    const clientId = appConfig.twitchClientId;
     if (!clientId) {
       response.status(500).send('TWITCH_CLIENT_ID not configured');
       return;
@@ -315,8 +316,8 @@ export function registerTwitchAuthRoutes({
   });
 
   app.get('/api/auth/twitch/callback', async (request, response) => {
-    const clientId = process.env.TWITCH_CLIENT_ID ?? '';
-    const clientSecret = process.env.TWITCH_CLIENT_SECRET ?? '';
+    const clientId = appConfig.twitchClientId;
+    const clientSecret = appConfig.twitchClientSecret;
     const code = request.query['code'] as string | undefined;
     const error = request.query['error'] as string | undefined;
     const oauthStateParam = request.query['state'] as string | undefined;

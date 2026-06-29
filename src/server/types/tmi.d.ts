@@ -22,6 +22,8 @@ declare module 'tmi.js' {
     });
 
     connect(): Promise<[string, number]>;
+    join(channel: string): Promise<[string]>;
+    part(channel: string): Promise<[string]>;
     readyState(): 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED';
     on(
       event: 'message',

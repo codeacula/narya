@@ -1,5 +1,6 @@
 import type express from 'express';
 import type { DiscordChannel, DiscordGuild, DiscordStatus } from '../shared/api';
+import { appConfig } from './appConfig';
 import { config } from './config';
 import { HttpRouteError, readResponseError, sendRouteError } from './http';
 
@@ -40,9 +41,9 @@ type DiscordMessageResponse = {
 };
 
 function discordHeaders(): HeadersInit {
-  if (!config.discordBotToken) throw new HttpRouteError(400, 'DISCORD_BOT_TOKEN is not configured.');
+  if (!appConfig.discordBotToken) throw new HttpRouteError(400, 'DISCORD_BOT_TOKEN is not configured.');
   return {
-    Authorization: `Bot ${config.discordBotToken}`,
+    Authorization: `Bot ${appConfig.discordBotToken}`,
     'Content-Type': 'application/json',
   };
 }
@@ -72,9 +73,9 @@ async function discordFetch<T>(path: string, init: RequestInit = {}): Promise<T>
 }
 
 export function buildDiscordInstallUrl(): string | null {
-  if (!config.discordClientId) return null;
+  if (!appConfig.discordClientId) return null;
   const params = new URLSearchParams({
-    client_id: config.discordClientId,
+    client_id: appConfig.discordClientId,
     scope: 'bot',
     permissions: DISCORD_BOT_PERMISSIONS,
     integration_type: '0',
@@ -94,15 +95,15 @@ export async function getDiscordStatus(): Promise<DiscordStatus> {
   }
 
   const baseStatus = {
-    clientIdConfigured: Boolean(config.discordClientId),
-    botTokenConfigured: Boolean(config.discordBotToken),
+    clientIdConfigured: Boolean(appConfig.discordClientId),
+    botTokenConfigured: Boolean(appConfig.discordBotToken),
     ready: false,
     botUser: null,
     installUrl: buildDiscordInstallUrl(),
     error: null,
   };
 
-  if (!config.discordBotToken) {
+  if (!appConfig.discordBotToken) {
     const status = { ...baseStatus, error: 'DISCORD_BOT_TOKEN is not configured.' };
     discordStatusCache = { status, expiresAtMs: Date.now() + DISCORD_STATUS_CACHE_MS };
     return status;

@@ -164,6 +164,36 @@ db.exec(`
     updated_at text not null,
     foreign key (category_id) references viewer_reward_categories(id) on delete cascade
   );
+
+  create table if not exists tts_settings (
+    id integer primary key,
+    enabled integer not null default 1,
+    voice_id text not null default 'nPczCjzI2devNBz1zQrb',
+    speed real not null default 1.0,
+    volume real not null default 0.8,
+    updated_at text not null default ''
+  );
+
+  create table if not exists tts_reward_enabled (
+    reward_id text primary key
+  );
+
+  create table if not exists app_config (
+    id text primary key,
+    twitch_channel text not null default '',
+    twitch_client_id text not null default '',
+    twitch_client_secret text not null default '',
+    obs_url text not null default '',
+    obs_password text not null default '',
+    obs_scenes text not null default '',
+    discord_client_id text not null default '',
+    discord_bot_token text not null default '',
+    elevenlabs_api_key text not null default '',
+    music_poll_interval_ms integer not null default 2000,
+    music_playerctl_player text not null default 'strawberry',
+    quack_volume real not null default 0.2,
+    updated_at text not null default ''
+  );
 `);
 
 db.exec(`

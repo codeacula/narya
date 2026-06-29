@@ -1,16 +1,17 @@
+import { registerAppConfigRoutes, type AppConfigChange } from './appConfig';
 import { startAutomaticAds } from './automaticAds';
 import { registerChattersRoutes } from './chatters';
-import { connectTwitchChat } from './chat';
+import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { registerChatbotCommandRoutes } from './chatbotCommands';
 import { config } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
-import { registerDiscordRoutes } from './discord';
+import { clearDiscordStatusCache, registerDiscordRoutes } from './discord';
 import { connectEventSub, disconnectEventSub, registerEventSubRoutes } from './eventsub';
 import { registerGoLiveRoutes } from './goLive';
 import { registerLlmRoutes } from './llm';
-import { startMusicPolling } from './music';
-import { connectObs } from './obs';
-import { app, server } from './realtime';
+import { restartMusicPolling, startMusicPolling } from './music';
+import { connectObs, reconnectObs } from './obs';
+import { app, broadcast, server } from './realtime';
 import { registerCoreRoutes } from './routes';
 import { RuntimeState } from './runtime';
 import { registerStaticRoutes } from './static';
@@ -21,7 +22,33 @@ import { registerViewerRewardRoutes } from './viewerRewards';
 const runtimeState = new RuntimeState();
 hydrateTwitchAuthState(runtimeState);
 
+// Apply a settings change by reconnecting only the services whose config changed,
+// so the operator never has to restart the process after editing Settings.
+function reconcileServices(changes: Set<AppConfigChange>) {
+  if (changes.has('twitchChannel')) {
+    void applyTwitchChannel();
+  }
+  if (changes.has('twitchChannel') || changes.has('twitchCredentials')) {
+    runtimeState.twitchAppToken = null;
+    disconnectEventSub(runtimeState);
+    void connectEventSub(runtimeState);
+  }
+  if (changes.has('obs')) {
+    void reconnectObs();
+  }
+  if (changes.has('music')) {
+    restartMusicPolling();
+  }
+  if (changes.has('discord')) {
+    clearDiscordStatusCache();
+  }
+}
+
 registerCoreRoutes(app, runtimeState);
+registerAppConfigRoutes(app, ({ config: nextConfig, changes }) => {
+  reconcileServices(changes);
+  broadcast('settings:updated', { updatedAt: nextConfig.updatedAt ?? new Date().toISOString() });
+});
 registerTwitchAuthRoutes({
   app,
   state: runtimeState,

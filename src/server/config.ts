@@ -1,22 +1,15 @@
+// Boot/infrastructure config only. Everything else (Twitch/OBS/Discord/ElevenLabs
+// credentials, channel, music + quack settings) is configured from the Settings UI
+// and persisted in the database — see src/server/appConfig.ts.
 export const config = {
   port: Number(process.env.PORT ?? 4317),
-  twitchChannel: process.env.TWITCH_CHANNEL ?? 'codeacula',
-  obsUrl: process.env.OBS_WEBSOCKET_URL ?? 'ws://127.0.0.1:4455',
-  obsPassword: process.env.OBS_WEBSOCKET_PASSWORD ?? '',
-  musicPollIntervalMs: Number(process.env.MUSIC_POLL_INTERVAL_MS ?? 2000),
-  musicPlayerctlPlayer: process.env.MUSIC_PLAYERCTL_PLAYER?.trim() || 'strawberry',
-  quackVolume: Math.max(0, Math.min(1, Number(process.env.QUACK_VOLUME ?? 0.2))),
+  // Static asset paths bundled with the app, not user-configurable.
   quackSounds: [
     '/sounds/quacks/075176_duck-quack-40345.mp3',
     '/sounds/quacks/duck-quack-112941.mp3',
     '/sounds/quacks/duck-quacking-37392.mp3',
   ],
-  obsScenes: (process.env.OBS_SCENES ?? 'Coding,BRB,Starting Soon,Ending')
-    .split(',')
-    .map(scene => scene.trim())
-    .filter(Boolean),
+  // OAuth redirect URIs are tied to how the app is deployed, so they stay env-driven.
   twitchRedirectUri: process.env.TWITCH_REDIRECT_URI ?? 'http://localhost:5173/api/auth/twitch/callback',
-  discordClientId: process.env.DISCORD_CLIENT_ID ?? '',
-  discordBotToken: process.env.DISCORD_BOT_TOKEN ?? '',
   discordRedirectUri: process.env.DISCORD_REDIRECT_URI ?? 'http://localhost:5173/api/auth/discord/callback',
 };

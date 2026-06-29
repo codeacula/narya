@@ -403,3 +403,70 @@ export type ChattersResponse = {
   chatters: Chatter[];
   total: number;
 };
+
+export type TtsVoice = {
+  id: string;
+  name: string;
+  category: string;
+};
+
+export type TtsSettings = {
+  enabled: boolean;
+  voiceId: string;
+  speed: number;
+  volume: number;
+  updatedAt: string | null;
+};
+
+export type TtsSettingsUpdate = {
+  enabled: boolean;
+  voiceId: string;
+  speed: number;
+  volume: number;
+};
+
+export type TtsPlayback = {
+  audioBase64: string;
+};
+
+// Runtime configuration persisted in the database and edited from the Settings UI.
+// Secrets are never returned to the client; instead a `*Configured` boolean reports
+// whether a value is set (mirrors the LlmSettings.apiKeyConfigured pattern).
+export type AppConfig = {
+  twitchChannel: string;
+  twitchClientId: string;
+  twitchClientSecretConfigured: boolean;
+  obsUrl: string;
+  obsPasswordConfigured: boolean;
+  obsScenes: string[];
+  discordClientId: string;
+  discordBotTokenConfigured: boolean;
+  elevenLabsApiKeyConfigured: boolean;
+  musicPollIntervalMs: number;
+  musicPlayerctlPlayer: string;
+  quackVolume: number;
+  updatedAt: string | null;
+};
+
+export type AppConfigUpdate = {
+  twitchChannel: string;
+  twitchClientId: string;
+  twitchClientSecret?: string;
+  clearTwitchClientSecret?: boolean;
+  obsUrl: string;
+  obsPassword?: string;
+  clearObsPassword?: boolean;
+  obsScenes: string[];
+  discordClientId: string;
+  discordBotToken?: string;
+  clearDiscordBotToken?: boolean;
+  elevenLabsApiKey?: string;
+  clearElevenLabsApiKey?: boolean;
+  musicPollIntervalMs: number;
+  musicPlayerctlPlayer: string;
+  quackVolume: number;
+};
+
+export type SettingsUpdatedPayload = {
+  updatedAt: string;
+};

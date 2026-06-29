@@ -7,7 +7,7 @@ import {
 } from '../../shared/constants';
 import { getViewerRolesFromBadges } from '../../shared/roles';
 import { twitchClient } from '../chat';
-import { config } from '../config';
+import { appConfig } from '../appConfig';
 import { db } from '../db';
 import { HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
@@ -165,7 +165,7 @@ export async function getTwitchStreamStatus(state: RuntimeState): Promise<Stream
 
   try {
     const res = await fetch(
-      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(config.twitchChannel)}`,
+      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(appConfig.twitchChannel)}`,
       { headers },
     );
 
@@ -224,7 +224,7 @@ export async function getTwitchAdSchedule(state: RuntimeState): Promise<AdSchedu
   }
 
   const bid = state.broadcasterId ?? await fetchBroadcasterId(headers['Client-Id'], headers.userToken);
-  if (!bid) return emptyAdSchedule('unavailable', `Could not resolve broadcaster ID for "${config.twitchChannel}".`);
+  if (!bid) return emptyAdSchedule('unavailable', `Could not resolve broadcaster ID for "${appConfig.twitchChannel}".`);
   state.broadcasterId = bid;
 
   try {
@@ -308,7 +308,7 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
   const activeStreamSession = getActiveStreamSession();
 
   return {
-    channel: config.twitchChannel,
+    channel: appConfig.twitchChannel,
     chatConnection: twitchClient.readyState?.() ?? 'UNKNOWN',
     obsConnected: isObsConnected(),
     eventSubConnected: state.eventSubConnected,

@@ -40,6 +40,11 @@ import type {
   ViewerRewardCategoryToggleResult,
   ViewerRewardsResponse,
   ViewerRewardUpsert,
+  TtsSettings,
+  TtsSettingsUpdate,
+  TtsVoice,
+  AppConfig,
+  AppConfigUpdate,
 } from '../../shared/api';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
@@ -67,6 +72,14 @@ async function sendJson<T>(path: string, method: string, body?: unknown): Promis
   });
   if (!response.ok) throw new Error(await readApiError(response));
   return response.json() as Promise<T>;
+}
+
+export async function getAppConfig(): Promise<AppConfig> {
+  return fetchJson<AppConfig>('/api/config');
+}
+
+export async function updateAppConfig(update: AppConfigUpdate): Promise<AppConfig> {
+  return sendJson<AppConfig>('/api/config', 'PUT', update);
 }
 
 export async function getViewers(): Promise<Record<string, Viewer>> {
@@ -329,4 +342,28 @@ export async function getChatters(): Promise<ChattersResponse> {
 
 export async function reconnectEventSub(): Promise<{ ok: boolean }> {
   return sendJson<{ ok: boolean }>('/api/eventsub/reconnect', 'POST');
+}
+
+export async function getTtsSettings(): Promise<TtsSettings> {
+  return fetchJson<TtsSettings>('/api/tts/settings');
+}
+
+export async function updateTtsSettings(settings: TtsSettingsUpdate): Promise<TtsSettings> {
+  return sendJson<TtsSettings>('/api/tts/settings', 'PUT', settings);
+}
+
+export async function getTtsVoices(): Promise<TtsVoice[]> {
+  return fetchJson<TtsVoice[]>('/api/tts/voices');
+}
+
+export async function testTtsSpeak(text: string): Promise<{ ok: boolean }> {
+  return sendJson<{ ok: boolean }>('/api/tts/speak', 'POST', { text });
+}
+
+export async function getTtsEnabledRewards(): Promise<string[]> {
+  return fetchJson<string[]>('/api/tts/rewards');
+}
+
+export async function setTtsRewardEnabled(rewardId: string, enabled: boolean): Promise<{ enabled: boolean }> {
+  return sendJson<{ enabled: boolean }>(`/api/tts/reward/${encodeURIComponent(rewardId)}`, 'PUT', { enabled });
 }

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { MusicInfo } from '../shared/api';
-import { config } from './config';
+import { appConfig } from './appConfig';
 import { broadcast } from './realtime';
 
 const execFileAsync = promisify(execFile);
@@ -89,8 +89,8 @@ async function readPlayerctlMusicForPlayer(playerName: string | null): Promise<M
 }
 
 async function readPlayerctlMusic(): Promise<MusicInfo> {
-  if (config.musicPlayerctlPlayer) {
-    return readPlayerctlMusicForPlayer(config.musicPlayerctlPlayer);
+  if (appConfig.musicPlayerctlPlayer) {
+    return readPlayerctlMusicForPlayer(appConfig.musicPlayerctlPlayer);
   }
 
   const playersResult = await execFileAsync('playerctl', ['-l'], { timeout: 1200 });
@@ -163,8 +163,22 @@ export async function clearManualMusic(): Promise<MusicInfo> {
   return currentMusic;
 }
 
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+export function stopMusicPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
 export function startMusicPolling() {
-  if (config.musicPollIntervalMs <= 0) return;
+  stopMusicPolling();
+  if (appConfig.musicPollIntervalMs <= 0) return;
   void pollMusic();
-  setInterval(() => void pollMusic(), config.musicPollIntervalMs);
+  pollTimer = setInterval(() => void pollMusic(), appConfig.musicPollIntervalMs);
+}
+
+export function restartMusicPolling() {
+  startMusicPolling();
 }

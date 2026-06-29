@@ -1,6 +1,6 @@
 import OBSWebSocket from 'obs-websocket-js';
 import type { ObsStatus } from '../shared/api';
-import { config } from './config';
+import { appConfig } from './appConfig';
 import { broadcast } from './realtime';
 
 const obs = new OBSWebSocket();
@@ -11,7 +11,7 @@ let reconnectTimer: Timer | null = null;
 
 const obsStatus: ObsStatus = {
   connected: false,
-  scenes: config.obsScenes,
+  scenes: appConfig.obsScenes,
   currentProgramScene: null,
   currentPreviewScene: null,
   studioMode: false,
@@ -106,15 +106,15 @@ export async function connectObs() {
 
   obsConnectPromise = (async () => {
     try {
-      await obs.connect(config.obsUrl, config.obsPassword || undefined);
+      await obs.connect(appConfig.obsUrl, appConfig.obsPassword || undefined);
       clearReconnect();
       await refreshObsStatus();
-      console.log(`OBS: connected to ${config.obsUrl}`);
+      console.log(`OBS: connected to ${appConfig.obsUrl}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'OBS connection failed';
       updateObsStatus({
         connected: false,
-        scenes: config.obsScenes,
+        scenes: appConfig.obsScenes,
         currentProgramScene: null,
         currentPreviewScene: null,
         studioMode: false,
@@ -129,6 +129,18 @@ export async function connectObs() {
   return obsConnectPromise;
 }
 
+export async function reconnectObs() {
+  clearReconnect();
+  obsConnectPromise = null;
+  try {
+    await obs.disconnect();
+  } catch {
+    // Not connected yet — fine, just connect below.
+  }
+  obsStatus.connected = false;
+  await connectObs();
+}
+
 async function ensureObs() {
   if (obsStatus.connected) return;
   await connectObs();
@@ -140,7 +152,7 @@ async function ensureObs() {
 obs.on('ConnectionClosed', () => {
   updateObsStatus({
     connected: false,
-    scenes: config.obsScenes,
+    scenes: appConfig.obsScenes,
     currentProgramScene: null,
     currentPreviewScene: null,
     studioMode: false,
