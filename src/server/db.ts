@@ -170,8 +170,24 @@ db.exec(`
     enabled integer not null default 1,
     voice_id text not null default 'nPczCjzI2devNBz1zQrb',
     speed real not null default 1.0,
+    voice_profile_id text not null default 'default',
+    language_id text not null default 'en',
+    tone_preset text not null default 'neutral',
+    exaggeration real not null default 0.5,
+    cfg_weight real not null default 0.5,
+    temperature real not null default 0.8,
     volume real not null default 0.8,
     updated_at text not null default ''
+  );
+
+  create table if not exists tts_voice_profiles (
+    id text primary key,
+    name text not null,
+    reference_path text not null,
+    model text not null default 'multilingual-v3',
+    language_id text not null default 'en',
+    created_at text not null,
+    updated_at text not null
   );
 
   create table if not exists tts_reward_enabled (
@@ -226,6 +242,7 @@ const allowedMigrationTables = new Set([
   'go_live_settings',
   'viewer_reward_categories',
   'viewer_reward_category_members',
+  'tts_settings',
 ]);
 const allowedMigrationColumns = new Set([
   'deleted_at',
@@ -237,6 +254,12 @@ const allowedMigrationColumns = new Set([
   'is_first_in_session',
   'is_first_ever',
   'default_background_color',
+  'voice_profile_id',
+  'language_id',
+  'tone_preset',
+  'exaggeration',
+  'cfg_weight',
+  'temperature',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
@@ -248,6 +271,12 @@ const allowedMigrationDefinitions: Record<string, string> = {
   is_first_in_session: 'integer not null default 0',
   is_first_ever: 'integer not null default 0',
   default_background_color: 'text',
+  voice_profile_id: "text not null default 'default'",
+  language_id: "text not null default 'en'",
+  tone_preset: "text not null default 'neutral'",
+  exaggeration: 'real not null default 0.5',
+  cfg_weight: 'real not null default 0.5',
+  temperature: 'real not null default 0.8',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -278,6 +307,12 @@ addColumnIfMissing('chat_messages', 'stream_session_id', 'text');
 addColumnIfMissing('chat_messages', 'is_first_in_session', 'integer not null default 0');
 addColumnIfMissing('chat_messages', 'is_first_ever', 'integer not null default 0');
 addColumnIfMissing('viewer_reward_categories', 'default_background_color', 'text');
+addColumnIfMissing('tts_settings', 'voice_profile_id', "text not null default 'default'");
+addColumnIfMissing('tts_settings', 'language_id', "text not null default 'en'");
+addColumnIfMissing('tts_settings', 'tone_preset', "text not null default 'neutral'");
+addColumnIfMissing('tts_settings', 'exaggeration', 'real not null default 0.5');
+addColumnIfMissing('tts_settings', 'cfg_weight', 'real not null default 0.5');
+addColumnIfMissing('tts_settings', 'temperature', 'real not null default 0.8');
 
 db.exec('create index if not exists idx_chat_messages_stream_session on chat_messages(stream_session_id)');
 

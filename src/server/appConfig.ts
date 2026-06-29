@@ -15,7 +15,6 @@ export type AppConfigInternal = {
   obsScenes: string[];
   discordClientId: string;
   discordBotToken: string;
-  elevenLabsApiKey: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;
@@ -31,7 +30,6 @@ type AppConfigRow = {
   obsScenes: string;
   discordClientId: string;
   discordBotToken: string;
-  elevenLabsApiKey: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;
@@ -48,7 +46,6 @@ const selectRow = db.prepare(`
     obs_scenes as obsScenes,
     discord_client_id as discordClientId,
     discord_bot_token as discordBotToken,
-    elevenlabs_api_key as elevenLabsApiKey,
     music_poll_interval_ms as musicPollIntervalMs,
     music_playerctl_player as musicPlayerctlPlayer,
     quack_volume as quackVolume,
@@ -60,7 +57,7 @@ const selectRow = db.prepare(`
 const insertSeedRow = db.prepare(`
   insert or ignore into app_config
     (id, twitch_channel, twitch_client_id, twitch_client_secret, obs_url, obs_password,
-     obs_scenes, discord_client_id, discord_bot_token, elevenlabs_api_key,
+    obs_scenes, discord_client_id, discord_bot_token, elevenlabs_api_key,
      music_poll_interval_ms, music_playerctl_player, quack_volume, updated_at)
   values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
@@ -112,7 +109,7 @@ function seedFromEnv() {
     parseScenes(envScenes).join(','),
     process.env.DISCORD_CLIENT_ID ?? '',
     process.env.DISCORD_BOT_TOKEN ?? '',
-    process.env.ELEVENLABS_API_KEY ?? '',
+    '',
     Number.isFinite(envInterval) ? envInterval : 2000,
     process.env.MUSIC_PLAYERCTL_PLAYER?.trim() || 'strawberry',
     Number.isFinite(envVolume) ? clampNumber(envVolume, 0, 1) : 0.2,
@@ -134,7 +131,6 @@ function loadRow(): AppConfigInternal {
     obsScenes: parseScenes(row.obsScenes),
     discordClientId: row.discordClientId,
     discordBotToken: row.discordBotToken,
-    elevenLabsApiKey: row.elevenLabsApiKey,
     musicPollIntervalMs: row.musicPollIntervalMs,
     musicPlayerctlPlayer: row.musicPlayerctlPlayer,
     quackVolume: row.quackVolume,
@@ -163,7 +159,6 @@ export const appConfig = {
   get obsScenes() { return current().obsScenes; },
   get discordClientId() { return current().discordClientId; },
   get discordBotToken() { return current().discordBotToken; },
-  get elevenLabsApiKey() { return current().elevenLabsApiKey; },
   get musicPollIntervalMs() { return current().musicPollIntervalMs; },
   get musicPlayerctlPlayer() { return current().musicPlayerctlPlayer; },
   get quackVolume() { return current().quackVolume; },
@@ -183,7 +178,6 @@ function toPublic(internal: AppConfigInternal): AppConfig {
     obsScenes: internal.obsScenes,
     discordClientId: internal.discordClientId,
     discordBotTokenConfigured: Boolean(internal.discordBotToken),
-    elevenLabsApiKeyConfigured: Boolean(internal.elevenLabsApiKey),
     musicPollIntervalMs: internal.musicPollIntervalMs,
     musicPlayerctlPlayer: internal.musicPlayerctlPlayer,
     quackVolume: internal.quackVolume,
@@ -201,8 +195,7 @@ export type AppConfigChange =
   | 'twitchCredentials'
   | 'obs'
   | 'music'
-  | 'discord'
-  | 'elevenLabs';
+  | 'discord';
 
 function normalizeUpdate(body: unknown): AppConfigUpdate {
   const value = (body ?? {}) as Partial<AppConfigUpdate>;
@@ -237,8 +230,6 @@ function normalizeUpdate(body: unknown): AppConfigUpdate {
     discordClientId: str(value.discordClientId),
     discordBotToken: typeof value.discordBotToken === 'string' ? value.discordBotToken.trim() : undefined,
     clearDiscordBotToken: value.clearDiscordBotToken === true,
-    elevenLabsApiKey: typeof value.elevenLabsApiKey === 'string' ? value.elevenLabsApiKey.trim() : undefined,
-    clearElevenLabsApiKey: value.clearElevenLabsApiKey === true,
     musicPollIntervalMs: interval,
     musicPlayerctlPlayer: str(value.musicPlayerctlPlayer),
     quackVolume: volume,
@@ -264,7 +255,6 @@ export function saveAppConfig(body: unknown): { config: AppConfig; changes: Set<
     obsScenes: update.obsScenes,
     discordClientId: update.discordClientId,
     discordBotToken: resolveSecret(update.clearDiscordBotToken, update.discordBotToken, prev.discordBotToken),
-    elevenLabsApiKey: resolveSecret(update.clearElevenLabsApiKey, update.elevenLabsApiKey, prev.elevenLabsApiKey),
     musicPollIntervalMs: update.musicPollIntervalMs,
     musicPlayerctlPlayer: update.musicPlayerctlPlayer,
     quackVolume: update.quackVolume,
@@ -280,7 +270,7 @@ export function saveAppConfig(body: unknown): { config: AppConfig; changes: Set<
     next.obsScenes.join(','),
     next.discordClientId,
     next.discordBotToken,
-    next.elevenLabsApiKey,
+    '',
     next.musicPollIntervalMs,
     next.musicPlayerctlPlayer,
     next.quackVolume,
@@ -305,7 +295,6 @@ export function saveAppConfig(body: unknown): { config: AppConfig; changes: Set<
   if (next.discordClientId !== prev.discordClientId || next.discordBotToken !== prev.discordBotToken) {
     changes.add('discord');
   }
-  if (next.elevenLabsApiKey !== prev.elevenLabsApiKey) changes.add('elevenLabs');
 
   return { config: toPublic(next), changes };
 }

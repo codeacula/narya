@@ -23,10 +23,12 @@ import {
   getAppConfig,
   updateAppConfig,
   clearDiscordGoLiveSettings,
+  createTtsVoice,
   createRunsheetItem,
   createChatbotCommand,
   createSoundButton,
   createTickerItem,
+  deleteTtsVoice,
   deleteRunsheetItem,
   deleteChatbotCommand,
   deleteSoundButton,
@@ -43,6 +45,7 @@ import {
   getSoundButtons,
   getTicker,
   getTtsSettings,
+  getTtsStatus,
   getTtsVoices,
   testTtsSpeak,
   updateTtsSettings,
@@ -80,12 +83,15 @@ type AppConfigForm = {
   discordBotToken: string;
   discordBotTokenConfigured: boolean;
   clearDiscordBotToken: boolean;
-  elevenLabsApiKey: string;
-  elevenLabsApiKeyConfigured: boolean;
-  clearElevenLabsApiKey: boolean;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;
+};
+
+type TtsStatus = {
+  ok: boolean;
+  baseUrl: string;
+  error?: string;
 };
 
 function appConfigToForm(config: AppConfig): AppConfigForm {
@@ -104,9 +110,6 @@ function appConfigToForm(config: AppConfig): AppConfigForm {
     discordBotToken: '',
     discordBotTokenConfigured: config.discordBotTokenConfigured,
     clearDiscordBotToken: false,
-    elevenLabsApiKey: '',
-    elevenLabsApiKeyConfigured: config.elevenLabsApiKeyConfigured,
-    clearElevenLabsApiKey: false,
     musicPollIntervalMs: config.musicPollIntervalMs,
     musicPlayerctlPlayer: config.musicPlayerctlPlayer,
     quackVolume: config.quackVolume,
@@ -128,12 +131,16 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   discordBotToken: '',
   discordBotTokenConfigured: false,
   clearDiscordBotToken: false,
-  elevenLabsApiKey: '',
-  elevenLabsApiKeyConfigured: false,
-  clearElevenLabsApiKey: false,
   musicPollIntervalMs: 2000,
   musicPlayerctlPlayer: '',
   quackVolume: 0.2,
+};
+
+const TTS_TONE_PRESETS = {
+  neutral: { exaggeration: 0.5, cfgWeight: 0.5, temperature: 0.8 },
+  calm: { exaggeration: 0.35, cfgWeight: 0.65, temperature: 0.7 },
+  expressive: { exaggeration: 0.7, cfgWeight: 0.35, temperature: 0.85 },
+  dramatic: { exaggeration: 0.9, cfgWeight: 0.3, temperature: 0.95 },
 };
 
 type SoundForm = {
@@ -383,11 +390,25 @@ export function SettingsPage({
   const [discordHelpOpen, setDiscordHelpOpen] = useState(false);
   const [discordDisconnecting, setDiscordDisconnecting] = useState(false);
   const [discordRefreshing, setDiscordRefreshing] = useState(false);
-  const [ttsSettings, setTtsSettings] = useState<TtsSettings>({ enabled: false, voiceId: '', speed: 1.0, volume: 0.8, updatedAt: null });
+  const [ttsSettings, setTtsSettings] = useState<TtsSettings>({
+    enabled: false,
+    voiceProfileId: 'default',
+    languageId: 'en',
+    tonePreset: 'neutral',
+    exaggeration: 0.5,
+    cfgWeight: 0.5,
+    temperature: 0.8,
+    volume: 0.8,
+    updatedAt: null,
+  });
   const [ttsVoices, setTtsVoices] = useState<TtsVoice[]>([]);
+  const [ttsStatus, setTtsStatus] = useState<TtsStatus | null>(null);
   const [ttsLoading, setTtsLoading] = useState(true);
   const [ttsSaving, setTtsSaving] = useState(false);
   const [ttsTesting, setTtsTesting] = useState(false);
+  const [ttsVoiceSaving, setTtsVoiceSaving] = useState(false);
+  const [ttsVoiceName, setTtsVoiceName] = useState('');
+  const [ttsVoiceFile, setTtsVoiceFile] = useState<File | null>(null);
   const [ttsTestText, setTtsTestText] = useState('Hello, I am your stream assistant.');
   const [ttsMessage, setTtsMessage] = useState<string | null>(null);
   const [ttsError, setTtsError] = useState<string | null>(null);
@@ -507,11 +528,16 @@ export function SettingsPage({
   useEffect(() => {
     let cancelled = false;
     setTtsLoading(true);
-    void Promise.all([getTtsSettings(), getTtsVoices().catch(() => [] as TtsVoice[])])
-      .then(([settings, voices]) => {
+    void Promise.all([
+      getTtsSettings(),
+      getTtsVoices().catch(() => [] as TtsVoice[]),
+      getTtsStatus().catch(error => ({ ok: false, baseUrl: '', error: error instanceof Error ? error.message : 'Could not reach Chatterbox' })),
+    ])
+      .then(([settings, voices, status]) => {
         if (!cancelled) {
           setTtsSettings(settings);
           setTtsVoices(voices);
+          setTtsStatus(status);
           setTtsError(null);
         }
       })
@@ -822,8 +848,6 @@ export function SettingsPage({
       discordClientId: appConfigForm.discordClientId,
       discordBotToken: appConfigForm.discordBotToken || undefined,
       clearDiscordBotToken: appConfigForm.clearDiscordBotToken,
-      elevenLabsApiKey: appConfigForm.elevenLabsApiKey || undefined,
-      clearElevenLabsApiKey: appConfigForm.clearElevenLabsApiKey,
       musicPollIntervalMs: appConfigForm.musicPollIntervalMs,
       musicPlayerctlPlayer: appConfigForm.musicPlayerctlPlayer,
       quackVolume: appConfigForm.quackVolume,
@@ -900,8 +924,12 @@ export function SettingsPage({
     setTtsError(null);
     void updateTtsSettings({
       enabled: ttsSettings.enabled,
-      voiceId: ttsSettings.voiceId,
-      speed: ttsSettings.speed,
+      voiceProfileId: ttsSettings.voiceProfileId,
+      languageId: ttsSettings.languageId,
+      tonePreset: ttsSettings.tonePreset,
+      exaggeration: ttsSettings.exaggeration,
+      cfgWeight: ttsSettings.cfgWeight,
+      temperature: ttsSettings.temperature,
       volume: ttsSettings.volume,
     })
       .then(saved => {
@@ -912,6 +940,48 @@ export function SettingsPage({
         setTtsError(error instanceof Error ? error.message : 'Could not save TTS settings');
       })
       .finally(() => setTtsSaving(false));
+  };
+
+  const handleTtsVoiceUpload = () => {
+    if (!ttsVoiceFile) {
+      setTtsError('Choose a voice reference audio file first.');
+      return;
+    }
+    setTtsVoiceSaving(true);
+    setTtsMessage(null);
+    setTtsError(null);
+    void createTtsVoice(ttsVoiceName, ttsSettings.languageId, ttsVoiceFile)
+      .then(async voice => {
+        const voices = await getTtsVoices();
+        setTtsVoices(voices);
+        setTtsSettings(current => ({ ...current, voiceProfileId: voice.id }));
+        setTtsVoiceName('');
+        setTtsVoiceFile(null);
+        setTtsMessage(`Voice profile "${voice.name}" added.`);
+      })
+      .catch(error => {
+        setTtsError(error instanceof Error ? error.message : 'Could not create voice profile');
+      })
+      .finally(() => setTtsVoiceSaving(false));
+  };
+
+  const handleTtsVoiceDelete = () => {
+    if (!ttsSettings.voiceProfileId || ttsSettings.voiceProfileId === 'default') return;
+    const id = ttsSettings.voiceProfileId;
+    setTtsVoiceSaving(true);
+    setTtsMessage(null);
+    setTtsError(null);
+    void deleteTtsVoice(id)
+      .then(async () => {
+        const voices = await getTtsVoices();
+        setTtsVoices(voices);
+        setTtsSettings(current => ({ ...current, voiceProfileId: 'default' }));
+        setTtsMessage('Voice profile deleted.');
+      })
+      .catch(error => {
+        setTtsError(error instanceof Error ? error.message : 'Could not delete voice profile');
+      })
+      .finally(() => setTtsVoiceSaving(false));
   };
 
   const handleTtsTest = () => {
@@ -986,7 +1056,7 @@ export function SettingsPage({
         <div className="set-group">
           <div className="set-group-label">Connections &amp; credentials</div>
           <p className="set-intro" style={{ marginTop: 0 }}>
-            Everything the app needs to talk to Twitch, OBS, Discord, and ElevenLabs. Saving
+            Everything the app needs to talk to Twitch, OBS, and Discord. Saving
             reconnects the affected services automatically — no restart required.
           </p>
 
@@ -1129,28 +1199,6 @@ export function SettingsPage({
                   onChange={event => setAppConfigForm(current => ({ ...current, clearDiscordBotToken: event.target.checked, discordBotToken: '' }))}
                 />
                 <span>Clear stored Discord bot token</span>
-              </label>
-            )}
-
-            <label className="field">
-              <span>ElevenLabs API key</span>
-              <input
-                type="password"
-                value={appConfigForm.elevenLabsApiKey}
-                disabled={appConfigLoading || appConfigSaving || appConfigForm.clearElevenLabsApiKey}
-                placeholder={appConfigForm.elevenLabsApiKeyConfigured ? 'Configured — leave blank to keep' : 'Required for Text-to-Speech'}
-                onChange={event => setAppConfigForm(current => ({ ...current, elevenLabsApiKey: event.target.value, clearElevenLabsApiKey: false }))}
-              />
-            </label>
-            {appConfigForm.elevenLabsApiKeyConfigured && (
-              <label className="command-enabled">
-                <input
-                  type="checkbox"
-                  checked={appConfigForm.clearElevenLabsApiKey}
-                  disabled={appConfigLoading || appConfigSaving}
-                  onChange={event => setAppConfigForm(current => ({ ...current, clearElevenLabsApiKey: event.target.checked, elevenLabsApiKey: '' }))}
-                />
-                <span>Clear stored ElevenLabs key</span>
               </label>
             )}
 
@@ -1803,40 +1851,141 @@ export function SettingsPage({
               <span>Enabled</span>
             </label>
 
+            {ttsStatus && (
+              <div className={'settings-alert ' + (ttsStatus.ok ? 'settings-alert--info' : 'settings-alert--warn')}>
+                <span className="settings-alert-icon">{ttsStatus.ok ? 'i' : '!'}</span>
+                <span>
+                  Chatterbox service {ttsStatus.ok ? 'connected' : 'unavailable'}
+                  {ttsStatus.baseUrl ? ` at ${ttsStatus.baseUrl}` : ''}
+                  {!ttsStatus.ok && ttsStatus.error ? `: ${ttsStatus.error}` : ''}
+                </span>
+              </div>
+            )}
+
             <label className="field">
-              <span>Voice</span>
-              {ttsVoices.length > 0 ? (
-                <select
-                  value={ttsSettings.voiceId}
-                  disabled={ttsLoading || ttsSaving}
-                  onChange={event => setTtsSettings(current => ({ ...current, voiceId: event.target.value }))}
-                >
-                  <option value="">Select a voice</option>
-                  {ttsVoices.map(voice => (
-                    <option key={voice.id} value={voice.id}>{voice.name} ({voice.category})</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  value={ttsSettings.voiceId}
-                  disabled={ttsLoading || ttsSaving}
-                  placeholder="Voice ID (set the ElevenLabs API key under Connections to browse)"
-                  onChange={event => setTtsSettings(current => ({ ...current, voiceId: event.target.value }))}
-                />
-              )}
+              <span>Voice profile</span>
+              <select
+                value={ttsSettings.voiceProfileId}
+                disabled={ttsLoading || ttsSaving || ttsVoiceSaving}
+                onChange={event => setTtsSettings(current => ({ ...current, voiceProfileId: event.target.value }))}
+              >
+                {ttsVoices.map(voice => (
+                  <option key={voice.id} value={voice.id}>{voice.name} ({voice.category})</option>
+                ))}
+              </select>
             </label>
 
             <div className="llm-settings-grid">
               <label className="field">
-                <span>Speed</span>
+                <span>New voice name</span>
+                <input
+                  value={ttsVoiceName}
+                  disabled={ttsLoading || ttsVoiceSaving}
+                  maxLength={80}
+                  placeholder="Reference clip label"
+                  onChange={event => setTtsVoiceName(event.target.value)}
+                />
+              </label>
+
+              <label className="field">
+                <span>Reference audio</span>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  disabled={ttsLoading || ttsVoiceSaving}
+                  onChange={event => setTtsVoiceFile(event.target.files?.[0] ?? null)}
+                />
+              </label>
+            </div>
+
+            <div className="command-settings-actions">
+              <button
+                className="modbtn"
+                type="button"
+                disabled={ttsLoading || ttsVoiceSaving || !ttsVoiceName.trim() || !ttsVoiceFile}
+                onClick={handleTtsVoiceUpload}
+              >
+                {ttsVoiceSaving ? 'Preparing...' : 'Add Voice'}
+              </button>
+              <button
+                className="modbtn danger"
+                type="button"
+                disabled={ttsLoading || ttsVoiceSaving || ttsSettings.voiceProfileId === 'default'}
+                onClick={handleTtsVoiceDelete}
+              >
+                Delete Voice
+              </button>
+            </div>
+
+            <div className="llm-settings-grid">
+              <label className="field">
+                <span>Language</span>
+                <input
+                  value={ttsSettings.languageId}
+                  disabled={ttsLoading || ttsSaving}
+                  maxLength={12}
+                  onChange={event => setTtsSettings(current => ({ ...current, languageId: event.target.value }))}
+                />
+              </label>
+
+              <label className="field">
+                <span>Tone preset</span>
+                <select
+                  value={ttsSettings.tonePreset}
+                  disabled={ttsLoading || ttsSaving}
+                  onChange={event => {
+                    const tonePreset = event.target.value as keyof typeof TTS_TONE_PRESETS;
+                    const preset = TTS_TONE_PRESETS[tonePreset] ?? TTS_TONE_PRESETS.neutral;
+                    setTtsSettings(current => ({ ...current, tonePreset, ...preset }));
+                  }}
+                >
+                  <option value="neutral">Neutral</option>
+                  <option value="calm">Calm</option>
+                  <option value="expressive">Expressive</option>
+                  <option value="dramatic">Dramatic</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="llm-settings-grid">
+              <label className="field">
+                <span>Exaggeration</span>
                 <input
                   type="number"
-                  min="0.7"
-                  max="1.2"
+                  min="0"
+                  max="1"
                   step="0.05"
-                  value={ttsSettings.speed}
+                  value={ttsSettings.exaggeration}
                   disabled={ttsLoading || ttsSaving}
-                  onChange={event => setTtsSettings(current => ({ ...current, speed: Number(event.target.value) }))}
+                  onChange={event => setTtsSettings(current => ({ ...current, exaggeration: Number(event.target.value) }))}
+                />
+              </label>
+
+              <label className="field">
+                <span>CFG weight</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={ttsSettings.cfgWeight}
+                  disabled={ttsLoading || ttsSaving}
+                  onChange={event => setTtsSettings(current => ({ ...current, cfgWeight: Number(event.target.value) }))}
+                />
+              </label>
+            </div>
+
+            <div className="llm-settings-grid">
+              <label className="field">
+                <span>Temperature</span>
+                <input
+                  type="number"
+                  min="0.05"
+                  max="1.5"
+                  step="0.05"
+                  value={ttsSettings.temperature}
+                  disabled={ttsLoading || ttsSaving}
+                  onChange={event => setTtsSettings(current => ({ ...current, temperature: Number(event.target.value) }))}
                 />
               </label>
 
@@ -1845,7 +1994,7 @@ export function SettingsPage({
                 <input
                   type="number"
                   min="0"
-                  max="1"
+                  max="1.2"
                   step="0.05"
                   value={ttsSettings.volume}
                   disabled={ttsLoading || ttsSaving}
@@ -1855,7 +2004,7 @@ export function SettingsPage({
             </div>
 
             <div className="command-example">
-              Triggered via <code>!tts &lt;text&gt;</code> (broadcaster/mod/VIP) or per channel point reward. Audio plays on the overlay browser source. Requires an ElevenLabs API key set under Connections &amp; credentials.
+              Triggered via <code>!tts &lt;text&gt;</code> (broadcaster/mod/VIP) or per channel point reward. Audio plays on the overlay browser source through the Chatterbox service.
             </div>
 
             <div className="llm-test-panel">

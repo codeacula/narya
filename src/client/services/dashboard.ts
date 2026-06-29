@@ -356,6 +356,29 @@ export async function getTtsVoices(): Promise<TtsVoice[]> {
   return fetchJson<TtsVoice[]>('/api/tts/voices');
 }
 
+export async function getTtsStatus(): Promise<{ ok: boolean; baseUrl: string; error?: string }> {
+  return fetchJson<{ ok: boolean; baseUrl: string; error?: string }>('/api/tts/status');
+}
+
+export async function createTtsVoice(name: string, languageId: string, file: File): Promise<TtsVoice> {
+  const response = await fetch(`${API_BASE}/api/tts/voices`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+      'x-voice-name': name,
+      'x-language-id': languageId,
+    },
+    body: file,
+  });
+  if (!response.ok) throw new Error(await readApiError(response));
+  return response.json() as Promise<TtsVoice>;
+}
+
+export async function deleteTtsVoice(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/tts/voices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(await readApiError(response));
+}
+
 export async function testTtsSpeak(text: string): Promise<{ ok: boolean }> {
   return sendJson<{ ok: boolean }>('/api/tts/speak', 'POST', { text });
 }

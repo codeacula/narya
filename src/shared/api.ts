@@ -408,25 +408,37 @@ export type TtsVoice = {
   id: string;
   name: string;
   category: string;
+  languageId: string;
+  createdAt: string | null;
 };
 
 export type TtsSettings = {
   enabled: boolean;
-  voiceId: string;
-  speed: number;
+  voiceProfileId: string;
+  languageId: string;
+  tonePreset: string;
+  exaggeration: number;
+  cfgWeight: number;
+  temperature: number;
   volume: number;
   updatedAt: string | null;
 };
 
 export type TtsSettingsUpdate = {
   enabled: boolean;
-  voiceId: string;
-  speed: number;
+  voiceProfileId: string;
+  languageId: string;
+  tonePreset: string;
+  exaggeration: number;
+  cfgWeight: number;
+  temperature: number;
   volume: number;
 };
 
 export type TtsPlayback = {
   audioBase64: string;
+  mimeType: string;
+  volume: number;
 };
 
 // Runtime configuration persisted in the database and edited from the Settings UI.
@@ -441,7 +453,6 @@ export type AppConfig = {
   obsScenes: string[];
   discordClientId: string;
   discordBotTokenConfigured: boolean;
-  elevenLabsApiKeyConfigured: boolean;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;
@@ -460,8 +471,6 @@ export type AppConfigUpdate = {
   discordClientId: string;
   discordBotToken?: string;
   clearDiscordBotToken?: boolean;
-  elevenLabsApiKey?: string;
-  clearElevenLabsApiKey?: boolean;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;
