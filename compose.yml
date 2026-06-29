@@ -1,8 +1,12 @@
 services:
   streamer-tools:
-    build: .
+    build:
+      context: .
+      target: development
+    command: ["sh", "-c", "bun install --frozen-lockfile && exec bun run dev"]
     restart: unless-stopped
     ports:
+      - "5173:5173"
       - "4317:4317"
     environment:
       PORT: 4317
@@ -11,18 +15,30 @@ services:
       TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
       TWITCH_USER_TOKEN: ${TWITCH_USER_TOKEN:-}
       TWITCH_BOT_USER_TOKEN: ${TWITCH_BOT_USER_TOKEN:-}
-      TWITCH_REDIRECT_URI: ${TWITCH_REDIRECT_URI:-http://localhost:4317/api/auth/twitch/callback}
+      TWITCH_REDIRECT_URI: ${TWITCH_REDIRECT_URI:-http://localhost:5173/api/auth/twitch/callback}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-http://localhost:5173/api/auth/discord/callback}
       OBS_WEBSOCKET_URL: ws://host.docker.internal:4455
       OBS_WEBSOCKET_PASSWORD: ${OBS_WEBSOCKET_PASSWORD:-}
+      OBS_SCENES: ${OBS_SCENES:-Coding,BRB,Starting Soon,Ending}
       MUSIC_POLL_INTERVAL_MS: ${MUSIC_POLL_INTERVAL_MS:-0}
       MUSIC_PLAYERCTL_PLAYER: ${MUSIC_PLAYERCTL_PLAYER:-strawberry}
       QUACK_VOLUME: ${QUACK_VOLUME:-0.20}
+      VITE_BACKEND_ORIGIN: http://127.0.0.1:4317
+      VITE_BACKEND_WS_ORIGIN: http://127.0.0.1:4317
     volumes:
+      - .:/app
+      - streamer-tools-node-modules:/app/node_modules
       - ./data:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:4317/api/health'); if (!r.ok) process.exit(1);"]
+      test: ["CMD", "bun", "-e", "const rs = await Promise.all([fetch('http://127.0.0.1:4317/api/health'), fetch('http://127.0.0.1:5173/dashboard')]); if (rs.some(r => !r.ok)) process.exit(1);"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 30s
+
+volumes:
+  streamer-tools-node-modules:

@@ -32,15 +32,35 @@ When OBS is connected, `/tablet` shows the live OBS scene list and highlights th
 ## Docker
 
 ```sh
-docker compose up --build
+docker compose up --build -d
 ```
 
-The container runs the production backend and built React UI as one service on `http://localhost:4317`. SQLite data is persisted in `./data/streamer-tools.sqlite`.
+The container runs the development servers with the repository mounted at `/app`:
 
-The Compose service uses `restart: unless-stopped`, so it will come back automatically when Docker starts. To run it in the background:
+- Open the dashboard at `http://localhost:5173/dashboard`.
+- Vite applies React and CSS changes with HMR.
+- Bun restarts the backend when files under `src/server` change.
+- The backend and direct API access remain available on `http://localhost:4317`.
+- SQLite data remains persisted in `./data/streamer-tools.sqlite`.
+
+Follow the development logs with:
 
 ```sh
-docker compose up --build -d
+docker compose logs -f
+```
+
+The container keeps its own `node_modules` volume instead of using host dependencies. After changing `package.json` or `bun.lock`, restart the service so its startup install refreshes that volume:
+
+```sh
+docker compose restart
+```
+
+Re-run `docker compose up --build -d` when changing the Dockerfile or Bun image. Stop the service with `docker compose stop` if it should remain stopped after the next engine restart, or remove it with `docker compose down`.
+
+Compose uses `restart: unless-stopped`, so the service returns automatically after the container engine starts. Docker Engine or Docker Desktop must itself be enabled at boot or login. When `docker` is provided by rootless Podman, enable Podman's restart service as well:
+
+```sh
+systemctl --user enable --now podman-restart.service
 ```
 
 Chat is stored in two layers:
@@ -68,7 +88,7 @@ TWITCH_BOT_USER_TOKEN=
 TWITCH_REDIRECT_URI=http://localhost:5173/api/auth/twitch/callback
 ```
 
-Use `http://localhost:4317/api/auth/twitch/callback` for `TWITCH_REDIRECT_URI` when running with Docker, or `http://localhost:5173/api/auth/twitch/callback` for local dev via Vite.
+Use `http://localhost:5173/api/auth/twitch/callback` for `TWITCH_REDIRECT_URI` in both Docker and direct local development.
 
 The dashboard Settings page is the primary Twitch setup path. Set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET`, register `TWITCH_REDIRECT_URI` in your Twitch app, then use Settings to log in the broadcaster account and the separate bot account.
 

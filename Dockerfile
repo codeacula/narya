@@ -4,8 +4,13 @@ WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile
 
-FROM deps AS build
+FROM deps AS development
 COPY . .
+
+EXPOSE 4317 5173
+CMD ["bun", "run", "dev"]
+
+FROM development AS build
 RUN bun run build
 
 FROM oven/bun:1.2 AS runtime
