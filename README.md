@@ -13,8 +13,9 @@ The overlay is designed for a `1920x1080` browser source, with Twitch chat in th
 Music display uses `playerctl` from the backend process. Install `playerctl` on the host and run the app in the same desktop session as Strawberry.
 By default it reads from the `strawberry` playerctl player. Set `MUSIC_PLAYERCTL_PLAYER` if your playerctl name differs.
 
-Text-to-Speech uses a separate Chatterbox service. Run the sibling `chatterbox-tts`
-app first, then point this app at it with `CHATTERBOX_BASE_URL`.
+Text-to-Speech uses the separate Chatterbox service at `http://127.0.0.1:8008`
+by default. Narya loads its registered voices from `GET /voices` and sends speech
+requests to `POST /synthesize`; voice registration is managed by Chatterbox.
 
 ## Local Dev
 
@@ -100,5 +101,8 @@ The dashboard Settings page is the primary Twitch setup path. Set `TWITCH_CLIENT
 For Docker, OBS is configured as `ws://host.docker.internal:4455` so the container can reach OBS running on the host. The Docker default disables playerctl polling with `MUSIC_POLL_INTERVAL_MS=0` because containers do not normally have access to the host desktop media session.
 
 For local Bun development, use `CHATTERBOX_BASE_URL=http://127.0.0.1:8008`.
-For Docker, the default is `http://host.docker.internal:8008` so the Narya
-container can reach the Chatterbox app running on the host.
+For Docker, `CHATTERBOX_DOCKER_BASE_URL` defaults to
+`http://host.docker.internal:8008` so the Narya container can reach the
+Chatterbox app running on the host without reusing the host-only loopback URL.
+Start Chatterbox with `--host 0.0.0.0 --port 8008` when using Narya in Docker;
+a service bound only to `127.0.0.1` is not reachable from the container.

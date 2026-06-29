@@ -23,12 +23,10 @@ import {
   getAppConfig,
   updateAppConfig,
   clearDiscordGoLiveSettings,
-  createTtsVoice,
   createRunsheetItem,
   createChatbotCommand,
   createSoundButton,
   createTickerItem,
-  deleteTtsVoice,
   deleteRunsheetItem,
   deleteChatbotCommand,
   deleteSoundButton,
@@ -392,7 +390,7 @@ export function SettingsPage({
   const [discordRefreshing, setDiscordRefreshing] = useState(false);
   const [ttsSettings, setTtsSettings] = useState<TtsSettings>({
     enabled: false,
-    voiceProfileId: 'default',
+    voiceProfileId: 'zombiechicken',
     languageId: 'en',
     tonePreset: 'neutral',
     exaggeration: 0.5,
@@ -406,9 +404,6 @@ export function SettingsPage({
   const [ttsLoading, setTtsLoading] = useState(true);
   const [ttsSaving, setTtsSaving] = useState(false);
   const [ttsTesting, setTtsTesting] = useState(false);
-  const [ttsVoiceSaving, setTtsVoiceSaving] = useState(false);
-  const [ttsVoiceName, setTtsVoiceName] = useState('');
-  const [ttsVoiceFile, setTtsVoiceFile] = useState<File | null>(null);
   const [ttsTestText, setTtsTestText] = useState('Hello, I am your stream assistant.');
   const [ttsMessage, setTtsMessage] = useState<string | null>(null);
   const [ttsError, setTtsError] = useState<string | null>(null);
@@ -940,48 +935,6 @@ export function SettingsPage({
         setTtsError(error instanceof Error ? error.message : 'Could not save TTS settings');
       })
       .finally(() => setTtsSaving(false));
-  };
-
-  const handleTtsVoiceUpload = () => {
-    if (!ttsVoiceFile) {
-      setTtsError('Choose a voice reference audio file first.');
-      return;
-    }
-    setTtsVoiceSaving(true);
-    setTtsMessage(null);
-    setTtsError(null);
-    void createTtsVoice(ttsVoiceName, ttsSettings.languageId, ttsVoiceFile)
-      .then(async voice => {
-        const voices = await getTtsVoices();
-        setTtsVoices(voices);
-        setTtsSettings(current => ({ ...current, voiceProfileId: voice.id }));
-        setTtsVoiceName('');
-        setTtsVoiceFile(null);
-        setTtsMessage(`Voice profile "${voice.name}" added.`);
-      })
-      .catch(error => {
-        setTtsError(error instanceof Error ? error.message : 'Could not create voice profile');
-      })
-      .finally(() => setTtsVoiceSaving(false));
-  };
-
-  const handleTtsVoiceDelete = () => {
-    if (!ttsSettings.voiceProfileId || ttsSettings.voiceProfileId === 'default') return;
-    const id = ttsSettings.voiceProfileId;
-    setTtsVoiceSaving(true);
-    setTtsMessage(null);
-    setTtsError(null);
-    void deleteTtsVoice(id)
-      .then(async () => {
-        const voices = await getTtsVoices();
-        setTtsVoices(voices);
-        setTtsSettings(current => ({ ...current, voiceProfileId: 'default' }));
-        setTtsMessage('Voice profile deleted.');
-      })
-      .catch(error => {
-        setTtsError(error instanceof Error ? error.message : 'Could not delete voice profile');
-      })
-      .finally(() => setTtsVoiceSaving(false));
   };
 
   const handleTtsTest = () => {
@@ -1866,7 +1819,7 @@ export function SettingsPage({
               <span>Voice profile</span>
               <select
                 value={ttsSettings.voiceProfileId}
-                disabled={ttsLoading || ttsSaving || ttsVoiceSaving}
+                disabled={ttsLoading || ttsSaving || ttsVoices.length === 0}
                 onChange={event => setTtsSettings(current => ({ ...current, voiceProfileId: event.target.value }))}
               >
                 {ttsVoices.map(voice => (
@@ -1874,48 +1827,6 @@ export function SettingsPage({
                 ))}
               </select>
             </label>
-
-            <div className="llm-settings-grid">
-              <label className="field">
-                <span>New voice name</span>
-                <input
-                  value={ttsVoiceName}
-                  disabled={ttsLoading || ttsVoiceSaving}
-                  maxLength={80}
-                  placeholder="Reference clip label"
-                  onChange={event => setTtsVoiceName(event.target.value)}
-                />
-              </label>
-
-              <label className="field">
-                <span>Reference audio</span>
-                <input
-                  type="file"
-                  accept="audio/*"
-                  disabled={ttsLoading || ttsVoiceSaving}
-                  onChange={event => setTtsVoiceFile(event.target.files?.[0] ?? null)}
-                />
-              </label>
-            </div>
-
-            <div className="command-settings-actions">
-              <button
-                className="modbtn"
-                type="button"
-                disabled={ttsLoading || ttsVoiceSaving || !ttsVoiceName.trim() || !ttsVoiceFile}
-                onClick={handleTtsVoiceUpload}
-              >
-                {ttsVoiceSaving ? 'Preparing...' : 'Add Voice'}
-              </button>
-              <button
-                className="modbtn danger"
-                type="button"
-                disabled={ttsLoading || ttsVoiceSaving || ttsSettings.voiceProfileId === 'default'}
-                onClick={handleTtsVoiceDelete}
-              >
-                Delete Voice
-              </button>
-            </div>
 
             <div className="llm-settings-grid">
               <label className="field">

@@ -16,8 +16,6 @@ import {
   updateSoundButton,
 } from './sounds';
 import {
-  createTtsVoiceProfile,
-  deleteTtsVoiceProfile,
   getTtsEnabledRewardIds,
   getTtsEngineStatus,
   getTtsSettings,
@@ -363,7 +361,7 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
         volume?: unknown;
       };
       const enabled = typeof body.enabled === 'boolean' ? body.enabled : false;
-      const voiceProfileId = typeof body.voiceProfileId === 'string' ? body.voiceProfileId.trim() : 'default';
+      const voiceProfileId = typeof body.voiceProfileId === 'string' ? body.voiceProfileId.trim() : 'zombiechicken';
       const languageId = typeof body.languageId === 'string' ? body.languageId.trim() : 'en';
       const tonePreset = typeof body.tonePreset === 'string' ? body.tonePreset.trim() : 'neutral';
       const exaggeration = typeof body.exaggeration === 'number' ? body.exaggeration : 0.5;
@@ -391,28 +389,7 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
 
   app.get('/api/tts/voices', async (_request, response) => {
     try {
-      response.json(getTtsVoices());
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.post('/api/tts/voices', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '25mb' }), async (request, response) => {
-    try {
-      const audio = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
-      const nameHeader = request.header('x-voice-name') ?? '';
-      const languageHeader = request.header('x-language-id') ?? 'en';
-      const voice = await createTtsVoiceProfile(nameHeader, languageHeader, audio);
-      response.status(201).json(voice);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.delete('/api/tts/voices/:id', (request, response) => {
-    try {
-      deleteTtsVoiceProfile(request.params.id);
-      response.status(204).end();
+      response.json(await getTtsVoices());
     } catch (error) {
       sendRouteError(response, error);
     }

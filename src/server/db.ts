@@ -170,7 +170,7 @@ db.exec(`
     enabled integer not null default 1,
     voice_id text not null default 'nPczCjzI2devNBz1zQrb',
     speed real not null default 1.0,
-    voice_profile_id text not null default 'default',
+    voice_profile_id text not null default 'zombiechicken',
     language_id text not null default 'en',
     tone_preset text not null default 'neutral',
     exaggeration real not null default 0.5,
@@ -178,16 +178,6 @@ db.exec(`
     temperature real not null default 0.8,
     volume real not null default 0.8,
     updated_at text not null default ''
-  );
-
-  create table if not exists tts_voice_profiles (
-    id text primary key,
-    name text not null,
-    reference_path text not null,
-    model text not null default 'multilingual-v3',
-    language_id text not null default 'en',
-    created_at text not null,
-    updated_at text not null
   );
 
   create table if not exists tts_reward_enabled (
@@ -271,7 +261,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   is_first_in_session: 'integer not null default 0',
   is_first_ever: 'integer not null default 0',
   default_background_color: 'text',
-  voice_profile_id: "text not null default 'default'",
+  voice_profile_id: "text not null default 'zombiechicken'",
   language_id: "text not null default 'en'",
   tone_preset: "text not null default 'neutral'",
   exaggeration: 'real not null default 0.5',
@@ -307,7 +297,7 @@ addColumnIfMissing('chat_messages', 'stream_session_id', 'text');
 addColumnIfMissing('chat_messages', 'is_first_in_session', 'integer not null default 0');
 addColumnIfMissing('chat_messages', 'is_first_ever', 'integer not null default 0');
 addColumnIfMissing('viewer_reward_categories', 'default_background_color', 'text');
-addColumnIfMissing('tts_settings', 'voice_profile_id', "text not null default 'default'");
+addColumnIfMissing('tts_settings', 'voice_profile_id', "text not null default 'zombiechicken'");
 addColumnIfMissing('tts_settings', 'language_id', "text not null default 'en'");
 addColumnIfMissing('tts_settings', 'tone_preset', "text not null default 'neutral'");
 addColumnIfMissing('tts_settings', 'exaggeration', 'real not null default 0.5');

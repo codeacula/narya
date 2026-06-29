@@ -10,7 +10,7 @@ services:
       - "4317:4317"
     environment:
       PORT: 4317
-      CHATTERBOX_BASE_URL: ${CHATTERBOX_BASE_URL:-http://host.docker.internal:8008}
+      CHATTERBOX_BASE_URL: ${CHATTERBOX_DOCKER_BASE_URL:-http://host.docker.internal:8008}
       TWITCH_CHANNEL: ${TWITCH_CHANNEL:-codeacula}
       TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
       TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
