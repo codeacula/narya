@@ -7,6 +7,7 @@ import { DashboardPage } from './pages/Dashboard';
 import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage } from './pages/Overlay';
 import { TabletPage } from './pages/Tablet';
 import { ViewerWindowPage } from './pages/ViewerWindow';
+import { dashboardRouteFromPath } from './routing';
 import { ToastProvider } from './ui/notifications';
 import { ServiceStatusToasts } from './ui/serviceStatus';
 
@@ -29,7 +30,7 @@ function App() {
   if (path === '/overlay/nowplaying') return <OverlayNowPlayingPage />;
   if (path === '/tablet') return <TabletPage />;
   if (path === '/viewer') return <ViewerWindowPage />;
-  const initialPage = path === '/settings/rewards' ? 'rewards' : path === '/settings' ? 'settings' : 'dashboard';
+  const initialPage = dashboardRouteFromPath(path);
   return (
     <ToastProvider>
       <ServiceStatusToasts />

@@ -22,6 +22,7 @@ import {
 import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
+import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } from '../routing';
 import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
@@ -103,7 +104,7 @@ const EMPTY_OBS_STATUS: ObsStatus = {
 
 /* ---------------- Dashboard page ---------------- */
 
-export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: 'dashboard' | 'settings' | 'rewards' }) {
+export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: DashboardRoute }) {
   const [page, setPage] = useState(initialPage);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [popped, setPopped] = useState<Record<string, PoppedState>>({});
@@ -128,16 +129,15 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: 'da
   const lastChatAt = React.useRef<number>(0);
 
   const changePage = React.useCallback((nextPage: string) => {
-    const normalized = nextPage === 'settings' || nextPage === 'rewards' ? nextPage : 'dashboard';
-    const path = normalized === 'settings' ? '/settings' : normalized === 'rewards' ? '/settings/rewards' : '/dashboard';
-    window.history.pushState({}, '', path);
-    setPage(normalized);
+    const route: DashboardRoute = nextPage === 'settings' || nextPage === 'rewards' ? nextPage : 'dashboard';
+    const path = pathForDashboardRoute(route);
+    if (window.location.pathname !== path) window.history.pushState({}, '', path);
+    setPage(route);
   }, []);
 
   useEffect(() => {
     const handlePopState = () => {
-      const path = window.location.pathname;
-      setPage(path === '/settings/rewards' ? 'rewards' : path === '/settings' ? 'settings' : 'dashboard');
+      setPage(dashboardRouteFromPath(window.location.pathname));
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
