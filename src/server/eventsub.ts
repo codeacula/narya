@@ -217,6 +217,7 @@ function resetKeepaliveTimer(state: RuntimeState) {
   clearKeepaliveTimer(state);
   state.eventSubKeepaliveTimer = setTimeout(() => {
     console.log('EventSub: keepalive timeout, reconnecting...');
+    disconnectEventSub(state);
     void connectEventSub(state);
   }, state.eventSubKeepaliveMs);
 }
@@ -236,6 +237,7 @@ function isActiveSocket(socket: WebSocket | null): boolean {
 export function disconnectEventSub(state: RuntimeState) {
   state.eventSubConnectGeneration += 1;
   state.eventSubConnectPromise = null;
+  state.eventSubReconnectInProgress = false;
   clearReconnectTimer(state);
   if (state.eventSubWs) {
     try {
@@ -249,12 +251,16 @@ export function disconnectEventSub(state: RuntimeState) {
 }
 
 export async function connectEventSub(state: RuntimeState, reconnectUrl?: string) {
-  if (!reconnectUrl) {
+  if (reconnectUrl) {
+    if (state.eventSubReconnectInProgress) return;
+    state.eventSubReconnectInProgress = true;
+  } else {
     clearReconnectTimer(state);
     if (isActiveSocket(state.eventSubWs)) return;
     if (state.eventSubConnectPromise) return state.eventSubConnectPromise;
   }
 
+  const previousSocket = state.eventSubWs;
   const generation = state.eventSubConnectGeneration;
   const connectTask = connectEventSubSocket(state, generation, reconnectUrl);
   if (!reconnectUrl) {
@@ -263,6 +269,12 @@ export async function connectEventSub(state: RuntimeState, reconnectUrl?: string
 
   try {
     await connectTask;
+    if (reconnectUrl && state.eventSubWs === previousSocket) {
+      state.eventSubReconnectInProgress = false;
+    }
+  } catch (error) {
+    if (reconnectUrl) state.eventSubReconnectInProgress = false;
+    throw error;
   } finally {
     if (!reconnectUrl && state.eventSubConnectPromise === connectTask) {
       state.eventSubConnectPromise = null;
@@ -355,6 +367,7 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
           state.eventSubError = null;
         })();
       } else {
+        state.eventSubReconnectInProgress = false;
         state.eventSubError = null;
       }
 
@@ -363,7 +376,7 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
 
     } else if (msgType === 'session_reconnect') {
       const newUrl = msg.payload.session?.reconnect_url;
-      if (newUrl) {
+      if (newUrl && ws === state.eventSubWs && !state.eventSubReconnectInProgress) {
         console.log('EventSub: reconnecting to new URL...');
         const staleWs = ws;
         void connectEventSub(state, newUrl);
@@ -391,6 +404,7 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
 
   ws.addEventListener('close', (evt) => {
     if (ws !== state.eventSubWs) return;
+    state.eventSubReconnectInProgress = false;
     state.eventSubConnected = false;
     clearKeepaliveTimer(state);
     state.clearEventSubSocket();

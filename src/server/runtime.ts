@@ -48,6 +48,7 @@ export class RuntimeState {
   twitchAppToken: { accessToken: string; expiresAtMs: number } | null = null;
   eventSubWs: WebSocket | null = null;
   eventSubConnectPromise: Promise<void> | null = null;
+  eventSubReconnectInProgress = false;
   eventSubReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   eventSubConnectGeneration = 0;
   eventSubConnected = false;
