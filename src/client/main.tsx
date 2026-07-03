@@ -12,7 +12,7 @@ import { ToastProvider } from './ui/notifications';
 import { ServiceStatusToasts } from './ui/serviceStatus';
 
 function App() {
-  const path = window.location.pathname;
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
 
   const isOverlay = path === '/overlay' || path === '/overlay/chat' || path === '/overlay/nowplaying';
 
