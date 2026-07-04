@@ -2,7 +2,6 @@ import React from 'react';
 import { ChatPanel } from '../chat';
 import { MusicPanel } from '../music';
 import { quackSoundSources, useSoundEvents } from '../sounds';
-import { useTtsEvents } from '../tts';
 
 function SoundBank() {
   const audioRefs = React.useRef<Record<string, HTMLAudioElement | null>>({});
@@ -39,7 +38,6 @@ export function OverlayNowPlayingPage() {
 }
 
 export function OverlayPage() {
-  useTtsEvents();
   return (
     <main className="overlayFrame">
       <SoundBank />

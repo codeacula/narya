@@ -233,6 +233,7 @@ const allowedMigrationTables = new Set([
   'viewer_reward_categories',
   'viewer_reward_category_members',
   'tts_settings',
+  'app_config',
 ]);
 const allowedMigrationColumns = new Set([
   'deleted_at',
@@ -250,6 +251,7 @@ const allowedMigrationColumns = new Set([
   'exaggeration',
   'cfg_weight',
   'temperature',
+  'chatterbox_base_url',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
@@ -267,6 +269,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   exaggeration: 'real not null default 0.5',
   cfg_weight: 'real not null default 0.5',
   temperature: 'real not null default 0.8',
+  chatterbox_base_url: "text not null default 'http://127.0.0.1:8008'",
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -303,6 +306,7 @@ addColumnIfMissing('tts_settings', 'tone_preset', "text not null default 'neutra
 addColumnIfMissing('tts_settings', 'exaggeration', 'real not null default 0.5');
 addColumnIfMissing('tts_settings', 'cfg_weight', 'real not null default 0.5');
 addColumnIfMissing('tts_settings', 'temperature', 'real not null default 0.8');
+addColumnIfMissing('app_config', 'chatterbox_base_url', "text not null default 'http://127.0.0.1:8008'");
 
 db.exec('create index if not exists idx_chat_messages_stream_session on chat_messages(stream_session_id)');
 

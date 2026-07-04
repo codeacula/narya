@@ -1,5 +1,5 @@
 import type { TtsSettings, TtsSettingsUpdate, TtsVoice } from '../shared/api';
-import { config } from './config';
+import { appConfig } from './appConfig';
 import { db } from './db';
 import { HttpRouteError, readResponseError } from './http';
 import { broadcast } from './realtime';
@@ -107,7 +107,7 @@ function defaultTtsSettings(): TtsSettings {
 }
 
 async function postChatterbox(pathname: string, body: unknown): Promise<Response> {
-  const response = await fetch(`${config.chatterboxBaseUrl}${pathname}`, {
+  const response = await fetch(`${appConfig.chatterboxBaseUrl}${pathname}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -121,13 +121,13 @@ async function postChatterbox(pathname: string, body: unknown): Promise<Response
 
 export async function getTtsEngineStatus(): Promise<{ ok: boolean; baseUrl: string; error?: string }> {
   try {
-    const response = await fetch(`${config.chatterboxBaseUrl}/voices`);
+    const response = await fetch(`${appConfig.chatterboxBaseUrl}/voices`);
     if (!response.ok) {
-      return { ok: false, baseUrl: config.chatterboxBaseUrl, error: `${response.status} ${response.statusText}` };
+      return { ok: false, baseUrl: appConfig.chatterboxBaseUrl, error: `${response.status} ${response.statusText}` };
     }
-    return { ok: true, baseUrl: config.chatterboxBaseUrl };
+    return { ok: true, baseUrl: appConfig.chatterboxBaseUrl };
   } catch (error) {
-    return { ok: false, baseUrl: config.chatterboxBaseUrl, error: error instanceof Error ? error.message : 'Unavailable' };
+    return { ok: false, baseUrl: appConfig.chatterboxBaseUrl, error: error instanceof Error ? error.message : 'Unavailable' };
   }
 }
 
@@ -161,7 +161,7 @@ export function updateTtsSettings(update: TtsSettingsUpdate): TtsSettings {
 }
 
 export async function getTtsVoices(): Promise<TtsVoice[]> {
-  const response = await fetch(`${config.chatterboxBaseUrl}/voices`);
+  const response = await fetch(`${appConfig.chatterboxBaseUrl}/voices`);
   if (!response.ok) {
     const message = await readResponseError(response, `Chatterbox service error: ${response.status}`);
     throw new Error(message);
@@ -208,9 +208,9 @@ async function synthesizeSpeech(text: string, settings: TtsSettings): Promise<Bu
   return Buffer.from(arrayBuffer);
 }
 
-export async function speakText(text: string): Promise<void> {
+export async function speakText(text: string, force = false): Promise<void> {
   const settings = getTtsSettings();
-  if (!settings.enabled) return;
+  if (!force && !settings.enabled) return;
   if (!text.trim()) return;
 
   const sanitized = text.trim().slice(0, MAX_TEXT_LENGTH);

@@ -81,6 +81,7 @@ type AppConfigForm = {
   discordBotToken: string;
   discordBotTokenConfigured: boolean;
   clearDiscordBotToken: boolean;
+  chatterboxBaseUrl: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;
@@ -108,6 +109,7 @@ function appConfigToForm(config: AppConfig): AppConfigForm {
     discordBotToken: '',
     discordBotTokenConfigured: config.discordBotTokenConfigured,
     clearDiscordBotToken: false,
+    chatterboxBaseUrl: config.chatterboxBaseUrl,
     musicPollIntervalMs: config.musicPollIntervalMs,
     musicPlayerctlPlayer: config.musicPlayerctlPlayer,
     quackVolume: config.quackVolume,
@@ -129,6 +131,7 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   discordBotToken: '',
   discordBotTokenConfigured: false,
   clearDiscordBotToken: false,
+  chatterboxBaseUrl: 'http://127.0.0.1:8008',
   musicPollIntervalMs: 2000,
   musicPlayerctlPlayer: '',
   quackVolume: 0.2,
@@ -219,7 +222,7 @@ const EMPTY_LLM_SETTINGS: LlmSettingsForm = {
   apiKeyConfigured: false,
   personalityPrompt: '',
   temperature: 0.7,
-  maxOutputTokens: 140,
+  maxOutputTokens: 2048,
   timeoutMs: 15000,
 };
 
@@ -843,6 +846,7 @@ export function SettingsPage({
       discordClientId: appConfigForm.discordClientId,
       discordBotToken: appConfigForm.discordBotToken || undefined,
       clearDiscordBotToken: appConfigForm.clearDiscordBotToken,
+      chatterboxBaseUrl: appConfigForm.chatterboxBaseUrl,
       musicPollIntervalMs: appConfigForm.musicPollIntervalMs,
       musicPlayerctlPlayer: appConfigForm.musicPlayerctlPlayer,
       quackVolume: appConfigForm.quackVolume,
@@ -1008,10 +1012,6 @@ export function SettingsPage({
 
         <div className="set-group">
           <div className="set-group-label">Connections &amp; credentials</div>
-          <p className="set-intro" style={{ marginTop: 0 }}>
-            Everything the app needs to talk to Twitch, OBS, and Discord. Saving
-            reconnects the affected services automatically — no restart required.
-          </p>
 
           {!appConfigLoading && (!appConfigForm.twitchClientId || !appConfigForm.twitchClientSecretConfigured) && (
             <div className="settings-alert settings-alert--warn">
@@ -1048,69 +1048,75 @@ export function SettingsPage({
               />
             </label>
 
-            <label className="field">
-              <span>Twitch client ID</span>
-              <input
-                value={appConfigForm.twitchClientId}
-                disabled={appConfigLoading || appConfigSaving}
-                placeholder="From your Twitch developer application"
-                onChange={event => setAppConfigForm(current => ({ ...current, twitchClientId: event.target.value }))}
-              />
-            </label>
-
-            <label className="field">
-              <span>Twitch client secret</span>
-              <input
-                type="password"
-                value={appConfigForm.twitchClientSecret}
-                disabled={appConfigLoading || appConfigSaving || appConfigForm.clearTwitchClientSecret}
-                placeholder={appConfigForm.twitchClientSecretConfigured ? 'Configured — leave blank to keep' : 'Client secret'}
-                onChange={event => setAppConfigForm(current => ({ ...current, twitchClientSecret: event.target.value, clearTwitchClientSecret: false }))}
-              />
-            </label>
-            {appConfigForm.twitchClientSecretConfigured && (
-              <label className="command-enabled">
+            <div className="connections-2col">
+              <label className="field">
+                <span>Twitch client ID</span>
                 <input
-                  type="checkbox"
-                  checked={appConfigForm.clearTwitchClientSecret}
+                  value={appConfigForm.twitchClientId}
                   disabled={appConfigLoading || appConfigSaving}
-                  onChange={event => setAppConfigForm(current => ({ ...current, clearTwitchClientSecret: event.target.checked, twitchClientSecret: '' }))}
+                  placeholder="From your Twitch developer application"
+                  onChange={event => setAppConfigForm(current => ({ ...current, twitchClientId: event.target.value }))}
                 />
-                <span>Clear stored client secret</span>
               </label>
-            )}
+              <div>
+                <label className="field">
+                  <span>Twitch client secret</span>
+                  <input
+                    type="password"
+                    value={appConfigForm.twitchClientSecret}
+                    disabled={appConfigLoading || appConfigSaving || appConfigForm.clearTwitchClientSecret}
+                    placeholder={appConfigForm.twitchClientSecretConfigured ? 'Configured — leave blank to keep' : 'Client secret'}
+                    onChange={event => setAppConfigForm(current => ({ ...current, twitchClientSecret: event.target.value, clearTwitchClientSecret: false }))}
+                  />
+                </label>
+                {appConfigForm.twitchClientSecretConfigured && (
+                  <label className="command-enabled" style={{ marginTop: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={appConfigForm.clearTwitchClientSecret}
+                      disabled={appConfigLoading || appConfigSaving}
+                      onChange={event => setAppConfigForm(current => ({ ...current, clearTwitchClientSecret: event.target.checked, twitchClientSecret: '' }))}
+                    />
+                    <span>Clear stored client secret</span>
+                  </label>
+                )}
+              </div>
+            </div>
 
-            <label className="field">
-              <span>OBS WebSocket URL</span>
-              <input
-                value={appConfigForm.obsUrl}
-                disabled={appConfigLoading || appConfigSaving}
-                placeholder="ws://127.0.0.1:4455"
-                onChange={event => setAppConfigForm(current => ({ ...current, obsUrl: event.target.value }))}
-              />
-            </label>
-
-            <label className="field">
-              <span>OBS WebSocket password</span>
-              <input
-                type="password"
-                value={appConfigForm.obsPassword}
-                disabled={appConfigLoading || appConfigSaving || appConfigForm.clearObsPassword}
-                placeholder={appConfigForm.obsPasswordConfigured ? 'Configured — leave blank to keep' : 'Optional'}
-                onChange={event => setAppConfigForm(current => ({ ...current, obsPassword: event.target.value, clearObsPassword: false }))}
-              />
-            </label>
-            {appConfigForm.obsPasswordConfigured && (
-              <label className="command-enabled">
+            <div className="connections-2col">
+              <label className="field">
+                <span>OBS WebSocket URL</span>
                 <input
-                  type="checkbox"
-                  checked={appConfigForm.clearObsPassword}
+                  value={appConfigForm.obsUrl}
                   disabled={appConfigLoading || appConfigSaving}
-                  onChange={event => setAppConfigForm(current => ({ ...current, clearObsPassword: event.target.checked, obsPassword: '' }))}
+                  placeholder="ws://127.0.0.1:4455"
+                  onChange={event => setAppConfigForm(current => ({ ...current, obsUrl: event.target.value }))}
                 />
-                <span>Clear stored OBS password</span>
               </label>
-            )}
+              <div>
+                <label className="field">
+                  <span>OBS WebSocket password</span>
+                  <input
+                    type="password"
+                    value={appConfigForm.obsPassword}
+                    disabled={appConfigLoading || appConfigSaving || appConfigForm.clearObsPassword}
+                    placeholder={appConfigForm.obsPasswordConfigured ? 'Configured — leave blank to keep' : 'Optional'}
+                    onChange={event => setAppConfigForm(current => ({ ...current, obsPassword: event.target.value, clearObsPassword: false }))}
+                  />
+                </label>
+                {appConfigForm.obsPasswordConfigured && (
+                  <label className="command-enabled" style={{ marginTop: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={appConfigForm.clearObsPassword}
+                      disabled={appConfigLoading || appConfigSaving}
+                      onChange={event => setAppConfigForm(current => ({ ...current, clearObsPassword: event.target.checked, obsPassword: '' }))}
+                    />
+                    <span>Clear stored OBS password</span>
+                  </label>
+                )}
+              </div>
+            </div>
 
             <label className="field">
               <span>OBS scenes</span>
@@ -1123,37 +1129,50 @@ export function SettingsPage({
               <small>Comma-separated fallback scene list used before OBS connects.</small>
             </label>
 
-            <label className="field">
-              <span>Discord client ID</span>
-              <input
-                value={appConfigForm.discordClientId}
-                disabled={appConfigLoading || appConfigSaving}
-                placeholder="Discord application client ID"
-                onChange={event => setAppConfigForm(current => ({ ...current, discordClientId: event.target.value }))}
-              />
-            </label>
+            <div className="connections-2col">
+              <label className="field">
+                <span>Discord client ID</span>
+                <input
+                  value={appConfigForm.discordClientId}
+                  disabled={appConfigLoading || appConfigSaving}
+                  placeholder="Discord application client ID"
+                  onChange={event => setAppConfigForm(current => ({ ...current, discordClientId: event.target.value }))}
+                />
+              </label>
+              <div>
+                <label className="field">
+                  <span>Discord bot token</span>
+                  <input
+                    type="password"
+                    value={appConfigForm.discordBotToken}
+                    disabled={appConfigLoading || appConfigSaving || appConfigForm.clearDiscordBotToken}
+                    placeholder={appConfigForm.discordBotTokenConfigured ? 'Configured — leave blank to keep' : 'Bot token'}
+                    onChange={event => setAppConfigForm(current => ({ ...current, discordBotToken: event.target.value, clearDiscordBotToken: false }))}
+                  />
+                </label>
+                {appConfigForm.discordBotTokenConfigured && (
+                  <label className="command-enabled" style={{ marginTop: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={appConfigForm.clearDiscordBotToken}
+                      disabled={appConfigLoading || appConfigSaving}
+                      onChange={event => setAppConfigForm(current => ({ ...current, clearDiscordBotToken: event.target.checked, discordBotToken: '' }))}
+                    />
+                    <span>Clear stored Discord bot token</span>
+                  </label>
+                )}
+              </div>
+            </div>
 
             <label className="field">
-              <span>Discord bot token</span>
+              <span>Chatterbox URL</span>
               <input
-                type="password"
-                value={appConfigForm.discordBotToken}
-                disabled={appConfigLoading || appConfigSaving || appConfigForm.clearDiscordBotToken}
-                placeholder={appConfigForm.discordBotTokenConfigured ? 'Configured — leave blank to keep' : 'Bot token'}
-                onChange={event => setAppConfigForm(current => ({ ...current, discordBotToken: event.target.value, clearDiscordBotToken: false }))}
+                value={appConfigForm.chatterboxBaseUrl}
+                disabled={appConfigLoading || appConfigSaving}
+                placeholder="http://127.0.0.1:8008"
+                onChange={event => setAppConfigForm(current => ({ ...current, chatterboxBaseUrl: event.target.value }))}
               />
             </label>
-            {appConfigForm.discordBotTokenConfigured && (
-              <label className="command-enabled">
-                <input
-                  type="checkbox"
-                  checked={appConfigForm.clearDiscordBotToken}
-                  disabled={appConfigLoading || appConfigSaving}
-                  onChange={event => setAppConfigForm(current => ({ ...current, clearDiscordBotToken: event.target.checked, discordBotToken: '' }))}
-                />
-                <span>Clear stored Discord bot token</span>
-              </label>
-            )}
 
             <div className="llm-settings-grid">
               <label className="field">
@@ -2036,11 +2055,11 @@ export function SettingsPage({
               </label>
 
               <label className="field">
-                <span>Max output tokens</span>
+                <span>Max output tokens (0 = unlimited)</span>
                 <input
                   type="number"
-                  min="32"
-                  max="500"
+                  min="0"
+                  max="8192"
                   step="1"
                   value={llmSettings.maxOutputTokens}
                   disabled={llmLoading || llmSaving}

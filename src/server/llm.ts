@@ -34,6 +34,10 @@ type ResponsesApiResponse = {
       text?: unknown;
     }>;
   }>;
+  // Chat Completions fallback (some local servers return this even from /responses)
+  choices?: Array<{
+    message?: { content?: unknown };
+  }>;
 };
 
 const getSettingsRow = db.prepare(`
@@ -56,7 +60,7 @@ const insertDefaultSettings = db.prepare(`
   insert or ignore into llm_settings
     (id, enabled, base_url, model, api_key, personality_prompt, temperature, max_output_tokens, timeout_ms, updated_at)
   values
-    (?, 1, ?, '', '', ?, 0.7, 140, 15000, ?)
+    (?, 1, ?, '', '', ?, 0.7, 2048, 15000, ?)
 `);
 
 const updateSettings = db.prepare(`
@@ -141,7 +145,7 @@ function normalizeSettingsUpdate(body: unknown): LlmSettingsUpdate {
     clearApiKey: value.clearApiKey === true,
     personalityPrompt,
     temperature: clampNumber(value.temperature, 0.7, 0, 2),
-    maxOutputTokens: Math.round(clampNumber(value.maxOutputTokens, 140, 32, 500)),
+    maxOutputTokens: Math.round(clampNumber(value.maxOutputTokens, 2048, 0, 8192)),
     timeoutMs: Math.round(clampNumber(value.timeoutMs, 15000, 1000, 60000)),
   };
 }
@@ -171,16 +175,30 @@ function responsesUrl(baseUrl: string): string {
   return `${normalizeUrl(baseUrl)}/responses`;
 }
 
+function stripThinkingTokens(text: string): string {
+  // Remove <think>...</think> blocks emitted by reasoning/thinking models
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
 function extractResponseText(data: ResponsesApiResponse): string {
+  // Responses API: top-level output_text shortcut
   if (typeof data.output_text === 'string' && data.output_text.trim()) {
-    return data.output_text.trim();
+    return stripThinkingTokens(data.output_text);
   }
+  // Responses API: output array — handles both 'output_text' and 'text' content types
+  // (thinking models often use type:'text' rather than type:'output_text')
   for (const item of data.output ?? []) {
     for (const part of item.content ?? []) {
-      if (part.type === 'output_text' && typeof part.text === 'string' && part.text.trim()) {
-        return part.text.trim();
+      const isText = part.type === 'output_text' || part.type === 'text';
+      if (isText && typeof part.text === 'string' && part.text.trim()) {
+        return stripThinkingTokens(part.text);
       }
     }
+  }
+  // Chat Completions fallback for local servers that return that format
+  const choice = data.choices?.[0];
+  if (typeof choice?.message?.content === 'string' && choice.message.content.trim()) {
+    return stripThinkingTokens(choice.message.content);
   }
   return '';
 }
@@ -201,7 +219,7 @@ async function callLlm(settings: LlmSettingsRow, userContent: string): Promise<s
         instructions: settings.personalityPrompt,
         input: userContent,
         temperature: settings.temperature,
-        max_output_tokens: settings.maxOutputTokens,
+        ...(settings.maxOutputTokens > 0 ? { max_output_tokens: settings.maxOutputTokens } : {}),
       }),
     });
 
@@ -217,7 +235,10 @@ async function callLlm(settings: LlmSettingsRow, userContent: string): Promise<s
 
     const data = await response.json() as ResponsesApiResponse;
     const answer = extractResponseText(data);
-    if (!answer) throw new Error('LLM response included no text content.');
+    if (!answer) {
+      console.error('LLM: no text extracted from response:', JSON.stringify(data).slice(0, 500));
+      throw new Error('LLM response included no text content.');
+    }
     return answer;
   } finally {
     clearTimeout(timeout);

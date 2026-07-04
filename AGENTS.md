@@ -10,7 +10,6 @@ This is a Bun-powered Vite + React + TypeScript app with a small backend.
 - `src/server/types/` contains local declarations for packages without complete TypeScript types.
 - `src/shared/` contains TypeScript interfaces shared by the client and server.
 - `data/` stores runtime SQLite files; only `data/.gitkeep` should be committed.
-- `compose.yml` and `Dockerfile` define the container workflow.
 
 There is no dedicated test directory yet.
 
@@ -23,13 +22,11 @@ bun install
 bun run dev
 bun run typecheck
 bun run build
-docker compose up --build
 ```
 
 - `bun run dev` starts the backend on `4317` and Vite on `5173`.
 - `bun run typecheck` runs `tsc --noEmit`.
 - `bun run build` typechecks and creates the production Vite build in `dist/`.
-- `docker compose up --build` runs the app with `./data` mounted for SQLite persistence.
 
 ## Coding Style & Naming Conventions
 

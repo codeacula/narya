@@ -27,6 +27,11 @@ export default defineConfig({
         target: process.env.VITE_BACKEND_WS_ORIGIN ?? 'http://localhost:4317',
         ws: true,
         changeOrigin: true,
+        configure(proxy) {
+          // Backend may not be ready when Vite starts; swallow ECONNREFUSED so
+          // the log isn't noisy. The client reconnect loop handles retries.
+          proxy.on('error', () => {});
+        },
       }
     }
   }

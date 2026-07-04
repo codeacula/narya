@@ -400,7 +400,7 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
       const body = request.body as { text?: unknown };
       const text = typeof body.text === 'string' ? body.text.trim() : '';
       if (!text) throw new HttpRouteError(400, 'text is required.');
-      await speakText(text);
+      await speakText(text, true);
       response.json({ ok: true });
     } catch (error) {
       sendRouteError(response, error);

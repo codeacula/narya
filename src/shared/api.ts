@@ -453,6 +453,7 @@ export type AppConfig = {
   obsScenes: string[];
   discordClientId: string;
   discordBotTokenConfigured: boolean;
+  chatterboxBaseUrl: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;
@@ -471,6 +472,7 @@ export type AppConfigUpdate = {
   discordClientId: string;
   discordBotToken?: string;
   clearDiscordBotToken?: boolean;
+  chatterboxBaseUrl: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;

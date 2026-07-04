@@ -793,6 +793,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   justify-content: flex-end;
   gap: 8px;
 }
+.connections-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
 .llm-settings-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -816,6 +822,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   padding: 10px 11px;
 }
 @media (max-width: 700px) {
+  .connections-2col {
+    grid-template-columns: 1fr;
+  }
   .llm-settings-grid {
     grid-template-columns: 1fr;
   }

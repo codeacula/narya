@@ -15,6 +15,7 @@ export type AppConfigInternal = {
   obsScenes: string[];
   discordClientId: string;
   discordBotToken: string;
+  chatterboxBaseUrl: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;
@@ -30,6 +31,7 @@ type AppConfigRow = {
   obsScenes: string;
   discordClientId: string;
   discordBotToken: string;
+  chatterboxBaseUrl: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   quackVolume: number;
@@ -46,6 +48,7 @@ const selectRow = db.prepare(`
     obs_scenes as obsScenes,
     discord_client_id as discordClientId,
     discord_bot_token as discordBotToken,
+    chatterbox_base_url as chatterboxBaseUrl,
     music_poll_interval_ms as musicPollIntervalMs,
     music_playerctl_player as musicPlayerctlPlayer,
     quack_volume as quackVolume,
@@ -73,6 +76,7 @@ const updateRow = db.prepare(`
     discord_client_id = ?,
     discord_bot_token = ?,
     elevenlabs_api_key = ?,
+    chatterbox_base_url = ?,
     music_poll_interval_ms = ?,
     music_playerctl_player = ?,
     quack_volume = ?,
@@ -115,6 +119,15 @@ function seedFromEnv() {
     Number.isFinite(envVolume) ? clampNumber(envVolume, 0, 1) : 0.2,
     nowIso(),
   );
+  // Backfill chatterbox_base_url from env if the column was just added (value still default).
+  db.prepare(`
+    update app_config set chatterbox_base_url = ?
+    where id = ? and chatterbox_base_url = 'http://127.0.0.1:8008' and ? != 'http://127.0.0.1:8008'
+  `).run(
+    (process.env.CHATTERBOX_BASE_URL ?? 'http://127.0.0.1:8008').replace(/\/+$/, ''),
+    APP_CONFIG_ID,
+    (process.env.CHATTERBOX_BASE_URL ?? 'http://127.0.0.1:8008').replace(/\/+$/, ''),
+  );
 }
 
 let cache: AppConfigInternal | null = null;
@@ -131,6 +144,7 @@ function loadRow(): AppConfigInternal {
     obsScenes: parseScenes(row.obsScenes),
     discordClientId: row.discordClientId,
     discordBotToken: row.discordBotToken,
+    chatterboxBaseUrl: (row.chatterboxBaseUrl || 'http://127.0.0.1:8008').replace(/\/+$/, ''),
     musicPollIntervalMs: row.musicPollIntervalMs,
     musicPlayerctlPlayer: row.musicPlayerctlPlayer,
     quackVolume: row.quackVolume,
@@ -159,6 +173,7 @@ export const appConfig = {
   get obsScenes() { return current().obsScenes; },
   get discordClientId() { return current().discordClientId; },
   get discordBotToken() { return current().discordBotToken; },
+  get chatterboxBaseUrl() { return current().chatterboxBaseUrl; },
   get musicPollIntervalMs() { return current().musicPollIntervalMs; },
   get musicPlayerctlPlayer() { return current().musicPlayerctlPlayer; },
   get quackVolume() { return current().quackVolume; },
@@ -178,6 +193,7 @@ function toPublic(internal: AppConfigInternal): AppConfig {
     obsScenes: internal.obsScenes,
     discordClientId: internal.discordClientId,
     discordBotTokenConfigured: Boolean(internal.discordBotToken),
+    chatterboxBaseUrl: internal.chatterboxBaseUrl,
     musicPollIntervalMs: internal.musicPollIntervalMs,
     musicPlayerctlPlayer: internal.musicPlayerctlPlayer,
     quackVolume: internal.quackVolume,
@@ -218,6 +234,8 @@ function normalizeUpdate(body: unknown): AppConfigUpdate {
   const interval = Math.round(clampNumber(Number(value.musicPollIntervalMs ?? 2000), 0, 60000));
   const volume = clampNumber(Number(value.quackVolume ?? 0.2), 0, 1);
 
+  const chatterboxBaseUrl = str(value.chatterboxBaseUrl).replace(/\/+$/, '') || 'http://127.0.0.1:8008';
+
   return {
     twitchChannel,
     twitchClientId: str(value.twitchClientId),
@@ -230,6 +248,7 @@ function normalizeUpdate(body: unknown): AppConfigUpdate {
     discordClientId: str(value.discordClientId),
     discordBotToken: typeof value.discordBotToken === 'string' ? value.discordBotToken.trim() : undefined,
     clearDiscordBotToken: value.clearDiscordBotToken === true,
+    chatterboxBaseUrl,
     musicPollIntervalMs: interval,
     musicPlayerctlPlayer: str(value.musicPlayerctlPlayer),
     quackVolume: volume,
@@ -255,6 +274,7 @@ export function saveAppConfig(body: unknown): { config: AppConfig; changes: Set<
     obsScenes: update.obsScenes,
     discordClientId: update.discordClientId,
     discordBotToken: resolveSecret(update.clearDiscordBotToken, update.discordBotToken, prev.discordBotToken),
+    chatterboxBaseUrl: update.chatterboxBaseUrl,
     musicPollIntervalMs: update.musicPollIntervalMs,
     musicPlayerctlPlayer: update.musicPlayerctlPlayer,
     quackVolume: update.quackVolume,
@@ -271,6 +291,7 @@ export function saveAppConfig(body: unknown): { config: AppConfig; changes: Set<
     next.discordClientId,
     next.discordBotToken,
     '',
+    next.chatterboxBaseUrl,
     next.musicPollIntervalMs,
     next.musicPlayerctlPlayer,
     next.quackVolume,
