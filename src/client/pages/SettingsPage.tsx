@@ -947,7 +947,7 @@ export function SettingsPage({
     setTtsError(null);
     void testTtsSpeak(ttsTestText)
       .then(() => {
-        setTtsMessage('Sent — check the overlay for audio.');
+        setTtsMessage('Sent — check the /overlay/sounds browser source for audio.');
       })
       .catch(error => {
         setTtsError(error instanceof Error ? error.message : 'TTS test failed');
@@ -1934,7 +1934,7 @@ export function SettingsPage({
             </div>
 
             <div className="command-example">
-              Triggered via <code>!tts &lt;text&gt;</code> (broadcaster/mod/VIP) or per channel point reward. Audio plays on the overlay browser source through the Chatterbox service.
+              Triggered via <code>!tts &lt;text&gt;</code> (broadcaster/mod/VIP) or per channel point reward. Audio plays through the <code>/overlay/sounds</code> browser source using the Chatterbox service.
             </div>
 
             <div className="llm-test-panel">

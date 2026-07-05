@@ -306,7 +306,11 @@ export function saveAppConfig(body: unknown): { config: AppConfig; changes: Set<
   if (next.twitchClientId !== prev.twitchClientId || next.twitchClientSecret !== prev.twitchClientSecret) {
     changes.add('twitchCredentials');
   }
-  if (next.obsUrl !== prev.obsUrl || next.obsPassword !== prev.obsPassword) changes.add('obs');
+  const obsScenesChanged = next.obsScenes.length !== prev.obsScenes.length
+    || next.obsScenes.some((scene, index) => scene !== prev.obsScenes[index]);
+  if (next.obsUrl !== prev.obsUrl || next.obsPassword !== prev.obsPassword || obsScenesChanged) {
+    changes.add('obs');
+  }
   if (
     next.musicPollIntervalMs !== prev.musicPollIntervalMs ||
     next.musicPlayerctlPlayer !== prev.musicPlayerctlPlayer

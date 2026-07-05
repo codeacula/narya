@@ -68,11 +68,15 @@ export class RuntimeState {
     this.twitchAdScheduleCache = null;
   }
 
+  clearTwitchChannelState() {
+    this.broadcasterId = null;
+    this.clearTwitchCaches();
+  }
+
   clearAuthenticatedUserState() {
     this.runtimeUserToken = null;
-    this.broadcasterId = null;
     this.twitchSenderId = null;
-    this.clearTwitchCaches();
+    this.clearTwitchChannelState();
   }
 
   clearAuthenticatedBotState() {

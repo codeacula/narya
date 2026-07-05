@@ -26,6 +26,7 @@ hydrateTwitchAuthState(runtimeState);
 // so the operator never has to restart the process after editing Settings.
 function reconcileServices(changes: Set<AppConfigChange>) {
   if (changes.has('twitchChannel')) {
+    runtimeState.clearTwitchChannelState();
     void applyTwitchChannel();
   }
   if (changes.has('twitchChannel') || changes.has('twitchCredentials')) {

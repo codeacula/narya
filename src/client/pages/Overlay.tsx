@@ -2,12 +2,14 @@ import React from 'react';
 import { ChatPanel } from '../chat';
 import { MusicPanel } from '../music';
 import { quackSoundSources, useSoundEvents } from '../sounds';
+import { useTtsEvents } from '../tts';
 
-function SoundBank() {
+export function OverlaySoundsPage() {
   const audioRefs = React.useRef<Record<string, HTMLAudioElement | null>>({});
   useSoundEvents(audioRefs);
+  useTtsEvents();
   return (
-    <div className="soundBank" aria-hidden="true">
+    <main className="soundBank" aria-label="Sound playback overlay">
       {quackSoundSources.map(src => (
         <audio
           key={src}
@@ -16,14 +18,13 @@ function SoundBank() {
           src={src}
         />
       ))}
-    </div>
+    </main>
   );
 }
 
 export function OverlayChatPage() {
   return (
     <main className="overlayWidget overlayChatWidget">
-      <SoundBank />
       <ChatPanel compact />
     </main>
   );
@@ -40,7 +41,6 @@ export function OverlayNowPlayingPage() {
 export function OverlayPage() {
   return (
     <main className="overlayFrame">
-      <SoundBank />
       <div className="overlayChat">
         <ChatPanel compact />
       </div>

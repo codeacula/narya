@@ -20,7 +20,6 @@ import {
   reconnectEventSub,
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
-import { useTtsEvents } from '../tts';
 import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
 import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } from '../routing';
@@ -275,8 +274,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   useSocket<ObsStatus>('obs:status', React.useCallback((nextStatus) => {
     setObsStatus(nextStatus);
   }, []));
-
-  useTtsEvents();
 
   const handleTwitchLogout = React.useCallback(() => {
     void disconnectTwitch()
