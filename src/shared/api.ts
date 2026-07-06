@@ -481,3 +481,8 @@ export type AppConfigUpdate = {
 export type SettingsUpdatedPayload = {
   updatedAt: string;
 };
+
+export type DiscordAnnounceFailedPayload = {
+  reason: string;
+  channelName: string;
+};

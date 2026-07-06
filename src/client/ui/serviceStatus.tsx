@@ -1,5 +1,5 @@
 import React from 'react';
-import type { DashboardStatus, SettingsUpdatedPayload } from '../../shared/api';
+import type { DashboardStatus, DiscordAnnounceFailedPayload, SettingsUpdatedPayload } from '../../shared/api';
 import { useSocket } from '../realtime';
 import { useToast } from './notifications';
 
@@ -46,8 +46,18 @@ export function ServiceStatusToasts() {
     });
   }, [pushToast]);
 
+  const onDiscordAnnounceFailed = React.useCallback((payload: DiscordAnnounceFailedPayload) => {
+    const channel = payload.channelName ? `#${payload.channelName}` : 'the announcement channel';
+    pushToast({
+      kind: 'error',
+      title: 'Discord announcement failed',
+      message: `${payload.reason} Check the bot's Send Messages permission in ${channel}.`,
+    });
+  }, [pushToast]);
+
   useSocket<DashboardStatus>('dashboard:status', onStatus);
   useSocket<SettingsUpdatedPayload>('settings:updated', onSettings);
+  useSocket<DiscordAnnounceFailedPayload>('discord:announce-failed', onDiscordAnnounceFailed);
 
   return null;
 }

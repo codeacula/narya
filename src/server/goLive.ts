@@ -1,14 +1,16 @@
 import type express from 'express';
-import type { GoLiveResult, GoLiveSettings, GoLiveSettingsUpdate, ObsStatus } from '../shared/api';
+import type { DiscordAnnounceFailedPayload, GoLiveResult, GoLiveSettings, GoLiveSettingsUpdate, ObsStatus } from '../shared/api';
 import { appConfig } from './appConfig';
 import { db } from './db';
 import { clearDiscordStatusCache, sendDiscordMessage } from './discord';
 import { HttpRouteError, sendRouteError } from './http';
 import { startObsStream, switchObsScene } from './obs';
+import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import {
   attachDiscordAnnouncementToSession,
   getOrStartStreamSession,
+  recordSessionAnnounceError,
 } from './streamSession';
 import { fetchCurrentTwitchStream, getEventSubCredentials } from './twitch/api';
 
@@ -142,7 +144,9 @@ export async function announceTwitchStreamOnline(streamId: string, startedAt: st
 
   const task = (async () => {
     const session = getOrStartStreamSession(`twitch:${normalizedStreamId}`, startedAt);
-    if (session.discordMessageId) return;
+    // Already announced, or already attempted-and-failed for this stream: don't re-hit Discord
+    // on every EventSub reconnect/app restart (that retry storm is what tripped rate limits).
+    if (session.discordMessageId || session.discordAnnounceError) return;
 
     const settings = getGoLiveSettings();
     if (!settings.discordChannelId) {
@@ -161,12 +165,24 @@ export async function announceTwitchStreamOnline(streamId: string, startedAt: st
       }
     }
 
-    const message = await sendDiscordMessage(
-      settings.discordChannelId,
-      renderDiscordMessage(settings.discordMessage, { title, category }),
-    );
-    attachDiscordAnnouncementToSession(session.id, message.channelId, message.id);
-    console.log(`Discord: announced Twitch stream ${normalizedStreamId} in channel ${message.channelId}`);
+    try {
+      const message = await sendDiscordMessage(
+        settings.discordChannelId,
+        renderDiscordMessage(settings.discordMessage, { title, category }),
+      );
+      attachDiscordAnnouncementToSession(session.id, message.channelId, message.id);
+      console.log(`Discord: announced Twitch stream ${normalizedStreamId} in channel ${message.channelId}`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Discord announcement failed.';
+      // Persist the failure so the reconcile-on-connect path stops re-attempting it, and
+      // surface it to the operator instead of leaving it as a console-only error.
+      recordSessionAnnounceError(session.id, reason);
+      broadcast('discord:announce-failed', {
+        reason,
+        channelName: settings.discordChannelName,
+      } satisfies DiscordAnnounceFailedPayload);
+      throw error;
+    }
   })();
 
   twitchAnnouncementTasks.set(normalizedStreamId, task);

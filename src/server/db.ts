@@ -252,6 +252,7 @@ const allowedMigrationColumns = new Set([
   'cfg_weight',
   'temperature',
   'chatterbox_base_url',
+  'discord_announce_error',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
@@ -270,6 +271,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   cfg_weight: 'real not null default 0.5',
   temperature: 'real not null default 0.8',
   chatterbox_base_url: "text not null default 'http://127.0.0.1:8008'",
+  discord_announce_error: 'text',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -307,6 +309,7 @@ addColumnIfMissing('tts_settings', 'exaggeration', 'real not null default 0.5');
 addColumnIfMissing('tts_settings', 'cfg_weight', 'real not null default 0.5');
 addColumnIfMissing('tts_settings', 'temperature', 'real not null default 0.8');
 addColumnIfMissing('app_config', 'chatterbox_base_url', "text not null default 'http://127.0.0.1:8008'");
+addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');
 
 db.exec('create index if not exists idx_chat_messages_stream_session on chat_messages(stream_session_id)');
 

@@ -7,6 +7,7 @@ export type StreamSession = {
   source: string;
   discordMessageId: string | null;
   discordChannelId: string | null;
+  discordAnnounceError: string | null;
 };
 
 const getActiveSessionRow = db.prepare(`
@@ -16,7 +17,8 @@ const getActiveSessionRow = db.prepare(`
     ended_at as endedAt,
     source,
     discord_message_id as discordMessageId,
-    discord_channel_id as discordChannelId
+    discord_channel_id as discordChannelId,
+    discord_announce_error as discordAnnounceError
   from stream_sessions
   where ended_at is null
   order by started_at desc
@@ -30,7 +32,8 @@ const getSessionBySourceRow = db.prepare(`
     ended_at as endedAt,
     source,
     discord_message_id as discordMessageId,
-    discord_channel_id as discordChannelId
+    discord_channel_id as discordChannelId,
+    discord_announce_error as discordAnnounceError
   from stream_sessions
   where source = ?
   limit 1
@@ -50,6 +53,12 @@ const insertStreamSession = db.prepare(`
 const updateStreamSessionDiscord = db.prepare(`
   update stream_sessions
   set discord_message_id = ?, discord_channel_id = ?
+  where id = ?
+`);
+
+const updateStreamSessionAnnounceError = db.prepare(`
+  update stream_sessions
+  set discord_announce_error = ?
   where id = ?
 `);
 
@@ -121,6 +130,10 @@ export function endActiveStreamSession(endedAt = new Date().toISOString()) {
 
 export function attachDiscordAnnouncementToSession(sessionId: string, channelId: string, messageId: string) {
   updateStreamSessionDiscord.run(messageId, channelId, sessionId);
+}
+
+export function recordSessionAnnounceError(sessionId: string, reason: string) {
+  updateStreamSessionAnnounceError.run(reason, sessionId);
 }
 
 export function hasSeenChatterBefore(login: string): boolean {
