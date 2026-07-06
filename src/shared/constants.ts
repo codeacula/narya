@@ -14,3 +14,6 @@ export const TWITCH_AD_SCHEDULE_CACHE_MS = 5_000;
 
 export const OVERLAY_CHAT_EXPIRE_MS = 14_000;
 export const OVERLAY_CHAT_FADE_MS = 450;
+
+// Delay after a suggestion input blurs before hiding its dropdown, so a click on an option still registers.
+export const SUGGESTION_DISMISS_MS = 150;
