@@ -1,6 +1,8 @@
 import React from 'react';
 import { Icon } from '../ui/icons';
 import { addSavedStreamCategory, getCategorySuggestions, getSavedStreamCategories, getTagSuggestions } from '../services/dashboard';
+import { useDebouncedSuggestions } from '../suggestions';
+import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import type { SavedStreamCategory, TwitchCategorySuggestion } from '../../shared/api';
 
 export type StreamInfoForm = { title: string; category: string; categoryId?: string; tags: string[] };
@@ -28,83 +30,44 @@ export function StreamInfoModal({
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onClose: () => void;
 }) {
-  const [categorySuggestions, setCategorySuggestions] = React.useState<TwitchCategorySuggestion[]>([]);
-  const [categoryLoading, setCategoryLoading] = React.useState(false);
   const [categoryFocused, setCategoryFocused] = React.useState(false);
   const [savedCategories, setSavedCategories] = React.useState<SavedStreamCategory[]>([]);
   const [categoryMode, setCategoryMode] = React.useState<'select' | 'search'>('select');
   const [categorySearch, setCategorySearch] = React.useState('');
   const [tagInput, setTagInput] = React.useState('');
-  const [tagSuggestions, setTagSuggestions] = React.useState<string[]>([]);
-  const [tagLoading, setTagLoading] = React.useState(false);
   const [tagFocused, setTagFocused] = React.useState(false);
+
+  // Every category that has been the live selection this session, so a mis-pick can't strand it out of the list.
+  const seenCategoriesRef = React.useRef<Map<string, SavedStreamCategory>>(new Map());
 
   React.useEffect(() => {
     void getSavedStreamCategories().then(setSavedCategories).catch(() => setSavedCategories([]));
   }, []);
 
   React.useEffect(() => {
-    const query = categorySearch.trim();
-    if (query.length < 2 || loading) {
-      setCategorySuggestions([]);
-      setCategoryLoading(false);
-      return;
+    if (form.categoryId && form.category) {
+      seenCategoriesRef.current.set(form.categoryId, { id: form.categoryId, name: form.category, boxArtUrl: null, hidden: false });
     }
+  }, [form.categoryId, form.category]);
 
-    let cancelled = false;
-    setCategoryLoading(true);
-    const timeout = window.setTimeout(() => {
-      void getCategorySuggestions(query)
-        .then(suggestions => {
-          if (!cancelled) setCategorySuggestions(suggestions);
-        })
-        .catch((fetchError: unknown) => {
-          console.error('Failed to load category suggestions:', fetchError);
-          if (!cancelled) setCategorySuggestions([]);
-        })
-        .finally(() => {
-          if (!cancelled) setCategoryLoading(false);
-        });
-    }, 250);
+  const { suggestions: categorySuggestions, loading: categoryLoading } = useDebouncedSuggestions(
+    categorySearch,
+    getCategorySuggestions,
+    { enabled: !loading },
+  );
 
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [categorySearch, loading]);
-
-  React.useEffect(() => {
-    const query = tagInput.trim();
-    if (!query || loading) {
-      setTagSuggestions([]);
-      setTagLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setTagLoading(true);
-    const timeout = window.setTimeout(() => {
-      void getTagSuggestions(query)
-        .then(suggestions => {
-          if (!cancelled) {
-            const selected = new Set(form.tags.map(tag => tag.toLowerCase()));
-            setTagSuggestions(suggestions.filter(tag => !selected.has(tag.toLowerCase())));
-          }
-        })
-        .catch((fetchError: unknown) => {
-          console.error('Failed to load tag suggestions:', fetchError);
-          if (!cancelled) setTagSuggestions([]);
-        })
-        .finally(() => {
-          if (!cancelled) setTagLoading(false);
-        });
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [form.tags, loading, tagInput]);
+  const tagFetcher = React.useCallback(
+    (query: string) => getTagSuggestions(query).then(list => {
+      const selected = new Set(form.tags.map(tag => tag.toLowerCase()));
+      return list.filter(tag => !selected.has(tag.toLowerCase()));
+    }),
+    [form.tags],
+  );
+  const { suggestions: tagSuggestions, loading: tagLoading } = useDebouncedSuggestions(
+    tagInput,
+    tagFetcher,
+    { minLength: 1, enabled: !loading },
+  );
 
   const addTag = React.useCallback((value: string) => {
     const tag = normalizeTagInput(value);
@@ -116,21 +79,27 @@ export function StreamInfoModal({
       return { ...current, tags: [...current.tags, tag] };
     });
     setTagInput('');
-    setTagSuggestions([]);
   }, [setForm]);
 
   const removeTag = React.useCallback((tag: string) => {
     setForm(current => ({ ...current, tags: current.tags.filter(item => item !== tag) }));
   }, [setForm]);
 
-  const showCategorySuggestions = categoryFocused && (categoryLoading || categorySuggestions.length > 0);
+  const showCategorySuggestions = categoryFocused
+    && (categoryLoading || categorySuggestions.length > 0 || categorySearch.trim().length >= 2);
   const showTagSuggestions = tagFocused && (tagLoading || tagSuggestions.length > 0);
 
-  // Saved categories to choose from; include the current one if it isn't saved so the dropdown can show it.
+  // Saved categories to choose from; keep the current + previously-selected ones even when unsaved/hidden.
   const visibleSaved = savedCategories.filter(cat => !cat.hidden);
-  const categoryOptions: SavedStreamCategory[] = form.categoryId && form.category && !visibleSaved.some(cat => cat.id === form.categoryId)
-    ? [{ id: form.categoryId, name: form.category, boxArtUrl: null, hidden: false }, ...visibleSaved]
-    : visibleSaved;
+  const savedIds = new Set(visibleSaved.map(cat => cat.id));
+  const remembered = new Map(seenCategoriesRef.current);
+  if (form.categoryId && form.category) {
+    remembered.set(form.categoryId, { id: form.categoryId, name: form.category, boxArtUrl: null, hidden: false });
+  }
+  const categoryOptions: SavedStreamCategory[] = [
+    ...[...remembered.values()].filter(cat => !savedIds.has(cat.id)),
+    ...visibleSaved,
+  ];
 
   const addSearchedCategory = (suggestion: TwitchCategorySuggestion) => {
     setForm(current => ({ ...current, category: suggestion.name, categoryId: suggestion.id }));
@@ -139,7 +108,6 @@ export function StreamInfoModal({
       .catch(() => undefined);
     setCategoryMode('select');
     setCategorySearch('');
-    setCategorySuggestions([]);
     setCategoryFocused(false);
   };
 
@@ -180,8 +148,18 @@ export function StreamInfoModal({
                   placeholder="Search Twitch categories…"
                   disabled={loading || saving}
                   onFocus={() => setCategoryFocused(true)}
-                  onBlur={() => window.setTimeout(() => setCategoryFocused(false), 120)}
+                  onBlur={() => window.setTimeout(() => setCategoryFocused(false), SUGGESTION_DISMISS_MS)}
                   onChange={event => setCategorySearch(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      if (categorySuggestions.length > 0) addSearchedCategory(categorySuggestions[0]);
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      setCategoryMode('select');
+                      setCategorySearch('');
+                    }
+                  }}
                 />
                 {showCategorySuggestions && (
                   <div className="suggestion-list">
@@ -207,7 +185,7 @@ export function StreamInfoModal({
                 type="button"
                 className="modbtn"
                 disabled={loading || saving}
-                onClick={() => { setCategoryMode('select'); setCategorySearch(''); setCategorySuggestions([]); }}
+                onClick={() => { setCategoryMode('select'); setCategorySearch(''); }}
               >
                 Cancel
               </button>
@@ -256,7 +234,7 @@ export function StreamInfoModal({
               value={tagInput}
               disabled={loading || saving || form.tags.length >= 10}
               onFocus={() => setTagFocused(true)}
-              onBlur={() => window.setTimeout(() => setTagFocused(false), 120)}
+              onBlur={() => window.setTimeout(() => setTagFocused(false), SUGGESTION_DISMISS_MS)}
               onChange={event => setTagInput(event.target.value)}
               onKeyDown={event => {
                 if (event.key === 'Enter') {
