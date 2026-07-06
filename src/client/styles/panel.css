@@ -1220,39 +1220,25 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .reward-combo-search:focus-visible { outline: 2px solid var(--gold-500); outline-offset: 1px; }
 .reward-combo-list { display: flex; flex-direction: column; max-height: 232px; overflow-y: auto; }
-.reward-combo-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-2);
-  background: transparent;
-  color: var(--fg-1);
-  text-align: left;
-  font: 13px var(--font-body);
-  cursor: pointer;
-}
-.reward-combo-item.is-hidden { opacity: 0.65; }
-.reward-combo-pick {
+/* Combo rows/empty reuse the shared .suggestion-item / .suggestion-empty styles;
+   these modifiers add the box art thumb and the per-row hide/toggle controls. */
+.reward-combo-list .suggestion-item { gap: 8px; padding: 0 6px; line-height: 1; }
+.reward-combo-list .suggestion-item.is-hidden { opacity: 0.65; }
+.suggestion-pick {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 1;
   min-width: 0;
-  padding: 5px 6px;
+  padding: 5px 0;
   border: 0;
-  border-radius: var(--radius-2);
   background: transparent;
   color: inherit;
   text-align: left;
   font: inherit;
   cursor: pointer;
 }
-.reward-combo-item:hover,
-.reward-combo-pick:hover { background: rgba(255, 184, 108, 0.1); }
-.reward-combo-art {
+.suggestion-art {
   flex: none;
   width: 24px;
   height: 32px;
@@ -1260,9 +1246,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   object-fit: cover;
   background: var(--bg-3);
 }
-.reward-combo-art.placeholder { border: 1px solid var(--border-1); }
-.reward-combo-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reward-combo-tag {
+.suggestion-art.placeholder { border: 1px solid var(--border-1); }
+.suggestion-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-tag {
   flex: none;
   margin-left: auto;
   padding: 1px 7px;
@@ -1274,7 +1260,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.reward-combo-hide {
+.suggestion-hide {
   flex: none;
   padding: 4px 8px;
   border: 0;
@@ -1284,8 +1270,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font: 11px var(--font-body);
   cursor: pointer;
 }
-.reward-combo-hide:hover { color: var(--fg-1); }
-.reward-combo-toggle {
+.suggestion-hide:hover { color: var(--fg-1); }
+.suggestion-toggle {
   margin-top: 4px;
   padding: 6px;
   border: 0;
@@ -1297,8 +1283,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   text-align: left;
   cursor: pointer;
 }
-.reward-combo-toggle:hover { color: var(--fg-2); }
-.reward-combo-empty { padding: 10px 6px; color: var(--fg-3); font-size: 12px; }
+.suggestion-toggle:hover { color: var(--fg-2); }
 .reward-list { display: grid; overflow: hidden; border-radius: 0 0 var(--radius-3) var(--radius-3); }
 .reward-row {
   display: grid;

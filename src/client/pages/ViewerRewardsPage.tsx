@@ -424,10 +424,10 @@ function SavedCategoryRow({
 }) {
   const art = formatBoxArtUrl(boxArtUrl, 36, 48);
   return (
-    <div className={'reward-combo-item' + (className ? ' ' + className : '')}>
-      <button type="button" className="reward-combo-pick" disabled={disabled} onMouseDown={keepFocus} onClick={onPick}>
-        {art ? <img className="reward-combo-art" src={art} alt="" /> : <span className="reward-combo-art placeholder" />}
-        <span className="reward-combo-name">{name}</span>
+    <div className={'suggestion-item' + (className ? ' ' + className : '')}>
+      <button type="button" className="suggestion-pick" disabled={disabled} onMouseDown={keepFocus} onClick={onPick}>
+        {art ? <img className="suggestion-art" src={art} alt="" /> : <span className="suggestion-art placeholder" />}
+        <span className="suggestion-name">{name}</span>
       </button>
       {trailing}
     </div>
@@ -508,7 +508,7 @@ function CategoryGamesEditor({
               <div className="reward-combo-list" onMouseDown={keepFocus}>
                 {searching ? (
                   suggestions.length === 0 ? (
-                    <div className="reward-combo-empty">No matches yet…</div>
+                    <div className="suggestion-empty">No matches yet…</div>
                   ) : suggestions.map(suggestion => (
                     <SavedCategoryRow
                       key={suggestion.id}
@@ -517,14 +517,14 @@ function CategoryGamesEditor({
                       disabled={busy}
                       keepFocus={keepFocus}
                       onPick={() => addFromSearch(suggestion)}
-                      trailing={assignedIds.has(suggestion.id) ? <span className="reward-combo-tag">added</span>
-                        : savedIds.has(suggestion.id) ? <span className="reward-combo-tag">saved</span> : null}
+                      trailing={assignedIds.has(suggestion.id) ? <span className="suggestion-tag">added</span>
+                        : savedIds.has(suggestion.id) ? <span className="suggestion-tag">saved</span> : null}
                     />
                   ))
                 ) : (
                   <>
                     {visibleSaved.length === 0 ? (
-                      <div className="reward-combo-empty">No saved categories yet — search above to add one.</div>
+                      <div className="suggestion-empty">No saved categories yet — search above to add one.</div>
                     ) : visibleSaved.map(cat => (
                       <SavedCategoryRow
                         key={cat.id}
@@ -533,11 +533,11 @@ function CategoryGamesEditor({
                         disabled={busy}
                         keepFocus={keepFocus}
                         onPick={() => assignSaved(cat)}
-                        trailing={<button type="button" className="reward-combo-hide" title="Hide from saved categories" disabled={busy} onMouseDown={keepFocus} onClick={() => onSetHidden(cat.id, true)}>Hide</button>}
+                        trailing={<button type="button" className="suggestion-hide" title="Hide from saved categories" disabled={busy} onMouseDown={keepFocus} onClick={() => onSetHidden(cat.id, true)}>Hide</button>}
                       />
                     ))}
                     {hiddenSaved.length > 0 && (
-                      <button type="button" className="reward-combo-toggle" disabled={busy} onMouseDown={keepFocus} onClick={() => setShowHidden(value => !value)}>
+                      <button type="button" className="suggestion-toggle" disabled={busy} onMouseDown={keepFocus} onClick={() => setShowHidden(value => !value)}>
                         {showHidden ? 'Hide hidden' : `Show hidden (${hiddenSaved.length})`}
                       </button>
                     )}
@@ -550,7 +550,7 @@ function CategoryGamesEditor({
                         disabled={busy}
                         keepFocus={keepFocus}
                         onPick={() => assignSaved(cat)}
-                        trailing={<button type="button" className="reward-combo-hide" title="Show in this list again" disabled={busy} onMouseDown={keepFocus} onClick={() => onSetHidden(cat.id, false)}>Unhide</button>}
+                        trailing={<button type="button" className="suggestion-hide" title="Show in this list again" disabled={busy} onMouseDown={keepFocus} onClick={() => onSetHidden(cat.id, false)}>Unhide</button>}
                       />
                     ))}
                   </>
