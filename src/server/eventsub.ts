@@ -390,6 +390,10 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
       }
 
     } else if (msgType === 'notification') {
+      // A notification is proof the socket is alive. Twitch only sends keepalives while
+      // otherwise idle, so during active streams events must reset the watchdog too —
+      // otherwise a steady event flow starves the keepalive timer into a false reconnect.
+      resetKeepaliveTimer(state);
       const subType = msg.payload.subscription?.type ?? '';
       const event = msg.payload.event ?? {};
       void handleEventSubNotification(state, subType, event).catch(error => {
