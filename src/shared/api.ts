@@ -292,6 +292,8 @@ export type ViewerReward = {
   backgroundColor: string;
   categoryId: string | null;
   isUserInputRequired: boolean;
+  skipQueue: boolean;
+  globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
 };
@@ -306,9 +308,12 @@ export type ViewerRewardUpsert = {
   prompt: string;
   cost: number;
   isEnabled: boolean;
+  isPaused: boolean;
   categoryId: string | null;
   isUserInputRequired: boolean;
+  skipQueue: boolean;
   backgroundColor: string;
+  globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
 };

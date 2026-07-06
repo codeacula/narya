@@ -18,12 +18,40 @@ const EMPTY_REWARD: ViewerRewardUpsert = {
   prompt: '',
   cost: 100,
   isEnabled: true,
+  isPaused: false,
   categoryId: null,
   isUserInputRequired: false,
+  skipQueue: false,
   backgroundColor: '#9147FF',
+  globalCooldown: { enabled: false, seconds: 60 },
   maxPerStream: { enabled: false, max: 1 },
   maxPerUserPerStream: { enabled: false, max: 1 },
 };
+
+const COOLDOWN_UNITS = [
+  { id: 'seconds', label: 'seconds', mult: 1 },
+  { id: 'minutes', label: 'minutes', mult: 60 },
+  { id: 'hours', label: 'hours', mult: 3600 },
+] as const;
+type CooldownUnit = typeof COOLDOWN_UNITS[number]['id'];
+
+// Show a cooldown in the largest unit that divides evenly, so 300s reads as "5 minutes" not "300 seconds".
+function splitCooldown(seconds: number): { value: number; unit: CooldownUnit } {
+  const total = Math.max(1, Math.round(seconds || 0));
+  if (total % 3600 === 0) return { value: total / 3600, unit: 'hours' };
+  if (total % 60 === 0) return { value: total / 60, unit: 'minutes' };
+  return { value: total, unit: 'seconds' };
+}
+
+function cooldownToSeconds(value: number, unit: CooldownUnit): number {
+  const mult = COOLDOWN_UNITS.find(entry => entry.id === unit)?.mult ?? 1;
+  return Math.max(1, Math.round(value || 1)) * mult;
+}
+
+function formatCooldown(seconds: number): string {
+  const { value, unit } = splitCooldown(seconds);
+  return `${value}${unit === 'seconds' ? 's' : unit === 'minutes' ? 'm' : 'h'}`;
+}
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -35,12 +63,48 @@ function formFromReward(reward: ViewerReward): ViewerRewardUpsert {
     prompt: reward.prompt,
     cost: reward.cost,
     isEnabled: reward.isEnabled,
+    isPaused: reward.isPaused,
     categoryId: reward.categoryId,
     isUserInputRequired: reward.isUserInputRequired,
+    skipQueue: reward.skipQueue,
     backgroundColor: reward.backgroundColor,
+    // Twitch reports 0s for a never-set cooldown; seed a sane value so the picker isn't stuck at "0".
+    globalCooldown: reward.globalCooldown.seconds > 0 ? reward.globalCooldown : { ...reward.globalCooldown, seconds: 60 },
     maxPerStream: reward.maxPerStream,
     maxPerUserPerStream: reward.maxPerUserPerStream,
   };
+}
+
+function SwitchRow({
+  label,
+  hint,
+  badge,
+  checked,
+  disabled,
+  onToggle,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  badge?: string;
+  checked: boolean;
+  disabled: boolean;
+  onToggle: (next: boolean) => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className={'reward-ctrl' + (checked ? ' active' : '')}>
+      <label className="reward-switch">
+        <input type="checkbox" checked={checked} disabled={disabled} onChange={event => onToggle(event.target.checked)} />
+        <span className="reward-switch-track" aria-hidden="true" />
+        <span className="reward-ctrl-label">
+          <b>{label}{badge ? <span className="reward-new">{badge}</span> : null}</b>
+          {hint ? <small>{hint}</small> : null}
+        </span>
+      </label>
+      {children ? <div className="reward-ctrl-value">{children}</div> : null}
+    </div>
+  );
 }
 
 function RewardEditor({
@@ -60,6 +124,16 @@ function RewardEditor({
   onCancel: () => void;
   onSubmit: (event: React.FormEvent) => void;
 }) {
+  const initialCooldown = splitCooldown(form.globalCooldown.seconds);
+  const [cooldownValue, setCooldownValue] = useState(initialCooldown.value);
+  const [cooldownUnit, setCooldownUnit] = useState<CooldownUnit>(initialCooldown.unit);
+
+  const applyCooldown = (value: number, unit: CooldownUnit) => {
+    setCooldownValue(value);
+    setCooldownUnit(unit);
+    onChange(current => ({ ...current, globalCooldown: { ...current.globalCooldown, seconds: cooldownToSeconds(value, unit) } }));
+  };
+
   return (
     <form className="reward-editor" onSubmit={onSubmit}>
       <div className="reward-editor-head">
@@ -69,124 +143,165 @@ function RewardEditor({
         </div>
         <button className="modbtn" type="button" disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
-      <div className="reward-form-grid">
-        <label className="field reward-form-title">
-          <span>Title</span>
+
+      <fieldset className="reward-fieldset">
+        <legend className="reward-legend">Basics</legend>
+        <div className="reward-form-grid">
+          <label className="field reward-form-title">
+            <span>Title</span>
+            <input
+              autoFocus
+              required
+              maxLength={45}
+              disabled={busy}
+              value={form.title}
+              onChange={event => onChange(current => ({ ...current, title: event.target.value }))}
+            />
+          </label>
+          <label className="field">
+            <span>Point cost</span>
+            <input
+              required
+              min={1}
+              step={1}
+              type="number"
+              disabled={busy}
+              value={form.cost}
+              onChange={event => onChange(current => ({ ...current, cost: Number(event.target.value) }))}
+            />
+          </label>
+          <label className="field reward-form-prompt">
+            <span>Description</span>
+            <textarea
+              maxLength={200}
+              rows={3}
+              disabled={busy}
+              value={form.prompt}
+              placeholder="Optional instructions shown to viewers"
+              onChange={event => onChange(current => ({ ...current, prompt: event.target.value }))}
+            />
+          </label>
+          <label className="field">
+            <span>Category</span>
+            <select
+              disabled={busy}
+              value={form.categoryId ?? ''}
+              onChange={event => onChange(current => ({ ...current, categoryId: event.target.value || null }))}
+            >
+              <option value="">Uncategorized</option>
+              {categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span>Orb color</span>
+            <input
+              type="color"
+              disabled={busy}
+              value={form.backgroundColor}
+              onChange={event => onChange(current => ({ ...current, backgroundColor: event.target.value }))}
+            />
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset className="reward-fieldset">
+        <legend className="reward-legend">Availability</legend>
+        <SwitchRow
+          label="Enabled on Twitch"
+          hint="Viewers can see and redeem it now."
+          checked={form.isEnabled}
+          disabled={busy}
+          onToggle={next => onChange(current => ({ ...current, isEnabled: next }))}
+        />
+        <SwitchRow
+          label="Paused"
+          badge="new"
+          hint="Stays visible but rejects redemptions until you resume."
+          checked={form.isPaused}
+          disabled={busy}
+          onToggle={next => onChange(current => ({ ...current, isPaused: next }))}
+        />
+        <SwitchRow
+          label="Skip the request queue"
+          badge="new"
+          hint="Mark redemptions fulfilled instantly — no manual approval."
+          checked={form.skipQueue}
+          disabled={busy}
+          onToggle={next => onChange(current => ({ ...current, skipQueue: next }))}
+        />
+        <SwitchRow
+          label="Viewers must enter text"
+          hint="Collect a message with each redeem — required to route it to TTS."
+          checked={form.isUserInputRequired}
+          disabled={busy}
+          onToggle={next => onChange(current => ({ ...current, isUserInputRequired: next }))}
+        />
+      </fieldset>
+
+      <fieldset className="reward-fieldset">
+        <legend className="reward-legend">Limits &amp; cooldown</legend>
+        <SwitchRow
+          label="Max per stream"
+          hint="Total redemptions allowed each broadcast."
+          checked={form.maxPerStream.enabled}
+          disabled={busy}
+          onToggle={next => onChange(current => ({ ...current, maxPerStream: { ...current.maxPerStream, enabled: next } }))}
+        >
           <input
-            autoFocus
-            required
-            maxLength={45}
-            disabled={busy}
-            value={form.title}
-            onChange={event => onChange(current => ({ ...current, title: event.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Point cost</span>
-          <input
-            required
+            type="number"
             min={1}
             step={1}
+            aria-label="Max redemptions per stream"
+            disabled={busy || !form.maxPerStream.enabled}
+            value={form.maxPerStream.max}
+            onChange={event => onChange(current => ({ ...current, maxPerStream: { ...current.maxPerStream, max: Number(event.target.value) } }))}
+          />
+        </SwitchRow>
+        <SwitchRow
+          label="Max per user each stream"
+          hint="Keeps one viewer from taking them all."
+          checked={form.maxPerUserPerStream.enabled}
+          disabled={busy}
+          onToggle={next => onChange(current => ({ ...current, maxPerUserPerStream: { ...current.maxPerUserPerStream, enabled: next } }))}
+        >
+          <input
             type="number"
-            disabled={busy}
-            value={form.cost}
-            onChange={event => onChange(current => ({ ...current, cost: Number(event.target.value) }))}
+            min={1}
+            step={1}
+            aria-label="Max redemptions per user each stream"
+            disabled={busy || !form.maxPerUserPerStream.enabled}
+            value={form.maxPerUserPerStream.max}
+            onChange={event => onChange(current => ({ ...current, maxPerUserPerStream: { ...current.maxPerUserPerStream, max: Number(event.target.value) } }))}
           />
-        </label>
-        <label className="field reward-form-prompt">
-          <span>Description</span>
-          <textarea
-            maxLength={200}
-            rows={3}
-            disabled={busy}
-            value={form.prompt}
-            placeholder="Optional instructions shown to viewers"
-            onChange={event => onChange(current => ({ ...current, prompt: event.target.value }))}
+        </SwitchRow>
+        <SwitchRow
+          label="Global cooldown"
+          badge="new"
+          hint="Lock the reward briefly after each redeem."
+          checked={form.globalCooldown.enabled}
+          disabled={busy}
+          onToggle={next => onChange(current => ({ ...current, globalCooldown: { ...current.globalCooldown, enabled: next } }))}
+        >
+          <input
+            type="number"
+            min={1}
+            step={1}
+            aria-label="Cooldown length"
+            disabled={busy || !form.globalCooldown.enabled}
+            value={cooldownValue}
+            onChange={event => applyCooldown(Number(event.target.value), cooldownUnit)}
           />
-        </label>
-        <label className="field">
-          <span>Category</span>
           <select
-            disabled={busy}
-            value={form.categoryId ?? ''}
-            onChange={event => onChange(current => ({ ...current, categoryId: event.target.value || null }))}
+            aria-label="Cooldown unit"
+            disabled={busy || !form.globalCooldown.enabled}
+            value={cooldownUnit}
+            onChange={event => applyCooldown(cooldownValue, event.target.value as CooldownUnit)}
           >
-            <option value="">Uncategorized</option>
-            {categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+            {COOLDOWN_UNITS.map(unit => <option key={unit.id} value={unit.id}>{unit.label}</option>)}
           </select>
-        </label>
-        <label className="field">
-          <span>Background color</span>
-          <input
-            type="color"
-            disabled={busy}
-            value={form.backgroundColor}
-            onChange={event => onChange(current => ({ ...current, backgroundColor: event.target.value }))}
-          />
-        </label>
-        <div className="field reward-form-limits">
-          <span>Max per stream</span>
-          <div className="reward-limit-row">
-            <label className="command-enabled">
-              <input
-                type="checkbox"
-                checked={form.maxPerStream.enabled}
-                disabled={busy}
-                onChange={event => onChange(current => ({ ...current, maxPerStream: { ...current.maxPerStream, enabled: event.target.checked } }))}
-              />
-              Enable
-            </label>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              disabled={busy || !form.maxPerStream.enabled}
-              value={form.maxPerStream.max}
-              onChange={event => onChange(current => ({ ...current, maxPerStream: { ...current.maxPerStream, max: Number(event.target.value) } }))}
-            />
-          </div>
-        </div>
-        <div className="field reward-form-limits">
-          <span>Max per user per stream</span>
-          <div className="reward-limit-row">
-            <label className="command-enabled">
-              <input
-                type="checkbox"
-                checked={form.maxPerUserPerStream.enabled}
-                disabled={busy}
-                onChange={event => onChange(current => ({ ...current, maxPerUserPerStream: { ...current.maxPerUserPerStream, enabled: event.target.checked } }))}
-              />
-              Enable
-            </label>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              disabled={busy || !form.maxPerUserPerStream.enabled}
-              value={form.maxPerUserPerStream.max}
-              onChange={event => onChange(current => ({ ...current, maxPerUserPerStream: { ...current.maxPerUserPerStream, max: Number(event.target.value) } }))}
-            />
-          </div>
-        </div>
-        <label className="command-enabled reward-form-enabled">
-          <input
-            type="checkbox"
-            checked={form.isUserInputRequired}
-            disabled={busy}
-            onChange={event => onChange(current => ({ ...current, isUserInputRequired: event.target.checked }))}
-          />
-          Viewers must enter text when redeeming
-        </label>
-        <label className="command-enabled reward-form-enabled">
-          <input
-            type="checkbox"
-            checked={form.isEnabled}
-            disabled={busy}
-            onChange={event => onChange(current => ({ ...current, isEnabled: event.target.checked }))}
-          />
-          Enabled on Twitch
-        </label>
-      </div>
+        </SwitchRow>
+      </fieldset>
+
       <div className="command-settings-actions">
         <button className="modbtn gold" type="submit" disabled={busy}>
           {busy ? 'Saving...' : editing ? 'Save reward' : 'Create reward'}
@@ -205,6 +320,7 @@ function RewardRow({
   onDelete,
   onCategoryChange,
   onTtsToggle,
+  onPauseToggle,
 }: {
   reward: ViewerReward;
   categories: ViewerRewardCategory[];
@@ -214,19 +330,30 @@ function RewardRow({
   onDelete: () => void;
   onCategoryChange: (categoryId: string | null) => void;
   onTtsToggle: () => void;
+  onPauseToggle: () => void;
 }) {
+  const dimmed = !reward.isEnabled || reward.isPaused;
   return (
-    <div className={'reward-row' + (reward.isEnabled ? '' : ' disabled')}>
-      <div className="reward-art" style={{ backgroundColor: reward.backgroundColor }}>
+    <div className={'reward-row' + (dimmed ? ' disabled' : '')}>
+      <div className="reward-orb" style={{ ['--reward-color' as string]: reward.backgroundColor }}>
         {reward.imageUrl ? <img src={reward.imageUrl} alt="" /> : null}
       </div>
       <div className="reward-main">
         <div className="reward-title-line">
           <b>{reward.title}</b>
           <span className={reward.isEnabled ? 'reward-state on' : 'reward-state'}>{reward.isEnabled ? 'On' : 'Off'}</span>
+          {reward.isPaused ? <span className="reward-state paused">Paused</span> : null}
+          {reward.skipQueue ? <span className="reward-state auto">Auto</span> : null}
           {!reward.canManage ? <span className="reward-state readonly">Twitch-managed</span> : null}
         </div>
-        <div className="reward-meta">{reward.cost.toLocaleString()} points{reward.prompt ? ` · ${reward.prompt}` : ''}</div>
+        <div className="reward-meta">
+          <span className="reward-meta-cost">{reward.cost.toLocaleString()} pts</span>
+          {reward.globalCooldown.enabled ? <span>{formatCooldown(reward.globalCooldown.seconds)} cooldown</span> : null}
+          {reward.maxPerStream.enabled ? <span>{reward.maxPerStream.max} / stream</span> : null}
+          {reward.maxPerUserPerStream.enabled ? <span>{reward.maxPerUserPerStream.max} / user</span> : null}
+          {reward.isUserInputRequired ? <span>text required</span> : null}
+          {reward.prompt ? <span className="reward-meta-prompt">{reward.prompt}</span> : null}
+        </div>
       </div>
       <label className="reward-category-select">
         <span className="sr-only">Category for {reward.title}</span>
@@ -240,6 +367,17 @@ function RewardRow({
         </select>
       </label>
       <div className="reward-actions">
+        {reward.canManage && (
+          <button
+            className={'modbtn' + (reward.isPaused ? ' gold' : '')}
+            type="button"
+            disabled={busy}
+            title={reward.isPaused ? 'Resume redemptions' : 'Pause redemptions'}
+            onClick={onPauseToggle}
+          >
+            {reward.isPaused ? 'Resume' : 'Pause'}
+          </button>
+        )}
         {reward.isUserInputRequired && (
           <button
             className={'modbtn' + (ttsEnabled ? ' gold' : '')}
@@ -310,6 +448,20 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
       setMessage(next ? `TTS enabled for "${reward.title}".` : `TTS disabled for "${reward.title}".`);
     } catch (toggleError) {
       setError(errorMessage(toggleError, 'Could not update TTS setting.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handlePauseToggle = async (reward: ViewerReward) => {
+    setBusyId(reward.id);
+    setError(null);
+    setMessage(null);
+    try {
+      setData(await updateViewerReward(reward.id, { isPaused: !reward.isPaused }));
+      setMessage(reward.isPaused ? `"${reward.title}" resumed.` : `"${reward.title}" paused.`);
+    } catch (pauseError) {
+      setError(errorMessage(pauseError, 'Could not update the reward pause state.'));
     } finally {
       setBusyId(null);
     }
@@ -522,6 +674,7 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
               onDelete={() => void handleRewardDelete(reward)}
               onCategoryChange={categoryId => void handleCategoryAssignment(reward, categoryId)}
               onTtsToggle={() => void handleTtsToggle(reward)}
+              onPauseToggle={() => void handlePauseToggle(reward)}
             />
           ))}
         </div>

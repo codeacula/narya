@@ -26,6 +26,8 @@ type TwitchReward = {
   background_color: string;
   image: { url_1x?: string } | null;
   default_image: { url_1x?: string };
+  should_redemptions_skip_request_queue: boolean;
+  global_cooldown_setting: { is_enabled: boolean; global_cooldown_seconds: number };
   max_per_stream_setting: { is_enabled: boolean; max_per_stream: number };
   max_per_user_per_stream_setting: { is_enabled: boolean; max_per_user_per_stream: number };
 };
@@ -129,6 +131,11 @@ async function fetchRewards(
     backgroundColor: reward.background_color,
     categoryId: categoryIds.get(reward.id) ?? null,
     isUserInputRequired: reward.is_user_input_required ?? false,
+    skipQueue: reward.should_redemptions_skip_request_queue ?? false,
+    globalCooldown: {
+      enabled: reward.global_cooldown_setting?.is_enabled ?? false,
+      seconds: reward.global_cooldown_setting?.global_cooldown_seconds ?? 0,
+    },
     maxPerStream: {
       enabled: reward.max_per_stream_setting?.is_enabled ?? false,
       max: reward.max_per_stream_setting?.max_per_stream ?? 1,
@@ -196,17 +203,51 @@ function normalizeReward(body: unknown): ViewerRewardUpsert {
   const maxPerUserEnabled = typeof mpuPS === 'object' && mpuPS !== null ? Boolean(mpuPS.enabled) : false;
   const maxPerUserVal = typeof mpuPS === 'object' && mpuPS !== null ? Math.max(1, Math.round(Number(mpuPS.max) || 1)) : 1;
 
+  const cd = value.globalCooldown;
+  const cooldownEnabled = typeof cd === 'object' && cd !== null ? Boolean(cd.enabled) : false;
+  // Twitch requires 1s–604800s (7 days); keep a valid value even while disabled so the payload never 400s.
+  const cooldownSeconds = typeof cd === 'object' && cd !== null
+    ? Math.min(604_800, Math.max(1, Math.round(Number(cd.seconds) || 60)))
+    : 60;
+
   return {
     title,
     prompt,
     cost,
     isEnabled: value.isEnabled !== false,
+    isPaused: value.isPaused === true,
     categoryId: normalizeCategoryId(value.categoryId),
     isUserInputRequired: value.isUserInputRequired === true,
+    skipQueue: value.skipQueue === true,
     backgroundColor: normalizeHexColor(value.backgroundColor),
+    globalCooldown: { enabled: cooldownEnabled, seconds: cooldownSeconds },
     maxPerStream: { enabled: maxPerStreamEnabled, max: maxPerStreamVal },
     maxPerUserPerStream: { enabled: maxPerUserEnabled, max: maxPerUserVal },
   };
+}
+
+// Twitch's create/update endpoints take FLAT fields (is_global_cooldown_enabled, global_cooldown_seconds,
+// is_max_per_stream_enabled, …) even though the GET response nests them under *_setting objects. Sending the
+// nested shape here is silently ignored, which is why limits set through this app never applied before.
+function twitchRewardBody(reward: ViewerRewardUpsert, isEnabled: boolean, includePaused: boolean): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    title: reward.title,
+    prompt: reward.prompt,
+    cost: reward.cost,
+    is_enabled: isEnabled,
+    is_user_input_required: reward.isUserInputRequired,
+    background_color: reward.backgroundColor,
+    should_redemptions_skip_request_queue: reward.skipQueue,
+    is_global_cooldown_enabled: reward.globalCooldown.enabled,
+    global_cooldown_seconds: reward.globalCooldown.seconds,
+    is_max_per_stream_enabled: reward.maxPerStream.enabled,
+    max_per_stream: reward.maxPerStream.max,
+    is_max_per_user_per_stream_enabled: reward.maxPerUserPerStream.enabled,
+    max_per_user_per_stream: reward.maxPerUserPerStream.max,
+  };
+  // is_paused is only accepted on update, not create.
+  if (includePaused) body.is_paused = reward.isPaused;
+  return body;
 }
 
 async function sendTwitchRewardUpdate(
@@ -356,22 +397,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       const twitchResponse = await fetch(`${REWARDS_URL}?${params.toString()}`, {
         method: 'POST',
         headers: twitchHeaders(credentials),
-        body: JSON.stringify({
-          title: reward.title,
-          prompt: reward.prompt,
-          cost: reward.cost,
-          is_enabled: category?.enabled === 0 ? false : reward.isEnabled,
-          is_user_input_required: reward.isUserInputRequired,
-          background_color: reward.backgroundColor,
-          max_per_stream_setting: {
-            is_enabled: reward.maxPerStream.enabled,
-            max_per_stream: reward.maxPerStream.max,
-          },
-          max_per_user_per_stream_setting: {
-            is_enabled: reward.maxPerUserPerStream.enabled,
-            max_per_user_per_stream: reward.maxPerUserPerStream.max,
-          },
-        }),
+        body: JSON.stringify(twitchRewardBody(reward, category?.enabled === 0 ? false : reward.isEnabled, false)),
       });
       if (!twitchResponse.ok) {
         const message = await readResponseError(twitchResponse, 'Twitch reward creation failed.');
@@ -397,7 +423,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       const categoryId = request.body?.categoryId === undefined
         ? current.categoryId
         : normalizeCategoryId(request.body.categoryId);
-      const hasTwitchFields = ['title', 'prompt', 'cost', 'isEnabled', 'isUserInputRequired', 'backgroundColor', 'maxPerStream', 'maxPerUserPerStream'].some(key => request.body?.[key] !== undefined);
+      const hasTwitchFields = ['title', 'prompt', 'cost', 'isEnabled', 'isPaused', 'isUserInputRequired', 'skipQueue', 'backgroundColor', 'globalCooldown', 'maxPerStream', 'maxPerUserPerStream'].some(key => request.body?.[key] !== undefined);
       if (hasTwitchFields) {
         if (!current.canManage) throw new HttpRouteError(403, 'Twitch only allows this app to edit rewards that it created.');
         const reward = normalizeReward({
@@ -405,29 +431,17 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
           prompt: request.body.prompt ?? current.prompt,
           cost: request.body.cost ?? current.cost,
           isEnabled: request.body.isEnabled ?? current.isEnabled,
+          isPaused: request.body.isPaused ?? current.isPaused,
           isUserInputRequired: request.body.isUserInputRequired ?? current.isUserInputRequired,
+          skipQueue: request.body.skipQueue ?? current.skipQueue,
           backgroundColor: request.body.backgroundColor ?? current.backgroundColor,
+          globalCooldown: request.body.globalCooldown ?? current.globalCooldown,
           maxPerStream: request.body.maxPerStream ?? current.maxPerStream,
           maxPerUserPerStream: request.body.maxPerUserPerStream ?? current.maxPerUserPerStream,
           categoryId,
         });
         const category = categoryId ? getCategory.get(categoryId) as CategoryRow : null;
-        await sendTwitchRewardUpdate(credentials, current.id, {
-          title: reward.title,
-          prompt: reward.prompt,
-          cost: reward.cost,
-          is_enabled: category?.enabled === 0 ? false : reward.isEnabled,
-          is_user_input_required: reward.isUserInputRequired,
-          background_color: reward.backgroundColor,
-          max_per_stream_setting: {
-            is_enabled: reward.maxPerStream.enabled,
-            max_per_stream: reward.maxPerStream.max,
-          },
-          max_per_user_per_stream_setting: {
-            is_enabled: reward.maxPerUserPerStream.enabled,
-            max_per_user_per_stream: reward.maxPerUserPerStream.max,
-          },
-        });
+        await sendTwitchRewardUpdate(credentials, current.id, twitchRewardBody(reward, category?.enabled === 0 ? false : reward.isEnabled, true));
       } else if (categoryId !== current.categoryId && categoryId && current.canManage) {
         const category = getCategory.get(categoryId) as CategoryRow;
         const categoryEnabled = category.enabled === 1;

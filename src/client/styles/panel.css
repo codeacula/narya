@@ -1014,6 +1014,95 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .reward-form-prompt { grid-column: 1; }
 .reward-form-enabled { align-self: end; min-height: 38px; }
+/* Editor: grouped sections + one switch-and-value control for limits and cooldown. */
+.reward-fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.reward-fieldset + .reward-fieldset { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border-1); }
+.reward-legend {
+  padding: 0;
+  margin-bottom: 12px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.reward-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-3);
+  background: var(--bg-1);
+}
+.reward-ctrl + .reward-ctrl { margin-top: 8px; }
+.reward-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.reward-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.reward-switch-track {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-pill);
+  background: var(--navy-700);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.reward-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--silver-500);
+  transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast);
+}
+.reward-ctrl.active .reward-switch-track { background: linear-gradient(var(--gold-400), var(--gold-600)); border-color: transparent; }
+.reward-ctrl.active .reward-switch-track::after { transform: translateX(14px); background: var(--navy-950); }
+.reward-switch input:focus-visible + .reward-switch-track { outline: 2px solid var(--gold-500); outline-offset: 2px; }
+.reward-switch input:disabled + .reward-switch-track { opacity: 0.5; }
+.reward-ctrl-label { min-width: 0; }
+.reward-ctrl-label b { display: block; color: var(--fg-1); font-size: 13px; font-weight: 600; }
+.reward-ctrl-label small { color: var(--fg-3); font-size: 11.5px; }
+.reward-new {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--note-border);
+  border-radius: var(--radius-pill);
+  background: var(--note-bg);
+  color: var(--note-fg);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.reward-ctrl-value { display: flex; align-items: center; gap: 6px; flex: none; }
+.reward-ctrl-value input,
+.reward-ctrl-value select {
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-void);
+  color: var(--fg-1);
+  font: 12px var(--font-mono);
+}
+.reward-ctrl-value input { width: 62px; text-align: right; }
+.reward-ctrl-value select { color: var(--fg-2); font-family: var(--font-body); }
+.reward-ctrl-value input:disabled,
+.reward-ctrl-value select:disabled { opacity: 0.5; }
 .reward-group {
   margin-bottom: var(--panel-gap);
   border: 1px solid var(--border-1);
@@ -1055,27 +1144,35 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .reward-list { display: grid; }
 .reward-row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) minmax(150px, 190px) auto;
+  grid-template-columns: 48px minmax(0, 1fr) minmax(150px, 190px) auto;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 14px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border-1);
 }
 .reward-row:last-child { border-bottom: 0; }
-.reward-row.disabled .reward-art,
-.reward-row.disabled .reward-main { opacity: 0.58; }
-.reward-art {
-  width: 42px;
-  height: 42px;
+.reward-row.disabled .reward-orb,
+.reward-row.disabled .reward-main { opacity: 0.55; }
+/* Signature: the reward's own Twitch color rendered as a glowing orb. */
+.reward-orb {
+  width: 44px;
+  height: 44px;
+  justify-self: center;
   display: grid;
   place-items: center;
   overflow: hidden;
-  border: 1px solid var(--border-2);
   border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.5), transparent 42%),
+    radial-gradient(circle at 68% 78%, rgba(0, 0, 0, 0.35), transparent 55%),
+    var(--reward-color, var(--arcane-500));
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.3),
+    0 0 18px -2px color-mix(in srgb, var(--reward-color, var(--arcane-500)) 60%, transparent);
 }
-.reward-art img { width: 100%; height: 100%; object-fit: cover; }
+.reward-orb img { width: 100%; height: 100%; object-fit: cover; }
 .reward-main { min-width: 0; }
-.reward-title-line { min-width: 0; gap: 7px; }
+.reward-title-line { min-width: 0; gap: 7px; flex-wrap: wrap; row-gap: 5px; }
 .reward-title-line b {
   min-width: 0;
   overflow: hidden;
@@ -1097,12 +1194,33 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   text-transform: uppercase;
 }
 .reward-state.on { color: var(--success-fg); border-color: var(--success-border); background: var(--success-bg); }
-.reward-state.readonly { color: var(--warning-fg); border-color: var(--warning-border); background: var(--warning-bg); }
+.reward-state.paused { color: var(--warning-fg); border-color: var(--warning-border); background: var(--warning-bg); }
+.reward-state.auto { color: var(--info-fg); border-color: var(--info-border); background: var(--info-bg); }
+.reward-state.readonly { color: var(--fg-2); border-color: var(--border-2); background: transparent; }
+/* Structured meta strip — cost, cooldown, and limits as scannable mono tokens. */
 .reward-meta {
-  overflow: hidden;
-  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 5px;
   color: var(--fg-3);
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+}
+.reward-meta > span {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 10px;
+}
+.reward-meta > span:first-child { padding-left: 0; }
+.reward-meta > span + span { border-left: 1px solid var(--border-1); }
+.reward-meta-cost { color: var(--gold-300); }
+.reward-meta-prompt {
+  min-width: 0;
+  max-width: 42ch;
+  overflow: hidden;
+  font-family: var(--font-body);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1173,7 +1291,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   .reward-category-form { grid-template-columns: 1fr; }
   .reward-form-prompt { grid-column: auto; }
   .reward-row {
-    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-columns: 48px minmax(0, 1fr);
   }
   .reward-category-select,
   .reward-actions { grid-column: 2; }
