@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { RewardStreamCategory, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
+import type { RewardStreamCategory, SavedStreamCategory, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
 import {
+  addSavedStreamCategory,
   applyViewerRewardCategoryColor,
   createViewerReward,
   getCategorySuggestions,
+  getSavedStreamCategories,
+  setSavedStreamCategoryHidden,
   createViewerRewardCategory,
   deleteViewerReward,
   deleteViewerRewardCategory,
@@ -398,25 +401,34 @@ function RewardRow({
   );
 }
 
+// Twitch box-art urls carry {width}x{height} placeholders; fill them for a small thumbnail.
+function boxArtThumb(url: string | null): string | null {
+  return url ? url.replaceAll('{width}', '36').replaceAll('{height}', '48') : null;
+}
+
 function CategoryGamesEditor({
   category,
   busy,
-  onSave,
+  saved,
+  onAssign,
+  onAddAndAssign,
+  onSetHidden,
 }: {
   category: ViewerRewardCategory;
   busy: boolean;
-  onSave: (games: RewardStreamCategory[]) => void;
+  saved: SavedStreamCategory[];
+  onAssign: (games: RewardStreamCategory[]) => void;
+  onAddAndAssign: (game: { id: string; name: string; boxArtUrl: string | null }) => void;
+  onSetHidden: (id: string, hidden: boolean) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<TwitchCategorySuggestion[]>([]);
-  const [focused, setFocused] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
 
   useEffect(() => {
     const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      setSuggestions([]);
-      return;
-    }
+    if (trimmed.length < 2) { setSuggestions([]); return; }
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void getCategorySuggestions(trimmed)
@@ -426,17 +438,22 @@ function CategoryGamesEditor({
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [query]);
 
-  const addGame = (game: RewardStreamCategory) => {
-    setQuery('');
-    setSuggestions([]);
-    setFocused(false);
-    if (category.games.some(existing => existing.id === game.id)) return;
-    onSave([...category.games, { id: game.id, name: game.name }]);
+  const assignedIds = new Set(category.games.map(game => game.id));
+  const savedIds = new Set(saved.map(cat => cat.id));
+  const searching = query.trim().length >= 2;
+  const visibleSaved = saved.filter(cat => !cat.hidden && !assignedIds.has(cat.id));
+  const hiddenSaved = saved.filter(cat => cat.hidden && !assignedIds.has(cat.id));
+
+  const close = () => { setOpen(false); setQuery(''); setSuggestions([]); setShowHidden(false); };
+  const removeGame = (id: string) => onAssign(category.games.filter(game => game.id !== id));
+  const assignSaved = (cat: SavedStreamCategory) => { onAssign([...category.games, { id: cat.id, name: cat.name }]); close(); };
+  const addFromSearch = (suggestion: TwitchCategorySuggestion) => {
+    if (!assignedIds.has(suggestion.id)) {
+      onAddAndAssign({ id: suggestion.id, name: suggestion.name, boxArtUrl: suggestion.boxArtUrl });
+    }
+    close();
   };
-
-  const removeGame = (id: string) => onSave(category.games.filter(game => game.id !== id));
-
-  const showSuggestions = focused && suggestions.length > 0;
+  const keepFocus = (event: React.MouseEvent) => event.preventDefault();
 
   return (
     <div className="reward-games">
@@ -452,28 +469,74 @@ function CategoryGamesEditor({
           </span>
         ))}
         <div className="suggestion-anchor reward-games-add">
-          <input
-            type="text"
-            value={query}
+          <button
+            type="button"
+            className="reward-games-addbtn"
             disabled={busy}
-            placeholder={category.games.length ? 'Add another…' : 'Add a game…'}
-            onFocus={() => setFocused(true)}
-            onBlur={() => window.setTimeout(() => setFocused(false), 120)}
-            onChange={event => { setQuery(event.target.value); setFocused(true); }}
-          />
-          {showSuggestions && (
-            <div className="suggestion-list">
-              {suggestions.map(suggestion => (
-                <button
-                  key={suggestion.id}
-                  type="button"
-                  className="suggestion-item"
-                  onMouseDown={event => event.preventDefault()}
-                  onClick={() => addGame({ id: suggestion.id, name: suggestion.name })}
-                >
-                  <span>{suggestion.name}</span>
-                </button>
-              ))}
+            aria-expanded={open}
+            onClick={() => (open ? close() : setOpen(true))}
+          >
+            + Add
+          </button>
+          {open && (
+            <div className="reward-combo">
+              <input
+                className="reward-combo-search"
+                type="text"
+                autoFocus
+                value={query}
+                placeholder="Search to add a new one…"
+                onBlur={() => window.setTimeout(close, 150)}
+                onChange={event => setQuery(event.target.value)}
+              />
+              <div className="reward-combo-list">
+                {searching ? (
+                  suggestions.length === 0 ? (
+                    <div className="reward-combo-empty">No matches yet…</div>
+                  ) : suggestions.map(suggestion => (
+                    <button key={suggestion.id} type="button" className="reward-combo-item" onMouseDown={keepFocus} onClick={() => addFromSearch(suggestion)}>
+                      {boxArtThumb(suggestion.boxArtUrl)
+                        ? <img className="reward-combo-art" src={boxArtThumb(suggestion.boxArtUrl) ?? ''} alt="" />
+                        : <span className="reward-combo-art placeholder" />}
+                      <span className="reward-combo-name">{suggestion.name}</span>
+                      {assignedIds.has(suggestion.id) ? <span className="reward-combo-tag">added</span>
+                        : savedIds.has(suggestion.id) ? <span className="reward-combo-tag">saved</span> : null}
+                    </button>
+                  ))
+                ) : (
+                  <>
+                    {visibleSaved.length === 0 ? (
+                      <div className="reward-combo-empty">No saved categories yet — search above to add one.</div>
+                    ) : visibleSaved.map(cat => (
+                      <div key={cat.id} className="reward-combo-item">
+                        <button type="button" className="reward-combo-pick" onMouseDown={keepFocus} onClick={() => assignSaved(cat)}>
+                          {boxArtThumb(cat.boxArtUrl)
+                            ? <img className="reward-combo-art" src={boxArtThumb(cat.boxArtUrl) ?? ''} alt="" />
+                            : <span className="reward-combo-art placeholder" />}
+                          <span className="reward-combo-name">{cat.name}</span>
+                        </button>
+                        <button type="button" className="reward-combo-hide" title="Hide from this list" onMouseDown={keepFocus} onClick={() => onSetHidden(cat.id, true)}>Hide</button>
+                      </div>
+                    ))}
+                    {hiddenSaved.length > 0 && (
+                      <button type="button" className="reward-combo-toggle" onMouseDown={keepFocus} onClick={() => setShowHidden(value => !value)}>
+                        {showHidden ? 'Hide hidden' : `Show hidden (${hiddenSaved.length})`}
+                      </button>
+                    )}
+                    {showHidden && hiddenSaved.map(cat => (
+                      <div key={cat.id} className="reward-combo-item is-hidden">
+                        <button type="button" className="reward-combo-pick" onMouseDown={keepFocus} onClick={() => assignSaved(cat)}>
+                          {boxArtThumb(cat.boxArtUrl)
+                            ? <img className="reward-combo-art" src={boxArtThumb(cat.boxArtUrl) ?? ''} alt="" />
+                            : <span className="reward-combo-art placeholder" />}
+                          <span className="reward-combo-name">{cat.name}</span>
+                        </button>
+                        <button type="button" className="reward-combo-hide" title="Show in this list again" onMouseDown={keepFocus} onClick={() => onSetHidden(cat.id, false)}>Unhide</button>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -493,6 +556,7 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rewardForm, setRewardForm] = useState<ViewerRewardUpsert>(EMPTY_REWARD);
   const [ttsEnabledIds, setTtsEnabledIds] = useState<Set<string>>(new Set());
+  const [savedCategories, setSavedCategories] = useState<SavedStreamCategory[]>([]);
 
   const groupedRewards = useMemo(() => {
     const groups = new Map<string | null, ViewerReward[]>();
@@ -509,9 +573,10 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
     setLoading(true);
     setError(null);
     try {
-      const [rewards, ttsIds] = await Promise.all([getViewerRewards(), getTtsEnabledRewards()]);
+      const [rewards, ttsIds, savedCats] = await Promise.all([getViewerRewards(), getTtsEnabledRewards(), getSavedStreamCategories()]);
       setData(rewards);
       setTtsEnabledIds(new Set(ttsIds));
+      setSavedCategories(savedCats);
     } catch (loadError) {
       setError(errorMessage(loadError, 'Could not load viewer rewards.'));
     } finally {
@@ -637,6 +702,29 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
       setError(errorMessage(updateError, 'Could not update stream categories.'));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const handleAddAndAssign = async (category: ViewerRewardCategory, game: { id: string; name: string; boxArtUrl: string | null }) => {
+    setBusyId(category.id + '-games');
+    setError(null);
+    setMessage(null);
+    try {
+      setSavedCategories(await addSavedStreamCategory(game));
+      setData(await updateViewerRewardCategory(category.id, { games: [...category.games, { id: game.id, name: game.name }] }));
+    } catch (addError) {
+      setError(errorMessage(addError, 'Could not add that stream category.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleSetCategoryHidden = async (id: string, hidden: boolean) => {
+    setError(null);
+    try {
+      setSavedCategories(await setSavedStreamCategoryHidden(id, hidden));
+    } catch (hideError) {
+      setError(errorMessage(hideError, 'Could not update the saved category.'));
     }
   };
 
@@ -768,7 +856,10 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
           <CategoryGamesEditor
             category={category}
             busy={Boolean(busyId)}
-            onSave={games => void handleCategoryGames(category, games)}
+            saved={savedCategories}
+            onAssign={games => void handleCategoryGames(category, games)}
+            onAddAndAssign={game => void handleAddAndAssign(category, game)}
+            onSetHidden={(id, hidden) => void handleSetCategoryHidden(id, hidden)}
           />
         ) : null}
         <div className="reward-list">

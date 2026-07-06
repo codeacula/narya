@@ -386,6 +386,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         setStreamInfoForm({
           title: info.title,
           category: info.category,
+          categoryId: info.categoryId || undefined,
           tags: info.tags,
         });
       })
@@ -403,6 +404,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     void updateStreamInfo({
       title: streamInfoForm.title,
       category: streamInfoForm.category,
+      categoryId: streamInfoForm.categoryId,
       tags: streamInfoForm.tags,
     })
       .then(() => {

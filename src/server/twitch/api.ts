@@ -609,9 +609,12 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
 
   app.patch('/api/twitch/stream-info', async (request, response) => {
     try {
-      const body = request.body as { title?: unknown; category?: unknown; tags?: unknown };
+      const body = request.body as { title?: unknown; category?: unknown; categoryId?: unknown; tags?: unknown };
       const title = typeof body.title === 'string' ? body.title.trim() : '';
       const category = typeof body.category === 'string' ? body.category.trim() : '';
+      const providedId = typeof body.categoryId === 'string' && /^\d{1,20}$/.test(body.categoryId.trim())
+        ? body.categoryId.trim()
+        : '';
       const tags = normalizeTags(body.tags);
 
       if (!title) throw new HttpRouteError(400, 'Title is required.');
@@ -619,7 +622,8 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       if (!category) throw new HttpRouteError(400, 'Category is required.');
 
       const credentials = await getTwitchActionCredentials(state, ['channel:manage:broadcast']);
-      const gameId = await resolveTwitchCategoryId(category, credentials);
+      // Prefer an exact game id chosen from the saved list; only fall back to fuzzy name resolution.
+      const gameId = providedId || await resolveTwitchCategoryId(category, credentials);
       const res = await fetch(
         `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
         {

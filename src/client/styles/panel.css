@@ -1182,18 +1182,125 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .reward-game-chip button:hover { color: var(--danger-fg); }
 .reward-game-chip button:disabled { opacity: 0.5; cursor: default; }
-.reward-games-add { flex: 1; min-width: 150px; }
-.reward-games-add input {
+.reward-games-add { position: relative; }
+.reward-games-addbtn {
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px dashed var(--border-2);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--fg-2);
+  font: 12px var(--font-body);
+  cursor: pointer;
+}
+.reward-games-addbtn:hover { border-color: var(--border-3); color: var(--fg-1); }
+.reward-games-addbtn:disabled { opacity: 0.5; cursor: default; }
+/* Combobox dropdown: search to add + one-click saved picks. */
+.reward-combo {
+  position: absolute;
+  z-index: 14;
+  top: calc(100% + 5px);
+  left: 0;
+  width: 280px;
+  max-width: 80vw;
+  padding: 8px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-3);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-3);
+}
+.reward-combo-search {
   width: 100%;
-  min-height: 30px;
-  padding: 5px 9px;
+  min-height: 32px;
+  margin-bottom: 6px;
+  padding: 6px 9px;
   border: 1px solid var(--border-1);
   border-radius: var(--radius-2);
-  background: var(--bg-1);
+  background: var(--bg-void);
   color: var(--fg-1);
   font: 12px var(--font-body);
 }
-.reward-games-add input:focus-visible { outline: 2px solid var(--gold-500); outline-offset: 1px; }
+.reward-combo-search:focus-visible { outline: 2px solid var(--gold-500); outline-offset: 1px; }
+.reward-combo-list { display: flex; flex-direction: column; max-height: 232px; overflow-y: auto; }
+.reward-combo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--fg-1);
+  text-align: left;
+  font: 13px var(--font-body);
+  cursor: pointer;
+}
+.reward-combo-item.is-hidden { opacity: 0.65; }
+.reward-combo-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.reward-combo-item:hover,
+.reward-combo-pick:hover { background: rgba(255, 184, 108, 0.1); }
+.reward-combo-art {
+  flex: none;
+  width: 24px;
+  height: 32px;
+  border-radius: 3px;
+  object-fit: cover;
+  background: var(--bg-3);
+}
+.reward-combo-art.placeholder { border: 1px solid var(--border-1); }
+.reward-combo-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reward-combo-tag {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-3);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.reward-combo-hide {
+  flex: none;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--fg-3);
+  font: 11px var(--font-body);
+  cursor: pointer;
+}
+.reward-combo-hide:hover { color: var(--fg-1); }
+.reward-combo-toggle {
+  margin-top: 4px;
+  padding: 6px;
+  border: 0;
+  border-top: 1px solid var(--border-1);
+  background: transparent;
+  color: var(--fg-3);
+  font: 11px var(--font-mono);
+  letter-spacing: 0.06em;
+  text-align: left;
+  cursor: pointer;
+}
+.reward-combo-toggle:hover { color: var(--fg-2); }
+.reward-combo-empty { padding: 10px 6px; color: var(--fg-3); font-size: 12px; }
 .reward-list { display: grid; }
 .reward-row {
   display: grid;
@@ -1515,6 +1622,29 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   text-transform: uppercase;
   color: var(--fg-3);
 }
+/* Stream-info: saved-category quick-picks. */
+.stream-cat-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.stream-cat-chip {
+  padding: 4px 11px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--fg-2);
+  font: 12px var(--font-body);
+  cursor: pointer;
+}
+.stream-cat-chip:hover { border-color: var(--border-3); color: var(--fg-1); }
+.stream-cat-chip.active {
+  border-color: transparent;
+  background: var(--warning-bg);
+  color: var(--gold-300);
+}
+.stream-cat-chip:disabled { opacity: 0.5; cursor: default; }
 .tag-chip-list {
   min-height: 26px;
   display: flex;

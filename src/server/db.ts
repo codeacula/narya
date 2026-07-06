@@ -174,6 +174,14 @@ db.exec(`
     foreign key (category_id) references viewer_reward_categories(id) on delete cascade
   );
 
+  create table if not exists stream_categories (
+    game_id text primary key,
+    game_name text not null,
+    box_art_url text,
+    hidden integer not null default 0,
+    created_at text not null
+  );
+
   create table if not exists tts_settings (
     id integer primary key,
     enabled integer not null default 1,

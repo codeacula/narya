@@ -38,6 +38,7 @@ import type {
   GoLiveResult,
   ViewerRewardCategory,
   RewardStreamCategory,
+  SavedStreamCategory,
   ViewerRewardCategoryToggleResult,
   ViewerRewardsResponse,
   ViewerRewardUpsert,
@@ -113,6 +114,18 @@ export async function getStreamInfo(): Promise<StreamInfo> {
 
 export async function getCategorySuggestions(query: string): Promise<TwitchCategorySuggestion[]> {
   return fetchJson<TwitchCategorySuggestion[]>(`/api/twitch/category-suggestions?query=${encodeURIComponent(query)}`);
+}
+
+export async function getSavedStreamCategories(): Promise<SavedStreamCategory[]> {
+  return fetchJson<SavedStreamCategory[]>('/api/stream-categories');
+}
+
+export async function addSavedStreamCategory(game: { id: string; name: string; boxArtUrl?: string | null }): Promise<SavedStreamCategory[]> {
+  return sendJson<SavedStreamCategory[]>('/api/stream-categories', 'POST', game);
+}
+
+export async function setSavedStreamCategoryHidden(id: string, hidden: boolean): Promise<SavedStreamCategory[]> {
+  return sendJson<SavedStreamCategory[]>(`/api/stream-categories/${encodeURIComponent(id)}`, 'PATCH', { hidden });
 }
 
 export async function getTagSuggestions(query: string): Promise<string[]> {

@@ -1,9 +1,9 @@
 import React from 'react';
 import { Icon } from '../ui/icons';
-import { getCategorySuggestions, getTagSuggestions } from '../services/dashboard';
-import type { TwitchCategorySuggestion } from '../../shared/api';
+import { getCategorySuggestions, getSavedStreamCategories, getTagSuggestions } from '../services/dashboard';
+import type { SavedStreamCategory, TwitchCategorySuggestion } from '../../shared/api';
 
-export type StreamInfoForm = { title: string; category: string; tags: string[] };
+export type StreamInfoForm = { title: string; category: string; categoryId?: string; tags: string[] };
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -31,10 +31,15 @@ export function StreamInfoModal({
   const [categorySuggestions, setCategorySuggestions] = React.useState<TwitchCategorySuggestion[]>([]);
   const [categoryLoading, setCategoryLoading] = React.useState(false);
   const [categoryFocused, setCategoryFocused] = React.useState(false);
+  const [savedCategories, setSavedCategories] = React.useState<SavedStreamCategory[]>([]);
   const [tagInput, setTagInput] = React.useState('');
   const [tagSuggestions, setTagSuggestions] = React.useState<string[]>([]);
   const [tagLoading, setTagLoading] = React.useState(false);
   const [tagFocused, setTagFocused] = React.useState(false);
+
+  React.useEffect(() => {
+    void getSavedStreamCategories().then(setSavedCategories).catch(() => setSavedCategories([]));
+  }, []);
 
   React.useEffect(() => {
     const query = form.category.trim();
@@ -153,7 +158,7 @@ export function StreamInfoModal({
               disabled={loading || saving}
               onFocus={() => setCategoryFocused(true)}
               onBlur={() => window.setTimeout(() => setCategoryFocused(false), 120)}
-              onChange={event => setForm(current => ({ ...current, category: event.target.value }))}
+              onChange={event => setForm(current => ({ ...current, category: event.target.value, categoryId: undefined }))}
             />
             {showCategorySuggestions && (
               <div className="suggestion-list">
@@ -166,7 +171,7 @@ export function StreamInfoModal({
                     className="suggestion-item"
                     onMouseDown={event => event.preventDefault()}
                     onClick={() => {
-                      setForm(current => ({ ...current, category: category.name }));
+                      setForm(current => ({ ...current, category: category.name, categoryId: category.id }));
                       setCategorySuggestions([]);
                       setCategoryFocused(false);
                     }}
@@ -177,6 +182,21 @@ export function StreamInfoModal({
               </div>
             )}
           </div>
+          {savedCategories.some(cat => !cat.hidden) && (
+            <div className="stream-cat-quick">
+              {savedCategories.filter(cat => !cat.hidden).map(cat => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className={'stream-cat-chip' + (form.categoryId === cat.id ? ' active' : '')}
+                  disabled={loading || saving}
+                  onClick={() => setForm(current => ({ ...current, category: cat.name, categoryId: cat.id }))}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="field">
