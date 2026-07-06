@@ -33,32 +33,34 @@ body.overlayPage #root {
   background: transparent;
 }
 
-button,
-a {
-  font: inherit;
-}
-
-a {
-  color: var(--gold);
-  text-decoration: none;
-}
-
 button {
-  min-height: 48px;
-  border: 1px solid #2f4367;
-  border-radius: 8px;
-  background: var(--navy);
-  color: var(--ivory);
+  font: inherit;
   cursor: pointer;
 }
 
-button:hover {
-  border-color: var(--gold);
+a {
+  font: inherit;
+  color: var(--gold);
+  text-decoration: none;
 }
 
 button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+/* The tablet surface uses unclassed buttons that lean on this default chrome.
+   The dashboard/overlay set their own button styles, so keep the visuals scoped here. */
+.tabletShell button {
+  min-height: 48px;
+  border: 1px solid #2f4367;
+  border-radius: 8px;
+  background: var(--navy);
+  color: var(--ivory);
+}
+
+.tabletShell button:hover {
+  border-color: var(--gold);
 }
 
 .accent {
