@@ -39,6 +39,7 @@ import type {
   ViewerRewardCategory,
   RewardStreamCategory,
   SavedStreamCategory,
+  SavedStreamCategoryInput,
   ViewerRewardCategoryToggleResult,
   ViewerRewardsResponse,
   ViewerRewardUpsert,
@@ -120,7 +121,7 @@ export async function getSavedStreamCategories(): Promise<SavedStreamCategory[]>
   return fetchJson<SavedStreamCategory[]>('/api/stream-categories');
 }
 
-export async function addSavedStreamCategory(game: { id: string; name: string; boxArtUrl?: string | null }): Promise<SavedStreamCategory[]> {
+export async function addSavedStreamCategory(game: SavedStreamCategoryInput): Promise<SavedStreamCategory[]> {
   return sendJson<SavedStreamCategory[]>('/api/stream-categories', 'POST', game);
 }
 

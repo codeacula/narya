@@ -245,12 +245,14 @@ export type TwitchCategorySuggestion = {
   boxArtUrl: string | null;
 };
 
-export type SavedStreamCategory = {
+// A category the user has saved to reuse; box art carries {width}x{height} placeholders.
+export type SavedStreamCategoryInput = {
   id: string;
   name: string;
   boxArtUrl: string | null;
-  hidden: boolean;
 };
+
+export type SavedStreamCategory = TwitchCategorySuggestion & { hidden: boolean };
 
 export type StreamInfoUpdate = {
   title: string;

@@ -11,6 +11,7 @@ import { db } from './db';
 import { HttpRouteError, readResponseError, sendRouteError } from './http';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
+import { parseTwitchGameId } from './streamCategories';
 import { getTwitchActionCredentials } from './twitch/api';
 
 const REWARD_SCOPE = ['channel:manage:redemptions'] as const;
@@ -302,10 +303,9 @@ function normalizeCategoryGames(value: unknown): RewardStreamCategory[] {
   const games: RewardStreamCategory[] = [];
   for (const item of value) {
     const entry = item as { id?: unknown; name?: unknown };
-    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const id = parseTwitchGameId(entry.id);
     const name = typeof entry.name === 'string' ? entry.name.trim() : '';
-    if (!id || !name) throw new HttpRouteError(400, 'Each stream category needs an id and a name.');
-    if (!/^\d{1,20}$/.test(id)) throw new HttpRouteError(400, 'Invalid Twitch category id.');
+    if (!id || !name) throw new HttpRouteError(400, 'Each stream category needs a valid id and a name.');
     if (seen.has(id)) continue;
     seen.add(id);
     games.push({ id, name: name.slice(0, 160) });

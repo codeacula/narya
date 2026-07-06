@@ -3,6 +3,7 @@ import { TOKEN_EXPIRY_REFRESH_BUFFER_MS } from '../../shared/constants';
 import { appConfig } from '../appConfig';
 import { HttpRouteError, readResponseError, sendRouteError } from '../http';
 import type { RuntimeState } from '../runtime';
+import { parseTwitchGameId } from '../streamCategories';
 import { applyRewardGroupsForStreamCategory } from '../viewerRewards';
 import {
   getTwitchBotAccessToken,
@@ -507,6 +508,25 @@ export async function searchTwitchCategories(query: string, credentials: { clien
   }));
 }
 
+// Look up a single category by its numeric game id; returns null when Twitch no longer knows it.
+export async function getTwitchCategoryById(
+  id: string,
+  credentials: { clientId: string; authorization: string },
+): Promise<{ id: string; name: string; boxArtUrl: string | null } | null> {
+  const res = await fetch(
+    `https://api.twitch.tv/helix/games?id=${encodeURIComponent(id)}`,
+    { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+  );
+  if (!res.ok) {
+    const message = await readResponseError(res, 'Twitch category lookup failed.');
+    throw new HttpRouteError(res.status === 401 ? 401 : 502, message);
+  }
+
+  const data = await res.json() as { data?: Array<{ id: string; name: string; box_art_url?: string }> };
+  const game = data.data?.[0];
+  return game ? { id: game.id, name: game.name, boxArtUrl: game.box_art_url ?? null } : null;
+}
+
 async function resolveTwitchCategoryId(category: string, credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>): Promise<string> {
   const query = category.trim();
   if (!query) throw new HttpRouteError(400, 'Category is required.');
@@ -612,9 +632,7 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       const body = request.body as { title?: unknown; category?: unknown; categoryId?: unknown; tags?: unknown };
       const title = typeof body.title === 'string' ? body.title.trim() : '';
       const category = typeof body.category === 'string' ? body.category.trim() : '';
-      const providedId = typeof body.categoryId === 'string' && /^\d{1,20}$/.test(body.categoryId.trim())
-        ? body.categoryId.trim()
-        : '';
+      const providedId = parseTwitchGameId(body.categoryId);
       const tags = normalizeTags(body.tags);
 
       if (!title) throw new HttpRouteError(400, 'Title is required.');
@@ -622,8 +640,18 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       if (!category) throw new HttpRouteError(400, 'Category is required.');
 
       const credentials = await getTwitchActionCredentials(state, ['channel:manage:broadcast']);
-      // Prefer an exact game id chosen from the saved list; only fall back to fuzzy name resolution.
-      const gameId = providedId || await resolveTwitchCategoryId(category, credentials);
+      // Prefer an exact game id chosen from the saved list, but confirm it still resolves so a stale
+      // saved id can't be pushed under a mismatched name; otherwise fall back to fuzzy name resolution.
+      let gameId: string;
+      let categoryName = category;
+      if (providedId) {
+        const found = await getTwitchCategoryById(providedId, credentials);
+        if (!found) throw new HttpRouteError(400, 'Saved category no longer exists on Twitch — re-add it from search.');
+        gameId = found.id;
+        categoryName = found.name;
+      } else {
+        gameId = await resolveTwitchCategoryId(category, credentials);
+      }
       const res = await fetch(
         `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
         {
@@ -645,7 +673,7 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       // Swap reward groups to match the new stream category (best-effort — never fails the update).
       await applyRewardGroupsForStreamCategory(state, gameId);
 
-      response.json({ ok: true, title, category, categoryId: gameId, tags });
+      response.json({ ok: true, title, category: categoryName, categoryId: gameId, tags });
     } catch (error) {
       sendRouteError(response, error);
     }
