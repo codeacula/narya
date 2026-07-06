@@ -1108,7 +1108,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   border: 1px solid var(--border-1);
   border-radius: var(--radius-3);
   background: var(--bg-2);
-  overflow: hidden;
+  /* No overflow:hidden — it would clip the "Active for stream categories" combobox that
+     opens past the card's bottom edge. The rounded bottom corners are handled on .reward-list. */
 }
 .reward-group-head { padding: 12px 14px; border-bottom: 1px solid var(--border-1); }
 .reward-group-head h3,
@@ -1301,7 +1302,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .reward-combo-toggle:hover { color: var(--fg-2); }
 .reward-combo-empty { padding: 10px 6px; color: var(--fg-3); font-size: 12px; }
-.reward-list { display: grid; }
+.reward-list { display: grid; overflow: hidden; border-radius: 0 0 var(--radius-3) var(--radius-3); }
 .reward-row {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) minmax(150px, 190px) auto;
