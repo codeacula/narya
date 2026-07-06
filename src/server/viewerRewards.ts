@@ -1,5 +1,6 @@
 import type express from 'express';
 import type {
+  RewardStreamCategory,
   ViewerReward,
   ViewerRewardCategory,
   ViewerRewardCategoryToggleResult,
@@ -8,6 +9,7 @@ import type {
 } from '../shared/api';
 import { db } from './db';
 import { HttpRouteError, readResponseError, sendRouteError } from './http';
+import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { getTwitchActionCredentials } from './twitch/api';
 
@@ -40,12 +42,12 @@ type CategoryRow = {
 };
 
 const listCategories = db.prepare(`
-  select id, name, enabled
+  select id, name, enabled, default_background_color
   from viewer_reward_categories
   order by name collate nocase
 `);
 const getCategory = db.prepare(`
-  select id, name, enabled
+  select id, name, enabled, default_background_color
   from viewer_reward_categories
   where id = ?
 `);
@@ -77,6 +79,20 @@ const setRewardCategory = db.prepare(`
     updated_at = excluded.updated_at
 `);
 const clearRewardCategory = db.prepare(`delete from viewer_reward_category_members where reward_id = ?`);
+const listCategoryGames = db.prepare(`
+  select category_id as categoryId, game_id as id, game_name as name
+  from viewer_reward_category_games
+`);
+const deleteCategoryGames = db.prepare(`delete from viewer_reward_category_games where category_id = ?`);
+const insertCategoryGame = db.prepare(`
+  insert or ignore into viewer_reward_category_games (category_id, game_id, game_name, created_at)
+  values (?, ?, ?, ?)
+`);
+const replaceCategoryGames = db.transaction((categoryId: string, games: RewardStreamCategory[]) => {
+  deleteCategoryGames.run(categoryId);
+  const now = new Date().toISOString();
+  for (const game of games) insertCategoryGame.run(categoryId, game.id, game.name, now);
+});
 
 function twitchHeaders(credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>) {
   return {
@@ -152,12 +168,19 @@ function getCategories(rewards: ViewerReward[]): ViewerRewardCategory[] {
   for (const reward of rewards) {
     if (reward.categoryId) rewardCounts.set(reward.categoryId, (rewardCounts.get(reward.categoryId) ?? 0) + 1);
   }
+  const gamesByCategory = new Map<string, RewardStreamCategory[]>();
+  for (const row of listCategoryGames.all() as Array<{ categoryId: string; id: string; name: string }>) {
+    const list = gamesByCategory.get(row.categoryId) ?? [];
+    list.push({ id: row.id, name: row.name });
+    gamesByCategory.set(row.categoryId, list);
+  }
   return (listCategories.all() as CategoryRow[]).map(category => ({
     id: category.id,
     name: category.name,
     enabled: category.enabled === 1,
     rewardCount: rewardCounts.get(category.id) ?? 0,
     defaultBackgroundColor: category.default_background_color ?? null,
+    games: gamesByCategory.get(category.id) ?? [],
   }));
 }
 
@@ -272,6 +295,91 @@ function saveRewardCategory(rewardId: string, categoryId: string | null) {
   else clearRewardCategory.run(rewardId);
 }
 
+function normalizeCategoryGames(value: unknown): RewardStreamCategory[] {
+  if (!Array.isArray(value)) throw new HttpRouteError(400, 'Stream categories must be a list.');
+  if (value.length > 20) throw new HttpRouteError(400, 'A group can map to at most 20 stream categories.');
+  const seen = new Set<string>();
+  const games: RewardStreamCategory[] = [];
+  for (const item of value) {
+    const entry = item as { id?: unknown; name?: unknown };
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!id || !name) throw new HttpRouteError(400, 'Each stream category needs an id and a name.');
+    if (!/^\d{1,20}$/.test(id)) throw new HttpRouteError(400, 'Invalid Twitch category id.');
+    if (seen.has(id)) continue;
+    seen.add(id);
+    games.push({ id, name: name.slice(0, 160) });
+  }
+  return games;
+}
+
+// Toggle every manageable reward in a group to `enabled` using a pre-fetched reward list.
+// Callers that already loaded rewards/credentials avoid an extra Twitch round-trip per group.
+async function toggleGroupRewards(
+  credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
+  rewards: ViewerReward[],
+  groupId: string,
+  enabled: boolean,
+): Promise<{ updatedCount: number; skippedReadOnlyCount: number; failedCount: number }> {
+  const groupRewardIds = new Set(
+    (listCategoryRewardIds.all(groupId) as Array<{ rewardId: string }>).map(item => item.rewardId),
+  );
+  const groupRewards = rewards.filter(reward => groupRewardIds.has(reward.id));
+  const writable = groupRewards.filter(reward => reward.canManage && reward.isEnabled !== enabled);
+  const skippedReadOnlyCount = groupRewards.filter(reward => !reward.canManage && reward.isEnabled !== enabled).length;
+  const results = await Promise.allSettled(
+    writable.map(reward => sendTwitchRewardUpdate(credentials, reward.id, { is_enabled: enabled })),
+  );
+  const failedCount = results.filter(result => result.status === 'rejected').length;
+  return { updatedCount: writable.length - failedCount, skippedReadOnlyCount, failedCount };
+}
+
+// Enable groups mapped to the given Twitch game and disable groups mapped to a different game.
+// Groups with no game mapping are left untouched. Best-effort: never throws.
+export async function applyRewardGroupsForStreamCategory(state: RuntimeState, gameId: string): Promise<void> {
+  const targetGameId = gameId.trim();
+  if (!targetGameId) return;
+
+  const gamesByCategory = new Map<string, Set<string>>();
+  for (const row of listCategoryGames.all() as Array<{ categoryId: string; id: string; name: string }>) {
+    const set = gamesByCategory.get(row.categoryId) ?? new Set<string>();
+    set.add(row.id);
+    gamesByCategory.set(row.categoryId, set);
+  }
+  if (gamesByCategory.size === 0) return; // No group reacts to stream category.
+
+  let credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>;
+  let rewards: ViewerReward[];
+  try {
+    credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
+    rewards = await fetchRewards(credentials);
+  } catch (error) {
+    console.error('Reward auto-switch: could not load rewards from Twitch:', error);
+    return;
+  }
+
+  let changed = false;
+  for (const category of listCategories.all() as CategoryRow[]) {
+    const games = gamesByCategory.get(category.id);
+    if (!games || games.size === 0) continue; // Unmapped group — leave it alone.
+    const shouldEnable = games.has(targetGameId);
+    try {
+      const result = await toggleGroupRewards(credentials, rewards, category.id, shouldEnable);
+      if (result.failedCount > 0) {
+        console.error(`Reward auto-switch: ${result.failedCount} reward(s) in "${category.name}" failed to update.`);
+      }
+      if (result.updatedCount > 0 || (category.enabled === 1) !== shouldEnable) {
+        updateCategory.run(category.name, shouldEnable ? 1 : 0, category.default_background_color ?? null, new Date().toISOString(), category.id);
+        changed = true;
+      }
+    } catch (error) {
+      console.error(`Reward auto-switch: failed for group "${category.name}":`, error);
+    }
+  }
+
+  if (changed) broadcast('rewards:updated', { at: new Date().toISOString() });
+}
+
 export function registerViewerRewardRoutes(app: express.Express, state: RuntimeState) {
   app.get('/api/twitch/rewards', async (_request, response) => {
     try {
@@ -294,7 +402,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
         }
         throw error;
       }
-      response.status(201).json({ id, name, enabled: true, rewardCount: 0, defaultBackgroundColor: null } satisfies ViewerRewardCategory);
+      response.status(201).json({ id, name, enabled: true, rewardCount: 0, defaultBackgroundColor: null, games: [] } satisfies ViewerRewardCategory);
     } catch (error) {
       sendRouteError(response, error);
     }
@@ -311,25 +419,18 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
         : (typeof request.body.defaultBackgroundColor === 'string'
           ? normalizeHexColor(request.body.defaultBackgroundColor, current.default_background_color ?? '#9147FF')
           : null);
+      const games = request.body?.games === undefined ? undefined : normalizeCategoryGames(request.body.games);
 
       let updatedCount = 0;
       let skippedReadOnlyCount = 0;
       if (enabled !== (current.enabled === 1)) {
         const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
         const rewards = await fetchRewards(credentials);
-        const categoryRewardIds = new Set(
-          (listCategoryRewardIds.all(current.id) as Array<{ rewardId: string }>).map(item => item.rewardId),
-        );
-        const categoryRewards = rewards.filter(reward => categoryRewardIds.has(reward.id));
-        const writableRewards = categoryRewards.filter(reward => reward.canManage && reward.isEnabled !== enabled);
-        skippedReadOnlyCount = categoryRewards.filter(reward => !reward.canManage && reward.isEnabled !== enabled).length;
-        const results = await Promise.allSettled(
-          writableRewards.map(reward => sendTwitchRewardUpdate(credentials, reward.id, { is_enabled: enabled })),
-        );
-        const failed = results.filter(result => result.status === 'rejected');
-        updatedCount = results.length - failed.length;
-        if (failed.length > 0) {
-          throw new HttpRouteError(502, `${failed.length} reward${failed.length === 1 ? '' : 's'} could not be updated on Twitch.`);
+        const result = await toggleGroupRewards(credentials, rewards, current.id, enabled);
+        updatedCount = result.updatedCount;
+        skippedReadOnlyCount = result.skippedReadOnlyCount;
+        if (result.failedCount > 0) {
+          throw new HttpRouteError(502, `${result.failedCount} reward${result.failedCount === 1 ? '' : 's'} could not be updated on Twitch.`);
         }
       }
 
@@ -341,6 +442,8 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
         }
         throw error;
       }
+
+      if (games !== undefined) replaceCategoryGames(current.id, games);
 
       const payload = await getRewardsResponse(state) as ViewerRewardCategoryToggleResult;
       payload.updatedCount = updatedCount;

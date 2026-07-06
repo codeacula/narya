@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
+import type { RewardStreamCategory, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
 import {
   applyViewerRewardCategoryColor,
   createViewerReward,
+  getCategorySuggestions,
   createViewerRewardCategory,
   deleteViewerReward,
   deleteViewerRewardCategory,
@@ -12,6 +13,7 @@ import {
   updateViewerReward,
   updateViewerRewardCategory,
 } from '../services/dashboard';
+import { useSocket } from '../realtime';
 
 const EMPTY_REWARD: ViewerRewardUpsert = {
   title: '',
@@ -396,6 +398,90 @@ function RewardRow({
   );
 }
 
+function CategoryGamesEditor({
+  category,
+  busy,
+  onSave,
+}: {
+  category: ViewerRewardCategory;
+  busy: boolean;
+  onSave: (games: RewardStreamCategory[]) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<TwitchCategorySuggestion[]>([]);
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void getCategorySuggestions(trimmed)
+        .then(list => { if (!cancelled) setSuggestions(list); })
+        .catch(() => { if (!cancelled) setSuggestions([]); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [query]);
+
+  const addGame = (game: RewardStreamCategory) => {
+    setQuery('');
+    setSuggestions([]);
+    setFocused(false);
+    if (category.games.some(existing => existing.id === game.id)) return;
+    onSave([...category.games, { id: game.id, name: game.name }]);
+  };
+
+  const removeGame = (id: string) => onSave(category.games.filter(game => game.id !== id));
+
+  const showSuggestions = focused && suggestions.length > 0;
+
+  return (
+    <div className="reward-games">
+      <div className="reward-games-head">
+        <span className="reward-games-label">Active for stream categories</span>
+        <span className="reward-games-hint">On when you stream one of these; off when you switch away. Leave empty to control this group by hand.</span>
+      </div>
+      <div className="reward-games-row">
+        {category.games.map(game => (
+          <span className="reward-game-chip" key={game.id}>
+            {game.name}
+            <button type="button" aria-label={`Remove ${game.name}`} disabled={busy} onClick={() => removeGame(game.id)}>×</button>
+          </span>
+        ))}
+        <div className="suggestion-anchor reward-games-add">
+          <input
+            type="text"
+            value={query}
+            disabled={busy}
+            placeholder={category.games.length ? 'Add another…' : 'Add a game…'}
+            onFocus={() => setFocused(true)}
+            onBlur={() => window.setTimeout(() => setFocused(false), 120)}
+            onChange={event => { setQuery(event.target.value); setFocused(true); }}
+          />
+          {showSuggestions && (
+            <div className="suggestion-list">
+              {suggestions.map(suggestion => (
+                <button
+                  key={suggestion.id}
+                  type="button"
+                  className="suggestion-item"
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => addGame({ id: suggestion.id, name: suggestion.name })}
+                >
+                  <span>{suggestion.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   const [data, setData] = useState<ViewerRewardsResponse>({ categories: [], rewards: [] });
   const [loading, setLoading] = useState(true);
@@ -434,6 +520,11 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   };
 
   useEffect(() => { void refresh(); }, []);
+
+  // A stream-category change can auto-toggle reward groups server-side; refetch silently so the list reflects it.
+  useSocket<{ at: string }>('rewards:updated', React.useCallback(() => {
+    void getViewerRewards().then(setData).catch(() => undefined);
+  }, []));
 
   const handleTtsToggle = async (reward: ViewerReward) => {
     const next = !ttsEnabledIds.has(reward.id);
@@ -531,6 +622,19 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
       setMessage('Reward category updated.');
     } catch (updateError) {
       setError(errorMessage(updateError, 'Could not update reward category.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleCategoryGames = async (category: ViewerRewardCategory, games: RewardStreamCategory[]) => {
+    setBusyId(category.id + '-games');
+    setError(null);
+    setMessage(null);
+    try {
+      setData(await updateViewerRewardCategory(category.id, { games }));
+    } catch (updateError) {
+      setError(errorMessage(updateError, 'Could not update stream categories.'));
     } finally {
       setBusyId(null);
     }
@@ -660,6 +764,13 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
             <button className="modbtn" type="button" disabled={Boolean(busyId)} onClick={() => startCreate(categoryId)}>Add reward</button>
           </div>
         </div>
+        {category ? (
+          <CategoryGamesEditor
+            category={category}
+            busy={Boolean(busyId)}
+            onSave={games => void handleCategoryGames(category, games)}
+          />
+        ) : null}
         <div className="reward-list">
           {rewards.length === 0 ? (
             <div className="reward-empty">No rewards in this category.</div>

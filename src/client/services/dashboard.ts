@@ -37,6 +37,7 @@ import type {
   GoLiveSettingsUpdate,
   GoLiveResult,
   ViewerRewardCategory,
+  RewardStreamCategory,
   ViewerRewardCategoryToggleResult,
   ViewerRewardsResponse,
   ViewerRewardUpsert,
@@ -176,7 +177,7 @@ export async function createViewerRewardCategory(name: string): Promise<ViewerRe
 
 export async function updateViewerRewardCategory(
   id: string,
-  update: { name?: string; enabled?: boolean; defaultBackgroundColor?: string | null },
+  update: { name?: string; enabled?: boolean; defaultBackgroundColor?: string | null; games?: RewardStreamCategory[] },
 ): Promise<ViewerRewardCategoryToggleResult> {
   return sendJson<ViewerRewardCategoryToggleResult>(`/api/twitch/reward-categories/${encodeURIComponent(id)}`, 'PATCH', update);
 }

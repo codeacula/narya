@@ -165,6 +165,15 @@ db.exec(`
     foreign key (category_id) references viewer_reward_categories(id) on delete cascade
   );
 
+  create table if not exists viewer_reward_category_games (
+    category_id text not null,
+    game_id text not null,
+    game_name text not null,
+    created_at text not null,
+    primary key (category_id, game_id),
+    foreign key (category_id) references viewer_reward_categories(id) on delete cascade
+  );
+
   create table if not exists tts_settings (
     id integer primary key,
     enabled integer not null default 1,
@@ -213,6 +222,7 @@ db.exec(`
   create index if not exists idx_stream_sessions_active on stream_sessions(ended_at, started_at);
   create index if not exists idx_stream_session_chatters_login on stream_session_chatters(login);
   create index if not exists idx_viewer_reward_category_members_category on viewer_reward_category_members(category_id);
+  create index if not exists idx_viewer_reward_category_games_category on viewer_reward_category_games(category_id);
 `);
 
 const allowedMigrationTables = new Set([

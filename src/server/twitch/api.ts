@@ -3,6 +3,7 @@ import { TOKEN_EXPIRY_REFRESH_BUFFER_MS } from '../../shared/constants';
 import { appConfig } from '../appConfig';
 import { HttpRouteError, readResponseError, sendRouteError } from '../http';
 import type { RuntimeState } from '../runtime';
+import { applyRewardGroupsForStreamCategory } from '../viewerRewards';
 import {
   getTwitchBotAccessToken,
   getTwitchAuthStatus,
@@ -636,6 +637,9 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
         const message = await readResponseError(res, 'Twitch channel update failed.');
         throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
       }
+
+      // Swap reward groups to match the new stream category (best-effort — never fails the update).
+      await applyRewardGroupsForStreamCategory(state, gameId);
 
       response.json({ ok: true, title, category, categoryId: gameId, tags });
     } catch (error) {

@@ -1141,6 +1141,59 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   cursor: pointer;
 }
 .reward-toggle input { accent-color: var(--gold-500); }
+.reward-games {
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--border-1);
+  background: var(--bg-void);
+}
+.reward-games-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 10px; margin-bottom: 8px; }
+.reward-games-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+.reward-games-hint { color: var(--fg-3); font-size: 11px; }
+.reward-games-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.reward-game-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 11px;
+  border: 1px solid var(--border-3);
+  border-radius: var(--radius-pill);
+  background: var(--warning-bg);
+  color: var(--gold-300);
+  font-size: 11.5px;
+}
+.reward-game-chip button {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-3);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.reward-game-chip button:hover { color: var(--danger-fg); }
+.reward-game-chip button:disabled { opacity: 0.5; cursor: default; }
+.reward-games-add { flex: 1; min-width: 150px; }
+.reward-games-add input {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font: 12px var(--font-body);
+}
+.reward-games-add input:focus-visible { outline: 2px solid var(--gold-500); outline-offset: 1px; }
 .reward-list { display: grid; }
 .reward-row {
   display: grid;

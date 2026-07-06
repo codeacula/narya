@@ -271,12 +271,18 @@ export type TwitchUserActionResult = {
   message: string;
 };
 
+export type RewardStreamCategory = {
+  id: string;
+  name: string;
+};
+
 export type ViewerRewardCategory = {
   id: string;
   name: string;
   enabled: boolean;
   rewardCount: number;
   defaultBackgroundColor: string | null;
+  games: RewardStreamCategory[];
 };
 
 export type ViewerReward = {
