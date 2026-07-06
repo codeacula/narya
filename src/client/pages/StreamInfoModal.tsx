@@ -1,6 +1,6 @@
 import React from 'react';
 import { Icon } from '../ui/icons';
-import { getCategorySuggestions, getSavedStreamCategories, getTagSuggestions } from '../services/dashboard';
+import { addSavedStreamCategory, getCategorySuggestions, getSavedStreamCategories, getTagSuggestions } from '../services/dashboard';
 import type { SavedStreamCategory, TwitchCategorySuggestion } from '../../shared/api';
 
 export type StreamInfoForm = { title: string; category: string; categoryId?: string; tags: string[] };
@@ -32,6 +32,8 @@ export function StreamInfoModal({
   const [categoryLoading, setCategoryLoading] = React.useState(false);
   const [categoryFocused, setCategoryFocused] = React.useState(false);
   const [savedCategories, setSavedCategories] = React.useState<SavedStreamCategory[]>([]);
+  const [categoryMode, setCategoryMode] = React.useState<'select' | 'search'>('select');
+  const [categorySearch, setCategorySearch] = React.useState('');
   const [tagInput, setTagInput] = React.useState('');
   const [tagSuggestions, setTagSuggestions] = React.useState<string[]>([]);
   const [tagLoading, setTagLoading] = React.useState(false);
@@ -42,7 +44,7 @@ export function StreamInfoModal({
   }, []);
 
   React.useEffect(() => {
-    const query = form.category.trim();
+    const query = categorySearch.trim();
     if (query.length < 2 || loading) {
       setCategorySuggestions([]);
       setCategoryLoading(false);
@@ -69,7 +71,7 @@ export function StreamInfoModal({
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [form.category, loading]);
+  }, [categorySearch, loading]);
 
   React.useEffect(() => {
     const query = tagInput.trim();
@@ -124,6 +126,23 @@ export function StreamInfoModal({
   const showCategorySuggestions = categoryFocused && (categoryLoading || categorySuggestions.length > 0);
   const showTagSuggestions = tagFocused && (tagLoading || tagSuggestions.length > 0);
 
+  // Saved categories to choose from; include the current one if it isn't saved so the dropdown can show it.
+  const visibleSaved = savedCategories.filter(cat => !cat.hidden);
+  const categoryOptions: SavedStreamCategory[] = form.categoryId && form.category && !visibleSaved.some(cat => cat.id === form.categoryId)
+    ? [{ id: form.categoryId, name: form.category, boxArtUrl: null, hidden: false }, ...visibleSaved]
+    : visibleSaved;
+
+  const addSearchedCategory = (suggestion: TwitchCategorySuggestion) => {
+    setForm(current => ({ ...current, category: suggestion.name, categoryId: suggestion.id }));
+    void addSavedStreamCategory({ id: suggestion.id, name: suggestion.name, boxArtUrl: suggestion.boxArtUrl })
+      .then(setSavedCategories)
+      .catch(() => undefined);
+    setCategoryMode('select');
+    setCategorySearch('');
+    setCategorySuggestions([]);
+    setCategoryFocused(false);
+  };
+
   return (
     <div className="modal-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
@@ -151,50 +170,70 @@ export function StreamInfoModal({
 
         <div className="field">
           <span>Category</span>
-          <div className="suggestion-anchor">
-            <input
-              aria-label="Category"
-              value={form.category}
-              disabled={loading || saving}
-              onFocus={() => setCategoryFocused(true)}
-              onBlur={() => window.setTimeout(() => setCategoryFocused(false), 120)}
-              onChange={event => setForm(current => ({ ...current, category: event.target.value, categoryId: undefined }))}
-            />
-            {showCategorySuggestions && (
-              <div className="suggestion-list">
-                {categoryLoading ? (
-                  <div className="suggestion-empty">Searching categories...</div>
-                ) : categorySuggestions.map(category => (
-                  <button
-                    key={category.id}
-                    type="button"
-                    className="suggestion-item"
-                    onMouseDown={event => event.preventDefault()}
-                    onClick={() => {
-                      setForm(current => ({ ...current, category: category.name, categoryId: category.id }));
-                      setCategorySuggestions([]);
-                      setCategoryFocused(false);
-                    }}
-                  >
-                    <span>{category.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {savedCategories.some(cat => !cat.hidden) && (
-            <div className="stream-cat-quick">
-              {savedCategories.filter(cat => !cat.hidden).map(cat => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  className={'stream-cat-chip' + (form.categoryId === cat.id ? ' active' : '')}
+          {categoryMode === 'search' ? (
+            <div className="stream-cat-picker">
+              <div className="suggestion-anchor">
+                <input
+                  aria-label="Search categories"
+                  autoFocus
+                  value={categorySearch}
+                  placeholder="Search Twitch categories…"
                   disabled={loading || saving}
-                  onClick={() => setForm(current => ({ ...current, category: cat.name, categoryId: cat.id }))}
-                >
-                  {cat.name}
-                </button>
-              ))}
+                  onFocus={() => setCategoryFocused(true)}
+                  onBlur={() => window.setTimeout(() => setCategoryFocused(false), 120)}
+                  onChange={event => setCategorySearch(event.target.value)}
+                />
+                {showCategorySuggestions && (
+                  <div className="suggestion-list">
+                    {categoryLoading ? (
+                      <div className="suggestion-empty">Searching categories...</div>
+                    ) : categorySuggestions.length === 0 ? (
+                      <div className="suggestion-empty">No matches</div>
+                    ) : categorySuggestions.map(category => (
+                      <button
+                        key={category.id}
+                        type="button"
+                        className="suggestion-item"
+                        onMouseDown={event => event.preventDefault()}
+                        onClick={() => addSearchedCategory(category)}
+                      >
+                        <span>{category.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="modbtn"
+                disabled={loading || saving}
+                onClick={() => { setCategoryMode('select'); setCategorySearch(''); setCategorySuggestions([]); }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="stream-cat-picker">
+              <select
+                aria-label="Category"
+                value={form.categoryId ?? ''}
+                disabled={loading || saving}
+                onChange={event => {
+                  const picked = categoryOptions.find(option => option.id === event.target.value);
+                  if (picked) setForm(current => ({ ...current, category: picked.name, categoryId: picked.id }));
+                }}
+              >
+                <option value="" disabled>{categoryOptions.length ? 'Select a category…' : 'No saved categories — use Add'}</option>
+                {categoryOptions.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
+              </select>
+              <button
+                type="button"
+                className="modbtn"
+                disabled={loading || saving}
+                onClick={() => { setCategoryMode('search'); setCategorySearch(''); }}
+              >
+                Add
+              </button>
             </div>
           )}
         </div>

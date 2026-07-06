@@ -1626,34 +1626,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   text-transform: uppercase;
   color: var(--fg-3);
 }
-/* Stream-info: saved-category quick-picks. */
-.stream-cat-quick {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-.stream-cat-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  min-height: 0; /* override the global button { min-height: 48px } from styles.css */
-  padding: 0 12px;
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--fg-2);
-  font: 12px var(--font-body);
-  line-height: 1;
-  cursor: pointer;
-}
-.stream-cat-chip:hover { border-color: var(--border-3); color: var(--fg-1); }
-.stream-cat-chip.active {
-  border-color: transparent;
-  background: var(--warning-bg);
-  color: var(--gold-300);
-}
-.stream-cat-chip:disabled { opacity: 0.5; cursor: default; }
+/* Stream-info: saved-category dropdown with an Add button that flips to search. */
+.stream-cat-picker { display: flex; gap: 8px; align-items: stretch; }
+.stream-cat-picker > .suggestion-anchor,
+.stream-cat-picker > select { flex: 1; min-width: 0; }
+.stream-cat-picker .modbtn { flex: none; display: inline-flex; align-items: center; }
 .tag-chip-list {
   min-height: 26px;
   display: flex;
