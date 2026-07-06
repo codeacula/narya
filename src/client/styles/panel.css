@@ -1175,6 +1175,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   place-items: center;
   width: 18px;
   height: 18px;
+  min-height: 0; /* override the global button { min-height: 48px } so the × hit area matches the glyph */
   border: 0;
   border-radius: 50%;
   background: transparent;
@@ -1633,12 +1634,17 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   margin-top: 8px;
 }
 .stream-cat-chip {
-  padding: 4px 11px;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  min-height: 0; /* override the global button { min-height: 48px } from styles.css */
+  padding: 0 12px;
   border: 1px solid var(--border-2);
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--fg-2);
   font: 12px var(--font-body);
+  line-height: 1;
   cursor: pointer;
 }
 .stream-cat-chip:hover { border-color: var(--border-3); color: var(--fg-1); }
