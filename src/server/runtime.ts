@@ -55,6 +55,7 @@ export class RuntimeState {
   broadcasterId: string | null = null;
   twitchSenderId: string | null = null;
   twitchBotSenderId: string | null = null;
+  twitchBotLogin: string | null = null;
   eventSubKeepaliveMs = EVENTSUB_DEFAULT_KEEPALIVE_MS;
   eventSubKeepaliveTimer: ReturnType<typeof setTimeout> | null = null;
   eventSubError: string | null = null;
@@ -82,6 +83,7 @@ export class RuntimeState {
   clearAuthenticatedBotState() {
     this.runtimeBotToken = null;
     this.twitchBotSenderId = null;
+    this.twitchBotLogin = null;
   }
 
   clearEventSubSocket() {

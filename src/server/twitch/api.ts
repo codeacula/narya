@@ -129,16 +129,20 @@ export async function fetchCurrentTwitchStream(clientId: string, userToken: stri
   }
 }
 
-export async function fetchAuthenticatedTwitchUserId(clientId: string, userToken: string): Promise<string | null> {
+export async function fetchAuthenticatedTwitchUser(
+  clientId: string,
+  userToken: string,
+): Promise<{ id: string; login: string } | null> {
   try {
     const res = await fetch('https://api.twitch.tv/helix/users', {
       headers: { 'Client-Id': clientId, 'Authorization': `Bearer ${userToken}` },
     });
     if (!res.ok) return null;
-    const data = await res.json() as { data: Array<{ id: string }> };
-    return data.data[0]?.id ?? null;
+    const data = await res.json() as { data: Array<{ id: string; login: string }> };
+    const user = data.data[0];
+    return user?.id ? { id: user.id, login: user.login ?? '' } : null;
   } catch (error) {
-    console.error('Twitch API: failed to resolve authenticated user ID:', error);
+    console.error('Twitch API: failed to resolve authenticated user:', error);
     return null;
   }
 }
@@ -166,7 +170,7 @@ async function getAuthenticatedActionUserId(
   state: RuntimeState,
   credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
 ): Promise<string> {
-  const userId = state.twitchSenderId ?? await fetchAuthenticatedTwitchUserId(credentials.clientId, credentials.userToken);
+  const userId = state.twitchSenderId ?? (await fetchAuthenticatedTwitchUser(credentials.clientId, credentials.userToken))?.id;
   if (!userId) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
   state.twitchSenderId = userId;
   return userId;
@@ -360,10 +364,15 @@ export async function sendTwitchChatMessage(
 
   const credentials = await getTwitchChatCredentials(state, sender);
   const cachedSenderId = credentials.senderIdKey === 'bot' ? state.twitchBotSenderId : state.twitchSenderId;
-  const senderId = cachedSenderId ?? await fetchAuthenticatedTwitchUserId(credentials.clientId, credentials.userToken);
+  const resolvedUser = cachedSenderId ? null : await fetchAuthenticatedTwitchUser(credentials.clientId, credentials.userToken);
+  const senderId = cachedSenderId ?? resolvedUser?.id;
   if (!senderId) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
-  if (credentials.senderIdKey === 'bot') state.twitchBotSenderId = senderId;
-  else state.twitchSenderId = senderId;
+  if (credentials.senderIdKey === 'bot') {
+    state.twitchBotSenderId = senderId;
+    if (resolvedUser?.login) state.twitchBotLogin = resolvedUser.login.toLowerCase();
+  } else {
+    state.twitchSenderId = senderId;
+  }
 
   const res = await fetch('https://api.twitch.tv/helix/chat/messages', {
     method: 'POST',

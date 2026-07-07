@@ -152,6 +152,11 @@ twitchClient.on('message', (channel, tags, message, self) => {
   );
   broadcast('chat:message', chatMessage);
 
+  // The tmi client is anonymous, so `self` never fires for our own bot. Bot
+  // messages sent via Helix arrive here as ordinary chat; skip command dispatch
+  // for them so replies can't re-enter commands / !quack (loop guard).
+  if (runtimeState?.twitchBotLogin && username === runtimeState.twitchBotLogin) return;
+
   if (/^!quack\b/i.test(message.trim())) {
     triggerQuackSound();
   }

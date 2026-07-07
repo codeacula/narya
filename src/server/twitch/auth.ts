@@ -137,6 +137,7 @@ function persistTwitchToken(
   if (account === 'bot') {
     state.runtimeBotToken = token;
     state.twitchBotSenderId = null;
+    state.twitchBotLogin = null;
   } else {
     state.runtimeUserToken = token;
     state.twitchSenderId = null;

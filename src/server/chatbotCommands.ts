@@ -328,6 +328,10 @@ function normalizeActionPayload(type: ChatbotCommandActionType, payload: unknown
     const template = typeof value.template === 'string' ? value.template.trim() : '';
     if (!template) throw new HttpRouteError(400, 'Chat reply actions need a response.');
     if (template.length > 500) throw new HttpRouteError(400, 'Chat replies must be 500 characters or fewer.');
+    const firstWord = template.split(/\s+/, 1)[0] ?? '';
+    if (COMMAND_PATTERN.test(firstWord)) {
+      throw new HttpRouteError(400, 'Chat replies must not start with a command trigger.');
+    }
     return { template };
   }
 
