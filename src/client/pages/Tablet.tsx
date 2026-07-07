@@ -3,6 +3,7 @@ import type { ObsStatus } from '../../shared/api';
 import { MusicControls } from '../music';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
+import { sceneLabel, switchableScenes } from '../scenes';
 import {
   getObsStatus,
   playSoundButton,
@@ -19,8 +20,6 @@ const emptyObsStatus: ObsStatus = {
   lastError: null,
   updatedAt: new Date(0).toISOString(),
 };
-
-const switchableScenePrefix = 'Scene -';
 
 function useObsStatus() {
   const [obsStatus, setObsStatus] = React.useState<ObsStatus>(emptyObsStatus);
@@ -54,7 +53,7 @@ export function TabletPage() {
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [commandError, setCommandError] = React.useState<string | null>(null);
 
-  const scenes = obsStatus.scenes.filter(scene => scene.startsWith(switchableScenePrefix));
+  const scenes = switchableScenes(obsStatus.scenes);
   const obsUnavailable = !obsStatus.connected;
   const hasScenes = scenes.length > 0;
   const controlsDisabled = obsUnavailable || Boolean(pendingAction);
@@ -137,7 +136,7 @@ export function TabletPage() {
                     void runObsCommand(`scene:${scene}`, () => switchObsScene(scene));
                   }}
                 >
-                  <span>{scene}</span>
+                  <span>{sceneLabel(scene)}</span>
                   {isCurrent ? <small>Live</small> : isPending ? <small>Switching</small> : null}
                 </button>
               );

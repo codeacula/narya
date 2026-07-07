@@ -137,9 +137,25 @@ export function useEmotes() {
   return emoteMap;
 }
 
+// The configured Twitch channel login (lowercased), fetched once from
+// /api/health. Used for @-mention highlighting without hardcoding the login.
+export function useChannel(): string {
+  const [channel, setChannel] = React.useState('');
+
+  React.useEffect(() => {
+    fetch('/api/health')
+      .then(r => r.json())
+      .then((data: { twitchChannel?: string }) => setChannel((data.twitchChannel ?? '').toLowerCase()))
+      .catch(() => {});
+  }, []);
+
+  return channel;
+}
+
 export function ChatPanel({ compact = false }: { compact?: boolean }) {
   const messages = useChat(compact ? overlayChatExpireMs : 0);
   const emoteMap = useEmotes();
+  const channel = useChannel();
   const filtered = compact ? messages.filter(m => !m.deletedAt) : messages;
   const visibleMessages = compact ? [...filtered].reverse() : filtered;
 
@@ -150,7 +166,7 @@ export function ChatPanel({ compact = false }: { compact?: boolean }) {
       ) : null}
       {visibleMessages.map(message => {
         const role = getRole(message.badges);
-        const isMention = message.message.toLowerCase().includes('codeacula');
+        const isMention = channel ? message.message.toLowerCase().includes(channel) : false;
         const classes = [
           'chatMessage',
           message.deletedAt ? 'moderated' : '',

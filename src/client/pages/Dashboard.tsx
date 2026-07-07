@@ -127,6 +127,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [chattersError, setChattersError] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<'activity' | 'chatters'>('activity');
   const lastChatAt = React.useRef<number>(0);
+  // Mirror the channel into a ref so the stable chat:message handler can read
+  // the current login without hardcoding it or re-subscribing.
+  const channelRef = React.useRef('');
 
   const changePage = React.useCallback((nextPage: string) => {
     const route: DashboardRoute = nextPage === 'settings' || nextPage === 'rewards' ? nextPage : 'dashboard';
@@ -142,6 +145,10 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  useEffect(() => {
+    channelRef.current = status.channel.toLowerCase();
+  }, [status.channel]);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,7 +222,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     }
     lastChatAt.current = now;
 
-    const isMention = message.message.toLowerCase().includes('codeacula');
+    const channel = channelRef.current;
+    const isMention = channel ? message.message.toLowerCase().includes(channel) : false;
     if (isMention) {
       playTone(660, 80, 0.3);
       setTimeout(() => playTone(880, 120, 0.25), 90);
@@ -505,6 +513,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
           >
             <ControlsPanel
               status={status}
+              scenes={obsStatus.scenes}
               currentScene={obsStatus.currentProgramScene}
               onSwitchScene={handleSwitchScene}
               sceneSwitching={sceneSwitching}

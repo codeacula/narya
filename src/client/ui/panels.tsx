@@ -8,6 +8,7 @@ import {
   timeoutViewer,
 } from '../services/dashboard';
 import type { Viewer, ChatEntry, StreamEvent, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter } from '../../shared/api';
+import { sceneLabel, switchableScenes } from '../scenes';
 
 /* ---------------- types ---------------- */
 
@@ -875,43 +876,38 @@ function formatUptime(seconds: number): string {
   return `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
-const dashboardScenes = [
-  { label: 'Starting', sceneName: 'Scene - Starting' },
-  { label: 'Desktop', sceneName: 'Scene - Desktop' },
-  { label: 'Gaming', sceneName: 'Scene - Gaming' },
-  { label: 'BRB', sceneName: 'Scene - BRB' },
-  { label: 'Ending', sceneName: 'Scene - Ending' },
-] as const;
-
 export function ControlsPanel({
   status,
+  scenes,
   currentScene,
   onSwitchScene,
   sceneSwitching,
 }: {
   status: DashboardStatus;
+  scenes: string[];
   currentScene: string | null;
   onSwitchScene: (sceneName: string) => void;
   sceneSwitching: boolean;
 }) {
+  const sceneOptions = switchableScenes(scenes);
   return (
     <div className="ctrl-panel">
-      {status.obsConnected && (
+      {status.obsConnected && sceneOptions.length > 0 && (
         <div className="ctrl-section ctrl-scene-section">
           <span className="ctrl-label">scene</span>
           <div className="ctrl-scene-grid" role="group" aria-label="Switch OBS scene">
-            {dashboardScenes.map(scene => {
-              const isActive = currentScene === scene.sceneName;
+            {sceneOptions.map(sceneName => {
+              const isActive = currentScene === sceneName;
               return (
                 <button
                   className={`ctrl-scene-button${isActive ? ' active' : ''}`}
                   type="button"
                   aria-pressed={isActive}
                   disabled={sceneSwitching || isActive}
-                  key={scene.sceneName}
-                  onClick={() => onSwitchScene(scene.sceneName)}
+                  key={sceneName}
+                  onClick={() => onSwitchScene(sceneName)}
                 >
-                  {scene.label}
+                  {sceneLabel(sceneName)}
                 </button>
               );
             })}
