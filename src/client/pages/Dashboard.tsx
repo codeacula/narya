@@ -236,7 +236,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         : undefined,
     };
 
-    setChat(current => current.some(entry => entry.id === nextEntry.id) ? current : [...current, nextEntry]);
+    // Cap live-append so long streams don't grow render cost forever.
+    // loadOlderChat prepends older pages, so only the live tail is capped here.
+    setChat(current => current.some(entry => entry.id === nextEntry.id) ? current : [...current, nextEntry].slice(-400));
     void getViewers().then(setViewers).catch((error: unknown) => {
       console.error('Failed to refresh viewers after chat message:', error);
     });

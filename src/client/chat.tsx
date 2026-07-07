@@ -36,12 +36,17 @@ export function renderContent(
   type Range = { start: number; end: number; url: string; name: string };
   const ranges: Range[] = [];
 
+  // Twitch emote positions are code-point indices, but JS string slicing works
+  // on UTF-16 units — split into a code-point array so astral chars (emoji)
+  // before an emote don't misalign the ranges.
+  const chars = [...text];
+
   if (twitchEmotes) {
     for (const [emoteId, positions] of Object.entries(twitchEmotes)) {
       const url = `https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/1.0`;
       for (const pos of positions) {
         const [start, end] = pos.split('-').map(Number);
-        ranges.push({ start, end, url, name: text.slice(start, end + 1) });
+        ranges.push({ start, end, url, name: chars.slice(start, end + 1).join('') });
       }
     }
     ranges.sort((a, b) => a.start - b.start);
@@ -51,14 +56,14 @@ export function renderContent(
   let cursor = 0;
 
   for (const range of ranges) {
-    if (cursor < range.start) nodes.push(...renderWords(text.slice(cursor, range.start), emoteMap, cursor));
+    if (cursor < range.start) nodes.push(...renderWords(chars.slice(cursor, range.start).join(''), emoteMap, cursor));
     nodes.push(
       <img key={`t-${range.start}`} className="chatEmote" src={range.url} alt={range.name} title={range.name} />,
     );
     cursor = range.end + 1;
   }
 
-  if (cursor < text.length) nodes.push(...renderWords(text.slice(cursor), emoteMap, cursor));
+  if (cursor < chars.length) nodes.push(...renderWords(chars.slice(cursor).join(''), emoteMap, cursor));
 
   return nodes;
 }
@@ -83,7 +88,11 @@ export function useChat(expireAfterMs = 0) {
     'chat:message',
     React.useCallback(
       (message) => {
-        setMessages(current => [...current.slice(-39), message]);
+        setMessages(current => {
+          // tmi reconnects can replay a message we've already appended.
+          if (current.some(m => m.id === message.id)) return current;
+          return [...current.slice(-39), message];
+        });
         if (expireAfterMs > 0) {
           setTimeout(() => {
             setMessages(current => current.map(m => (m.id === message.id ? { ...m, isExiting: true } : m)));

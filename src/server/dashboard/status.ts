@@ -455,8 +455,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
             is_first_in_session as isFirstThisSession,
             is_first_ever as isFirstEver
           from chat_messages
-          where received_at < (select received_at from chat_messages where id = ?)
-          order by received_at desc
+          where (received_at, id) < (select received_at, id from chat_messages where id = ?)
+          order by received_at desc, id desc
           limit 80
         `).all(beforeId) as Array<{
           id: string;
@@ -477,7 +477,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
             is_first_in_session as isFirstThisSession,
             is_first_ever as isFirstEver
           from chat_messages
-          order by received_at desc
+          order by received_at desc, id desc
           limit 80
         `).all() as Array<{
           id: string;
