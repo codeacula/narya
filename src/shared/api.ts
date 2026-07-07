@@ -375,16 +375,6 @@ export type ChatbotCommandUpsert = {
   actions: ChatbotCommandActionInput[];
 };
 
-export type ChatbotCommandSettings = {
-  enabled: boolean;
-  command: string;
-  response: string;
-};
-
-export type ChatbotCommandSettingsResponse = ChatbotCommandSettings & {
-  updatedAt: string | null;
-};
-
 export type LlmSettings = {
   enabled: boolean;
   baseUrl: string;

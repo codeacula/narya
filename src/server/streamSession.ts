@@ -92,21 +92,6 @@ export function getCurrentStreamSessionId(): string | null {
   return getActiveStreamSession()?.id ?? null;
 }
 
-export function startStreamSession(source: string): StreamSession {
-  const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-  const createSession = db.transaction(() => {
-    endActiveSessions.run(now);
-    insertStreamSession.run(id, now, source);
-  });
-  createSession();
-  const session = getActiveStreamSession();
-  if (!session || session.id !== id) {
-    throw new Error('Could not create stream session.');
-  }
-  return session;
-}
-
 export function getOrStartStreamSession(source: string, startedAt: string): StreamSession {
   const existing = rowToStreamSession(getSessionBySourceRow.get(source));
   if (existing) return existing;

@@ -22,8 +22,6 @@ import type {
   TickerItem,
   TickerItemUpdate,
   ChatbotCommand,
-  ChatbotCommandSettings,
-  ChatbotCommandSettingsResponse,
   ChatbotCommandUpsert,
   LlmSettings,
   LlmSettingsUpdate,
@@ -235,14 +233,6 @@ export async function clearDiscordGoLiveSettings(): Promise<GoLiveSettings> {
 
 export async function runGoLive(): Promise<GoLiveResult> {
   return sendJson<GoLiveResult>('/api/go-live', 'POST');
-}
-
-export async function getChatbotCommandSettings(): Promise<ChatbotCommandSettingsResponse> {
-  return fetchJson<ChatbotCommandSettingsResponse>('/api/chatbot/command-settings');
-}
-
-export async function updateChatbotCommandSettings(settings: ChatbotCommandSettings): Promise<ChatbotCommandSettingsResponse> {
-  return sendJson<ChatbotCommandSettingsResponse>('/api/chatbot/command-settings', 'PUT', settings);
 }
 
 export async function getChatbotCommands(): Promise<ChatbotCommand[]> {
