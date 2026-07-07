@@ -1,4 +1,7 @@
 [test]
-# Use an isolated in-memory SQLite DB per test process so tests never touch the
-# operator's data/streamer-tools.sqlite. db.ts reads STREAMER_TOOLS_DB.
-env = { STREAMER_TOOLS_DB = ":memory:" }
+# Isolate tests from the operator's real data/streamer-tools.sqlite.
+# NOTE: Bun ignores a `[test] env` table (it does NOT inject these into the test
+# process), so the isolation is enforced in db.ts instead: it defaults to an
+# in-memory DB when NODE_ENV=test (which `bun test` sets). A `preload` here forces
+# STREAMER_TOOLS_DB=:memory: before any module reads it, as belt-and-suspenders.
+preload = ["./src/server/testSetup.ts"]

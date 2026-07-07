@@ -6,8 +6,15 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, '..', '..', 'data');
 
-// Tests point STREAMER_TOOLS_DB at ':memory:' for an isolated per-process DB.
-const dbPath = process.env.STREAMER_TOOLS_DB ?? path.join(dataDir, 'streamer-tools.sqlite');
+// Isolate tests from the operator's real database. `bun test` sets NODE_ENV=test,
+// so default to an in-memory DB there; a normal run (or an explicit
+// STREAMER_TOOLS_DB) still uses the file. Without this guard a test run would
+// write its fixtures straight into data/streamer-tools.sqlite and clobber live
+// config (Bun ignores the `[test] env` key in bunfig.toml).
+const defaultDbPath = process.env.NODE_ENV === 'test'
+  ? ':memory:'
+  : path.join(dataDir, 'streamer-tools.sqlite');
+const dbPath = process.env.STREAMER_TOOLS_DB ?? defaultDbPath;
 if (dbPath !== ':memory:') mkdirSync(dataDir, { recursive: true });
 
 export const db = new Database(dbPath);
