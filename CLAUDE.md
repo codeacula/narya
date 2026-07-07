@@ -10,6 +10,8 @@ After any code change, run typecheck/build and verify in-browser before declarin
 
 For any non-trivial feature, write a short plan first and confirm the approach before implementing across multiple files.
 
+Save plans and other working documents (validation notes, handoff docs) to `.claude/plans/` in this repo — the `.claude/` directory is gitignored. Do not put working docs in `docs/` or commit them.
+
 ## Preferences
 
 Prefer the simplest approach that meets the requirement. Avoid building full OAuth flows, token storage, or elaborate UI when simple env-based credentials suffice; ask before adding heavy infrastructure.
