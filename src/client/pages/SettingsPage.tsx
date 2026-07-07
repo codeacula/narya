@@ -849,7 +849,8 @@ export function SettingsPage({
       .then(config => {
         setAppConfigForm(appConfigToForm(config));
         setAppConfigMessage('Saved — reconnecting affected services.');
-        pushToast({ kind: 'success', title: 'Connections saved', message: 'Reconnecting affected services…' });
+        // No success toast here: the settings:updated broadcast handler
+        // (serviceStatus.tsx) already shows one in this same browser.
       })
       .catch(error => {
         const message = error instanceof Error ? error.message : 'Could not save configuration';
