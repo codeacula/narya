@@ -320,7 +320,7 @@ function normalizeActions(value: unknown): ChatbotCommandActionInput[] {
   });
 }
 
-function normalizeCommandUpsert(body: unknown): ChatbotCommandUpsert {
+export function normalizeCommandUpsert(body: unknown): ChatbotCommandUpsert {
   const value = body as Partial<ChatbotCommandUpsert>;
   return {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
@@ -337,7 +337,7 @@ function messageAfterFirstWord(message: string): string {
   return message.trim().replace(/^\S+\s*/, '').trim();
 }
 
-function renderTemplate(template: string, chatMessage: ChatMessage): string {
+export function renderTemplate(template: string, chatMessage: ChatMessage): string {
   const username = chatMessage.displayName || chatMessage.username;
   return template.replaceAll('{username}', username);
 }

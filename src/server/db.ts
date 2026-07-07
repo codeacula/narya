@@ -5,9 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, '..', '..', 'data');
-mkdirSync(dataDir, { recursive: true });
 
-export const db = new Database(path.join(dataDir, 'streamer-tools.sqlite'));
+// Tests point STREAMER_TOOLS_DB at ':memory:' for an isolated per-process DB.
+const dbPath = process.env.STREAMER_TOOLS_DB ?? path.join(dataDir, 'streamer-tools.sqlite');
+if (dbPath !== ':memory:') mkdirSync(dataDir, { recursive: true });
+
+export const db = new Database(dbPath);
 
 db.exec('pragma journal_mode = WAL');
 db.exec(`

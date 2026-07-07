@@ -25,7 +25,7 @@ type LlmSettingsRow = {
   updatedAt: string;
 };
 
-type ResponsesApiResponse = {
+export type ResponsesApiResponse = {
   output_text?: unknown;
   output?: Array<{
     type?: string;
@@ -180,7 +180,7 @@ function stripThinkingTokens(text: string): string {
   return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
-function extractResponseText(data: ResponsesApiResponse): string {
+export function extractResponseText(data: ResponsesApiResponse): string {
   // Responses API: top-level output_text shortcut
   if (typeof data.output_text === 'string' && data.output_text.trim()) {
     return stripThinkingTokens(data.output_text);

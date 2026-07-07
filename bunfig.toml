@@ -1,0 +1,4 @@
+[test]
+# Use an isolated in-memory SQLite DB per test process so tests never touch the
+# operator's data/streamer-tools.sqlite. db.ts reads STREAMER_TOOLS_DB.
+env = { STREAMER_TOOLS_DB = ":memory:" }
