@@ -346,3 +346,25 @@ db.exec(`
   SET kind = 'ad_break'
   WHERE kind = 'redeem' AND actor = 'Twitch' AND detail LIKE 'ad break%'
 `);
+
+// Per-chatter summary table: gives O(1) "known chatter" checks and viewer
+// message counts without scanning chat_messages. Backfilled once from the
+// (now normalized) chat_messages, then maintained incrementally on insert.
+db.exec(`
+  create table if not exists chatters (
+    login text primary key,
+    first_seen_at text not null,
+    message_count integer not null default 0
+  )
+`);
+
+const chattersEmpty = (db.prepare('select count(*) as count from chatters').get() as { count: number }).count === 0;
+const hasChatMessages = (db.prepare('select count(*) as count from chat_messages').get() as { count: number }).count > 0;
+if (chattersEmpty && hasChatMessages) {
+  db.exec(`
+    insert into chatters (login, first_seen_at, message_count)
+    select username, min(received_at), count(*)
+    from chat_messages
+    group by username
+  `);
+}

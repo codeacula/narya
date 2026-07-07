@@ -45,6 +45,12 @@ const insertChatEvent = db.prepare(`
     (?, ?, ?, ?, ?, ?, ?)
 `);
 
+const upsertChatter = db.prepare(`
+  insert into chatters (login, first_seen_at, message_count)
+  values (?, ?, 1)
+  on conflict(login) do update set message_count = message_count + 1
+`);
+
 const markMessageDeleted = db.prepare(`
   update chat_messages
   set deleted_at = ?, deleted_reason = ?, moderation_event_id = ?
@@ -136,7 +142,7 @@ twitchClient.on('message', (channel, tags, message, self) => {
     occurredAt,
   });
 
-  insertChat.run(
+  const insertResult = insertChat.run(
     chatMessage.id,
     chatMessage.channel,
     chatMessage.username,
@@ -149,7 +155,12 @@ twitchClient.on('message', (channel, tags, message, self) => {
     sessionChatter.sessionId,
     chatMessage.isFirstThisSession ? 1 : 0,
     chatMessage.isFirstEver ? 1 : 0,
-  );
+  ) as { changes: number };
+  // Only fold into the chatters summary when the message was actually inserted
+  // (insert-or-ignore skips replayed ids), so counts stay accurate.
+  if (insertResult.changes > 0) {
+    upsertChatter.run(chatMessage.username, chatMessage.receivedAt);
+  }
   broadcast('chat:message', chatMessage);
 
   // The tmi client is anonymous, so `self` never fires for our own bot. Bot
