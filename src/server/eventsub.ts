@@ -328,6 +328,7 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
       return;
     }
 
+    if (!msg?.metadata?.message_type) return;
     const msgType = msg.metadata.message_type;
 
     if (msgType === 'session_welcome') {
@@ -361,10 +362,14 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
                 console.error('EventSub: failed to reconcile the current Twitch stream:', error);
               }
             }
+            state.eventSubError = null;
           } else {
             console.error(`EventSub: could not resolve broadcaster ID for "${appConfig.twitchChannel}"`);
+            state.eventSubError = 'broadcaster_unresolved';
+            clearKeepaliveTimer(state);
+            try { ws.close(); } catch { /* ignore */ }
+            scheduleReconnect(state);
           }
-          state.eventSubError = null;
         })();
       } else {
         state.eventSubReconnectInProgress = false;
