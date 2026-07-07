@@ -10,6 +10,11 @@ export function startAutomaticAds(state: RuntimeState) {
   let lastCompletedDeadline: string | null = null;
   let trackedPrerollDeadlineMs: number | null = null;
   let retryAfterMs = 0;
+  // On the very first usable schedule observation a deadline already in the past
+  // is stale from before boot; mark it complete and skip so we don't fire a
+  // commercial within seconds of startup. Deadlines that pass while running are
+  // handled normally.
+  let firstObservation = true;
 
   const checkSchedule = async () => {
     if (running || Date.now() < retryAfterMs) return;
@@ -43,7 +48,18 @@ export function startAutomaticAds(state: RuntimeState) {
       : `scheduled:${adSchedule.nextAdAt}`;
     if (deadlineKey === lastCompletedDeadline) return;
 
-    if (deadlineMs > nowMs) return;
+    if (deadlineMs > nowMs) {
+      firstObservation = false;
+      return;
+    }
+
+    if (firstObservation) {
+      firstObservation = false;
+      lastCompletedDeadline = deadlineKey;
+      trackedPrerollDeadlineMs = null;
+      console.log(`Twitch ads: skipping stale ad deadline observed at boot (${deadlineKey}).`);
+      return;
+    }
 
     running = true;
     try {
