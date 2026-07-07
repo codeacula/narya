@@ -295,13 +295,17 @@ export function getMissingTwitchBotScopes(state: RuntimeState, scopes: readonly 
   return scopes.filter(scope => !token.scopes.includes(scope));
 }
 
-export async function getTwitchActionCredentials(state: RuntimeState, scopes: readonly string[]) {
-  const headers = await getTwitchUserApiHeaders(state);
-  if (!headers) throw new HttpRouteError(401, 'Twitch login is required.');
-
-  const missingScopes = getMissingTwitchScopes(state, scopes);
+// Shared tail for both the user- and bot-account credential paths: enforce the
+// scope check, resolve/cache the broadcaster ID, and shape the credentials. The
+// callers differ only in which headers/scopes they resolve and their error copy.
+async function assembleTwitchCredentials(
+  state: RuntimeState,
+  headers: { 'Client-Id': string; Authorization: string; userToken: string },
+  missingScopes: string[],
+  scopeErrorPrefix: string,
+) {
   if (missingScopes.length > 0) {
-    throw new HttpRouteError(403, `Reconnect Twitch to grant: ${missingScopes.join(', ')}`);
+    throw new HttpRouteError(403, `${scopeErrorPrefix}: ${missingScopes.join(', ')}`);
   }
 
   const bid = state.broadcasterId ?? await fetchBroadcasterId(headers['Client-Id'], headers.userToken);
@@ -316,41 +320,26 @@ export async function getTwitchActionCredentials(state: RuntimeState, scopes: re
   };
 }
 
+export async function getTwitchActionCredentials(state: RuntimeState, scopes: readonly string[]) {
+  const headers = await getTwitchUserApiHeaders(state);
+  if (!headers) throw new HttpRouteError(401, 'Twitch login is required.');
+
+  const missingScopes = getMissingTwitchScopes(state, scopes);
+  return assembleTwitchCredentials(state, headers, missingScopes, 'Reconnect Twitch to grant');
+}
+
 async function getTwitchChatCredentials(state: RuntimeState, sender: TwitchChatSender) {
   if (sender === 'bot') {
     const botHeaders = await getTwitchBotApiHeaders(state);
     if (!botHeaders) throw new HttpRouteError(401, 'Twitch bot login is required.');
 
     const missingBotScopes = getMissingTwitchBotScopes(state, REQUIRED_TWITCH_BOT_OAUTH_SCOPES);
-    if (missingBotScopes.length > 0) {
-      throw new HttpRouteError(403, `Reconnect Twitch bot to grant: ${missingBotScopes.join(', ')}`);
-    }
-
-    const bid = state.broadcasterId ?? await fetchBroadcasterId(botHeaders['Client-Id'], botHeaders.userToken);
-    if (!bid) throw new HttpRouteError(502, `Could not resolve broadcaster ID for "${appConfig.twitchChannel}".`);
-    state.broadcasterId = bid;
-
-    return {
-      clientId: botHeaders['Client-Id'],
-      authorization: botHeaders.Authorization,
-      userToken: botHeaders.userToken,
-      broadcasterId: bid,
-      senderIdKey: 'bot' as const,
-    };
+    const credentials = await assembleTwitchCredentials(state, botHeaders, missingBotScopes, 'Reconnect Twitch bot to grant');
+    return { ...credentials, senderIdKey: 'bot' as const };
   }
 
-  const userCredentials = await getTwitchActionCredentials(state, []);
-  const missingUserScopes = getMissingTwitchScopes(state, ['user:write:chat']);
-  if (missingUserScopes.length > 0) {
-    throw new HttpRouteError(403, `Reconnect Twitch to grant: ${missingUserScopes.join(', ')}`);
-  }
-  return {
-    clientId: userCredentials.clientId,
-    authorization: userCredentials.authorization,
-    userToken: userCredentials.userToken,
-    broadcasterId: userCredentials.broadcasterId,
-    senderIdKey: 'user' as const,
-  };
+  const userCredentials = await getTwitchActionCredentials(state, ['user:write:chat']);
+  return { ...userCredentials, senderIdKey: 'user' as const };
 }
 
 export async function sendTwitchChatMessage(

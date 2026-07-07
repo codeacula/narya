@@ -86,6 +86,13 @@ async function sendJson<T>(path: string, method: string, body?: unknown): Promis
   return response.json() as Promise<T>;
 }
 
+// For endpoints that return no body (e.g. 204 DELETEs). Attaches the auth header
+// and surfaces API errors like sendJson.
+async function sendVoid(path: string, method: string): Promise<void> {
+  const response = await fetch(`${API_BASE}${path}`, { method, headers: authHeaders() });
+  if (!response.ok) throw new Error(await readApiError(response));
+}
+
 export async function getAppConfig(): Promise<AppConfig> {
   return fetchJson<AppConfig>('/api/config');
 }
@@ -190,8 +197,7 @@ export async function updateViewerReward(id: string, reward: Partial<ViewerRewar
 }
 
 export async function deleteViewerReward(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/twitch/rewards/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
-  if (!response.ok) throw new Error(await readApiError(response));
+  return sendVoid(`/api/twitch/rewards/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 export async function createViewerRewardCategory(name: string): Promise<ViewerRewardCategory> {
@@ -210,8 +216,7 @@ export async function applyViewerRewardCategoryColor(id: string): Promise<Viewer
 }
 
 export async function deleteViewerRewardCategory(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/twitch/reward-categories/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
-  if (!response.ok) throw new Error(await readApiError(response));
+  return sendVoid(`/api/twitch/reward-categories/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 export async function getDiscordStatus(): Promise<DiscordStatus> {
@@ -259,8 +264,7 @@ export async function updateChatbotCommand(id: string, settings: ChatbotCommandU
 }
 
 export async function deleteChatbotCommand(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/chatbot/commands/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
-  if (!response.ok) throw new Error(await readApiError(response));
+  return sendVoid(`/api/chatbot/commands/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 export async function getLlmSettings(): Promise<LlmSettings> {
@@ -310,8 +314,7 @@ export async function updateSoundButton(id: string, sound: SoundButtonUpdate): P
 }
 
 export async function deleteSoundButton(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/sounds/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
-  if (!response.ok) throw new Error(await readApiError(response));
+  return sendVoid(`/api/sounds/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 export async function playSoundButton(id: string): Promise<SoundPlayback> {
@@ -331,8 +334,7 @@ export async function updateRunsheetItem(id: string, item: RunItemUpdate): Promi
 }
 
 export async function deleteRunsheetItem(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/runsheet/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
-  if (!response.ok) throw new Error(await readApiError(response));
+  return sendVoid(`/api/runsheet/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 export async function getTicker(): Promise<TickerItem[]> {
@@ -348,8 +350,7 @@ export async function updateTickerItem(id: string, item: TickerItemUpdate): Prom
 }
 
 export async function deleteTickerItem(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/ticker/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
-  if (!response.ok) throw new Error(await readApiError(response));
+  return sendVoid(`/api/ticker/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 export async function getChatters(): Promise<ChattersResponse> {

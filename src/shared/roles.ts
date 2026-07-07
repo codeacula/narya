@@ -19,3 +19,21 @@ export function getViewerRolesFromBadges(badges: Record<string, string> | null):
   if (badges.subscriber) roles.push('sub');
   return roles;
 }
+
+// Highlight ladder for a chat entry, shared by the dashboard live handler and
+// the server chat projection so they can't drift. Matches ChatEntry['highlight'].
+export type ChatHighlight = 'first-session' | 'first-ever' | 'broadcaster' | 'sub' | 'mod' | 'vip' | undefined;
+
+export function chatHighlight(
+  badges: Record<string, string> | null,
+  isFirstEver: boolean,
+  isFirstThisSession: boolean,
+): ChatHighlight {
+  if (isFirstEver) return 'first-ever';
+  if (isFirstThisSession) return 'first-session';
+  if (badges?.broadcaster) return 'broadcaster';
+  if (badges?.moderator) return 'mod';
+  if (badges?.vip) return 'vip';
+  if (badges?.subscriber) return 'sub';
+  return undefined;
+}

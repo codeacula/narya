@@ -20,6 +20,7 @@ import {
   reconnectEventSub,
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
+import { chatHighlight } from '../../shared/roles';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
 import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } from '../routing';
@@ -236,13 +237,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       user: login,
       text: message.message,
       time: new Date(message.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
-      highlight: message.isFirstEver ? 'first-ever'
-        : message.isFirstThisSession ? 'first-session'
-        : message.badges?.broadcaster ? 'broadcaster'
-        : message.badges?.moderator   ? 'mod'
-        : message.badges?.vip         ? 'vip'
-        : message.badges?.subscriber  ? 'sub'
-        : undefined,
+      highlight: chatHighlight(message.badges, Boolean(message.isFirstEver), Boolean(message.isFirstThisSession)),
     };
 
     // Cap live-append so long streams don't grow render cost forever.

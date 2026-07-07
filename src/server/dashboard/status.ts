@@ -5,7 +5,7 @@ import {
   TWITCH_AD_SCHEDULE_CACHE_MS,
   TWITCH_STREAM_STATUS_CACHE_MS,
 } from '../../shared/constants';
-import { getViewerRolesFromBadges } from '../../shared/roles';
+import { chatHighlight, getViewerRolesFromBadges } from '../../shared/roles';
 import { twitchClient } from '../chat';
 import { appConfig } from '../appConfig';
 import { db } from '../db';
@@ -495,11 +495,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         user: row.username.toLowerCase(),
         text: row.message,
         time: formatClockTime(row.receivedAt),
-        highlight: row.isFirstEver ? 'first-ever'
-          : row.isFirstThisSession ? 'first-session'
-          : badges?.broadcaster ? 'broadcaster'
-          : badges?.subscriber ? 'sub'
-          : undefined,
+        highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
       };
     }));
   });
