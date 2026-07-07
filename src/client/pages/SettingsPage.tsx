@@ -20,6 +20,7 @@ import type {
   TtsVoice,
 } from '../../shared/api';
 import { TTS_TONE_PRESETS } from '../../shared/tts';
+import { withToken } from '../auth';
 import {
   getAppConfig,
   updateAppConfig,
@@ -965,13 +966,13 @@ export function SettingsPage({
             sub={twitchLoginSub}
           >
             {missingTwitchScopes ? (
-              <a className="btn-primary" href="/api/auth/twitch?force=1">Reconnect</a>
+              <a className="btn-primary" href={withToken("/api/auth/twitch?force=1")}>Reconnect</a>
             ) : status.twitchAuthenticated && status.twitchAuthSource === 'oauth' ? (
               <button className="btn-primary" onClick={onTwitchLogout}>Disconnect</button>
             ) : status.twitchAuthenticated ? (
               <span className="set-badge set-badge--ok">Configured</span>
             ) : (
-              <a className="btn-primary" href="/api/auth/twitch">
+              <a className="btn-primary" href={withToken("/api/auth/twitch")}>
                 Login with Twitch
               </a>
             )}
@@ -981,13 +982,13 @@ export function SettingsPage({
             sub={twitchBotLoginSub}
           >
             {missingTwitchBotScopes ? (
-              <a className="btn-primary" href="/api/auth/twitch/bot?force=1">Reconnect bot</a>
+              <a className="btn-primary" href={withToken("/api/auth/twitch/bot?force=1")}>Reconnect bot</a>
             ) : status.twitchBotAuthenticated && status.twitchBotAuthSource === 'oauth' ? (
               <button className="btn-primary" onClick={onTwitchBotLogout}>Disconnect</button>
             ) : status.twitchBotAuthenticated ? (
               <span className="set-badge set-badge--ok">Configured</span>
             ) : (
-              <a className="btn-primary" href="/api/auth/twitch/bot">
+              <a className="btn-primary" href={withToken("/api/auth/twitch/bot")}>
                 Login as Bot
               </a>
             )}
@@ -1248,13 +1249,13 @@ export function SettingsPage({
                 <>
                   <span className="set-badge set-badge--ok">Connected</span>
                   {discordStatus.installUrl && (
-                    <a className="btn-primary" href="/api/auth/discord" style={{ fontSize: '11px' }}>
+                    <a className="btn-primary" href={withToken("/api/auth/discord")} style={{ fontSize: '11px' }}>
                       Reinstall
                     </a>
                   )}
                 </>
               ) : discordStatus.installUrl ? (
-                <a className="btn-primary" href="/api/auth/discord">
+                <a className="btn-primary" href={withToken("/api/auth/discord")}>
                   Install Bot
                 </a>
               ) : (

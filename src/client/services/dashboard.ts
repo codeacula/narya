@@ -2,6 +2,8 @@
 import type {
   Viewer,
   ChatEntry,
+  ChatMessage,
+  MusicInfo,
   StreamEvent,
   RunItem,
   RunItemUpdate,
@@ -47,11 +49,20 @@ import type {
   AppConfig,
   AppConfigUpdate,
 } from '../../shared/api';
+import { getDashboardToken } from '../auth';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
 
+// Attach the shared dashboard token header when one is stored, merged with any
+// caller-supplied headers.
+function authHeaders(base?: Record<string, string>): Record<string, string> | undefined {
+  const token = getDashboardToken();
+  if (!token) return base;
+  return { ...(base ?? {}), 'x-dashboard-token': token };
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, { cache: 'no-store' });
+  const response = await fetch(`${API_BASE}${path}`, { cache: 'no-store', headers: authHeaders() });
   if (!response.ok) throw new Error(await readApiError(response));
   return response.json() as Promise<T>;
 }
@@ -68,7 +79,7 @@ async function readApiError(response: Response): Promise<string> {
 async function sendJson<T>(path: string, method: string, body?: unknown): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     method,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    headers: authHeaders(body === undefined ? undefined : { 'Content-Type': 'application/json' }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) throw new Error(await readApiError(response));
@@ -179,7 +190,7 @@ export async function updateViewerReward(id: string, reward: Partial<ViewerRewar
 }
 
 export async function deleteViewerReward(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/twitch/rewards/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const response = await fetch(`${API_BASE}/api/twitch/rewards/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
   if (!response.ok) throw new Error(await readApiError(response));
 }
 
@@ -199,7 +210,7 @@ export async function applyViewerRewardCategoryColor(id: string): Promise<Viewer
 }
 
 export async function deleteViewerRewardCategory(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/twitch/reward-categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const response = await fetch(`${API_BASE}/api/twitch/reward-categories/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
   if (!response.ok) throw new Error(await readApiError(response));
 }
 
@@ -248,7 +259,7 @@ export async function updateChatbotCommand(id: string, settings: ChatbotCommandU
 }
 
 export async function deleteChatbotCommand(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/chatbot/commands/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const response = await fetch(`${API_BASE}/api/chatbot/commands/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
   if (!response.ok) throw new Error(await readApiError(response));
 }
 
@@ -266,7 +277,7 @@ export async function testLlm(question: string): Promise<LlmTestResult> {
 
 export async function disconnectTwitch(account: 'user' | 'bot' = 'user'): Promise<void> {
   const path = account === 'bot' ? '/api/auth/twitch/bot' : '/api/auth/twitch';
-  const response = await fetch(`${API_BASE}${path}`, { method: 'DELETE' });
+  const response = await fetch(`${API_BASE}${path}`, { method: 'DELETE', headers: authHeaders() });
   if (!response.ok) throw new Error(`Twitch logout failed with ${response.status}`);
 }
 
@@ -299,7 +310,7 @@ export async function updateSoundButton(id: string, sound: SoundButtonUpdate): P
 }
 
 export async function deleteSoundButton(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/sounds/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const response = await fetch(`${API_BASE}/api/sounds/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
   if (!response.ok) throw new Error(await readApiError(response));
 }
 
@@ -320,7 +331,7 @@ export async function updateRunsheetItem(id: string, item: RunItemUpdate): Promi
 }
 
 export async function deleteRunsheetItem(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/runsheet/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const response = await fetch(`${API_BASE}/api/runsheet/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
   if (!response.ok) throw new Error(await readApiError(response));
 }
 
@@ -337,7 +348,7 @@ export async function updateTickerItem(id: string, item: TickerItemUpdate): Prom
 }
 
 export async function deleteTickerItem(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/ticker/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const response = await fetch(`${API_BASE}/api/ticker/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() });
   if (!response.ok) throw new Error(await readApiError(response));
 }
 
@@ -375,4 +386,36 @@ export async function getTtsEnabledRewards(): Promise<string[]> {
 
 export async function setTtsRewardEnabled(rewardId: string, enabled: boolean): Promise<{ enabled: boolean }> {
   return sendJson<{ enabled: boolean }>(`/api/tts/reward/${encodeURIComponent(rewardId)}`, 'PUT', { enabled });
+}
+
+export type HealthResponse = {
+  ok: boolean;
+  twitchChannel: string;
+  obsConnected: boolean;
+  twitchRoomId: string | null;
+  eventSubConnected: boolean;
+};
+
+export async function getHealth(): Promise<HealthResponse> {
+  return fetchJson<HealthResponse>('/api/health');
+}
+
+export async function getRecentChat(): Promise<ChatMessage[]> {
+  return fetchJson<ChatMessage[]>('/api/chat/recent');
+}
+
+export async function getEmotes(): Promise<Record<string, string>> {
+  return fetchJson<Record<string, string>>('/api/emotes');
+}
+
+export async function getCurrentMusic(): Promise<MusicInfo | null> {
+  return fetchJson<MusicInfo | null>('/api/music/current');
+}
+
+export async function setManualMusic(input: { title: string; artist: string; status: MusicInfo['status'] }): Promise<MusicInfo> {
+  return sendJson<MusicInfo>('/api/music/current', 'PUT', input);
+}
+
+export async function clearManualMusic(): Promise<MusicInfo> {
+  return sendJson<MusicInfo>('/api/music/current', 'DELETE');
 }

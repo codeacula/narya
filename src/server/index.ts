@@ -1,4 +1,5 @@
 import { registerAppConfigRoutes, type AppConfigChange } from './appConfig';
+import { requireDashboardToken } from './auth';
 import { startAutomaticAds } from './automaticAds';
 import { registerChattersRoutes } from './chatters';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
@@ -46,6 +47,9 @@ function reconcileServices(changes: Set<AppConfigChange>) {
   }
 }
 
+// Guard every /api/* route with the shared token (no-op when unset).
+app.use('/api', requireDashboardToken);
+
 registerCoreRoutes(app, runtimeState);
 registerAppConfigRoutes(app, ({ config: nextConfig, changes }) => {
   reconcileServices(changes);
@@ -71,6 +75,9 @@ registerStaticRoutes(app);
 
 server.listen(config.port, () => {
   console.log(`Streamer Tools backend listening on http://localhost:${config.port}`);
+  if (!config.dashboardToken) {
+    console.warn('⚠️  DASHBOARD_TOKEN is not set — the API and WebSocket are unauthenticated. Set it in .env to require a token.');
+  }
   connectTwitchChat(runtimeState);
   void connectObs();
   startMusicPolling();

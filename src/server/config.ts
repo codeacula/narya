@@ -4,6 +4,9 @@
 export const config = {
   port: Number(process.env.PORT ?? 4317),
   chatterboxBaseUrl: (process.env.CHATTERBOX_BASE_URL ?? 'http://127.0.0.1:8008').replace(/\/+$/, ''),
+  // Shared dashboard token. When set, all /api/* routes (and the WS) require it;
+  // when empty, auth is disabled (backwards compatible) with a startup warning.
+  dashboardToken: process.env.DASHBOARD_TOKEN?.trim() ?? '',
   // Static asset paths bundled with the app, not user-configurable.
   quackSounds: [
     '/sounds/quacks/075176_duck-quack-40345.mp3',

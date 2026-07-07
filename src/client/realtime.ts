@@ -1,4 +1,5 @@
 import React from 'react';
+import { withToken } from './auth';
 
 type Handler = (payload: unknown) => void;
 
@@ -14,7 +15,7 @@ function ensureSocket() {
     return;
   }
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  socket = new WebSocket(`${protocol}://${window.location.host}/socket`);
+  socket = new WebSocket(withToken(`${protocol}://${window.location.host}/socket`));
 
   socket.addEventListener('message', (messageEvent) => {
     let data: { event?: string; payload?: unknown };

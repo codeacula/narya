@@ -8,6 +8,7 @@ import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage 
 import { TabletPage } from './pages/Tablet';
 import { ViewerWindowPage } from './pages/ViewerWindow';
 import { dashboardRouteFromPath } from './routing';
+import { captureDashboardToken } from './auth';
 import { ToastProvider } from './ui/notifications';
 import { ServiceStatusToasts } from './ui/serviceStatus';
 
@@ -42,6 +43,10 @@ function App() {
     </ToastProvider>
   );
 }
+
+// Capture a ?token= from the URL (persist + strip) before anything renders or
+// opens the WebSocket, so the token is available to every request.
+captureDashboardToken();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

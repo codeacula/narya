@@ -1,13 +1,13 @@
 import React from 'react';
 import type { MusicInfo } from '../shared/api';
 import { useSocket } from './realtime';
+import { clearManualMusic, getCurrentMusic, setManualMusic } from './services/dashboard';
 
 export function useMusic() {
   const [music, setMusic] = React.useState<MusicInfo | null>(null);
 
   React.useEffect(() => {
-    fetch('/api/music/current')
-      .then(r => r.json())
+    getCurrentMusic()
       .then(setMusic)
       .catch(() => setMusic(null));
   }, []);
@@ -61,17 +61,21 @@ export function MusicControls() {
 
   async function saveMusic(event: React.FormEvent) {
     event.preventDefault();
-    const response = await fetch('/api/music/current', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, artist, status }),
-    });
-    if (response.ok) setIsDirty(false);
+    try {
+      await setManualMusic({ title, artist, status });
+      setIsDirty(false);
+    } catch (error) {
+      console.error('Failed to set manual music:', error);
+    }
   }
 
   async function clearMusic() {
-    const response = await fetch('/api/music/current', { method: 'DELETE' });
-    if (response.ok) setIsDirty(false);
+    try {
+      await clearManualMusic();
+      setIsDirty(false);
+    } catch (error) {
+      console.error('Failed to clear manual music:', error);
+    }
   }
 
   return (

@@ -3,6 +3,7 @@ import { OVERLAY_CHAT_EXPIRE_MS, OVERLAY_CHAT_FADE_MS } from '../shared/constant
 import { getRoleFromBadges, type Role } from '../shared/roles';
 import type { ChatMessage, ChatModerationEvent } from '../shared/api';
 import { useSocket } from './realtime';
+import { getEmotes, getHealth, getRecentChat } from './services/dashboard';
 
 export type { ChatMessage, ChatModerationEvent } from '../shared/api';
 export type { Role } from '../shared/roles';
@@ -73,8 +74,7 @@ export function useChat(expireAfterMs = 0) {
 
   React.useEffect(() => {
     if (expireAfterMs > 0) return;
-    fetch('/api/chat/recent')
-      .then(r => r.json())
+    getRecentChat()
       .then((data: ChatMessage[]) => setMessages(data.map(m => ({
         ...m,
         isFirstTimer: Boolean(m.isFirstEver),
@@ -128,8 +128,7 @@ export function useEmotes() {
   const [emoteMap, setEmoteMap] = React.useState<Record<string, string>>({});
 
   React.useEffect(() => {
-    fetch('/api/emotes')
-      .then(r => r.json())
+    getEmotes()
       .then(setEmoteMap)
       .catch(() => {});
   }, []);
@@ -143,9 +142,8 @@ export function useChannel(): string {
   const [channel, setChannel] = React.useState('');
 
   React.useEffect(() => {
-    fetch('/api/health')
-      .then(r => r.json())
-      .then((data: { twitchChannel?: string }) => setChannel((data.twitchChannel ?? '').toLowerCase()))
+    getHealth()
+      .then((data) => setChannel((data.twitchChannel ?? '').toLowerCase()))
       .catch(() => {});
   }, []);
 
