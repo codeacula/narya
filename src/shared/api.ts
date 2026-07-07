@@ -481,22 +481,24 @@ export type AppConfig = {
   updatedAt: string | null;
 };
 
+// PUT /api/config accepts partial bodies: absent non-secret fields keep their
+// current value server-side, so every non-secret field is optional here.
 export type AppConfigUpdate = {
-  twitchChannel: string;
-  twitchClientId: string;
+  twitchChannel?: string;
+  twitchClientId?: string;
   twitchClientSecret?: string;
   clearTwitchClientSecret?: boolean;
-  obsUrl: string;
+  obsUrl?: string;
   obsPassword?: string;
   clearObsPassword?: boolean;
-  obsScenes: string[];
-  discordClientId: string;
+  obsScenes?: string[];
+  discordClientId?: string;
   discordBotToken?: string;
   clearDiscordBotToken?: boolean;
-  chatterboxBaseUrl: string;
-  musicPollIntervalMs: number;
-  musicPlayerctlPlayer: string;
-  quackVolume: number;
+  chatterboxBaseUrl?: string;
+  musicPollIntervalMs?: number;
+  musicPlayerctlPlayer?: string;
+  quackVolume?: number;
 };
 
 export type SettingsUpdatedPayload = {

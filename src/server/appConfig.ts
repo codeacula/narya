@@ -213,45 +213,73 @@ export type AppConfigChange =
   | 'music'
   | 'discord';
 
-function normalizeUpdate(body: unknown): AppConfigUpdate {
+// Non-secret fields fully resolved (absent-means-keep already applied) plus the
+// secret directives that saveAppConfig feeds to resolveSecret.
+type NormalizedConfigUpdate = Omit<
+  AppConfigInternal,
+  'updatedAt' | 'twitchClientSecret' | 'obsPassword' | 'discordBotToken'
+> & {
+  twitchClientSecret?: string;
+  clearTwitchClientSecret: boolean;
+  obsPassword?: string;
+  clearObsPassword: boolean;
+  discordBotToken?: string;
+  clearDiscordBotToken: boolean;
+};
+
+function normalizeUpdate(body: unknown, prev: AppConfigInternal): NormalizedConfigUpdate {
   const value = (body ?? {}) as Partial<AppConfigUpdate>;
   const str = (input: unknown): string => (typeof input === 'string' ? input.trim() : '');
 
-  const twitchChannel = str(value.twitchChannel).toLowerCase();
-  if (twitchChannel && !/^[a-z0-9_]{1,25}$/.test(twitchChannel)) {
-    throw new HttpRouteError(400, 'Twitch channel must be 1-25 letters, numbers, or underscores.');
+  let twitchChannel = prev.twitchChannel;
+  if (value.twitchChannel !== undefined) {
+    twitchChannel = str(value.twitchChannel).toLowerCase();
+    if (twitchChannel && !/^[a-z0-9_]{1,25}$/.test(twitchChannel)) {
+      throw new HttpRouteError(400, 'Twitch channel must be 1-25 letters, numbers, or underscores.');
+    }
   }
 
-  const obsUrl = str(value.obsUrl);
-  if (obsUrl && !/^wss?:\/\//i.test(obsUrl)) {
-    throw new HttpRouteError(400, 'OBS WebSocket URL must start with ws:// or wss://.');
+  let obsUrl = prev.obsUrl;
+  if (value.obsUrl !== undefined) {
+    obsUrl = str(value.obsUrl);
+    if (obsUrl && !/^wss?:\/\//i.test(obsUrl)) {
+      throw new HttpRouteError(400, 'OBS WebSocket URL must start with ws:// or wss://.');
+    }
   }
 
-  const scenes = Array.isArray(value.obsScenes)
-    ? value.obsScenes.map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean)
-    : [];
+  const obsScenes = value.obsScenes !== undefined
+    ? (Array.isArray(value.obsScenes)
+        ? value.obsScenes.map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean)
+        : [])
+    : prev.obsScenes;
 
-  const interval = Math.round(clampNumber(Number(value.musicPollIntervalMs ?? 2000), 0, 60000));
-  const volume = clampNumber(Number(value.quackVolume ?? 0.2), 0, 1);
+  const musicPollIntervalMs = value.musicPollIntervalMs !== undefined
+    ? Math.round(clampNumber(Number(value.musicPollIntervalMs ?? 2000), 0, 60000))
+    : prev.musicPollIntervalMs;
+  const quackVolume = value.quackVolume !== undefined
+    ? clampNumber(Number(value.quackVolume ?? 0.2), 0, 1)
+    : prev.quackVolume;
 
-  const chatterboxBaseUrl = str(value.chatterboxBaseUrl).replace(/\/+$/, '') || 'http://127.0.0.1:8008';
+  const chatterboxBaseUrl = value.chatterboxBaseUrl !== undefined
+    ? (str(value.chatterboxBaseUrl).replace(/\/+$/, '') || 'http://127.0.0.1:8008')
+    : prev.chatterboxBaseUrl;
 
   return {
     twitchChannel,
-    twitchClientId: str(value.twitchClientId),
+    twitchClientId: value.twitchClientId !== undefined ? str(value.twitchClientId) : prev.twitchClientId,
     twitchClientSecret: typeof value.twitchClientSecret === 'string' ? value.twitchClientSecret.trim() : undefined,
     clearTwitchClientSecret: value.clearTwitchClientSecret === true,
     obsUrl,
     obsPassword: typeof value.obsPassword === 'string' ? value.obsPassword : undefined,
     clearObsPassword: value.clearObsPassword === true,
-    obsScenes: scenes,
-    discordClientId: str(value.discordClientId),
+    obsScenes,
+    discordClientId: value.discordClientId !== undefined ? str(value.discordClientId) : prev.discordClientId,
     discordBotToken: typeof value.discordBotToken === 'string' ? value.discordBotToken.trim() : undefined,
     clearDiscordBotToken: value.clearDiscordBotToken === true,
     chatterboxBaseUrl,
-    musicPollIntervalMs: interval,
-    musicPlayerctlPlayer: str(value.musicPlayerctlPlayer),
-    quackVolume: volume,
+    musicPollIntervalMs,
+    musicPlayerctlPlayer: value.musicPlayerctlPlayer !== undefined ? str(value.musicPlayerctlPlayer) : prev.musicPlayerctlPlayer,
+    quackVolume,
   };
 }
 
@@ -263,7 +291,7 @@ function resolveSecret(clear: boolean | undefined, next: string | undefined, exi
 
 export function saveAppConfig(body: unknown): { config: AppConfig; changes: Set<AppConfigChange> } {
   const prev = current();
-  const update = normalizeUpdate(body);
+  const update = normalizeUpdate(body, prev);
 
   const next: AppConfigInternal = {
     twitchChannel: update.twitchChannel,
