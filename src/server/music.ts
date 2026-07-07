@@ -125,8 +125,13 @@ export async function pollMusic() {
   musicPollRunning = true;
 
   try {
-    updateMusic(await readPlayerctlMusic());
+    const music = await readPlayerctlMusic();
+    // Manual music may have been set while this poll was awaiting playerctl;
+    // re-check so we don't clobber it with stale player state.
+    if (manualMusicActive) return;
+    updateMusic(music);
   } catch {
+    if (manualMusicActive) return;
     updateMusic(unavailableMusic());
   } finally {
     musicPollRunning = false;

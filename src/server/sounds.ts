@@ -45,8 +45,11 @@ function seedSoundButtonsIfEmpty() {
   }
 }
 
+// Seed the defaults once at module load only. Re-seeding from the accessors
+// resurrected deleted buttons on the next read.
+seedSoundButtonsIfEmpty();
+
 export function getSoundButtons(): SoundButton[] {
-  seedSoundButtonsIfEmpty();
   return listSoundButtons.all() as SoundButton[];
 }
 
@@ -67,7 +70,6 @@ function normalizeSoundButtonBody(body: unknown): SoundButtonUpdate {
 }
 
 export function createSoundButton(body: unknown): SoundButton {
-  seedSoundButtonsIfEmpty();
   const sound = normalizeSoundButtonBody(body);
   const id = crypto.randomUUID();
   createSoundButtonRow.run(id, sound.label, sound.filename);
@@ -75,7 +77,6 @@ export function createSoundButton(body: unknown): SoundButton {
 }
 
 export function updateSoundButton(id: string, body: unknown): SoundButton {
-  seedSoundButtonsIfEmpty();
   const existing = getSoundButton.get(id) as SoundButton | null;
   if (!existing) throw new HttpRouteError(404, 'Sound button not found.');
 
@@ -85,7 +86,6 @@ export function updateSoundButton(id: string, body: unknown): SoundButton {
 }
 
 export function deleteSoundButton(id: string) {
-  seedSoundButtonsIfEmpty();
   const existing = getSoundButton.get(id) as SoundButton | null;
   if (!existing) throw new HttpRouteError(404, 'Sound button not found.');
   deleteSoundButtonRow.run(id);
@@ -107,7 +107,6 @@ export function triggerQuackSound(): SoundPlayback {
 }
 
 export function triggerSoundButton(id: string): SoundPlayback | null {
-  seedSoundButtonsIfEmpty();
   const sound = getSoundButton.get(id) as SoundButton | null;
   if (!sound) return null;
   return playSound(sound.filename);

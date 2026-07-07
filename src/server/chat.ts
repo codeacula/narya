@@ -256,6 +256,9 @@ export async function applyTwitchChannel() {
 
   const previous = joinedChannel;
   joinedChannel = next;
+  // The room id is inferred from the first message of a channel; clear it so a
+  // stale id (and its emote cache) can't outlive the channel switch.
+  twitchRoomId = null;
   try {
     if (previous) await twitchClient.part(previous);
     if (next) await twitchClient.join(next);

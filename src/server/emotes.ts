@@ -1,10 +1,15 @@
 let emoteCacheTime = 0;
 let emoteCache: Record<string, string> = {};
+let emoteCacheRoomId: string | null = null;
 const EMOTE_CACHE_TTL = 10 * 60 * 1000;
 
 export async function getEmoteMap(twitchRoomId: string | null): Promise<Record<string, string>> {
   const now = Date.now();
-  if (now - emoteCacheTime < EMOTE_CACHE_TTL && Object.keys(emoteCache).length > 0) {
+  if (
+    emoteCacheRoomId === twitchRoomId &&
+    now - emoteCacheTime < EMOTE_CACHE_TTL &&
+    Object.keys(emoteCache).length > 0
+  ) {
     return emoteCache;
   }
 
@@ -67,5 +72,6 @@ export async function getEmoteMap(twitchRoomId: string | null): Promise<Record<s
 
   emoteCache = map;
   emoteCacheTime = now;
+  emoteCacheRoomId = twitchRoomId;
   return emoteCache;
 }
