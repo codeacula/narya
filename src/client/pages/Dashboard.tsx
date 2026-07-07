@@ -20,7 +20,7 @@ import {
   reconnectEventSub,
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
-import { DASHBOARD_FULL_REFRESH_MS, DASHBOARD_STATUS_REFRESH_MS } from '../../shared/constants';
+import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
 import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } from '../routing';
 import { ViewerRewardsPage } from './ViewerRewardsPage';
@@ -130,6 +130,10 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   // Mirror the channel into a ref so the stable chat:message handler can read
   // the current login without hardcoding it or re-subscribing.
   const channelRef = React.useRef('');
+  // Known viewer logins + a trailing refresh timer so the chat handler avoids a
+  // getViewers() request per message.
+  const viewerLoginsRef = React.useRef<Set<string>>(new Set());
+  const viewersDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const changePage = React.useCallback((nextPage: string) => {
     const route: DashboardRoute = nextPage === 'settings' || nextPage === 'rewards' ? nextPage : 'dashboard';
@@ -149,6 +153,14 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   useEffect(() => {
     channelRef.current = status.channel.toLowerCase();
   }, [status.channel]);
+
+  useEffect(() => {
+    viewerLoginsRef.current = new Set(Object.keys(viewers));
+  }, [viewers]);
+
+  useEffect(() => () => {
+    if (viewersDebounceRef.current) clearTimeout(viewersDebounceRef.current);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,26 +198,15 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       }
     };
 
-    const refreshStatus = async () => {
-      try {
-        const nextStatus = await getDashboardStatus();
-        if (!cancelled) setStatus(nextStatus);
-      } catch (error) {
-        console.error('Failed to refresh dashboard status:', error);
-        if (!cancelled) setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
-      }
-    };
-
     void refreshAll();
     void refreshChatters();
+    // No 5s status poll — the dashboard:status WS heartbeat keeps status fresh.
     const fullRefresh = setInterval(refreshAll, DASHBOARD_FULL_REFRESH_MS);
-    const statusRefresh = setInterval(refreshStatus, DASHBOARD_STATUS_REFRESH_MS);
     const chattersRefresh = setInterval(refreshChatters, 30_000);
 
     return () => {
       cancelled = true;
       clearInterval(fullRefresh);
-      clearInterval(statusRefresh);
       clearInterval(chattersRefresh);
     };
   }, []);
@@ -247,12 +248,22 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     // Cap live-append so long streams don't grow render cost forever.
     // loadOlderChat prepends older pages, so only the live tail is capped here.
     setChat(current => current.some(entry => entry.id === nextEntry.id) ? current : [...current, nextEntry].slice(-400));
-    void getViewers().then(setViewers).catch((error: unknown) => {
-      console.error('Failed to refresh viewers after chat message:', error);
-    });
-    void getDashboardStatus().then(setStatus).catch((error: unknown) => {
-      console.error('Failed to refresh status after chat message:', error);
-    });
+
+    // Status arrives via the dashboard:status WS heartbeat, so no per-message
+    // status refetch. Only refetch viewers immediately for a login we don't yet
+    // know about; otherwise coalesce updates into a trailing 15s refresh to pick
+    // up message counts without a request per message.
+    const refreshViewers = () => {
+      void getViewers().then(setViewers).catch((error: unknown) => {
+        console.error('Failed to refresh viewers after chat message:', error);
+      });
+    };
+    if (!viewerLoginsRef.current.has(login)) {
+      viewerLoginsRef.current.add(login);
+      refreshViewers();
+    }
+    if (viewersDebounceRef.current) clearTimeout(viewersDebounceRef.current);
+    viewersDebounceRef.current = setTimeout(refreshViewers, 15_000);
   }, []));
 
   useSocket<ChatModerationEvent>('chat:moderated', React.useCallback(() => {
