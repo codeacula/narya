@@ -1,4 +1,5 @@
 import type { TtsSettings, TtsSettingsUpdate, TtsVoice } from '../shared/api';
+import { TTS_TONE_PRESETS } from '../shared/tts';
 import { appConfig } from './appConfig';
 import { db } from './db';
 import { HttpRouteError, readResponseError } from './http';
@@ -8,12 +9,7 @@ const DEFAULT_VOICE_PROFILE_ID = 'zombiechicken';
 const DEFAULT_LANGUAGE_ID = 'en';
 const MAX_TEXT_LENGTH = 500;
 
-const tonePresets: Record<string, Pick<TtsSettings, 'exaggeration' | 'cfgWeight' | 'temperature'>> = {
-  neutral: { exaggeration: 0.5, cfgWeight: 0.5, temperature: 0.8 },
-  calm: { exaggeration: 0.35, cfgWeight: 0.65, temperature: 0.7 },
-  expressive: { exaggeration: 0.7, cfgWeight: 0.35, temperature: 0.85 },
-  dramatic: { exaggeration: 0.9, cfgWeight: 0.3, temperature: 0.95 },
-};
+const tonePresets: Record<string, Pick<TtsSettings, 'exaggeration' | 'cfgWeight' | 'temperature'>> = TTS_TONE_PRESETS;
 
 const getTtsSettingsRow = db.prepare(`
   select

@@ -753,6 +753,29 @@ function saveHiddenKinds(hidden: Set<string>): void {
   localStorage.setItem(EVT_FILTER_KEY, JSON.stringify([...hidden]));
 }
 
+// Compute the relative age client-side from receivedAt so it doesn't go stale
+// between refreshes (server bakes `ago` at fetch time). Ported from
+// src/server/dashboard/status.ts formatAgo buckets.
+function formatAgo(receivedAt: string): string {
+  const diffMs = Date.now() - new Date(receivedAt).getTime();
+  const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
+  if (totalSecs < 60) return 'just now';
+  if (totalSecs < 3600) {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+  if (totalSecs < 86_400) {
+    const hours = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    return `${hours}h ${mins}m`;
+  }
+  const days = Math.floor(totalSecs / 86_400);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
+}
+
 function EventFeed({ ctx }: { ctx: PanelCtx }) {
   const [hiddenKinds, setHiddenKinds] = React.useState<Set<string>>(() => loadHiddenKinds());
   const [evtSearch, setEvtSearch] = React.useState('');
@@ -857,7 +880,7 @@ function EventFeed({ ctx }: { ctx: PanelCtx }) {
                 </div>
                 {e.kind !== 'follow' && <div className="evt-detail">{e.detail}</div>}
               </div>
-              <div className="evt-ago">{e.ago}</div>
+              <div className="evt-ago">{e.receivedAt ? formatAgo(e.receivedAt) : e.ago}</div>
             </div>
           );
         })}

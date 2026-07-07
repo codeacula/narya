@@ -19,6 +19,7 @@ import type {
   TtsSettings,
   TtsVoice,
 } from '../../shared/api';
+import { TTS_TONE_PRESETS } from '../../shared/tts';
 import {
   getAppConfig,
   updateAppConfig,
@@ -135,13 +136,6 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   musicPollIntervalMs: 2000,
   musicPlayerctlPlayer: '',
   quackVolume: 0.2,
-};
-
-const TTS_TONE_PRESETS = {
-  neutral: { exaggeration: 0.5, cfgWeight: 0.5, temperature: 0.8 },
-  calm: { exaggeration: 0.35, cfgWeight: 0.65, temperature: 0.7 },
-  expressive: { exaggeration: 0.7, cfgWeight: 0.35, temperature: 0.85 },
-  dramatic: { exaggeration: 0.9, cfgWeight: 0.3, temperature: 0.95 },
 };
 
 type SoundForm = {
@@ -1924,7 +1918,7 @@ export function SettingsPage({
                 <input
                   type="number"
                   min="0"
-                  max="1.2"
+                  max="1"
                   step="0.05"
                   value={ttsSettings.volume}
                   disabled={ttsLoading || ttsSaving}

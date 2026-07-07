@@ -103,7 +103,7 @@ db.exec(`
     api_key text not null,
     personality_prompt text not null,
     temperature real not null default 0.7,
-    max_output_tokens integer not null default 140,
+    max_output_tokens integer not null default 2048,
     timeout_ms integer not null default 15000,
     updated_at text not null
   );
@@ -250,7 +250,11 @@ const allowedMigrationTables = new Set([
   'go_live_settings',
   'viewer_reward_categories',
   'viewer_reward_category_members',
+  'viewer_reward_category_games',
+  'viewer_profiles',
+  'stream_categories',
   'tts_settings',
+  'tts_reward_enabled',
   'app_config',
 ]);
 const allowedMigrationColumns = new Set([
