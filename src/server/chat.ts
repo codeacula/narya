@@ -54,7 +54,7 @@ const markMessageDeleted = db.prepare(`
 const markUserMessagesDeleted = db.prepare(`
   update chat_messages
   set deleted_at = ?, deleted_reason = ?, moderation_event_id = ?
-  where channel = ? and lower(username) = lower(?) and deleted_at is null
+  where channel = ? and username = ? and deleted_at is null
 `);
 
 const markChannelMessagesDeleted = db.prepare(`
@@ -116,7 +116,7 @@ twitchClient.on('message', (channel, tags, message, self) => {
   const chatMessage: ChatMessage = {
     id: messageId,
     channel: channel.replace(/^#/, ''),
-    username: tags.username ?? 'unknown',
+    username,
     displayName: tags['display-name'] ?? tags.username ?? 'unknown',
     color: tags.color ?? null,
     message,
@@ -207,7 +207,7 @@ twitchClient.on('timeout', (channel, username, reason, duration, tags) => {
   const event = appendChatEvent('user.timeout', normalizedChannel, { username, reason, duration, tags }, { username });
   const deletedReason = `timeout: ${reason || 'no reason provided'}`;
 
-  markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username);
+  markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username.toLowerCase());
   broadcast('chat:moderated', {
     type: 'user.timeout',
     channel: normalizedChannel,
@@ -222,7 +222,7 @@ twitchClient.on('ban', (channel, username, reason, tags) => {
   const event = appendChatEvent('user.ban', normalizedChannel, { username, reason, tags }, { username });
   const deletedReason = `ban: ${reason || 'no reason provided'}`;
 
-  markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username);
+  markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username.toLowerCase());
   broadcast('chat:moderated', {
     type: 'user.ban',
     channel: normalizedChannel,

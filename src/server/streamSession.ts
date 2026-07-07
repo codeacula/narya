@@ -76,7 +76,7 @@ const countSessionChatters = db.prepare(`
 const countKnownChatter = db.prepare(`
   select count(*) as count
   from chat_messages
-  where lower(username) = lower(?)
+  where username = ?
 `);
 
 function rowToStreamSession(row: unknown): StreamSession | null {
@@ -122,7 +122,7 @@ export function recordSessionAnnounceError(sessionId: string, reason: string) {
 }
 
 export function hasSeenChatterBefore(login: string): boolean {
-  const row = countKnownChatter.get(login) as { count: number };
+  const row = countKnownChatter.get(login.toLowerCase()) as { count: number };
   return row.count > 0;
 }
 

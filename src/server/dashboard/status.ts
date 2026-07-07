@@ -101,14 +101,14 @@ function fallbackColor(login: string): string {
 }
 
 function getKnownChatterCount(): number {
-  const row = db.prepare('select count(distinct lower(username)) as count from chat_messages').get() as { count: number };
+  const row = db.prepare('select count(distinct username) as count from chat_messages').get() as { count: number };
   return row.count;
 }
 
 function getActiveChatterCount(): number {
   const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const row = db
-    .prepare('select count(distinct lower(username)) as count from chat_messages where received_at >= ?')
+    .prepare('select count(distinct username) as count from chat_messages where received_at >= ?')
     .get(since) as { count: number };
   return row.count;
 }
@@ -333,9 +333,9 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
 
   app.get('/api/dashboard/viewers', (_request, response) => {
     const countRows = db.prepare(`
-      select lower(username) as login, count(*) as msgs, min(received_at) as firstSeen
+      select username as login, count(*) as msgs, min(received_at) as firstSeen
       from chat_messages
-      group by lower(username)
+      group by username
     `).all() as Array<{ login: string; msgs: number; firstSeen: string }>;
 
     const counts = new Map(countRows.map(row => [row.login, row]));

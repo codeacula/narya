@@ -333,6 +333,11 @@ addColumnIfMissing('tts_settings', 'temperature', 'real not null default 0.8');
 addColumnIfMissing('app_config', 'chatterbox_base_url', "text not null default 'http://127.0.0.1:8008'");
 addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');
 
+// tmi logins are already lowercase, but historically some rows were stored with
+// mixed case. Normalize them once so username queries can use plain equality and
+// hit idx_chat_messages_username instead of scanning under lower(username).
+db.exec("update chat_messages set username = lower(username) where username != lower(username)");
+
 db.exec('create index if not exists idx_chat_messages_stream_session on chat_messages(stream_session_id)');
 
 // Backfill ad break events that were stored as 'redeem' before the ad_break kind existed.
