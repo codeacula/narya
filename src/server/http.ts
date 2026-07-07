@@ -17,18 +17,28 @@ export function parseCookies(cookieHeader: string | undefined): Record<string, s
 }
 
 export async function readResponseError(response: Response, fallback: string): Promise<string> {
+  let text: string;
   try {
-    const data = await response.json() as { message?: string; error?: string };
-    return data.message ?? data.error ?? fallback;
+    text = await response.text();
+  } catch (textError) {
+    console.error('HTTP: failed to read error response text:', textError);
+    return fallback;
+  }
+  try {
+    const parsed = JSON.parse(text) as { message?: string; error?: string };
+    return parsed.message ?? parsed.error ?? text.trim() ?? fallback;
+  } catch {
+    return text.trim() || fallback;
+  }
+}
+
+export function parseJsonColumn<T>(value: string | null): T | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as T;
   } catch (error) {
-    console.error('HTTP: failed to parse error response JSON:', error);
-    try {
-      const text = await response.text();
-      return text.trim() || fallback;
-    } catch (textError) {
-      console.error('HTTP: failed to read error response text:', textError);
-      return fallback;
-    }
+    console.error('HTTP: failed to parse JSON column:', error);
+    return null;
   }
 }
 

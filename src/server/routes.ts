@@ -3,7 +3,7 @@ import { getTwitchRoomId } from './chat';
 import { appConfig } from './appConfig';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
-import { HttpRouteError, sendRouteError } from './http';
+import { HttpRouteError, parseJsonColumn, sendRouteError } from './http';
 import { clearManualMusic, getCurrentMusic, setManualMusic } from './music';
 import { getObsStatus, isObsConnected, switchObsScene, triggerObsTransition } from './obs';
 import type { RuntimeState } from './runtime';
@@ -242,8 +242,8 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
         const { badgesJson, emotesJson, ...rest } = r;
         return {
           ...rest,
-          badges: badgesJson ? JSON.parse(badgesJson) : null,
-          emotes: emotesJson ? JSON.parse(emotesJson) : null,
+          badges: parseJsonColumn<Record<string, string>>(badgesJson),
+          emotes: parseJsonColumn<Record<string, string[]>>(emotesJson),
           isFirstTimer: Boolean(r.isFirstEver),
           isFirstThisSession: Boolean(r.isFirstThisSession),
           isFirstEver: Boolean(r.isFirstEver),
@@ -273,7 +273,7 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
       .map((row) => {
         const event = row as Record<string, unknown> & { payloadJson: string };
         const { payloadJson, ...rest } = event;
-        return { ...rest, payload: JSON.parse(payloadJson) };
+        return { ...rest, payload: parseJsonColumn<Record<string, unknown>>(payloadJson) };
       });
 
     response.json(rows);
