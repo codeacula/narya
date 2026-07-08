@@ -227,6 +227,20 @@ db.exec(`
     quack_volume real not null default 0.2,
     updated_at text not null default ''
   );
+
+  create table if not exists automod_holds (
+    id text primary key,
+    channel text not null,
+    username text not null,
+    display_name text not null,
+    message text not null,
+    category text,
+    level integer,
+    held_at text not null,
+    resolved_at text,
+    resolution text,
+    resolved_by text
+  );
 `);
 
 db.exec(`
@@ -241,6 +255,7 @@ db.exec(`
   create index if not exists idx_stream_session_chatters_login on stream_session_chatters(login);
   create index if not exists idx_viewer_reward_category_members_category on viewer_reward_category_members(category_id);
   create index if not exists idx_viewer_reward_category_games_category on viewer_reward_category_games(category_id);
+  create index if not exists idx_automod_holds_resolved_at on automod_holds(resolved_at);
 `);
 
 const allowedMigrationTables = new Set([

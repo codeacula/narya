@@ -80,7 +80,7 @@ export function getTwitchRoomId(): string | null {
   return twitchRoomId;
 }
 
-function appendChatEvent(
+export function appendChatEvent(
   type: string,
   channel: string,
   payload: unknown,

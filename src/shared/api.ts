@@ -25,6 +25,20 @@ export type ChatModerationEvent = {
   deletedReason: string;
 };
 
+export type AutomodHold = {
+  id: string;
+  channel: string;
+  username: string;
+  displayName: string;
+  message: string;
+  category: string | null;
+  level: number | null;
+  heldAt: string;
+  resolvedAt: string | null;
+  resolution: 'allowed' | 'denied' | 'expired' | null;
+  resolvedBy: string | null;
+};
+
 export type MusicInfo = {
   status: 'playing' | 'paused' | 'stopped' | 'unavailable';
   playerName: string | null;
