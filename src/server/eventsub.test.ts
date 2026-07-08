@@ -120,4 +120,25 @@ describe('handleEventSubNotification', () => {
     const resolved = queue.recentlyResolved.find(h => h.id === messageId);
     expect(resolved).toMatchObject({ resolution: 'allowed', resolvedBy: 'SomeMod' });
   });
+
+  test('automod.message.update with an unrecognized status resolves as expired', async () => {
+    const messageId = `msg-${crypto.randomUUID()}`;
+    await handleEventSubNotification(new RuntimeState(), 'automod.message.hold', {
+      message_id: messageId,
+      user_login: 'testviewer',
+      user_name: 'TestViewer',
+      message: { text: 'a third held message' },
+      held_at: '2026-07-08T12:00:00.000Z',
+      reason: 'automod',
+      automod: { category: 'profanity', level: 1 },
+    });
+    await handleEventSubNotification(new RuntimeState(), 'automod.message.update', {
+      message_id: messageId,
+      status: 'SomethingTwitchNeverDocumented',
+      moderator_user_name: null,
+    });
+    const queue = getAutomodQueue();
+    const resolved = queue.recentlyResolved.find(h => h.id === messageId);
+    expect(resolved).toMatchObject({ resolution: 'expired' });
+  });
 });

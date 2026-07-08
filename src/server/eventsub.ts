@@ -136,7 +136,14 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
     }
     case 'automod.message.update': {
       const status = event.status as string;
-      const resolution = status === 'Approved' ? 'allowed' : status === 'Denied' ? 'denied' : 'expired';
+      let resolution: 'allowed' | 'denied' | 'expired';
+      if (status === 'Approved') resolution = 'allowed';
+      else if (status === 'Denied') resolution = 'denied';
+      else if (status === 'Expired') resolution = 'expired';
+      else {
+        console.warn(`EventSub: unrecognized automod.message.update status "${status}", treating as expired`);
+        resolution = 'expired';
+      }
       resolveAutomodHold(
         event.message_id as string,
         resolution,
