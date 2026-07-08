@@ -349,7 +349,9 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
   app.post('/api/automod/:id/allow', async (request, response) => {
     try {
       await resolveAutomodMessage(state, request.params.id, 'ALLOW');
-      response.json(resolveAutomodHold(request.params.id, 'allowed', 'You'));
+      const hold = resolveAutomodHold(request.params.id, 'allowed', 'You');
+      if (!hold) throw new HttpRouteError(404, 'AutoMod hold not found.');
+      response.json(hold);
     } catch (error) {
       sendRouteError(response, error);
     }
@@ -358,7 +360,9 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
   app.post('/api/automod/:id/deny', async (request, response) => {
     try {
       await resolveAutomodMessage(state, request.params.id, 'DENY');
-      response.json(resolveAutomodHold(request.params.id, 'denied', 'You'));
+      const hold = resolveAutomodHold(request.params.id, 'denied', 'You');
+      if (!hold) throw new HttpRouteError(404, 'AutoMod hold not found.');
+      response.json(hold);
     } catch (error) {
       sendRouteError(response, error);
     }
