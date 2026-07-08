@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ObsStatus } from '../../shared/api';
+import { AutomodQuickActions } from '../automod';
 import { MusicControls } from '../music';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
@@ -172,6 +173,16 @@ export function TabletPage() {
               </button>
             )) : <p className="muted">No sound buttons configured.</p>}
           </div>
+        </section>
+
+        <section className="tabletPanel">
+          <div className="tabletPanelHeader">
+            <div>
+              <p className="eyebrow">Moderation</p>
+              <h2>AutoMod Queue</h2>
+            </div>
+          </div>
+          <AutomodQuickActions />
         </section>
       </div>
     </main>
