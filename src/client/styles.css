@@ -532,3 +532,102 @@ nav {
     flex-direction: column;
   }
 }
+
+/* ── AutoMod queue ────────────────────────────────────────── */
+
+.automodPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.automodItem {
+  border: 1px solid #2a3a58;
+  border-radius: 8px;
+  background: var(--navy-deep);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.automodItemHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.automodTag {
+  font-size: 11px;
+  color: var(--silver);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.automodMessage {
+  margin: 0;
+  color: var(--ivory);
+  overflow-wrap: anywhere;
+}
+
+.automodError {
+  margin: 0;
+  color: #ffb3b3;
+  font-size: 12px;
+}
+
+.automodItemActions {
+  display: flex;
+  gap: 8px;
+}
+
+.automodItemActions button {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid #2f4367;
+  border-radius: 8px;
+  background: var(--navy);
+  color: var(--ivory);
+}
+
+.automodItemActions button:hover:not(:disabled) {
+  border-color: var(--gold);
+}
+
+.automodItemActions button.accent {
+  background: var(--arcane);
+  border-color: var(--gold);
+}
+
+.automodItemActions button.dangerButton {
+  background: rgba(255, 85, 85, 0.14);
+  border-color: rgba(255, 85, 85, 0.36);
+  color: #ffb3b3;
+}
+
+.automodHistory {
+  border-top: 1px solid #2a3a58;
+  margin-top: 4px;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.automodHistoryLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--silver);
+  margin: 0;
+}
+
+.automodHistoryItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--silver);
+}
