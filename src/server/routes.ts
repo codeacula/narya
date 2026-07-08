@@ -1,6 +1,7 @@
 import express, { type Express } from 'express';
 import { getTwitchRoomId } from './chat';
 import { appConfig } from './appConfig';
+import { getAutomodQueue, resolveAutomodHold } from './automod';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
 import { HttpRouteError, parseJsonColumn, sendRouteError } from './http';
@@ -15,6 +16,7 @@ import {
   triggerSoundButton,
   updateSoundButton,
 } from './sounds';
+import { resolveAutomodMessage } from './twitch/api';
 import {
   getTtsEnabledRewardIds,
   getTtsEngineStatus,
@@ -338,6 +340,28 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
       return;
     }
     response.json(playback);
+  });
+
+  app.get('/api/automod/queue', (_request, response) => {
+    response.json(getAutomodQueue());
+  });
+
+  app.post('/api/automod/:id/allow', async (request, response) => {
+    try {
+      await resolveAutomodMessage(state, request.params.id, 'ALLOW');
+      response.json(resolveAutomodHold(request.params.id, 'allowed', 'You'));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.post('/api/automod/:id/deny', async (request, response) => {
+    try {
+      await resolveAutomodMessage(state, request.params.id, 'DENY');
+      response.json(resolveAutomodHold(request.params.id, 'denied', 'You'));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
   });
 
   app.get('/api/emotes', async (_request, response) => {

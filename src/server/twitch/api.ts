@@ -281,6 +281,29 @@ async function moderateTwitchUser(
   }
 }
 
+export async function resolveAutomodMessage(
+  state: RuntimeState,
+  messageId: string,
+  action: 'ALLOW' | 'DENY',
+): Promise<void> {
+  const credentials = await getTwitchActionCredentials(state, ['moderator:manage:automod']);
+  const moderatorId = await getAuthenticatedActionUserId(state, credentials);
+
+  const res = await fetch('https://api.twitch.tv/helix/moderation/automod/message', {
+    method: 'POST',
+    headers: {
+      'Client-Id': credentials.clientId,
+      Authorization: credentials.authorization,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user_id: moderatorId, msg_id: messageId, action }),
+  });
+  if (!res.ok) {
+    const errorMessage = await readResponseError(res, `Twitch AutoMod ${action.toLowerCase()} failed.`);
+    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
+  }
+}
+
 export function getMissingTwitchScopes(state: RuntimeState, scopes: readonly string[]): string[] {
   const token = state.runtimeUserToken ?? loadCachedTwitchUserToken();
   if (token) state.runtimeUserToken = token;
