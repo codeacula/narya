@@ -71,7 +71,7 @@ export function recordAutomodHold(hold: {
   level: number | null;
   heldAt: string;
 }): AutomodHold {
-  insertAutomodHold.run(
+  const result = insertAutomodHold.run(
     hold.id,
     hold.channel,
     hold.username,
@@ -80,14 +80,16 @@ export function recordAutomodHold(hold: {
     hold.category,
     hold.level,
     hold.heldAt,
-  );
-  appendChatEvent('automod.hold', hold.channel, hold, {
-    messageId: hold.id,
-    username: hold.username,
-    occurredAt: hold.heldAt,
-  });
+  ) as { changes: number };
   const row = getAutomodHoldRow.get(hold.id) as AutomodHold;
-  broadcast('automod:held', row);
+  if (result.changes > 0) {
+    appendChatEvent('automod.hold', hold.channel, hold, {
+      messageId: hold.id,
+      username: hold.username,
+      occurredAt: hold.heldAt,
+    });
+    broadcast('automod:held', row);
+  }
   return row;
 }
 

@@ -31,6 +31,19 @@ describe('recordAutomodHold', () => {
     const queue = getAutomodQueue();
     expect(queue.pending.some(h => h.id === hold.id)).toBe(true);
   });
+
+  test('re-recording an already-resolved id (EventSub redelivery) does not reopen it', () => {
+    const hold = sampleHold();
+    recordAutomodHold(hold);
+    resolveAutomodHold(hold.id, 'allowed', 'You');
+
+    const redelivered = recordAutomodHold(hold);
+    expect(redelivered.resolution).toBe('allowed');
+    expect(redelivered.resolvedBy).toBe('You');
+
+    const queue = getAutomodQueue();
+    expect(queue.pending.some(h => h.id === hold.id)).toBe(false);
+  });
 });
 
 describe('resolveAutomodHold', () => {
