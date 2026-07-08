@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { getAutomodQueue } from './automod';
 import { db } from './db';
 import { handleEventSubNotification } from './eventsub';
 import { RuntimeState } from './runtime';
@@ -72,5 +73,51 @@ describe('handleEventSubNotification', () => {
     state.twitchStreamStatusCache = { expiresAtMs: Date.now() + 60_000, status: {} as never };
     await handleEventSubNotification(state, 'stream.offline', {});
     expect(state.twitchStreamStatusCache).toBeNull();
+  });
+
+  test('automod.message.hold records a pending held message', async () => {
+    const messageId = `msg-${crypto.randomUUID()}`;
+    await handleEventSubNotification(new RuntimeState(), 'automod.message.hold', {
+      message_id: messageId,
+      broadcaster_user_login: 'codeacula',
+      user_login: 'testviewer',
+      user_name: 'TestViewer',
+      message: { text: 'this is a held message' },
+      held_at: '2026-07-08T12:00:00.000Z',
+      reason: 'automod',
+      automod: { category: 'profanity', level: 2 },
+    });
+    const queue = getAutomodQueue();
+    const held = queue.pending.find(h => h.id === messageId);
+    expect(held).toMatchObject({
+      username: 'testviewer',
+      displayName: 'TestViewer',
+      message: 'this is a held message',
+      category: 'profanity',
+      level: 2,
+      resolution: null,
+    });
+  });
+
+  test('automod.message.update resolves a held message', async () => {
+    const messageId = `msg-${crypto.randomUUID()}`;
+    await handleEventSubNotification(new RuntimeState(), 'automod.message.hold', {
+      message_id: messageId,
+      user_login: 'testviewer',
+      user_name: 'TestViewer',
+      message: { text: 'another held message' },
+      held_at: '2026-07-08T12:00:00.000Z',
+      reason: 'automod',
+      automod: { category: 'profanity', level: 1 },
+    });
+    await handleEventSubNotification(new RuntimeState(), 'automod.message.update', {
+      message_id: messageId,
+      status: 'Approved',
+      moderator_user_name: 'SomeMod',
+    });
+    const queue = getAutomodQueue();
+    expect(queue.pending.some(h => h.id === messageId)).toBe(false);
+    const resolved = queue.recentlyResolved.find(h => h.id === messageId);
+    expect(resolved).toMatchObject({ resolution: 'allowed', resolvedBy: 'SomeMod' });
   });
 });

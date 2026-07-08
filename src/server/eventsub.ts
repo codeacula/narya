@@ -4,6 +4,7 @@ import {
   EVENTSUB_STALE_SOCKET_CLOSE_MS,
 } from '../shared/constants';
 import { appConfig } from './appConfig';
+import { recordAutomodHold, resolveAutomodHold } from './automod';
 import { db } from './db';
 import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
@@ -118,6 +119,31 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       });
       break;
     }
+    case 'automod.message.hold': {
+      const message = event.message as { text: string } | undefined;
+      const automod = event.automod as { category?: string; level?: number } | undefined;
+      recordAutomodHold({
+        id: event.message_id as string,
+        channel: (event.broadcaster_user_login as string) ?? appConfig.twitchChannel,
+        username: (event.user_login as string) ?? 'unknown',
+        displayName: (event.user_name as string) ?? (event.user_login as string) ?? 'unknown',
+        message: message?.text ?? '',
+        category: automod?.category ?? null,
+        level: automod?.level ?? null,
+        heldAt: (event.held_at as string) ?? new Date().toISOString(),
+      });
+      break;
+    }
+    case 'automod.message.update': {
+      const status = event.status as string;
+      const resolution = status === 'Approved' ? 'allowed' : status === 'Denied' ? 'denied' : 'expired';
+      resolveAutomodHold(
+        event.message_id as string,
+        resolution,
+        (event.moderator_user_name as string) ?? null,
+      );
+      break;
+    }
   }
 }
 
@@ -165,6 +191,8 @@ async function subscribeToAllEvents(clientId: string, userToken: string, session
     ['channel.cheer', '1', { broadcaster_user_id: bid }],
     ['channel.raid', '1', { to_broadcaster_user_id: bid }],
     ['channel.chat.notification', '1', { broadcaster_user_id: bid, user_id: bid }],
+    ['automod.message.hold', '2', { broadcaster_user_id: bid, moderator_user_id: bid }],
+    ['automod.message.update', '2', { broadcaster_user_id: bid, moderator_user_id: bid }],
   ];
   const optionalSubs: Array<[string, string, Record<string, string>]> = [
     ['channel.channel_points_custom_reward_redemption.add', '1', { broadcaster_user_id: bid }],
