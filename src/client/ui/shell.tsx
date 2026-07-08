@@ -448,7 +448,7 @@ export function Panel({
   className?: string;
   bodyClass?: string;
   footer?: React.ReactNode;
-  tabs?: Array<{ id: string; label: string }>;
+  tabs?: Array<{ id: string; label: string; badge?: number }>;
   activeTab?: string;
   onTabChange?: (id: string) => void;
   children: React.ReactNode;
@@ -482,6 +482,7 @@ export function Panel({
                 type="button"
               >
                 {t.label}
+                {t.badge ? <span className="panel-tab-badge">{t.badge}</span> : null}
               </button>
             ))}
           </div>

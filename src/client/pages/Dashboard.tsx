@@ -26,6 +26,7 @@ import { SettingsPage } from './SettingsPage';
 import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } from '../routing';
 import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
+import { useAutomodQueue, AutomodPanel } from '../automod';
 import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
 
 /* ---------------- audio ---------------- */
@@ -126,7 +127,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [sceneSwitching, setSceneSwitching] = useState(false);
   const [chatters, setChatters] = useState<Chatter[]>([]);
   const [chattersError, setChattersError] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<'activity' | 'chatters'>('activity');
+  const automodQueue = useAutomodQueue();
+  const [rightTab, setRightTab] = useState<'activity' | 'chatters' | 'automod'>('activity');
   const lastChatAt = React.useRef<number>(0);
   // Mirror the channel into a ref so the stable chat:message handler can read
   // the current login without hardcoding it or re-subscribing.
@@ -530,19 +532,28 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
           id="events"
           title="activity feed"
           dot={true}
-          count={rightTab === 'activity' ? MODULES.events.count?.(ctx) : chatters.length}
+          count={
+            rightTab === 'activity'
+              ? MODULES.events.count?.(ctx)
+              : rightTab === 'chatters'
+                ? chatters.length
+                : automodQueue.pending.length
+          }
           popped={!!popped['events']}
           onPop={handlePop}
           tabs={[
             { id: 'activity', label: 'Activity' },
             { id: 'chatters', label: 'Chatters' },
+            { id: 'automod', label: 'AutoMod', badge: automodQueue.pending.length },
           ]}
           activeTab={rightTab}
-          onTabChange={id => setRightTab(id as 'activity' | 'chatters')}
+          onTabChange={id => setRightTab(id as 'activity' | 'chatters' | 'automod')}
         >
           {rightTab === 'activity'
             ? MODULES.events.render(ctx)
-            : <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />}
+            : rightTab === 'chatters'
+              ? <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />
+              : <AutomodPanel />}
         </Panel>
       </div>
     </div>

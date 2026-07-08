@@ -852,6 +852,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .panel-tab.active { color: var(--accent-fg); border-color: var(--border-3); background: var(--accent-soft); }
 .panel-tab:hover:not(.active) { color: var(--fg-1); background: rgba(255,255,255,0.03); }
+.panel-tab-badge {
+  margin-left: 6px; padding: 0 5px; min-width: 15px; display: inline-block; text-align: center;
+  font-size: 10px; line-height: 15px; border-radius: var(--radius-pill);
+  background: var(--danger-bg); color: var(--danger-fg); border: 1px solid var(--danger-border);
+}
 
 /* ================= CONTROLS PANEL ================= */
 .ctrl-panel { display: flex; flex-direction: column; }
