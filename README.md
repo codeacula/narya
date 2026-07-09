@@ -108,3 +108,9 @@ For Docker, `CHATTERBOX_DOCKER_BASE_URL` defaults to
 Chatterbox app running on the host without reusing the host-only loopback URL.
 Start Chatterbox with `--host 0.0.0.0 --port 8008` when using Narya in Docker;
 a service bound only to `127.0.0.1` is not reachable from the container.
+
+## License
+
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use,
+modify, and share this software for any noncommercial purpose. Commercial use
+requires a separate license — open an issue to discuss.
