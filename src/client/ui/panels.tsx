@@ -842,10 +842,10 @@ export function ShoutoutsPanel({
   }, [shoutouts]);
 
   if (!streamActive) {
-    return <div className="att-empty">No stream session is active. Shoutouts collect once you go live.</div>;
+    return <div className="panel-empty">No stream session is active. Shoutouts collect once you go live.</div>;
   }
   if (shoutouts.length === 0) {
-    return <div className="att-empty">Nobody to shout out yet. Follows, subs, cheers, and raids collect here.</div>;
+    return <div className="panel-empty">Nobody to shout out yet. Follows, subs, cheers, and raids collect here.</div>;
   }
 
   return (
@@ -965,7 +965,7 @@ export function AttentionPanel({
         </div>
       </div>
       {items.length === 0 ? (
-        <div className="att-empty">Follows, subs, cheers, raids, and tagged chat land here.</div>
+        <div className="panel-empty">Follows, subs, cheers, raids, and tagged chat land here.</div>
       ) : (
         <div className="att-list">
           {items.map(item => {

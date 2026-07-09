@@ -441,6 +441,7 @@ export function Panel({
   activeTab,
   onTabChange,
   headerActions,
+  titleHidden = false,
   children,
 }: {
   id: string;
@@ -456,6 +457,8 @@ export function Panel({
   activeTab?: string;
   onTabChange?: (id: string) => void;
   headerActions?: React.ReactNode;
+  /** Drop the header title when a tab strip already names the panel. `title` still labels the popout. */
+  titleHidden?: boolean;
   children: React.ReactNode;
 }) {
   if (popped) {
@@ -475,7 +478,7 @@ export function Panel({
       <div className="panel-head">
         <span className="panel-title">
           {dot && <span className="tdot" />}
-          {title}
+          {!titleHidden && title}
         </span>
         {tabs && tabs.length > 0 && (
           <div className="panel-tabs">

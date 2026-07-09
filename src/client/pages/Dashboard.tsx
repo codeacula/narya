@@ -36,9 +36,18 @@ import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, SessionShoutout
 
 const POP_DEFAULTS: Record<string, { w: number; h: number }> = {
   chat:      { w: 380, h: 540 },
-  events:    { w: 360, h: 460 },
   attention: { w: 380, h: 360 },
-  chatters:  { w: 340, h: 460 },
+  chatters:  { w: 360, h: 500 },
+};
+
+type RightTab = 'chatters' | 'activity' | 'shoutouts' | 'automod';
+
+// The tab strip names the panel on screen; this titles the popped-out window.
+const RIGHT_TAB_TITLE: Record<RightTab, string> = {
+  chatters: 'viewers',
+  activity: 'activity feed',
+  shoutouts: 'shoutouts',
+  automod: 'automod',
 };
 
 type PoppedState = { x: number; y: number; w: number; h: number };
@@ -117,7 +126,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [chatters, setChatters] = useState<Chatter[]>([]);
   const [chattersError, setChattersError] = useState<string | null>(null);
   const automodQueue = useAutomodQueue();
-  const [rightTab, setRightTab] = useState<'chatters' | 'shoutouts' | 'automod'>('chatters');
+  const [rightTab, setRightTab] = useState<RightTab>('chatters');
   const [shoutouts, setShoutouts] = useState<SessionShoutout[]>([]);
   const { settings: attentionSettings, update: updateAttentionSettings } = useAttentionSettings();
   const lastChatAt = React.useRef<number>(0);
@@ -522,6 +531,17 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     );
   }
 
+  function renderRightTab(tab: RightTab) {
+    if (tab === 'chatters') {
+      return <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />;
+    }
+    if (tab === 'activity') return MODULES.events.render(ctx);
+    if (tab === 'shoutouts') {
+      return <ShoutoutsPanel shoutouts={shoutouts} streamActive={status.streamSessionId !== null} onOpenViewer={ctx.openViewerPopout} />;
+    }
+    return <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />;
+  }
+
   // Poppable panels that aren't MODULES entries render their own body here.
   function popoutContent(id: string): { title: string; body: React.ReactNode; footer?: React.ReactNode } | null {
     if (id === 'attention') {
@@ -538,11 +558,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         ),
       };
     }
+    // The popped-out window follows whichever tab is active.
     if (id === 'chatters') {
-      return {
-        title: 'viewers',
-        body: <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />,
-      };
+      return { title: RIGHT_TAB_TITLE[rightTab], body: renderRightTab(rightTab) };
     }
     const m = MODULES[id];
     if (!m) return null;
@@ -601,36 +619,24 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
           </Panel>
         )}
         {attentionPanel}
-        <div className="feed-row">
-          {slot('events')}
-          <Panel
-            id="chatters"
-            title="viewers"
-            dot={true}
-            count={
-              rightTab === 'chatters'
-                ? chatters.length
-                : rightTab === 'shoutouts'
-                  ? shoutouts.length
-                  : automodQueue.pending.length
-            }
-            popped={!!popped['chatters']}
-            onPop={handlePop}
-            tabs={[
-              { id: 'chatters', label: 'Viewers' },
-              { id: 'shoutouts', label: 'Shoutouts', badge: shoutouts.length },
-              { id: 'automod', label: 'AutoMod', badge: automodQueue.pending.length },
-            ]}
-            activeTab={rightTab}
-            onTabChange={id => setRightTab(id as 'chatters' | 'shoutouts' | 'automod')}
-          >
-            {rightTab === 'chatters'
-              ? <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />
-              : rightTab === 'shoutouts'
-                ? <ShoutoutsPanel shoutouts={shoutouts} streamActive={status.streamSessionId !== null} onOpenViewer={ctx.openViewerPopout} />
-                : <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />}
-          </Panel>
-        </div>
+        <Panel
+          id="chatters"
+          title={RIGHT_TAB_TITLE[rightTab]}
+          titleHidden
+          dot={true}
+          popped={!!popped['chatters']}
+          onPop={handlePop}
+          tabs={[
+            { id: 'chatters', label: 'Viewers', badge: chatters.length },
+            { id: 'activity', label: 'Activity', badge: events.length },
+            { id: 'shoutouts', label: 'Shoutouts', badge: shoutouts.length },
+            { id: 'automod', label: 'AutoMod', badge: automodQueue.pending.length },
+          ]}
+          activeTab={rightTab}
+          onTabChange={id => setRightTab(id as RightTab)}
+        >
+          {renderRightTab(rightTab)}
+        </Panel>
       </div>
     </div>
   );

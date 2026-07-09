@@ -272,15 +272,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .attention-stack.with-controls { grid-template-rows: auto auto minmax(0, 1fr); }
 .panel--attention { max-height: 240px; }
 
-.feed-row {
-  min-height: 0; min-width: 0;
-  display: grid; gap: var(--panel-gap);
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-@media (max-width: 1100px) {
-  .feed-row { grid-template-columns: minmax(0, 1fr); }
-}
-
 /* ================= PANEL ================= */
 .panel {
   min-height: 0; min-width: 0;
@@ -1843,7 +1834,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .att-settings-field input:focus { border-color: var(--border-3); }
 
-.att-empty { padding: 18px 14px; font-size: 12px; color: var(--fg-3); text-align: center; line-height: 1.5; }
+.panel-empty { padding: 18px 14px; font-size: 12px; color: var(--fg-3); text-align: center; line-height: 1.5; }
 .att-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
 .att-row {
   display: flex; gap: 8px; align-items: center; text-align: left; width: 100%;
