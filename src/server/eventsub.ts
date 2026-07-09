@@ -120,10 +120,15 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       break;
     }
     case 'automod.message.hold': {
+      const messageId = event.message_id;
+      if (typeof messageId !== 'string' || messageId === '') {
+        console.warn('EventSub: automod.message.hold without a message_id, ignoring');
+        break;
+      }
       const message = event.message as { text: string } | undefined;
       const automod = event.automod as { category?: string; level?: number } | undefined;
       recordAutomodHold({
-        id: event.message_id as string,
+        id: messageId,
         channel: (event.broadcaster_user_login as string) ?? appConfig.twitchChannel,
         username: (event.user_login as string) ?? 'unknown',
         displayName: (event.user_name as string) ?? (event.user_login as string) ?? 'unknown',
@@ -135,17 +140,24 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       break;
     }
     case 'automod.message.update': {
-      const status = event.status as string;
+      const messageId = event.message_id;
+      if (typeof messageId !== 'string' || messageId === '') {
+        console.warn('EventSub: automod.message.update without a message_id, ignoring');
+        break;
+      }
+      // Twitch delivers these status values in lowercase; normalize defensively
+      // so a casing change on either side can't misfile every resolution.
+      const status = String(event.status ?? '').toLowerCase();
       let resolution: 'allowed' | 'denied' | 'expired';
-      if (status === 'Approved') resolution = 'allowed';
-      else if (status === 'Denied') resolution = 'denied';
-      else if (status === 'Expired') resolution = 'expired';
+      if (status === 'approved') resolution = 'allowed';
+      else if (status === 'denied') resolution = 'denied';
+      else if (status === 'expired') resolution = 'expired';
       else {
-        console.warn(`EventSub: unrecognized automod.message.update status "${status}", treating as expired`);
+        console.warn(`EventSub: unrecognized automod.message.update status "${event.status}", treating as expired`);
         resolution = 'expired';
       }
       resolveAutomodHold(
-        event.message_id as string,
+        messageId,
         resolution,
         (event.moderator_user_name as string) ?? null,
       );

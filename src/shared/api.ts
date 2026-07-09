@@ -39,6 +39,11 @@ export type AutomodHold = {
   resolvedBy: string | null;
 };
 
+export type AutomodQueue = {
+  pending: AutomodHold[];
+  recentlyResolved: AutomodHold[];
+};
+
 export type MusicInfo = {
   status: 'playing' | 'paused' | 'stopped' | 'unavailable';
   playerName: string | null;

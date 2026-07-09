@@ -54,6 +54,7 @@ export class RuntimeState {
   eventSubConnected = false;
   broadcasterId: string | null = null;
   twitchSenderId: string | null = null;
+  twitchSenderLogin: string | null = null;
   twitchBotSenderId: string | null = null;
   twitchBotLogin: string | null = null;
   eventSubKeepaliveMs = EVENTSUB_DEFAULT_KEEPALIVE_MS;
@@ -77,6 +78,7 @@ export class RuntimeState {
   clearAuthenticatedUserState() {
     this.runtimeUserToken = null;
     this.twitchSenderId = null;
+    this.twitchSenderLogin = null;
     this.clearTwitchChannelState();
   }
 

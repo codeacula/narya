@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  getAutomodHold,
   getAutomodQueue,
   recordAutomodHold,
   resolveAutomodHold,
+  sweepExpiredHolds,
 } from './automod';
 
 function sampleHold(overrides: Partial<Parameters<typeof recordAutomodHold>[0]> = {}) {
@@ -76,5 +78,26 @@ describe('resolveAutomodHold', () => {
   test('resolving an unknown id returns null', () => {
     const result = resolveAutomodHold(`missing-${crypto.randomUUID()}`, 'denied', null);
     expect(result).toBeNull();
+  });
+});
+
+describe('sweepExpiredHolds', () => {
+  test('expires a long-pending hold and drops it from the pending queue', () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const hold = sampleHold({ heldAt: threeHoursAgo });
+    recordAutomodHold(hold);
+
+    // getAutomodQueue sweeps first, so a stale hold is gone from pending.
+    const queue = getAutomodQueue();
+    expect(queue.pending.some(h => h.id === hold.id)).toBe(false);
+    expect(getAutomodHold(hold.id)?.resolution).toBe('expired');
+  });
+
+  test('leaves a freshly-held hold pending', () => {
+    const hold = sampleHold();
+    recordAutomodHold(hold);
+
+    sweepExpiredHolds();
+    expect(getAutomodHold(hold.id)?.resolvedAt).toBeNull();
   });
 });

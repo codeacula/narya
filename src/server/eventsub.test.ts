@@ -83,7 +83,7 @@ describe('handleEventSubNotification', () => {
       user_login: 'testviewer',
       user_name: 'TestViewer',
       message: { text: 'this is a held message' },
-      held_at: '2026-07-08T12:00:00.000Z',
+      held_at: new Date().toISOString(),
       reason: 'automod',
       automod: { category: 'profanity', level: 2 },
     });
@@ -106,19 +106,54 @@ describe('handleEventSubNotification', () => {
       user_login: 'testviewer',
       user_name: 'TestViewer',
       message: { text: 'another held message' },
-      held_at: '2026-07-08T12:00:00.000Z',
+      held_at: new Date().toISOString(),
       reason: 'automod',
       automod: { category: 'profanity', level: 1 },
     });
+    // Twitch delivers this status lowercase; asserting on the lowercase form is
+    // what makes this test catch a regression to case-sensitive matching.
     await handleEventSubNotification(new RuntimeState(), 'automod.message.update', {
       message_id: messageId,
-      status: 'Approved',
+      status: 'approved',
       moderator_user_name: 'SomeMod',
     });
     const queue = getAutomodQueue();
     expect(queue.pending.some(h => h.id === messageId)).toBe(false);
     const resolved = queue.recentlyResolved.find(h => h.id === messageId);
     expect(resolved).toMatchObject({ resolution: 'allowed', resolvedBy: 'SomeMod' });
+  });
+
+  test('automod.message.update with lowercase "denied" resolves as denied', async () => {
+    const messageId = `msg-${crypto.randomUUID()}`;
+    await handleEventSubNotification(new RuntimeState(), 'automod.message.hold', {
+      message_id: messageId,
+      user_login: 'testviewer',
+      user_name: 'TestViewer',
+      message: { text: 'a denied message' },
+      held_at: new Date().toISOString(),
+      reason: 'automod',
+      automod: { category: 'profanity', level: 3 },
+    });
+    await handleEventSubNotification(new RuntimeState(), 'automod.message.update', {
+      message_id: messageId,
+      status: 'denied',
+      moderator_user_name: 'SomeMod',
+    });
+    const resolved = getAutomodQueue().recentlyResolved.find(h => h.id === messageId);
+    expect(resolved).toMatchObject({ resolution: 'denied', resolvedBy: 'SomeMod' });
+  });
+
+  test('automod.message.hold without a message_id is ignored', async () => {
+    const before = getAutomodQueue().pending.length;
+    await handleEventSubNotification(new RuntimeState(), 'automod.message.hold', {
+      user_login: 'testviewer',
+      user_name: 'TestViewer',
+      message: { text: 'no id here' },
+      held_at: new Date().toISOString(),
+      reason: 'automod',
+      automod: { category: 'profanity', level: 1 },
+    });
+    expect(getAutomodQueue().pending.length).toBe(before);
   });
 
   test('automod.message.update with an unrecognized status resolves as expired', async () => {
@@ -128,7 +163,7 @@ describe('handleEventSubNotification', () => {
       user_login: 'testviewer',
       user_name: 'TestViewer',
       message: { text: 'a third held message' },
-      held_at: '2026-07-08T12:00:00.000Z',
+      held_at: new Date().toISOString(),
       reason: 'automod',
       automod: { category: 'profanity', level: 1 },
     });

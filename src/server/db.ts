@@ -229,7 +229,7 @@ db.exec(`
   );
 
   create table if not exists automod_holds (
-    id text primary key,
+    id text primary key not null,
     channel text not null,
     username text not null,
     display_name text not null,

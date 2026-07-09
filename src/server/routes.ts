@@ -1,7 +1,7 @@
 import express, { type Express } from 'express';
 import { getTwitchRoomId } from './chat';
 import { appConfig } from './appConfig';
-import { getAutomodQueue, resolveAutomodHold } from './automod';
+import { getAutomodHold, getAutomodQueue, resolveAutomodHold } from './automod';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
 import { HttpRouteError, parseJsonColumn, sendRouteError } from './http';
@@ -346,27 +346,33 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     response.json(getAutomodQueue());
   });
 
-  app.post('/api/automod/:id/allow', async (request, response) => {
-    try {
-      await resolveAutomodMessage(state, request.params.id, 'ALLOW');
-      const hold = resolveAutomodHold(request.params.id, 'allowed', 'You');
-      if (!hold) throw new HttpRouteError(404, 'AutoMod hold not found.');
-      response.json(hold);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.post('/api/automod/:id/deny', async (request, response) => {
-    try {
-      await resolveAutomodMessage(state, request.params.id, 'DENY');
-      const hold = resolveAutomodHold(request.params.id, 'denied', 'You');
-      if (!hold) throw new HttpRouteError(404, 'AutoMod hold not found.');
-      response.json(hold);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  const automodActions = [
+    { path: 'allow', action: 'ALLOW', resolution: 'allowed' },
+    { path: 'deny', action: 'DENY', resolution: 'denied' },
+  ] as const;
+  for (const { path, action, resolution } of automodActions) {
+    app.post(`/api/automod/:id/${path}`, async (request, response) => {
+      try {
+        const id = request.params.id;
+        // Check locally first so an unknown id 404s without any Twitch side
+        // effect, and an already-resolved hold (EventSub won the race) returns
+        // idempotently instead of erroring.
+        const existing = getAutomodHold(id);
+        if (!existing) throw new HttpRouteError(404, 'AutoMod hold not found.');
+        if (existing.resolvedAt) {
+          response.json(existing);
+          return;
+        }
+        const result = await resolveAutomodMessage(state, id, action);
+        const hold = result.outcome === 'gone'
+          ? resolveAutomodHold(id, 'expired', null)
+          : resolveAutomodHold(id, resolution, result.moderatorLogin);
+        response.json(hold ?? existing);
+      } catch (error) {
+        sendRouteError(response, error);
+      }
+    });
+  }
 
   app.get('/api/emotes', async (_request, response) => {
     response.json(await getEmoteMap(getTwitchRoomId()));

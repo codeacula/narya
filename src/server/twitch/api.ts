@@ -166,14 +166,25 @@ async function resolveTwitchUserId(login: string, credentials: { clientId: strin
   return userId;
 }
 
+async function getAuthenticatedActionUser(
+  state: RuntimeState,
+  credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
+): Promise<{ id: string; login: string }> {
+  if (state.twitchSenderId && state.twitchSenderLogin) {
+    return { id: state.twitchSenderId, login: state.twitchSenderLogin };
+  }
+  const user = await fetchAuthenticatedTwitchUser(credentials.clientId, credentials.userToken);
+  if (!user?.id) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
+  state.twitchSenderId = user.id;
+  state.twitchSenderLogin = user.login;
+  return { id: user.id, login: user.login };
+}
+
 async function getAuthenticatedActionUserId(
   state: RuntimeState,
   credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
 ): Promise<string> {
-  const userId = state.twitchSenderId ?? (await fetchAuthenticatedTwitchUser(credentials.clientId, credentials.userToken))?.id;
-  if (!userId) throw new HttpRouteError(502, 'Could not resolve the authenticated Twitch user.');
-  state.twitchSenderId = userId;
-  return userId;
+  return (await getAuthenticatedActionUser(state, credentials)).id;
 }
 
 function normalizeUserActionReason(value: unknown): string {
@@ -281,13 +292,15 @@ async function moderateTwitchUser(
   }
 }
 
+export type AutomodResolveResult = { outcome: 'ok' | 'gone'; moderatorLogin: string };
+
 export async function resolveAutomodMessage(
   state: RuntimeState,
   messageId: string,
   action: 'ALLOW' | 'DENY',
-): Promise<void> {
+): Promise<AutomodResolveResult> {
   const credentials = await getTwitchActionCredentials(state, ['moderator:manage:automod']);
-  const moderatorId = await getAuthenticatedActionUserId(state, credentials);
+  const moderator = await getAuthenticatedActionUser(state, credentials);
 
   const res = await fetch('https://api.twitch.tv/helix/moderation/automod/message', {
     method: 'POST',
@@ -296,12 +309,17 @@ export async function resolveAutomodMessage(
       Authorization: credentials.authorization,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ user_id: moderatorId, msg_id: messageId, action }),
+    body: JSON.stringify({ user_id: moderator.id, msg_id: messageId, action }),
   });
+  // 404 means Twitch no longer holds this message (expired or already handled
+  // elsewhere). That's not an error for us — the caller resolves it locally as
+  // expired so the stuck hold can leave the queue. Anything else is a real fault.
+  if (res.status === 404) return { outcome: 'gone', moderatorLogin: moderator.login };
   if (!res.ok) {
     const errorMessage = await readResponseError(res, `Twitch AutoMod ${action.toLowerCase()} failed.`);
     throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
   }
+  return { outcome: 'ok', moderatorLogin: moderator.login };
 }
 
 export function getMissingTwitchScopes(state: RuntimeState, scopes: readonly string[]): string[] {

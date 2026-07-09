@@ -142,6 +142,7 @@ function persistTwitchToken(
   } else {
     state.runtimeUserToken = token;
     state.twitchSenderId = null;
+    state.twitchSenderLogin = null;
     state.clearTwitchCaches();
   }
   return token;
