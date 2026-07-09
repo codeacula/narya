@@ -4,6 +4,13 @@ export const EVENTSUB_DEFAULT_KEEPALIVE_MS = 20_000;
 export const EVENTSUB_STALE_SOCKET_CLOSE_MS = 30_000;
 export const EVENTSUB_RECONNECT_DELAY_MS = 10_000;
 
+/**
+ * Event kinds worth thanking someone for. `ad_break` is deliberately absent —
+ * nobody thanks an ad. Shared so the shoutout query and the attention feed can
+ * never disagree about what belongs on the public ticker.
+ */
+export const THANK_WORTHY_EVENT_KINDS = ['follow', 'sub', 'gift', 'cheer', 'raid', 'redeem'] as const;
+
 export const DASHBOARD_FULL_REFRESH_MS = 30_000;
 export const DASHBOARD_STATUS_REFRESH_MS = 5_000;
 export const DASHBOARD_HEARTBEAT_MS = 5_000;
