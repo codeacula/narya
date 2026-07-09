@@ -8,6 +8,7 @@ import { HttpRouteError, parseJsonColumn, sendRouteError } from './http';
 import { clearManualMusic, getCurrentMusic, setManualMusic } from './music';
 import { getObsStatus, isObsConnected, switchObsScene, triggerObsTransition } from './obs';
 import { listMediaFiles } from './media';
+import { getClipPlayerCount } from './realtime';
 import type { RuntimeState } from './runtime';
 import {
   createSoundButton,
@@ -102,6 +103,9 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
       obsConnected: isObsConnected(),
       twitchRoomId: getTwitchRoomId(),
       eventSubConnected: state.eventSubConnected,
+      // 0 means redeem media falls back to the dashboard: no /overlay/clips
+      // browser source is connected (OBS closed, or the source needs a refresh).
+      clipPlayers: getClipPlayerCount(),
     });
   });
 
