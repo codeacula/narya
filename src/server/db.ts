@@ -211,6 +211,14 @@ db.exec(`
     reward_id text primary key
   );
 
+  create table if not exists reward_media (
+    reward_id text primary key,
+    kind text not null,
+    src text not null,
+    volume real not null default 0.8,
+    updated_at text not null
+  );
+
   create table if not exists app_config (
     id text primary key,
     twitch_channel text not null default '',

@@ -7,6 +7,7 @@ import { getEmoteMap } from './emotes';
 import { HttpRouteError, parseJsonColumn, sendRouteError } from './http';
 import { clearManualMusic, getCurrentMusic, setManualMusic } from './music';
 import { getObsStatus, isObsConnected, switchObsScene, triggerObsTransition } from './obs';
+import { listMediaFiles } from './media';
 import type { RuntimeState } from './runtime';
 import {
   createSoundButton,
@@ -298,6 +299,10 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     } catch (error) {
       response.status(502).json({ error: error instanceof Error ? error.message : 'OBS transition failed' });
     }
+  });
+
+  app.get('/api/media', (_request, response) => {
+    response.json(listMediaFiles());
   });
 
   app.post('/api/sounds/quack', (_request, response) => {

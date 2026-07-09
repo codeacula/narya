@@ -3,6 +3,8 @@ import type {
   Viewer,
   ChatEntry,
   ChatMessage,
+  MediaFile,
+  MediaPlayback,
   MusicInfo,
   StreamEvent,
   SessionShoutout,
@@ -205,6 +207,15 @@ export async function updateViewerReward(id: string, reward: Partial<ViewerRewar
 
 export async function deleteViewerReward(id: string): Promise<void> {
   return sendVoid(`/api/twitch/rewards/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+export async function getMediaFiles(): Promise<MediaFile[]> {
+  return fetchJson<MediaFile[]>('/api/media');
+}
+
+/** Plays a reward's media on the overlay without spending channel points. */
+export async function testRewardMedia(id: string): Promise<MediaPlayback> {
+  return sendJson<MediaPlayback>(`/api/twitch/rewards/${encodeURIComponent(id)}/media/play`, 'POST', {});
 }
 
 export async function createViewerRewardCategory(name: string): Promise<ViewerRewardCategory> {

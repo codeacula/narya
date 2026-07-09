@@ -337,6 +337,28 @@ export type ViewerRewardCategory = {
   games: RewardStreamCategory[];
 };
 
+export type MediaKind = 'video' | 'audio';
+
+/** A playable file discovered under public/clips or public/sounds. */
+export type MediaFile = {
+  src: string;
+  label: string;
+  kind: MediaKind;
+  sizeBytes: number;
+};
+
+/** What a channel-point reward plays when redeemed. */
+export type RewardMedia = {
+  kind: MediaKind;
+  src: string;
+  volume: number;
+};
+
+export type MediaPlayback = RewardMedia & {
+  id: string;
+  actor?: string;
+};
+
 export type ViewerReward = {
   id: string;
   title: string;
@@ -354,6 +376,7 @@ export type ViewerReward = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
+  media: RewardMedia | null;
 };
 
 export type ViewerRewardsResponse = {
@@ -374,6 +397,8 @@ export type ViewerRewardUpsert = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
+  /** Omit to leave the existing binding alone; null clears it. */
+  media?: RewardMedia | null;
 };
 
 export type ViewerRewardCategoryToggleResult = ViewerRewardsResponse & {

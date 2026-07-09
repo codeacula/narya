@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, test } from 'bun:test';
 import { getAutomodQueue } from './automod';
 import { db } from './db';
 import { handleEventSubNotification, resetSubMergeState } from './eventsub';
+import { listMediaFiles } from './media';
+import { getRewardMedia, setRewardMedia } from './rewardMedia';
 import { RuntimeState } from './runtime';
 
 function latestEventFor(actor: string): { kind: string; detail: string; tone: string } | null {
@@ -104,6 +106,28 @@ describe('handleEventSubNotification', () => {
       });
       expect(latestEventFor(actor)).toMatchObject({ detail: 'resub · Tier 1' });
     });
+  });
+
+  test('a redeem bound to media still records its activity event', async () => {
+    const actor = `redeemer-${crypto.randomUUID()}`;
+    const rewardId = crypto.randomUUID();
+    const audio = listMediaFiles().find(file => file.kind === 'audio')?.src ?? '';
+    setRewardMedia(rewardId, { kind: 'audio', src: audio, volume: 0.5 });
+    await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
+      user_name: actor, reward: { id: rewardId, title: 'Play a clip' },
+    });
+    expect(latestEventFor(actor)).toMatchObject({ kind: 'redeem', detail: 'redeemed "Play a clip"' });
+    expect(getRewardMedia(rewardId)).toMatchObject({ src: audio });
+  });
+
+  test('a redeem with no media bound plays nothing and still records the event', async () => {
+    const actor = `redeemer-${crypto.randomUUID()}`;
+    const rewardId = crypto.randomUUID();
+    await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
+      user_name: actor, reward: { id: rewardId, title: 'Just points' },
+    });
+    expect(latestEventFor(actor)).toMatchObject({ kind: 'redeem' });
+    expect(getRewardMedia(rewardId)).toBeNull();
   });
 
   test('channel.cheer records a cheer event', async () => {

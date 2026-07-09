@@ -8,6 +8,7 @@ import { recordAutomodHold, resolveAutomodHold } from './automod';
 import { db } from './db';
 import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
+import { playRewardMedia } from './rewardMedia';
 import type { RuntimeState } from './runtime';
 import { endActiveStreamSession, getCurrentStreamSessionId } from './streamSession';
 import { isTtsRewardEnabled, speakText } from './tts';
@@ -145,6 +146,7 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
           console.error('TTS: failed to speak redemption text:', err);
         });
       }
+      playRewardMedia(reward.id, event.user_name as string);
       break;
     }
     case 'channel.ad_break.begin': {
