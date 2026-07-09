@@ -44,18 +44,20 @@ export function projectAttentionItems(input: {
   chat: ChatEntry[];
   viewers: Record<string, Viewer>;
   tag: string;
-  /** When set, only events from this stream session are worth thanking. */
-  currentSessionId?: string | null;
+  /** Only events from this stream session are worth thanking. Null when off-stream. */
+  currentSessionId: string | null;
 }): AttentionItem[] {
   const { events, chat, viewers, currentSessionId } = input;
   const tag = normalizeTag(input.tag);
 
   const items: AttentionItem[] = [];
 
-  for (const event of events) {
+  // Off-stream there is nobody to thank right now, so no event qualifies —
+  // otherwise the feed would pulse over a resub from a previous stream.
+  // Tagged chat still routes through, since chat is always live.
+  for (const event of currentSessionId === null ? [] : events) {
     if (!ATTENTION_EVENT_KINDS.has(event.kind)) continue;
-    // Off-stream and earlier-stream events were handled on a previous stream.
-    if (currentSessionId && event.sessionId !== currentSessionId) continue;
+    if (event.sessionId !== currentSessionId) continue;
     items.push({
       id: event.id,
       source: 'event',

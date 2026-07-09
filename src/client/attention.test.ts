@@ -50,7 +50,7 @@ describe('projectAttentionItems', () => {
       event('follow', 'f', '2026-07-09T10:05:00Z'),
       event('ad_break', 'Twitch', '2026-07-09T10:06:00Z'),
     ];
-    const items = projectAttentionItems({ events, chat: [], viewers, tag: DEFAULT_ATTENTION_TAG });
+    const items = projectAttentionItems({ events, chat: [], viewers, tag: DEFAULT_ATTENTION_TAG, currentSessionId: 'live' });
     expect(items.map(i => i.kind).sort()).toEqual(['cheer', 'follow', 'gift', 'raid', 'redeem', 'sub']);
   });
 
@@ -59,7 +59,7 @@ describe('projectAttentionItems', () => {
       chatEntry('m1', 'tagged', 'hello', '2026-07-09T10:00:00Z'),
       chatEntry('m2', 'untagged', 'ignored', '2026-07-09T10:01:00Z'),
     ];
-    const items = projectAttentionItems({ events: [], chat, viewers, tag: 'NOTIFY' });
+    const items = projectAttentionItems({ events: [], chat, viewers, tag: 'NOTIFY', currentSessionId: 'live' });
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ id: 'm1', source: 'chat', kind: 'chat', detail: 'hello' });
   });
@@ -67,23 +67,23 @@ describe('projectAttentionItems', () => {
   test('excludes a viewer once the tag is removed', () => {
     const chat = [chatEntry('m1', 'tagged', 'hello', '2026-07-09T10:00:00Z')];
     const untaggedViewers = { tagged: viewer('tagged', ['friend']) };
-    expect(projectAttentionItems({ events: [], chat, viewers: untaggedViewers, tag: 'notify' })).toEqual([]);
+    expect(projectAttentionItems({ events: [], chat, viewers: untaggedViewers, tag: 'notify', currentSessionId: 'live' })).toEqual([]);
   });
 
   test('an empty tag routes no chat at all', () => {
     const chat = [chatEntry('m1', 'tagged', 'hello', '2026-07-09T10:00:00Z')];
-    expect(projectAttentionItems({ events: [], chat, viewers, tag: '   ' })).toEqual([]);
+    expect(projectAttentionItems({ events: [], chat, viewers, tag: '   ', currentSessionId: 'live' })).toEqual([]);
   });
 
   test('whispers never route into the feed', () => {
     const chat: ChatEntry[] = [{ ...chatEntry('w1', 'tagged', 'psst', '2026-07-09T10:00:00Z'), kind: 'whisper' }];
-    expect(projectAttentionItems({ events: [], chat, viewers, tag: 'notify' })).toEqual([]);
+    expect(projectAttentionItems({ events: [], chat, viewers, tag: 'notify', currentSessionId: 'live' })).toEqual([]);
   });
 
   test('merges both sources newest-first', () => {
     const events = [event('sub', 'a', '2026-07-09T10:00:00Z')];
     const chat = [chatEntry('m1', 'tagged', 'later', '2026-07-09T10:05:00Z')];
-    const items = projectAttentionItems({ events, chat, viewers, tag: 'notify' });
+    const items = projectAttentionItems({ events, chat, viewers, tag: 'notify', currentSessionId: 'live' });
     expect(items.map(i => i.id)).toEqual(['m1', 'sub-a-2026-07-09T10:00:00Z']);
   });
 
@@ -97,16 +97,25 @@ describe('projectAttentionItems', () => {
     expect(items.map(i => i.actor)).toEqual(['thisStream']);
   });
 
-  test('without a current session, session filtering is skipped', () => {
-    const events = [event('sub', 'anyone', '2026-07-09T10:00:00Z', 'old-session')];
+  test('off-stream, no event is worth thanking', () => {
+    const events = [
+      event('sub', 'lastStream', '2026-07-09T10:00:00Z', 'old-session'),
+      event('follow', 'offStream', '2026-07-09T10:01:00Z', null),
+    ];
     const items = projectAttentionItems({ events, chat: [], viewers, tag: 'notify', currentSessionId: null });
-    expect(items.map(i => i.actor)).toEqual(['anyone']);
+    expect(items).toEqual([]);
+  });
+
+  test('off-stream, tagged chat still routes through', () => {
+    const chat = [chatEntry('m1', 'tagged', 'hello', '2026-07-09T10:00:00Z')];
+    const items = projectAttentionItems({ events: [], chat, viewers, tag: 'notify', currentSessionId: null });
+    expect(items.map(i => i.id)).toEqual(['m1']);
   });
 
   test('caps the feed at 30 items', () => {
     const events = Array.from({ length: 50 }, (_, i) =>
       event('sub', `a${i}`, `2026-07-09T10:${String(i).padStart(2, '0')}:00Z`));
-    expect(projectAttentionItems({ events, chat: [], viewers, tag: 'notify' })).toHaveLength(30);
+    expect(projectAttentionItems({ events, chat: [], viewers, tag: 'notify', currentSessionId: 'live' })).toHaveLength(30);
   });
 });
 
