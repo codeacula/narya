@@ -1,7 +1,7 @@
 import type { MediaKind, MediaPlayback, RewardMedia } from '../shared/api';
 import { db } from './db';
 import { HttpRouteError } from './http';
-import { isKnownMediaSrc } from './media';
+import { findMediaFile } from './media';
 import { broadcast } from './realtime';
 
 const DEFAULT_VOLUME = 0.8;
@@ -29,13 +29,19 @@ export function normalizeRewardMedia(body: unknown): RewardMedia {
   const value = body as Partial<RewardMedia>;
   const src = typeof value.src === 'string' ? value.src.trim() : '';
   if (!src) throw new HttpRouteError(400, 'A media file is required.');
-  if (!isKnownMediaSrc(src)) {
+  const file = findMediaFile(src);
+  if (!file) {
     throw new HttpRouteError(400, `Unknown media file: ${src}. Add it under public/clips or public/sounds.`);
   }
   if (value.kind !== 'video' && value.kind !== 'audio') {
     throw new HttpRouteError(400, 'Media kind must be "video" or "audio".');
   }
-  return { kind: value.kind as MediaKind, src, volume: clampVolume(value.volume) };
+  // The overlay picks <video> vs <audio> from the stored kind, so a mismatch
+  // would play an mp3 in a video element — invisible, or silently broken.
+  if (value.kind !== file.kind) {
+    throw new HttpRouteError(400, `${src} is ${file.kind}, not ${value.kind}.`);
+  }
+  return { kind: file.kind as MediaKind, src, volume: clampVolume(value.volume) };
 }
 
 export function getRewardMedia(rewardId: string): RewardMedia | null {

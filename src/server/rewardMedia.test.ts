@@ -12,6 +12,8 @@ import {
 } from './rewardMedia';
 
 const KNOWN_AUDIO = listMediaFiles().find(file => file.kind === 'audio')?.src ?? '';
+// public/clips is gitignored, so a clean checkout has no video to test against.
+const KNOWN_VIDEO = listMediaFiles().find(file => file.kind === 'video')?.src ?? '';
 
 describe('normalizeRewardMedia', () => {
   test('accepts a known file with a valid kind', () => {
@@ -34,6 +36,19 @@ describe('normalizeRewardMedia', () => {
   test('rejects a missing src and an unknown kind', () => {
     expect(() => normalizeRewardMedia({ kind: 'audio', src: '' })).toThrow(HttpRouteError);
     expect(() => normalizeRewardMedia({ kind: 'gif', src: KNOWN_AUDIO })).toThrow(HttpRouteError);
+  });
+
+  // The overlay picks <video> vs <audio> from the stored kind, so a mismatch
+  // would render an mp3 in a video element.
+  test('rejects a kind that disagrees with the file', () => {
+    expect(() => normalizeRewardMedia({ kind: 'video', src: KNOWN_AUDIO })).toThrow(HttpRouteError);
+    if (KNOWN_VIDEO) {
+      expect(() => normalizeRewardMedia({ kind: 'audio', src: KNOWN_VIDEO })).toThrow(HttpRouteError);
+    }
+  });
+
+  test('takes the kind from the catalog, not the client', () => {
+    expect(normalizeRewardMedia({ kind: 'audio', src: KNOWN_AUDIO }).kind).toBe('audio');
   });
 });
 
@@ -64,6 +79,11 @@ describe('reward_media persistence', () => {
 
   test('an invalid binding is rejected without writing a row', () => {
     expect(() => setRewardMedia('reward-1', { kind: 'video', src: '/nope.mp4' })).toThrow(HttpRouteError);
+    expect(getRewardMedia('reward-1')).toBeNull();
+  });
+
+  test('a kind/src mismatch is rejected without writing a row', () => {
+    expect(() => setRewardMedia('reward-1', { kind: 'video', src: KNOWN_AUDIO })).toThrow(HttpRouteError);
     expect(getRewardMedia('reward-1')).toBeNull();
   });
 

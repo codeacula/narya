@@ -12,8 +12,13 @@ export function enqueue(queue: MediaPlayback[], item: MediaPlayback): MediaPlayb
   return [...queue, item];
 }
 
-/** Drop the head. Called when a clip ends, errors, or can't autoplay. */
-export function advance(queue: MediaPlayback[]): MediaPlayback[] {
+/**
+ * Drop the head, but only if `id` still names it. A failing file can both reject
+ * play() and fire the element's error event; without this check the two
+ * completions would drop two items and swallow the redeem behind the bad one.
+ */
+export function advance(queue: MediaPlayback[], id: string): MediaPlayback[] {
+  if (queue[0]?.id !== id) return queue;
   return queue.slice(1);
 }
 
@@ -24,8 +29,8 @@ export function useMediaQueue() {
     setQueue(current => enqueue(current, item));
   }, []));
 
-  const onFinished = React.useCallback(() => {
-    setQueue(current => advance(current));
+  const onFinished = React.useCallback((id: string) => {
+    setQueue(current => advance(current, id));
   }, []);
 
   return { current: queue[0] ?? null, depth: queue.length, onFinished };
@@ -39,7 +44,7 @@ export function useMediaQueue() {
  * so audible playback starts on its own. A plain browser tab may reject play()
  * until the page is clicked; we advance past the item rather than wedge the queue.
  */
-export function ClipStage({ item, onFinished }: { item: MediaPlayback | null; onFinished: () => void }) {
+export function ClipStage({ item, onFinished }: { item: MediaPlayback | null; onFinished: (id: string) => void }) {
   const mediaRef = React.useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
 
   React.useEffect(() => {
@@ -49,11 +54,13 @@ export function ClipStage({ item, onFinished }: { item: MediaPlayback | null; on
     element.currentTime = 0;
     void element.play().catch((error: unknown) => {
       console.error(`Clips: could not play ${item.src}:`, error);
-      onFinished();
+      onFinished(item.id);
     });
   }, [item, onFinished]);
 
   if (!item) return null;
+
+  const finish = () => { onFinished(item.id); };
 
   if (item.kind === 'audio') {
     return (
@@ -61,23 +68,23 @@ export function ClipStage({ item, onFinished }: { item: MediaPlayback | null; on
         key={item.id}
         ref={el => { mediaRef.current = el; }}
         src={item.src}
-        onEnded={onFinished}
-        onError={onFinished}
+        onEnded={finish}
+        onError={finish}
       />
     );
   }
 
-  // The rim and highlight are pseudo-elements, which <video> cannot carry, so
-  // the clip plays inside a wrapper that draws the glass around it.
+  // The glow and highlight are pseudo-elements, which <video> cannot carry, so
+  // the clip plays inside a wrapper that draws them around it.
   return (
-    <div className="clipOrb" key={item.id}>
+    <div className="clipFrame" key={item.id}>
       <video
         ref={el => { mediaRef.current = el; }}
         className="clipVideo"
         src={item.src}
         playsInline
-        onEnded={onFinished}
-        onError={onFinished}
+        onEnded={finish}
+        onError={finish}
       />
     </div>
   );

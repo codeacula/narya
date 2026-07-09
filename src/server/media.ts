@@ -52,10 +52,14 @@ export function listMediaFiles(): MediaFile[] {
 }
 
 /**
- * Whether a src names a file we actually serve. Bindings are checked against
- * the scanned catalog rather than pattern-matched, so a crafted path can't
- * escape public/ or point at another host.
+ * The catalog entry for a src, or null when we don't serve that file. Bindings
+ * are checked against the scan rather than pattern-matched, so a crafted path
+ * can't escape public/ or point at another host.
  */
+export function findMediaFile(src: string): MediaFile | null {
+  return listMediaFiles().find(file => file.src === src) ?? null;
+}
+
 export function isKnownMediaSrc(src: string): boolean {
-  return listMediaFiles().some(file => file.src === src);
+  return findMediaFile(src) !== null;
 }
