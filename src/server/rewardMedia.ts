@@ -2,7 +2,7 @@ import type { MediaKind, MediaPlayback, RewardMedia } from '../shared/api';
 import { db } from './db';
 import { HttpRouteError } from './http';
 import { isKnownMediaSrc } from './media';
-import { broadcast } from './realtime';
+import { broadcastMedia } from './realtime';
 
 const DEFAULT_VOLUME = 0.8;
 
@@ -70,6 +70,6 @@ export function playRewardMedia(rewardId: string, actor?: string): MediaPlayback
   const media = getRewardMedia(rewardId);
   if (!media) return null;
   const payload: MediaPlayback = { id: crypto.randomUUID(), ...media, ...(actor ? { actor } : {}) };
-  broadcast('media:play', payload);
+  broadcastMedia('media:play', payload);
   return payload;
 }
