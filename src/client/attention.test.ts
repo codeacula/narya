@@ -30,8 +30,8 @@ function event(kind: StreamEvent['kind'], actor: string, at: string, sessionId: 
   return { id: `${kind}-${actor}-${at}`, kind, actor, detail: `${kind} detail`, ago: '', tone: 'warning', receivedAt: at, sessionId };
 }
 
-function chatEntry(id: string, user: string, text: string, at: string): ChatEntry {
-  return { id, user, text, time: '', at };
+function chatEntry(id: string, user: string, text: string, at: string, sessionId: string | null = 'live'): ChatEntry {
+  return { id, user, text, time: '', at, sessionId };
 }
 
 describe('projectAttentionItems', () => {
@@ -106,9 +106,21 @@ describe('projectAttentionItems', () => {
     expect(items).toEqual([]);
   });
 
-  test('off-stream, tagged chat still routes through', () => {
-    const chat = [chatEntry('m1', 'tagged', 'hello', '2026-07-09T10:00:00Z')];
+  test('off-stream, tagged chat sent off-stream still routes through', () => {
+    const chat = [chatEntry('m1', 'tagged', 'hello', '2026-07-09T10:00:00Z', null)];
     const items = projectAttentionItems({ events: [], chat, viewers, tag: 'notify', currentSessionId: null });
+    expect(items.map(i => i.id)).toEqual(['m1']);
+  });
+
+  // The chat backlog spans previous streams; a tagged viewer's day-old message
+  // is not something waiting on you right now.
+  test('excludes tagged chat from an earlier stream session', () => {
+    const chat = [
+      chatEntry('m1', 'tagged', 'today', '2026-07-09T10:00:00Z', 'live'),
+      chatEntry('m2', 'tagged', 'yesterday', '2026-07-08T10:00:00Z', 'old-session'),
+      chatEntry('m3', 'tagged', 'off-stream', '2026-07-08T20:00:00Z', null),
+    ];
+    const items = projectAttentionItems({ events: [], chat, viewers, tag: 'notify', currentSessionId: 'live' });
     expect(items.map(i => i.id)).toEqual(['m1']);
   });
 

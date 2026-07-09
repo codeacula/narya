@@ -9,7 +9,9 @@ import {
 } from '../services/dashboard';
 import type { Viewer, ChatEntry, StreamEvent, SessionShoutout, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter } from '../../shared/api';
 import { DEFAULT_ATTENTION_TAG, type AttentionItem, type AttentionSettings } from '../attention';
+import { kindChip, kindTone } from '../eventKinds';
 import { sceneLabel, switchableScenes } from '../scenes';
+import { loadStoredJson, saveStoredJson } from '../storage';
 
 /* ---------------- types ---------------- */
 
@@ -52,6 +54,45 @@ type ViewerActionKind = 'whisper' | 'timeout' | 'ban';
 export function belongsToCurrentSession(sessionId: string | null | undefined, currentSessionId: string | null): boolean {
   if (currentSessionId === null) return false;
   return sessionId === currentSessionId;
+}
+
+/** A row that carries no session of its own can't mark where a session begins. */
+export type SessionRow = { sessionId?: string | null; sessionless?: boolean };
+
+/**
+ * Index of the row where the session changes, or -1 when the list holds no
+ * boundary to draw. One definition for both feeds, which read in opposite
+ * directions: chat is oldest-first and marks where the current session begins,
+ * the event feed is newest-first and marks where past streams begin.
+ *
+ * Rows flagged `sessionless` (whispers, which arrive live and carry no session)
+ * are skipped when looking for a neighbour, so one landing mid-stream doesn't
+ * read as a session change.
+ *
+ * `markListStart` decides whether a list that opens on the far side is itself a
+ * boundary: the event feed heads a wholly-past list with "earlier streams", while
+ * chat that opens in the current session has nothing above it to divide from.
+ */
+export function sessionBoundaryIndex(
+  rows: SessionRow[],
+  currentSessionId: string | null,
+  options: { side: 'current' | 'past'; markListStart: boolean },
+): number {
+  if (currentSessionId === null) return -1;
+  const wanted = options.side === 'current';
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index];
+    if (!row || row.sessionless) continue;
+    if (belongsToCurrentSession(row.sessionId, currentSessionId) !== wanted) continue;
+
+    // Walk back past sessionless rows to the nearest neighbour that has a session.
+    let previous = index - 1;
+    while (previous >= 0 && rows[previous]?.sessionless) previous--;
+    if (previous < 0) return options.markListStart ? index : -1;
+    if (belongsToCurrentSession(rows[previous]?.sessionId, currentSessionId) === wanted) continue;
+    return index;
+  }
+  return -1;
 }
 
 function badgesFor(viewer: Viewer | undefined): string[] {
@@ -160,6 +201,16 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
     setNewCount(0);
   }, []);
 
+  // Chat is oldest-first, so the boundary is the first message of this stream.
+  const currentSessionStart = React.useMemo(
+    () => sessionBoundaryIndex(
+      displayedChat.map(m => ({ sessionId: m.sessionId, sessionless: m.kind === 'whisper' })),
+      ctx.currentSessionId,
+      { side: 'current', markListStart: false },
+    ),
+    [displayedChat, ctx.currentSessionId],
+  );
+
   return (
     <>
       <div className="chat-bar">
@@ -197,15 +248,11 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
           }
 
           const fromThisStream = belongsToCurrentSession(m.sessionId, ctx.currentSessionId);
-          // Chat is oldest-first, so the boundary is the first message of this stream.
-          const previous = displayedChat[index - 1];
-          const startsCurrent = fromThisStream
-            && (index === 0 || previous?.kind === 'whisper' || !belongsToCurrentSession(previous?.sessionId, ctx.currentSessionId));
 
           const hlClass = m.highlight ? ' hl-' + m.highlight : '';
           return (
             <React.Fragment key={m.id}>
-              {startsCurrent && index > 0 && <div className="chat-divider">this stream</div>}
+              {index === currentSessionStart && <div className="chat-divider">this stream</div>}
             <div className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past')}>
               <span className="msg-time">{m.time}</span>
               {m.highlight === 'first-ever' && <span className="hl-tag">first time</span>}
@@ -749,16 +796,6 @@ const EVT_TONE_OVERRIDE: Partial<Record<string, string>> = {
   raid: 'note',
 };
 
-const ATT_TONE: Record<string, string> = {
-  follow: 'note',
-  sub: 'warning',
-  gift: 'warning',
-  cheer: 'info',
-  raid: 'note',
-  redeem: 'info',
-  chat: 'silver',
-};
-
 const EVT_KIND_LABEL: Record<string, string> = {
   follow: 'Follows',
   sub: 'Subs',
@@ -773,17 +810,11 @@ const EVT_FILTER_KEY = 'eventFeedHiddenKinds';
 const EVT_DEFAULT_HIDDEN = new Set(['ad_break']);
 
 function loadHiddenKinds(): Set<string> {
-  try {
-    const raw = localStorage.getItem(EVT_FILTER_KEY);
-    if (raw === null) return new Set(EVT_DEFAULT_HIDDEN);
-    return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    return new Set(EVT_DEFAULT_HIDDEN);
-  }
+  return loadStoredJson(EVT_FILTER_KEY, raw => new Set(raw as string[]), () => new Set(EVT_DEFAULT_HIDDEN));
 }
 
 function saveHiddenKinds(hidden: Set<string>): void {
-  localStorage.setItem(EVT_FILTER_KEY, JSON.stringify([...hidden]));
+  saveStoredJson(EVT_FILTER_KEY, [...hidden]);
 }
 
 // Compute the relative age client-side from receivedAt so it doesn't go stale
@@ -810,15 +841,6 @@ function formatAgo(receivedAt: string): string {
 }
 
 /* ---------------- Session Shoutouts ---------------- */
-
-const SHOUTOUT_KIND_LABEL: Record<string, string> = {
-  follow: 'followed',
-  sub: 'subbed',
-  gift: 'gifted',
-  cheer: 'cheered',
-  raid: 'raided',
-  redeem: 'redeemed',
-};
 
 export function ShoutoutsPanel({
   shoutouts,
@@ -859,17 +881,19 @@ export function ShoutoutsPanel({
       <div className="shout-list">
         {shoutouts.map(s => (
           <button
-            key={s.actor.toLowerCase()}
+            key={s.login ?? s.actor.toLowerCase()}
             type="button"
             className="shout-row"
-            onClick={() => onOpenViewer(s.actor.toLowerCase())}
+            // `actor` is a display name, which for a localized name doesn't
+            // lowercase to the login — use the login Twitch gave us.
+            onClick={() => onOpenViewer(s.login ?? s.actor.toLowerCase())}
             title={`Open ${s.actor}`}
           >
             <span className="shout-actor">{s.actor}</span>
             <span className="shout-kinds">
               {s.kinds.map(kind => (
-                <span key={kind} className={'shout-chip tone-' + (ATT_TONE[kind] ?? 'silver')}>
-                  {SHOUTOUT_KIND_LABEL[kind] ?? kind}
+                <span key={kind} className={'shout-chip tone-' + kindTone(kind)}>
+                  {kindChip(kind)}
                 </span>
               ))}
             </span>
@@ -970,7 +994,7 @@ export function AttentionPanel({
         <div className="att-list">
           {items.map(item => {
             const unacked = !acked.has(item.id);
-            const tone = ATT_TONE[item.kind] ?? 'silver';
+            const tone = kindTone(item.kind);
             return (
               <button
                 key={item.id}
@@ -1051,6 +1075,12 @@ function EventFeed({ ctx }: { ctx: PanelCtx }) {
     });
   }, [ctx.events, hiddenKinds, evtSearch]);
 
+  // Events are newest-first, so the boundary is the first row from a past stream.
+  const pastSessionStart = React.useMemo(
+    () => sessionBoundaryIndex(visibleEvents, ctx.currentSessionId, { side: 'past', markListStart: true }),
+    [visibleEvents, ctx.currentSessionId],
+  );
+
   return (
     <div className="evt-feed">
       <div className="evt-toolbar">
@@ -1090,13 +1120,9 @@ function EventFeed({ ctx }: { ctx: PanelCtx }) {
         {visibleEvents.map((e, index) => {
           const tone = EVT_TONE_OVERRIDE[e.kind] ?? e.tone;
           const fromThisStream = belongsToCurrentSession(e.sessionId, ctx.currentSessionId);
-          // Events are newest-first, so the first past-stream row is the boundary.
-          const startsPast = !fromThisStream
-            && ctx.currentSessionId !== null
-            && (index === 0 || belongsToCurrentSession(visibleEvents[index - 1]?.sessionId, ctx.currentSessionId));
           return (
             <React.Fragment key={e.id}>
-              {startsPast && <div className="evt-divider">earlier streams</div>}
+              {index === pastSessionStart && <div className="evt-divider">earlier streams</div>}
               <div className={'evt tone-' + tone + (fromThisStream ? '' : ' evt--past')}>
                 <div className="evt-icon">
                   <Icon name={EVT_ICON[e.kind] ?? 'star'} />

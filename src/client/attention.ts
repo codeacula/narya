@@ -1,6 +1,8 @@
 import React from 'react';
 import type { ChatEntry, StreamEvent, Viewer } from '../shared/api';
+import { ATTENTION_EVENT_KINDS } from './eventKinds';
 import { playAttentionChime } from './sounds';
+import { loadStoredJson, saveStoredJson } from './storage';
 
 export type AttentionItem = {
   id: string;
@@ -11,8 +13,7 @@ export type AttentionItem = {
   at: string;
 };
 
-/** Thank-worthy event kinds. `ad_break` is deliberately absent — nobody thanks an ad. */
-export const ATTENTION_EVENT_KINDS = new Set(['follow', 'sub', 'gift', 'cheer', 'raid', 'redeem']);
+export { ATTENTION_EVENT_KINDS };
 
 const MAX_ITEMS = 30;
 const MAX_ACKED_IDS = 200;
@@ -54,7 +55,6 @@ export function projectAttentionItems(input: {
 
   // Off-stream there is nobody to thank right now, so no event qualifies —
   // otherwise the feed would pulse over a resub from a previous stream.
-  // Tagged chat still routes through, since chat is always live.
   for (const event of currentSessionId === null ? [] : events) {
     if (!ATTENTION_EVENT_KINDS.has(event.kind)) continue;
     if (event.sessionId !== currentSessionId) continue;
@@ -71,6 +71,10 @@ export function projectAttentionItems(input: {
   if (tag !== '') {
     for (const entry of chat) {
       if (entry.kind === 'whisper') continue;
+      // The chat backlog spans previous streams, so a tagged viewer's day-old
+      // message would otherwise pulse as something waiting on you right now.
+      // Off-stream (`currentSessionId` null) only off-stream chat matches.
+      if ((entry.sessionId ?? null) !== currentSessionId) continue;
       const viewer = viewers[entry.user.toLowerCase()];
       if (!viewer?.tags.some(t => normalizeTag(t) === tag)) continue;
       items.push({
@@ -89,46 +93,32 @@ export function projectAttentionItems(input: {
 }
 
 export function loadAckedIds(): Set<string> {
-  try {
-    const raw = localStorage.getItem(ACK_KEY);
-    if (raw === null) return new Set();
-    return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    return new Set();
-  }
+  return loadStoredJson(ACK_KEY, raw => new Set(raw as string[]), () => new Set<string>());
 }
 
 /** Keeps only the newest ids so a long stream can't grow this without bound. */
 export function saveAckedIds(acked: Set<string>): Set<string> {
   const trimmed = [...acked].slice(-MAX_ACKED_IDS);
-  try {
-    localStorage.setItem(ACK_KEY, JSON.stringify(trimmed));
-  } catch {
-    // A full or unavailable localStorage shouldn't break the feed.
-  }
+  saveStoredJson(ACK_KEY, trimmed);
   return new Set(trimmed);
 }
 
 export function loadAttentionSettings(): AttentionSettings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw === null) return { ...DEFAULT_ATTENTION_SETTINGS };
-    const parsed = JSON.parse(raw) as Partial<AttentionSettings>;
-    return {
-      tag: typeof parsed.tag === 'string' ? parsed.tag : DEFAULT_ATTENTION_TAG,
-      soundEnabled: parsed.soundEnabled !== false,
-    };
-  } catch {
-    return { ...DEFAULT_ATTENTION_SETTINGS };
-  }
+  return loadStoredJson(
+    SETTINGS_KEY,
+    raw => {
+      const parsed = raw as Partial<AttentionSettings>;
+      return {
+        tag: typeof parsed.tag === 'string' ? parsed.tag : DEFAULT_ATTENTION_TAG,
+        soundEnabled: parsed.soundEnabled !== false,
+      };
+    },
+    () => ({ ...DEFAULT_ATTENTION_SETTINGS }),
+  );
 }
 
 export function saveAttentionSettings(settings: AttentionSettings): void {
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // Ignore — settings fall back to defaults next load.
-  }
+  saveStoredJson(SETTINGS_KEY, settings);
 }
 
 export function useAttentionSettings() {
@@ -152,8 +142,10 @@ export function useAttention(input: {
   tag: string;
   soundEnabled: boolean;
   currentSessionId: string | null;
+  /** False until the REST backlog has landed, so loading it doesn't chime. */
+  seeded: boolean;
 }) {
-  const { events, chat, viewers, tag, soundEnabled, currentSessionId } = input;
+  const { events, chat, viewers, tag, soundEnabled, currentSessionId, seeded } = input;
   const [acked, setAcked] = React.useState<Set<string>>(() => loadAckedIds());
 
   const items = React.useMemo(
@@ -164,9 +156,11 @@ export function useAttention(input: {
   const seenIds = React.useRef<Set<string> | null>(null);
 
   React.useEffect(() => {
+    // Before the seed lands the projection is empty. Latching it here would make
+    // the backlog itself look new and ring a burst of dings on every page load.
+    if (!seeded) return;
     const currentIds = new Set(items.map(item => item.id));
-    // The first projection is the REST-seeded backlog. Chiming for it would fire
-    // a burst of dings on every page load.
+    // The first projection after seeding is the backlog, which is not new.
     if (seenIds.current === null) {
       seenIds.current = currentIds;
       return;
@@ -174,7 +168,7 @@ export function useAttention(input: {
     const hasNewUnacked = items.some(item => !seenIds.current?.has(item.id) && !acked.has(item.id));
     seenIds.current = currentIds;
     if (hasNewUnacked && soundEnabled) playAttentionChime();
-  }, [items, acked, soundEnabled]);
+  }, [items, acked, soundEnabled, seeded]);
 
   const ack = React.useCallback((id: string) => {
     setAcked(current => {
