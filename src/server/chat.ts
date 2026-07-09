@@ -116,13 +116,15 @@ twitchClient.on('message', (channel, tags, message, self) => {
   const isChannelOwner = username === appConfig.twitchChannel.toLowerCase() || Boolean(badges?.broadcaster);
   const messageId = tags.id ?? crypto.randomUUID();
   const isFirstEver = !isChannelOwner && !hasSeenChatterBefore(username);
-  const sessionChatter = !isChannelOwner
-    ? recordCurrentSessionChatter(username, messageId, occurredAt)
-    : { sessionId: null, isFirstInSession: false };
   // The broadcaster is excluded from session chatter counts, but their messages
   // still belong to the live session — otherwise the dashboard renders them as
   // past-stream chat and draws a spurious "this stream" divider after them.
-  const sessionId = getCurrentStreamSessionId();
+  // recordCurrentSessionChatter already resolved the session for everyone else,
+  // so only the owner needs a lookup of their own.
+  const sessionChatter = !isChannelOwner
+    ? recordCurrentSessionChatter(username, messageId, occurredAt)
+    : { sessionId: getCurrentStreamSessionId(), isFirstInSession: false };
+  const sessionId = sessionChatter.sessionId;
 
   const chatMessage: ChatMessage = {
     id: messageId,
