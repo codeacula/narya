@@ -10,7 +10,7 @@ After any code change, run typecheck, `bun test`, and build, and verify in-brows
 
 For any non-trivial feature, write a short plan first and confirm the approach before implementing across multiple files.
 
-Save plans and other working documents (validation notes, handoff docs) to `.claude/plans/` in this repo — the `.claude/` directory is gitignored. Do not put working docs in `docs/` or commit them.
+Superpowers skills write specs and plans under `docs/superpowers/`, and committing them is fine — no need to relocate them to `.claude/plans/`.
 
 ## Preferences
 
