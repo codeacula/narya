@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { isKnownMediaSrc, listMediaFiles, mediaKindForPath } from './media';
+import { findMediaFile, listMediaFiles, mediaKindForPath } from './media';
+
+const isKnownMediaSrc = (src: string) => findMediaFile(src) !== null;
 
 describe('mediaKindForPath', () => {
   test('classifies video and audio by extension, case-insensitively', () => {
@@ -33,7 +35,7 @@ describe('listMediaFiles', () => {
   });
 });
 
-describe('isKnownMediaSrc', () => {
+describe('findMediaFile', () => {
   const known = listMediaFiles()[0]?.src ?? '';
 
   test('accepts a src the catalog actually contains', () => {

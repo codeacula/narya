@@ -154,6 +154,9 @@ function RewardEditor({
   const media = form.media ?? null;
   const mediaKind = media?.kind ?? 'none';
   const filesForKind = mediaFiles.filter(file => file.kind === mediaKind);
+  // The bound file was deleted from public/. Say so rather than letting the
+  // select silently display some other file as if it were the binding.
+  const boundFileMissing = Boolean(media) && !mediaFiles.some(file => file.src === media?.src);
 
   // Switching kind picks the first file of that kind, so the form never holds a
   // binding whose src doesn't match its kind (the server would reject it).
@@ -267,6 +270,9 @@ function RewardEditor({
                     media: current.media ? { ...current.media, src: event.target.value } : null,
                   }))}
                 >
+                  {boundFileMissing && media && (
+                    <option value={media.src}>{media.src} (missing)</option>
+                  )}
                   {filesForKind.map(file => <option key={file.src} value={file.src}>{file.label}</option>)}
                 </select>
               </label>
@@ -288,6 +294,12 @@ function RewardEditor({
             </>
           )}
         </div>
+        {boundFileMissing && media && (
+          <div className="set-sub reward-media-missing">
+            <code>{media.src}</code> is bound to this reward but is no longer in <code>public/</code>, so
+            redeeming it plays nothing. Pick another file, or restore it and reload.
+          </div>
+        )}
         <div className="set-sub">
           Files come from <code>public/clips</code> and <code>public/sounds</code>. Playback happens on the
           <code> /overlay/clips</code> browser source — add it to any scene that should show clips.
@@ -724,13 +736,14 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   };
 
   // Only offered while editing a saved reward — a reward being created has no id
-  // to play yet, and its media isn't bound until the form is submitted.
+  // to play yet. The form's own binding is sent, so Test plays what's on screen
+  // rather than whatever was last saved.
   const handleTestMedia = async () => {
     if (!editingId) return;
     setError(null);
     setMessage(null);
     try {
-      await testRewardMedia(editingId);
+      await testRewardMedia(editingId, rewardForm.media);
       setMessage('Sent to the /overlay/clips browser source.');
     } catch (testError) {
       setError(errorMessage(testError, 'Could not play the media. Save the reward first?'));

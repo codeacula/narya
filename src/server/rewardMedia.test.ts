@@ -38,6 +38,27 @@ describe('normalizeRewardMedia', () => {
     expect(() => normalizeRewardMedia({ kind: 'gif', src: KNOWN_AUDIO })).toThrow(HttpRouteError);
   });
 
+  // The file was validated when it was bound; deleting it from public/ must not
+  // block editing the reward's cost or title.
+  describe('a bound file that has since been deleted', () => {
+    const gone = { kind: 'audio' as const, src: '/sounds/deleted-by-the-operator.mp3', volume: 0.5 };
+
+    test('is accepted when re-saving the reward that already holds it', () => {
+      expect(normalizeRewardMedia(gone, { keepMissing: gone })).toEqual(gone);
+    });
+
+    test('is still rejected for any other reward, or under a different kind', () => {
+      expect(() => normalizeRewardMedia(gone, { keepMissing: null })).toThrow(HttpRouteError);
+      expect(() => normalizeRewardMedia(gone, { keepMissing: { ...gone, src: KNOWN_AUDIO } })).toThrow(HttpRouteError);
+      expect(() => normalizeRewardMedia({ ...gone, kind: 'video' }, { keepMissing: gone })).toThrow(HttpRouteError);
+    });
+
+    test('does not let an unknown src ride in on a stale binding', () => {
+      expect(() => normalizeRewardMedia({ kind: 'audio', src: '/clips/../../.env' }, { keepMissing: gone }))
+        .toThrow(HttpRouteError);
+    });
+  });
+
   // The overlay picks <video> vs <audio> from the stored kind, so a mismatch
   // would render an mp3 in a video element.
   test('rejects a kind that disagrees with the file', () => {
@@ -69,6 +90,17 @@ describe('reward_media persistence', () => {
     setRewardMedia('reward-1', { kind: 'audio', src: KNOWN_AUDIO, volume: 0.9 });
     expect(getRewardMedia('reward-1')?.volume).toBe(0.9);
     expect(listRewardMedia().size).toBe(1);
+  });
+
+  // Editing the reward's cost must not fail just because its clip was deleted.
+  test('re-saving a binding whose file is gone keeps it instead of throwing', () => {
+    const gone = { kind: 'audio' as const, src: '/sounds/deleted.mp3', volume: 0.5 };
+    db.prepare('insert into reward_media (reward_id, kind, src, volume, updated_at) values (?, ?, ?, ?, ?)')
+      .run('reward-gone', gone.kind, gone.src, gone.volume, new Date().toISOString());
+
+    expect(setRewardMedia('reward-gone', { ...gone, volume: 0.7 })).toEqual({ ...gone, volume: 0.7 });
+    // A different reward can't adopt the missing file.
+    expect(() => setRewardMedia('reward-other', gone)).toThrow(HttpRouteError);
   });
 
   test('null clears the binding', () => {

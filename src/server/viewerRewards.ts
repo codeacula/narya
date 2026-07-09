@@ -11,7 +11,7 @@ import type {
 import { db } from './db';
 import { HttpRouteError, readResponseError, sendRouteError } from './http';
 import { broadcast } from './realtime';
-import { deleteRewardMedia, listRewardMedia, normalizeRewardMedia, playRewardMedia, setRewardMedia } from './rewardMedia';
+import { deleteRewardMedia, getRewardMedia, listRewardMedia, normalizeRewardMedia, playMedia, playRewardMedia, setRewardMedia } from './rewardMedia';
 import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
 import { getTwitchActionCredentials } from './twitch/api';
@@ -300,10 +300,10 @@ async function sendTwitchRewardUpdate(
  * alone", `null` means "clear it". Validating up front keeps a bad filename from
  * leaving a created-but-unbound reward behind on Twitch.
  */
-function parseMediaField(body: { media?: unknown }): RewardMedia | null | undefined {
+function parseMediaField(body: { media?: unknown }, keepMissing?: RewardMedia | null): RewardMedia | null | undefined {
   if (body?.media === undefined) return undefined;
   if (body.media === null) return null;
-  return normalizeRewardMedia(body.media);
+  return normalizeRewardMedia(body.media, { keepMissing });
 }
 
 function saveRewardCategory(rewardId: string, categoryId: string | null) {
@@ -544,7 +544,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
 
       // Media is local, so it stays out of hasTwitchFields below: a reward Twitch
       // won't let us manage can still have its clip changed.
-      const media = parseMediaField(request.body);
+      const media = parseMediaField(request.body, getRewardMedia(current.id));
       const categoryId = request.body?.categoryId === undefined
         ? current.categoryId
         : normalizeCategoryId(request.body.categoryId);
@@ -582,13 +582,22 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     }
   });
 
+  // An unsaved binding may be passed in the body so the editor's Test button plays
+  // the file currently selected, not the one last saved. Validated like any other.
   app.post('/api/twitch/rewards/:id/media/play', (request, response) => {
-    const playback = playRewardMedia(request.params.id);
-    if (!playback) {
-      response.status(404).json({ error: 'This reward has no media bound.' });
-      return;
+    try {
+      const override = parseMediaField(request.body);
+      const playback = override
+        ? playMedia(override)
+        : playRewardMedia(request.params.id);
+      if (!playback) {
+        response.status(404).json({ error: 'This reward has no media bound.' });
+        return;
+      }
+      response.json(playback);
+    } catch (error) {
+      sendRouteError(response, error);
     }
-    response.json(playback);
   });
 
   app.delete('/api/twitch/rewards/:id', async (request, response) => {

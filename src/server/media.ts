@@ -40,15 +40,32 @@ function walk(absoluteDir: string, urlPrefix: string, out: MediaFile[]): void {
   }
 }
 
-/** Every playable file under public/clips and public/sounds, as URL paths. */
-export function listMediaFiles(): MediaFile[] {
+/**
+ * The scan walks the whole tree with a stat() per file, and both /api/media and
+ * every binding validation need it. Cache it briefly so a redeem storm doesn't
+ * re-walk public/ on the request thread; a file added to the folder shows up
+ * within a second.
+ */
+const SCAN_TTL_MS = 1_000;
+let cache: { files: MediaFile[]; bySrc: Map<string, MediaFile>; at: number } | null = null;
+
+function scan(): { files: MediaFile[]; bySrc: Map<string, MediaFile> } {
+  const now = Date.now();
+  if (cache && now - cache.at < SCAN_TTL_MS) return cache;
   const files: MediaFile[] = [];
   for (const root of MEDIA_ROOTS) {
     const absolute = path.join(publicDir, root);
     if (!existsSync(absolute)) continue;
     walk(absolute, `/${root}`, files);
   }
-  return files.sort((a, b) => a.src.localeCompare(b.src));
+  files.sort((a, b) => a.src.localeCompare(b.src));
+  cache = { files, bySrc: new Map(files.map(file => [file.src, file])), at: now };
+  return cache;
+}
+
+/** Every playable file under public/clips and public/sounds, as URL paths. */
+export function listMediaFiles(): MediaFile[] {
+  return scan().files;
 }
 
 /**
@@ -57,9 +74,5 @@ export function listMediaFiles(): MediaFile[] {
  * can't escape public/ or point at another host.
  */
 export function findMediaFile(src: string): MediaFile | null {
-  return listMediaFiles().find(file => file.src === src) ?? null;
-}
-
-export function isKnownMediaSrc(src: string): boolean {
-  return findMediaFile(src) !== null;
+  return scan().bySrc.get(src) ?? null;
 }

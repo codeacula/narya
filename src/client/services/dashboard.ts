@@ -6,6 +6,7 @@ import type {
   MediaFile,
   MediaPlayback,
   MusicInfo,
+  RewardMedia,
   StreamEvent,
   SessionShoutout,
   RunItem,
@@ -214,8 +215,13 @@ export async function getMediaFiles(): Promise<MediaFile[]> {
 }
 
 /** Plays a reward's media on the overlay without spending channel points. */
-export async function testRewardMedia(id: string): Promise<MediaPlayback> {
-  return sendJson<MediaPlayback>(`/api/twitch/rewards/${encodeURIComponent(id)}/media/play`, 'POST', {});
+/** Pass `media` to preview an unsaved binding; omit it to play the saved one. */
+export async function testRewardMedia(id: string, media?: RewardMedia | null): Promise<MediaPlayback> {
+  return sendJson<MediaPlayback>(
+    `/api/twitch/rewards/${encodeURIComponent(id)}/media/play`,
+    'POST',
+    media ? { media } : {},
+  );
 }
 
 export async function createViewerRewardCategory(name: string): Promise<ViewerRewardCategory> {

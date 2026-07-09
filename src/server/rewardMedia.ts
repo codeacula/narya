@@ -24,13 +24,24 @@ function clampVolume(value: unknown): number {
   return Math.max(0, Math.min(1, volume));
 }
 
-/** Validate a client-supplied binding against the media we actually serve. */
-export function normalizeRewardMedia(body: unknown): RewardMedia {
+/**
+ * Validate a client-supplied binding against the media we actually serve.
+ *
+ * `keepMissing` is the binding already stored for this reward. If its file has
+ * since been deleted from public/, re-saving it is still allowed — it passed this
+ * same check when it was set, and rejecting it would block every unrelated edit
+ * to the reward (its cost, its title) until the file came back.
+ */
+export function normalizeRewardMedia(body: unknown, options?: { keepMissing?: RewardMedia | null }): RewardMedia {
   const value = body as Partial<RewardMedia>;
   const src = typeof value.src === 'string' ? value.src.trim() : '';
   if (!src) throw new HttpRouteError(400, 'A media file is required.');
   const file = findMediaFile(src);
   if (!file) {
+    const kept = options?.keepMissing;
+    if (kept && kept.src === src && kept.kind === value.kind) {
+      return { kind: kept.kind, src, volume: clampVolume(value.volume) };
+    }
     throw new HttpRouteError(400, `Unknown media file: ${src}. Add it under public/clips or public/sounds.`);
   }
   if (value.kind !== 'video' && value.kind !== 'audio') {
@@ -59,7 +70,7 @@ export function setRewardMedia(rewardId: string, media: unknown): RewardMedia | 
     deleteRewardMediaRow.run(rewardId);
     return null;
   }
-  const normalized = normalizeRewardMedia(media);
+  const normalized = normalizeRewardMedia(media, { keepMissing: getRewardMedia(rewardId) });
   upsertRewardMedia.run(rewardId, normalized.kind, normalized.src, normalized.volume, new Date().toISOString());
   return normalized;
 }
@@ -69,14 +80,18 @@ export function deleteRewardMedia(rewardId: string): void {
 }
 
 /**
- * Broadcast a reward's media to the /overlay/clips browser source, the only
- * listener for media:play. Returns null when the reward has no binding, so the
- * caller can 404 or simply do nothing.
+ * Broadcast a validated binding to the /overlay/clips browser source, the only
+ * listener for media:play.
  */
-export function playRewardMedia(rewardId: string, actor?: string): MediaPlayback | null {
-  const media = getRewardMedia(rewardId);
-  if (!media) return null;
+export function playMedia(media: RewardMedia, actor?: string): MediaPlayback {
   const payload: MediaPlayback = { id: crypto.randomUUID(), ...media, ...(actor ? { actor } : {}) };
   broadcast('media:play', payload);
   return payload;
+}
+
+/** Returns null when the reward has no binding, so the caller can 404 or do nothing. */
+export function playRewardMedia(rewardId: string, actor?: string): MediaPlayback | null {
+  const media = getRewardMedia(rewardId);
+  if (!media) return null;
+  return playMedia(media, actor);
 }
