@@ -245,6 +245,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       text: message.message,
       time: new Date(message.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
       at: message.receivedAt,
+      sessionId: message.sessionId ?? null,
       highlight: chatHighlight(message.badges, Boolean(message.isFirstEver), Boolean(message.isFirstThisSession)),
     };
 

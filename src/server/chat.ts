@@ -134,6 +134,7 @@ twitchClient.on('message', (channel, tags, message, self) => {
     isFirstTimer: isFirstEver,
     isFirstThisSession: sessionChatter.isFirstInSession,
     isFirstEver,
+    sessionId: sessionChatter.sessionId,
   };
 
   appendChatEvent('message.created', chatMessage.channel, { tags, message }, {

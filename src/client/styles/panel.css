@@ -371,6 +371,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   transition: background var(--dur-fast);
 }
 .msg:hover { background: rgba(255,255,255,0.022); }
+/* Messages from an earlier stream recede. Lighter than the activity feed's
+   .evt--past because chat is the panel you actually read. */
+.msg--past { opacity: 0.6; }
+.msg--past:hover { opacity: 1; }
+.chat-divider {
+  display: flex; align-items: center; gap: 8px;
+  margin: 4px 0;
+  padding: 5px 14px;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent-fg); background: rgba(255,184,108,0.05);
+  border-top: 1px solid var(--border-1); border-bottom: 1px solid var(--border-1);
+}
+.chat-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-1); }
 .msg .badges { display: inline-flex; gap: 4px; vertical-align: middle; margin-right: 6px; }
 .cbadge {
   width: 16px; height: 16px; border-radius: 3px;

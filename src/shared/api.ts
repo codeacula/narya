@@ -14,6 +14,8 @@ export type ChatMessage = {
   isFirstThisSession: boolean;
   isFirstEver: boolean;
   isExiting?: boolean;
+  /** Stream session the message was sent during. Null when sent off-stream. */
+  sessionId?: string | null;
 };
 
 export type ChatModerationEvent = {
@@ -120,6 +122,8 @@ export type ChatEntry = {
   time: string;
   /** ISO timestamp; `time` is a display-only clock string. */
   at?: string;
+  /** Stream session the message was sent during. Null when sent off-stream. */
+  sessionId?: string | null;
   highlight?: 'first-session' | 'first-ever' | 'broadcaster' | 'sub' | 'mod' | 'vip';
   kind?: 'whisper';
 };

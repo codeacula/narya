@@ -453,7 +453,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
             received_at as receivedAt,
             badges_json as badgesJson,
             is_first_in_session as isFirstThisSession,
-            is_first_ever as isFirstEver
+            is_first_ever as isFirstEver,
+            stream_session_id as sessionId
           from chat_messages
           where (received_at, id) < (select received_at, id from chat_messages where id = ?)
           order by received_at desc, id desc
@@ -466,6 +467,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           badgesJson: string | null;
           isFirstThisSession: number;
           isFirstEver: number;
+          sessionId: string | null;
         }>
       : db.prepare(`
           select
@@ -475,7 +477,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
             received_at as receivedAt,
             badges_json as badgesJson,
             is_first_in_session as isFirstThisSession,
-            is_first_ever as isFirstEver
+            is_first_ever as isFirstEver,
+            stream_session_id as sessionId
           from chat_messages
           order by received_at desc, id desc
           limit 80
@@ -487,6 +490,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           badgesJson: string | null;
           isFirstThisSession: number;
           isFirstEver: number;
+          sessionId: string | null;
         }>;
 
     response.json(rows.reverse().map((row) => {
@@ -497,6 +501,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         text: row.message,
         time: formatClockTime(row.receivedAt),
         at: row.receivedAt,
+        sessionId: row.sessionId,
         highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
       };
     }));
