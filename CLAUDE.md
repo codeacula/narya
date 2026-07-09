@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Verification
 
-After any code change, run typecheck/build and verify in-browser before declaring done. For dev servers, confirm the target port is free first (e.g. `lsof -i :PORT`) and kill stale processes before restarting.
+After any code change, run typecheck, `bun test`, and build, and verify in-browser before declaring done. For dev servers, confirm the target port is free first (e.g. `lsof -i :PORT`) and kill stale processes before restarting.
 
 ## Workflow
 
@@ -22,7 +22,7 @@ When editing files with multi-byte/Unicode characters (powerline glyphs, emoji),
 
 ## Stack
 
-Bun-powered Vite + React + TypeScript SPA with an Express/Bun backend. No test suite; validation is via typecheck and build.
+Bun-powered Vite + React + TypeScript SPA with an Express/Bun backend. Validation is via typecheck, the `bun test` suite (`*.test.ts` colocated with source), and build.
 
 ## Commands
 
@@ -30,8 +30,11 @@ Bun-powered Vite + React + TypeScript SPA with an Express/Bun backend. No test s
 bun install
 bun run dev          # backend on :4317, Vite on :5173
 bun run typecheck    # tsc --noEmit
+bun test             # bun test suite (*.test.ts); uses an in-memory DB under NODE_ENV=test
 bun run build        # typecheck + Vite production build → dist/
 ```
+
+Set `STREAMER_TOOLS_DB=/path/to/scratch.sqlite` to point the backend at a throwaway database — useful for exercising the app end-to-end without touching the operator's `data/streamer-tools.sqlite`.
 
 Smoke-test backend endpoints after backend changes:
 ```sh
