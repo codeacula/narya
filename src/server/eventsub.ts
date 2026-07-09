@@ -18,17 +18,57 @@ const insertStreamEvent = db.prepare(`
   values (?, ?, ?, ?, ?, ?)
 `);
 
-function emitStreamEvent(kind: string, actor: string, detail: string, tone: string) {
+const updateStreamEventDetail = db.prepare(`
+  update stream_events set detail = ?, tone = ? where id = ?
+`);
+
+function emitStreamEvent(kind: string, actor: string, detail: string, tone: string): string {
   const id = crypto.randomUUID();
   const receivedAt = new Date().toISOString();
   insertStreamEvent.run(id, kind, actor, detail, tone, receivedAt);
   broadcast('stream:event', { id, kind, actor, detail, tone, ago: 'just now', receivedAt });
+  return id;
+}
+
+function updateStreamEvent(id: string, detail: string, tone: string) {
+  updateStreamEventDetail.run(detail, tone, id);
+  broadcast('stream:event:update', { id, detail, tone });
 }
 
 function tierLabel(tier: string): string {
   if (tier === '2000') return 'Tier 2';
   if (tier === '3000') return 'Tier 3';
   return 'Tier 1';
+}
+
+// Twitch fires both channel.subscribe and channel.subscription.message for a
+// resub, in no guaranteed order. Track the sub event we already emitted per
+// user so the second notification updates that row instead of adding another.
+const SUB_MERGE_WINDOW_MS = 60_000;
+const recentSubs = new Map<string, { eventId: string; hasMessage: boolean; at: number }>();
+
+function takeRecentSub(userId: string, now: number) {
+  for (const [key, entry] of recentSubs) {
+    if (now - entry.at >= SUB_MERGE_WINDOW_MS) recentSubs.delete(key);
+  }
+  return recentSubs.get(userId);
+}
+
+export function resetSubMergeState() {
+  recentSubs.clear();
+}
+
+function subMergeKey(event: Record<string, unknown>): string {
+  const userId = event.user_id;
+  if (typeof userId === 'string' && userId !== '') return userId;
+  return String(event.user_name ?? '').toLowerCase();
+}
+
+function resubDetail(event: Record<string, unknown>): string {
+  const months = Number(event.cumulative_months);
+  const tier = tierLabel(event.tier as string);
+  if (!Number.isFinite(months) || months <= 0) return `resub · ${tier}`;
+  return `resub · ${tier} · ${months} month${months !== 1 ? 's' : ''}`;
 }
 
 export async function handleEventSubNotification(state: RuntimeState, type: string, event: Record<string, unknown>) {
@@ -54,16 +94,32 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
     case 'channel.follow':
       emitStreamEvent('follow', event.user_name as string, 'followed', 'silver');
       break;
-    case 'channel.subscribe':
-      if (!(event.is_gift as boolean)) {
-        emitStreamEvent('sub', event.user_name as string,
-          `subscribed · ${tierLabel(event.tier as string)}`, 'warning');
+    case 'channel.subscribe': {
+      if (event.is_gift as boolean) break;
+      const now = Date.now();
+      const key = subMergeKey(event);
+      // A channel.subscription.message already landed for this user and carries
+      // the richer resub detail, so this notification adds nothing.
+      if (takeRecentSub(key, now)) break;
+      const eventId = emitStreamEvent('sub', event.user_name as string,
+        `new sub · ${tierLabel(event.tier as string)}`, 'warning');
+      recentSubs.set(key, { eventId, hasMessage: false, at: now });
+      break;
+    }
+    case 'channel.subscription.message': {
+      const now = Date.now();
+      const key = subMergeKey(event);
+      const detail = resubDetail(event);
+      const pending = takeRecentSub(key, now);
+      if (pending && !pending.hasMessage) {
+        updateStreamEvent(pending.eventId, detail, 'warning');
+        pending.hasMessage = true;
+        break;
       }
+      const eventId = emitStreamEvent('sub', event.user_name as string, detail, 'warning');
+      recentSubs.set(key, { eventId, hasMessage: true, at: now });
       break;
-    case 'channel.subscription.message':
-      emitStreamEvent('sub', event.user_name as string,
-        `resubscribed · ${event.cumulative_months} months · ${tierLabel(event.tier as string)}`, 'warning');
-      break;
+    }
     case 'channel.subscription.gift':
       emitStreamEvent('gift',
         (event.user_name as string) || 'Anonymous',

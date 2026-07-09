@@ -9,6 +9,28 @@ export const quackSoundSources = [
   '/sounds/quacks/duck-quacking-37392.mp3',
 ];
 
+/** Synthesized cue tone. Dashboard uses these for mentions, whispers, and the attention feed. */
+export function playTone(freq: number, durationMs: number, volume: number) {
+  const ctx = new AudioContext();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(volume, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
+  osc.start();
+  osc.stop(ctx.currentTime + durationMs / 1000);
+  osc.onended = () => void ctx.close();
+}
+
+/** Rising three-note chime, distinct from the two-note mention and whisper cues. */
+export function playAttentionChime() {
+  playTone(784, 90, 0.22);
+  setTimeout(() => playTone(988, 90, 0.2), 95);
+  setTimeout(() => playTone(1319, 160, 0.18), 195);
+}
+
 export function useSoundButtons() {
   const [soundButtons, setSoundButtons] = React.useState<SoundButton[]>([]);
 

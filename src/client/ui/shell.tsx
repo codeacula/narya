@@ -440,6 +440,7 @@ export function Panel({
   tabs,
   activeTab,
   onTabChange,
+  headerActions,
   children,
 }: {
   id: string;
@@ -454,6 +455,7 @@ export function Panel({
   tabs?: Array<{ id: string; label: string; badge?: number }>;
   activeTab?: string;
   onTabChange?: (id: string) => void;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   if (popped) {
@@ -492,6 +494,7 @@ export function Panel({
         )}
         {count != null && <span className="panel-count">{count}</span>}
         <span className="panel-actions">
+          {headerActions}
           <button className="icon-btn" title="Pop out" onClick={() => onPop(id, true)}>
             <Icon name="popout" />
           </button>

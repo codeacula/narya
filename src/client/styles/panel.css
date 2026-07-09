@@ -267,6 +267,20 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .col-stack.s3 { grid-template-rows: auto 1fr 1.1fr; }
 .col-stack.s2-top-auto { grid-template-rows: auto 1fr; }
 
+/* Attention sits above a two-up activity/viewers row and only takes the height it needs. */
+.attention-stack { grid-template-rows: auto minmax(0, 1fr); }
+.attention-stack.with-controls { grid-template-rows: auto auto minmax(0, 1fr); }
+.panel--attention { max-height: 240px; }
+
+.feed-row {
+  min-height: 0; min-width: 0;
+  display: grid; gap: var(--panel-gap);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+@media (max-width: 1100px) {
+  .feed-row { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ================= PANEL ================= */
 .panel {
   min-height: 0; min-width: 0;
@@ -1746,8 +1760,70 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .evt-filter-item:hover { background: rgba(255,255,255,0.03); }
 .evt-filter-item input[type="checkbox"] { accent-color: var(--gold-500); cursor: pointer; width: 13px; height: 13px; flex: none; }
 
-/* Cap the activity feed to ~5 rows in the dashboard panel; popout is unconstrained */
-.panel-body .evt-list { max-height: 215px; overflow-y: auto; }
+/* ================= ATTENTION FEED ================= */
+.att-feed { display: flex; flex-direction: column; min-height: 0; }
+.att-toolbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-bottom: 1px solid var(--border-1); flex: none;
+}
+.att-hint {
+  flex: 1; min-width: 0;
+  font-size: 11px; color: var(--fg-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.att-dismiss {
+  height: 22px; padding: 0 8px;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--fg-2); background: transparent;
+  border: 1px solid var(--border-1); border-radius: var(--radius-2);
+  cursor: pointer; white-space: nowrap;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+}
+.att-dismiss:hover:not(:disabled) { color: var(--accent-fg); border-color: var(--border-3); background: var(--accent-soft); }
+.att-dismiss:disabled { opacity: 0.4; cursor: default; }
+
+.att-settings { min-width: 220px; padding: 4px 0; }
+.att-settings-field {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 8px 11px; font-size: 11px; color: var(--fg-2);
+  border-bottom: 1px solid var(--border-1);
+}
+.att-settings-field input {
+  background: var(--bg-void); border: 1px solid var(--border-2);
+  border-radius: var(--radius-2); color: var(--fg-1);
+  padding: 5px 7px; font: 12px var(--font-body); outline: none;
+}
+.att-settings-field input:focus { border-color: var(--border-3); }
+
+.att-empty { padding: 18px 14px; font-size: 12px; color: var(--fg-3); text-align: center; line-height: 1.5; }
+.att-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+.att-row {
+  display: flex; gap: 8px; align-items: center; text-align: left; width: 100%;
+  padding: 8px 12px; border: 0; border-bottom: 1px solid var(--border-1);
+  border-left: 2px solid transparent;
+  background: transparent; color: var(--fg-1); cursor: pointer; font: inherit;
+  transition: background var(--dur-fast), border-left-color var(--dur-fast);
+}
+.att-row:last-child { border-bottom: none; }
+.att-row:hover { background: rgba(255,255,255,0.03); }
+.att-row .evt-actor, .att-row .evt-detail { display: block; }
+.att-row .evt-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Unacked items stay loud until clicked, so a thank-you never scrolls past unnoticed. */
+.att-row--unacked {
+  background: rgba(255,255,255,0.04);
+  animation: att-pulse 2.4s ease-in-out infinite;
+}
+.att-row--unacked.tone-warning { border-left-color: var(--warning-base); }
+.att-row--unacked.tone-info { border-left-color: var(--info-base); }
+.att-row--unacked.tone-note { border-left-color: var(--note-base); }
+.att-row--unacked.tone-silver { border-left-color: var(--silver-400); }
+@keyframes att-pulse {
+  0%, 100% { background: rgba(255,255,255,0.03); }
+  50% { background: rgba(255,184,108,0.10); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .att-row--unacked { animation: none; }
+}
 
 /* ============================================================
    Toast notifications + Settings inline alerts

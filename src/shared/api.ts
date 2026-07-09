@@ -118,6 +118,8 @@ export type ChatEntry = {
   user: string;
   text: string;
   time: string;
+  /** ISO timestamp; `time` is a display-only clock string. */
+  at?: string;
   highlight?: 'first-session' | 'first-ever' | 'broadcaster' | 'sub' | 'mod' | 'vip';
   kind?: 'whisper';
 };
@@ -138,6 +140,12 @@ export type StreamEvent = {
   ago: string;
   tone: string;
   receivedAt?: string;
+};
+
+export type StreamEventUpdate = {
+  id: string;
+  detail: string;
+  tone: string;
 };
 
 export type RunItem = {

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
-import { ChatInput, ControlsPanel, ChattersPanel, MODULES, PanelCtx } from '../ui/panels';
+import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
+import { useAttention, useAttentionSettings } from '../attention';
+import { playTone } from '../sounds';
 import {
   disconnectTwitch,
   getViewers,
@@ -27,29 +29,15 @@ import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } fr
 import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
-import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
-
-/* ---------------- audio ---------------- */
-
-function playTone(freq: number, durationMs: number, volume: number) {
-  const ctx = new AudioContext();
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.frequency.value = freq;
-  gain.gain.setValueAtTime(volume, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
-  osc.start();
-  osc.stop(ctx.currentTime + durationMs / 1000);
-  osc.onended = () => void ctx.close();
-}
+import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
 
 /* ---------------- constants ---------------- */
 
 const POP_DEFAULTS: Record<string, { w: number; h: number }> = {
   chat:      { w: 380, h: 540 },
   events:    { w: 360, h: 460 },
+  attention: { w: 380, h: 360 },
+  chatters:  { w: 340, h: 460 },
 };
 
 type PoppedState = { x: number; y: number; w: number; h: number };
@@ -128,7 +116,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [chatters, setChatters] = useState<Chatter[]>([]);
   const [chattersError, setChattersError] = useState<string | null>(null);
   const automodQueue = useAutomodQueue();
-  const [rightTab, setRightTab] = useState<'activity' | 'chatters' | 'automod'>('activity');
+  const [rightTab, setRightTab] = useState<'chatters' | 'automod'>('chatters');
+  const { settings: attentionSettings, update: updateAttentionSettings } = useAttentionSettings();
   const lastChatAt = React.useRef<number>(0);
   // Mirror the channel into a ref so the stable chat:message handler can read
   // the current login without hardcoding it or re-subscribing.
@@ -219,6 +208,12 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setEvents(evs => evs.some(existing => existing.id === evt.id) ? evs : [evt, ...evs.slice(0, 49)]);
   }, []));
 
+  // A resub's second EventSub notification rewrites the row already on screen
+  // rather than adding a duplicate. See emitStreamEvent/updateStreamEvent.
+  useSocket<StreamEventUpdate>('stream:event:update', React.useCallback((update) => {
+    setEvents(evs => evs.map(e => e.id === update.id ? { ...e, detail: update.detail, tone: update.tone } : e));
+  }, []));
+
   useSocket<LiveChatMessage>('chat:message', React.useCallback((message) => {
     const now = Date.now();
     if (lastChatAt.current > 0 && now - lastChatAt.current > 5 * 60 * 1000) {
@@ -239,6 +234,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       user: login,
       text: message.message,
       time: new Date(message.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+      at: message.receivedAt,
       highlight: chatHighlight(message.badges, Boolean(message.isFirstEver), Boolean(message.isFirstThisSession)),
     };
 
@@ -436,6 +432,14 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       .finally(() => setStreamInfoSaving(false));
   }, [refreshDashboardStatus, streamInfoForm]);
 
+  const attention = useAttention({
+    events,
+    chat,
+    viewers,
+    tag: attentionSettings.tag,
+    soundEnabled: attentionSettings.soundEnabled,
+  });
+
   const ctx: PanelCtx = {
     viewers,
     chat,
@@ -505,12 +509,67 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     );
   }
 
+  // Poppable panels that aren't MODULES entries render their own body here.
+  function popoutContent(id: string): { title: string; body: React.ReactNode; footer?: React.ReactNode } | null {
+    if (id === 'attention') {
+      return {
+        title: 'attention',
+        body: (
+          <AttentionPanel
+            items={attention.items}
+            acked={attention.acked}
+            settings={attentionSettings}
+            onAck={attention.ack}
+            onSettingsChange={updateAttentionSettings}
+          />
+        ),
+      };
+    }
+    if (id === 'chatters') {
+      return {
+        title: 'viewers',
+        body: <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />,
+      };
+    }
+    const m = MODULES[id];
+    if (!m) return null;
+    return {
+      title: m.title,
+      body: m.render(ctx),
+      footer: m.footer ? <ChatInput channel={status.channel} /> : undefined,
+    };
+  }
+
   const showControls = status.obsConnected;
+
+  const attentionPanel = (
+    <Panel
+      id="attention"
+      title="attention"
+      dot={true}
+      count={attention.unackedCount || undefined}
+      popped={!!popped['attention']}
+      onPop={handlePop}
+      className="panel--attention"
+      bodyClass="no-pad"
+      headerActions={
+        <AttentionDismissAll disabled={attention.unackedCount === 0} onDismiss={attention.dismissAll} />
+      }
+    >
+      <AttentionPanel
+        items={attention.items}
+        acked={attention.acked}
+        settings={attentionSettings}
+        onAck={attention.ack}
+        onSettingsChange={updateAttentionSettings}
+      />
+    </Panel>
+  );
 
   const dashboardLayout = (
     <div className="stage stage--cockpit">
       {slot('chat')}
-      <div className={`col-stack${showControls ? ' s2-top-auto' : ''}`}>
+      <div className={`col-stack attention-stack${showControls ? ' with-controls' : ''}`}>
         {showControls && (
           <Panel
             id="controls"
@@ -528,33 +587,28 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             />
           </Panel>
         )}
-        <Panel
-          id="events"
-          title="activity feed"
-          dot={true}
-          count={
-            rightTab === 'activity'
-              ? MODULES.events.count?.(ctx)
-              : rightTab === 'chatters'
-                ? chatters.length
-                : automodQueue.pending.length
-          }
-          popped={!!popped['events']}
-          onPop={handlePop}
-          tabs={[
-            { id: 'activity', label: 'Activity' },
-            { id: 'chatters', label: 'Chatters' },
-            { id: 'automod', label: 'AutoMod', badge: automodQueue.pending.length },
-          ]}
-          activeTab={rightTab}
-          onTabChange={id => setRightTab(id as 'activity' | 'chatters' | 'automod')}
-        >
-          {rightTab === 'activity'
-            ? MODULES.events.render(ctx)
-            : rightTab === 'chatters'
+        {attentionPanel}
+        <div className="feed-row">
+          {slot('events')}
+          <Panel
+            id="chatters"
+            title="viewers"
+            dot={true}
+            count={rightTab === 'chatters' ? chatters.length : automodQueue.pending.length}
+            popped={!!popped['chatters']}
+            onPop={handlePop}
+            tabs={[
+              { id: 'chatters', label: 'Viewers' },
+              { id: 'automod', label: 'AutoMod', badge: automodQueue.pending.length },
+            ]}
+            activeTab={rightTab}
+            onTabChange={id => setRightTab(id as 'chatters' | 'automod')}
+          >
+            {rightTab === 'chatters'
               ? <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />
               : <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />}
-        </Panel>
+          </Panel>
+        </div>
       </div>
     </div>
   );
@@ -626,17 +680,18 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
       <div className="popout-layer">
         {Object.keys(popped).map(id => {
-          const m = MODULES[id];
+          const pop = popoutContent(id);
+          if (!pop) return null;
           return (
             <PopWindow
               key={id}
               id={id}
-              title={m.title}
+              title={pop.title}
               initial={popped[id]}
               onClose={x => handlePop(x, false)}
-              footer={m.footer ? <ChatInput channel={status.channel} /> : undefined}
+              footer={pop.footer}
             >
-              {m.render(ctx)}
+              {pop.body}
             </PopWindow>
           );
         })}

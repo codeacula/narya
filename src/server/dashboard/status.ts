@@ -495,6 +495,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         user: row.username.toLowerCase(),
         text: row.message,
         time: formatClockTime(row.receivedAt),
+        at: row.receivedAt,
         highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
       };
     }));
