@@ -1,24 +1,23 @@
 import React from 'react';
 import type { SessionShoutout, StreamEvent } from '../shared/api';
+import { ATTENTION_EVENT_KINDS, kindVerb } from './eventKinds';
 import { useSocket } from './realtime';
 import { getSessionShoutouts } from './services/dashboard';
 
 const SHOUTOUT_REFRESH_MS = 60_000;
 const SHOUTOUT_ROTATE_MS = 5_000;
 const SHOUTOUT_FADE_MS = 400;
+/** A raid lands dozens of follows at once; coalesce them into one refetch. */
+const SHOUTOUT_DEBOUNCE_MS = 2_000;
 
-const KIND_VERB: Record<string, string> = {
-  follow: 'followed',
-  sub: 'subscribed',
-  gift: 'gifted subs',
-  cheer: 'cheered',
-  raid: 'raided',
-  redeem: 'redeemed',
-};
-
-/** Reads the current session's roster, refreshing when a new stream event lands. */
-export function useSessionShoutouts() {
+/**
+ * Reads the current session's roster, refreshing when a thank-worthy event lands
+ * and whenever the session itself changes (go live / go offline). The whole
+ * session is aggregated server-side, so refetches are debounced.
+ */
+export function useSessionShoutouts(sessionId: string | null = null) {
   const [shoutouts, setShoutouts] = React.useState<SessionShoutout[]>([]);
+  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = React.useCallback(() => {
     void getSessionShoutouts().then(setShoutouts).catch((error: unknown) => {
@@ -26,20 +25,31 @@ export function useSessionShoutouts() {
     });
   }, []);
 
+  const refreshSoon = React.useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(refresh, SHOUTOUT_DEBOUNCE_MS);
+  }, [refresh]);
+
   React.useEffect(() => {
     refresh();
     const timer = setInterval(refresh, SHOUTOUT_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [refresh]);
+    return () => {
+      clearInterval(timer);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [refresh, sessionId]);
 
-  useSocket<StreamEvent>('stream:event', React.useCallback(() => { refresh(); }, [refresh]));
+  // An ad break can't change the roster, so it isn't worth a round-trip.
+  useSocket<StreamEvent>('stream:event', React.useCallback((event) => {
+    if (ATTENTION_EVENT_KINDS.has(event.kind)) refreshSoon();
+  }, [refreshSoon]));
 
   return shoutouts;
 }
 
 /** Phrase every kind a person contributed: "subscribed & cheered". */
 export function shoutoutVerb(kinds: string[]): string {
-  const verbs = kinds.map(kind => KIND_VERB[kind] ?? kind);
+  const verbs = kinds.map(kindVerb);
   if (verbs.length <= 1) return verbs[0] ?? '';
   return `${verbs.slice(0, -1).join(', ')} & ${verbs[verbs.length - 1]}`;
 }
@@ -60,23 +70,25 @@ export function ShoutoutTicker({ shoutouts }: { shoutouts: SessionShoutout[] }) 
   );
 
   React.useEffect(() => {
-    if (ordered.length === 0) return;
-    setIndex(current => (current < ordered.length ? current : 0));
-  }, [ordered.length]);
-
-  React.useEffect(() => {
     if (ordered.length <= 1) return;
+    let fade: ReturnType<typeof setTimeout> | null = null;
     const rotate = setInterval(() => {
       setVisible(false);
-      setTimeout(() => {
-        setIndex(current => (current + 1) % ordered.length);
+      fade = setTimeout(() => {
+        setIndex(current => current + 1);
         setVisible(true);
       }, SHOUTOUT_FADE_MS);
     }, SHOUTOUT_ROTATE_MS);
-    return () => clearInterval(rotate);
+    return () => {
+      clearInterval(rotate);
+      // A pending fade would otherwise advance the index after the roster shrank.
+      if (fade) clearTimeout(fade);
+    };
   }, [ordered.length]);
 
-  const current = ordered[index];
+  // `index` runs unbounded and wraps here, so a shrinking roster can never leave
+  // it out of range — no clamping effect, and no blank frame before one fires.
+  const current = ordered.length > 0 ? ordered[index % ordered.length] : undefined;
   if (!current) return null;
 
   return (
@@ -87,7 +99,7 @@ export function ShoutoutTicker({ shoutouts }: { shoutouts: SessionShoutout[] }) 
         <div className="shoutoutVerb">{shoutoutVerb(current.kinds)}</div>
       </div>
       {ordered.length > 1 && (
-        <div className="shoutoutCount">{index + 1} / {ordered.length}</div>
+        <div className="shoutoutCount">{(index % ordered.length) + 1} / {ordered.length}</div>
       )}
     </div>
   );

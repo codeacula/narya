@@ -6,6 +6,19 @@ function item(id: string): MediaPlayback {
   return { id, kind: 'video', src: `/clips/${id}.mp4`, volume: 0.8 };
 }
 
+/** Runs `body` with console.warn swallowed, returning what it would have printed. */
+function captureWarnings(body: () => void): string[] {
+  const original = console.warn;
+  const warnings: string[] = [];
+  console.warn = (...args: unknown[]) => { warnings.push(args.join(' ')); };
+  try {
+    body();
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
+}
+
 describe('enqueue', () => {
   test('appends in arrival order so nobody\'s redeem jumps the line', () => {
     const queue = [item('a'), item('b')].reduce(enqueue, [] as MediaPlayback[]);
@@ -18,10 +31,24 @@ describe('enqueue', () => {
   });
 
   test('caps the queue so a redeem storm cannot grow it without bound', () => {
-    let queue: MediaPlayback[] = [];
-    for (let i = 0; i < 40; i++) queue = enqueue(queue, item(`clip-${i}`));
-    expect(queue).toHaveLength(20);
-    expect(queue[0]?.id).toBe('clip-0');
+    const warnings = captureWarnings(() => {
+      let queue: MediaPlayback[] = [];
+      for (let i = 0; i < 40; i++) queue = enqueue(queue, item(`clip-${i}`));
+      expect(queue).toHaveLength(20);
+      expect(queue[0]?.id).toBe('clip-0');
+    });
+    expect(warnings).toHaveLength(20);
+  });
+
+  // The viewer already spent their points, so a drop the operator can't see reads
+  // as a broken clip.
+  test('says so when it drops a redeem', () => {
+    const full = Array.from({ length: 20 }, (_, i) => item(`clip-${i}`));
+    const warnings = captureWarnings(() => {
+      expect(enqueue(full, { ...item('late'), actor: 'Sorlus' })).toHaveLength(20);
+    });
+    expect(warnings[0]).toContain('/clips/late.mp4');
+    expect(warnings[0]).toContain('Sorlus');
   });
 });
 

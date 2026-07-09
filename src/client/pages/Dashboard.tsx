@@ -19,9 +19,9 @@ import {
   runGoLive,
   switchObsScene,
   getChatters,
-  getSessionShoutouts,
   reconnectEventSub,
 } from '../services/dashboard';
+import { useSessionShoutouts } from '../shoutouts';
 import { useSocket } from '../realtime';
 import { chatHighlight } from '../../shared/roles';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
@@ -30,7 +30,7 @@ import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } fr
 import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
-import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, SessionShoutout, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
 
 /* ---------------- constants ---------------- */
 
@@ -127,8 +127,11 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [chattersError, setChattersError] = useState<string | null>(null);
   const automodQueue = useAutomodQueue();
   const [rightTab, setRightTab] = useState<RightTab>('chatters');
-  const [shoutouts, setShoutouts] = useState<SessionShoutout[]>([]);
+  // False until the first REST refresh lands, so the attention feed can tell the
+  // backlog apart from activity that arrived while you were watching.
+  const [seeded, setSeeded] = useState(false);
   const { settings: attentionSettings, update: updateAttentionSettings } = useAttentionSettings();
+  const shoutouts = useSessionShoutouts(status.streamSessionId);
   const lastChatAt = React.useRef<number>(0);
   // Mirror the channel into a ref so the stable chat:message handler can read
   // the current login without hardcoding it or re-subscribing.
@@ -186,6 +189,10 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       } catch (error) {
         console.error('Failed to refresh dashboard data:', error);
         if (!cancelled) setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
+      } finally {
+        // Even a failed seed ends the quiet period; otherwise one bad fetch would
+        // mute the attention chime for the rest of the session.
+        if (!cancelled) setSeeded(true);
       }
     };
 
@@ -214,14 +221,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     };
   }, []);
 
-  // The roster reads the whole session server-side, so refresh it whenever a new
-  // event lands or the session itself changes (go live / go offline).
-  useEffect(() => {
-    void getSessionShoutouts().then(setShoutouts).catch((error: unknown) => {
-      console.error('Failed to load session shoutouts:', error);
-    });
-  }, [events, status.streamSessionId]);
-
   // Real Twitch EventSub events from the backend
   useSocket<StreamEvent>('stream:event', React.useCallback((evt) => {
     setEvents(evs => evs.some(existing => existing.id === evt.id) ? evs : [evt, ...evs.slice(0, 49)]);
@@ -230,7 +229,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   // A resub's second EventSub notification rewrites the row already on screen
   // rather than adding a duplicate. See emitStreamEvent/updateStreamEvent.
   useSocket<StreamEventUpdate>('stream:event:update', React.useCallback((update) => {
-    setEvents(evs => evs.map(e => e.id === update.id ? { ...e, detail: update.detail, tone: update.tone } : e));
+    setEvents(evs => evs.some(e => e.id === update.id)
+      ? evs.map(e => e.id === update.id ? { ...e, detail: update.detail, tone: update.tone } : e)
+      : evs);
   }, []));
 
   useSocket<LiveChatMessage>('chat:message', React.useCallback((message) => {
@@ -459,6 +460,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     tag: attentionSettings.tag,
     soundEnabled: attentionSettings.soundEnabled,
     currentSessionId: status.streamSessionId,
+    seeded,
   });
 
   const ctx: PanelCtx = {
@@ -542,21 +544,22 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     return <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />;
   }
 
+  // Rendered in both the docked panel and its popped-out window, so the two can't
+  // drift apart as props are added.
+  const attentionBody = (
+    <AttentionPanel
+      items={attention.items}
+      acked={attention.acked}
+      settings={attentionSettings}
+      onAck={attention.ack}
+      onSettingsChange={updateAttentionSettings}
+    />
+  );
+
   // Poppable panels that aren't MODULES entries render their own body here.
   function popoutContent(id: string): { title: string; body: React.ReactNode; footer?: React.ReactNode } | null {
     if (id === 'attention') {
-      return {
-        title: 'attention',
-        body: (
-          <AttentionPanel
-            items={attention.items}
-            acked={attention.acked}
-            settings={attentionSettings}
-            onAck={attention.ack}
-            onSettingsChange={updateAttentionSettings}
-          />
-        ),
-      };
+      return { title: 'attention', body: attentionBody };
     }
     // The popped-out window follows whichever tab is active.
     if (id === 'chatters') {
@@ -587,13 +590,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         <AttentionDismissAll disabled={attention.unackedCount === 0} onDismiss={attention.dismissAll} />
       }
     >
-      <AttentionPanel
-        items={attention.items}
-        acked={attention.acked}
-        settings={attentionSettings}
-        onAck={attention.ack}
-        onSettingsChange={updateAttentionSettings}
-      />
+      {attentionBody}
     </Panel>
   );
 
@@ -655,7 +652,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             title="Held messages awaiting review"
             onClick={() => {
               changePage('dashboard');
-              handlePop('events', false);
+              // The AutoMod queue lives in the tabbed right panel; re-dock it so
+              // the tab switch below lands somewhere the operator can see.
+              handlePop('chatters', false);
               setRightTab('automod');
             }}
           >

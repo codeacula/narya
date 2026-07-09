@@ -8,7 +8,12 @@ const MAX_QUEUE = 20;
 /** Append unless the id is already queued — a replayed socket event must not double-play. */
 export function enqueue(queue: MediaPlayback[], item: MediaPlayback): MediaPlayback[] {
   if (queue.some(queued => queued.id === item.id)) return queue;
-  if (queue.length >= MAX_QUEUE) return queue;
+  if (queue.length >= MAX_QUEUE) {
+    // The viewer already spent their points and EventSub recorded the redeem, so
+    // a silent drop looks like a broken clip. Say so where the operator can see it.
+    console.warn(`Clips: queue is full (${MAX_QUEUE}), dropping ${item.src}${item.actor ? ` from ${item.actor}` : ''}.`);
+    return queue;
+  }
   return [...queue, item];
 }
 
