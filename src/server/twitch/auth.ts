@@ -366,6 +366,9 @@ export function registerTwitchAuthRoutes({
       } else {
         persistTwitchUserToken(state, { ...tokenData, access_token: tokenData.access_token });
         console.log('OAuth: user token cached, reconnecting EventSub...');
+        // A live socket makes connectEventSub a no-op, so newly granted scopes
+        // would not get subscriptions until the next restart or socket drop.
+        disconnectEventSub();
         connectEventSub();
       }
       response.redirect('/');
