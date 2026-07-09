@@ -553,7 +553,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             ? MODULES.events.render(ctx)
             : rightTab === 'chatters'
               ? <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />
-              : <AutomodPanel />}
+              : <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />}
         </Panel>
       </div>
     </div>
@@ -567,6 +567,20 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         tweaksOpen={tweaksOpen}
         onTweaksToggle={() => setTweaksOpen(o => !o)}
         channel={status.channel}
+        alert={automodQueue.pending.length > 0 ? (
+          <button
+            className="nav-automod-alert"
+            title="Held messages awaiting review"
+            onClick={() => {
+              changePage('dashboard');
+              handlePop('events', false);
+              setRightTab('automod');
+            }}
+          >
+            <span className="nav-automod-dot" aria-hidden="true" />
+            {automodQueue.pending.length} held
+          </button>
+        ) : undefined}
       />
       <StatBar
         clock24={false}

@@ -573,8 +573,23 @@ nav {
 
 .automodError {
   margin: 0;
-  color: #ffb3b3;
+  color: var(--danger-fg);
   font-size: 12px;
+}
+
+.automodNotice {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+}
+
+.automodNotice code {
+  font-size: 11px;
+  opacity: 0.9;
 }
 
 .automodItemActions {
@@ -601,9 +616,9 @@ nav {
 }
 
 .automodItemActions button.dangerButton {
-  background: rgba(255, 85, 85, 0.14);
-  border-color: rgba(255, 85, 85, 0.36);
-  color: #ffb3b3;
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-fg);
 }
 
 .automodHistory {

@@ -43,12 +43,14 @@ export function NavBar({
   tweaksOpen,
   onTweaksToggle,
   channel,
+  alert,
 }: {
   page: string;
   setPage: (p: string) => void;
   tweaksOpen: boolean;
   onTweaksToggle: () => void;
   channel: string;
+  alert?: React.ReactNode;
 }) {
   const brand = channel.trim();
   const displayBrand = brand ? brand.toUpperCase() : '...';
@@ -84,6 +86,7 @@ export function NavBar({
         </button>
       </div>
       <div className="nav-spacer" />
+      {alert}
       <button
         className={'nav-icon' + (tweaksOpen ? ' active' : '')}
         title="Dev Menu"

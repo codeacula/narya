@@ -1,42 +1,79 @@
 import React from 'react';
 import type { AutomodHold } from '../shared/api';
-import { useSocket } from './realtime';
+import { useSocket, useSocketReconnect } from './realtime';
 import { allowAutomodHold, denyAutomodHold, getAutomodQueue } from './services/dashboard';
 
-export function useAutomodQueue() {
+// Mirrors the server-side pending cap so the two agree on how many holds a
+// spam wave can accumulate before the oldest overflow is dropped.
+const PENDING_LIMIT = 200;
+const RESOLVED_LIMIT = 20;
+
+export type AutomodQueueController = {
+  pending: AutomodHold[];
+  recentlyResolved: AutomodHold[];
+  error: string | null;
+  allow: (id: string) => Promise<void>;
+  deny: (id: string) => Promise<void>;
+};
+
+export function useAutomodQueue(): AutomodQueueController {
   const [pending, setPending] = React.useState<AutomodHold[]>([]);
   const [recentlyResolved, setRecentlyResolved] = React.useState<AutomodHold[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+  // Ids we've already seen resolved — used so a slow initial snapshot can't
+  // re-add a hold that a socket event (or our own action) already cleared.
+  const resolvedIds = React.useRef<Set<string>>(new Set());
 
-  React.useEffect(() => {
+  const applyResolved = React.useCallback((hold: AutomodHold) => {
+    resolvedIds.current.add(hold.id);
+    setPending(current => current.filter(h => h.id !== hold.id));
+    setRecentlyResolved(current => [hold, ...current.filter(h => h.id !== hold.id)].slice(0, RESOLVED_LIMIT));
+  }, []);
+
+  // Fetch the authoritative queue on mount and on every socket reconnect (live
+  // events during a disconnect aren't replayed). Pending is server truth minus
+  // ids we've locally resolved, so a hold resolved elsewhere while we were
+  // offline drops out instead of lingering as a ghost. History is merged so a
+  // just-resolved entry isn't briefly dropped.
+  const refresh = React.useCallback(() => {
     getAutomodQueue()
       .then(queue => {
-        setPending(queue.pending);
-        setRecentlyResolved(queue.recentlyResolved);
+        setError(null);
+        setPending(queue.pending.filter(h => !resolvedIds.current.has(h.id)).slice(0, PENDING_LIMIT));
+        setRecentlyResolved(current => {
+          const byId = new Map<string, AutomodHold>();
+          for (const h of current) byId.set(h.id, h);
+          for (const h of queue.recentlyResolved) if (!byId.has(h.id)) byId.set(h.id, h);
+          return [...byId.values()].slice(0, RESOLVED_LIMIT);
+        });
       })
-      .catch((error: unknown) => {
-        console.error('Failed to load AutoMod queue:', error);
+      .catch((caught: unknown) => {
+        setError(caught instanceof Error ? caught.message : 'Failed to load AutoMod queue');
       });
   }, []);
+
+  React.useEffect(() => { refresh(); }, [refresh]);
+  useSocketReconnect(refresh);
 
   useSocket<AutomodHold>(
     'automod:held',
     React.useCallback((hold) => {
-      setPending(current => (current.some(h => h.id === hold.id) ? current : [...current, hold]));
+      if (resolvedIds.current.has(hold.id)) return;
+      setPending(current => (current.some(h => h.id === hold.id) ? current : [...current, hold].slice(0, PENDING_LIMIT)));
     }, []),
   );
 
   useSocket<AutomodHold>(
     'automod:resolved',
-    React.useCallback((hold) => {
-      setPending(current => current.filter(h => h.id !== hold.id));
-      setRecentlyResolved(current => [hold, ...current.filter(h => h.id !== hold.id)].slice(0, 20));
-    }, []),
+    React.useCallback((hold) => applyResolved(hold), [applyResolved]),
   );
 
-  const allow = React.useCallback((id: string) => allowAutomodHold(id), []);
-  const deny = React.useCallback((id: string) => denyAutomodHold(id), []);
+  // The POST returns the resolved hold, so apply it directly instead of waiting
+  // for the socket broadcast — the item still clears if the socket is down.
+  const allow = React.useCallback(async (id: string) => { applyResolved(await allowAutomodHold(id)); }, [applyResolved]);
+  const deny = React.useCallback(async (id: string) => { applyResolved(await denyAutomodHold(id)); }, [applyResolved]);
 
-  return { pending, recentlyResolved, allow, deny };
+  return { pending, recentlyResolved, error, allow, deny };
 }
 
 function AutomodItem({
@@ -45,19 +82,20 @@ function AutomodItem({
   onDeny,
 }: {
   hold: AutomodHold;
-  onAllow: (id: string) => Promise<AutomodHold>;
-  onDeny: (id: string) => Promise<AutomodHold>;
+  onAllow: (id: string) => Promise<void>;
+  onDeny: (id: string) => Promise<void>;
 }) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  async function act(action: (id: string) => Promise<AutomodHold>) {
+  async function act(action: (id: string) => Promise<void>) {
     setBusy(true);
     setError(null);
     try {
       await action(hold.id);
     } catch (caught: unknown) {
       setError(caught instanceof Error ? caught.message : 'Action failed');
+    } finally {
       setBusy(false);
     }
   }
@@ -66,7 +104,9 @@ function AutomodItem({
     <article className="automodItem">
       <div className="automodItemHead">
         <strong>{hold.displayName}</strong>
-        {hold.category ? <span className="automodTag">{hold.category} · L{hold.level}</span> : null}
+        {hold.category ? (
+          <span className="automodTag">{hold.category}{hold.level != null ? ` · L${hold.level}` : ''}</span>
+        ) : null}
       </div>
       <p className="automodMessage">{hold.message}</p>
       {error ? <p className="automodError">{error}</p> : null}
@@ -78,17 +118,33 @@ function AutomodItem({
   );
 }
 
-export function AutomodPanel() {
-  const { pending, recentlyResolved, allow, deny } = useAutomodQueue();
+export function AutomodPanel({
+  queue,
+  showHistory = true,
+  subscriptionInactive = false,
+}: {
+  queue: AutomodQueueController;
+  showHistory?: boolean;
+  subscriptionInactive?: boolean;
+}) {
+  const { pending, recentlyResolved, error, allow, deny } = queue;
 
   return (
     <div className="automodPanel">
-      {pending.length === 0 ? (
+      {subscriptionInactive ? (
+        <p className="automodNotice">
+          AutoMod isn’t connected — reconnect Twitch in Settings to grant
+          <code> moderator:manage:automod</code> and start receiving held messages.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="automodError">{error}</p>
+      ) : pending.length === 0 ? (
         <p className="muted">No messages currently held.</p>
       ) : (
         pending.map(hold => <AutomodItem key={hold.id} hold={hold} onAllow={allow} onDeny={deny} />)
       )}
-      {recentlyResolved.length > 0 ? (
+      {showHistory && recentlyResolved.length > 0 ? (
         <div className="automodHistory">
           <p className="automodHistoryLabel">Recently resolved</p>
           {recentlyResolved.map(hold => (
@@ -104,13 +160,6 @@ export function AutomodPanel() {
 }
 
 export function AutomodQuickActions() {
-  const { pending, allow, deny } = useAutomodQueue();
-
-  if (pending.length === 0) return <p className="muted">No messages held.</p>;
-
-  return (
-    <div className="automodPanel">
-      {pending.map(hold => <AutomodItem key={hold.id} hold={hold} onAllow={allow} onDeny={deny} />)}
-    </div>
-  );
+  const queue = useAutomodQueue();
+  return <AutomodPanel queue={queue} showHistory={false} />;
 }

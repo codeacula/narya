@@ -22,6 +22,7 @@ import type {
   SoundButtonUpdate,
   SoundPlayback,
   AutomodHold,
+  AutomodQueue,
   TickerItem,
   TickerItemUpdate,
   ChatbotCommand,
@@ -322,8 +323,8 @@ export async function playSoundButton(id: string): Promise<SoundPlayback> {
   return sendJson<SoundPlayback>(`/api/sounds/${encodeURIComponent(id)}/play`, 'POST');
 }
 
-export async function getAutomodQueue(): Promise<{ pending: AutomodHold[]; recentlyResolved: AutomodHold[] }> {
-  return fetchJson('/api/automod/queue');
+export async function getAutomodQueue(): Promise<AutomodQueue> {
+  return fetchJson<AutomodQueue>('/api/automod/queue');
 }
 
 export async function allowAutomodHold(id: string): Promise<AutomodHold> {

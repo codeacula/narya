@@ -857,6 +857,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-size: 10px; line-height: 15px; border-radius: var(--radius-pill);
   background: var(--danger-bg); color: var(--danger-fg); border: 1px solid var(--danger-border);
 }
+.nav-automod-alert {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 10px; margin-right: 8px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  color: var(--danger-fg); background: var(--danger-bg);
+  border: 1px solid var(--danger-border); border-radius: var(--radius-pill);
+}
+.nav-automod-alert:hover { border-color: var(--danger-fg); }
+.nav-automod-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger-fg); }
 
 /* ================= CONTROLS PANEL ================= */
 .ctrl-panel { display: flex; flex-direction: column; }
