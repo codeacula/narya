@@ -99,6 +99,20 @@ describe('handleEventSubNotification', () => {
       expect(countEventsFor(actor)).toBe(2);
     });
 
+    // The merge state lives in SQLite, so a redelivered notification — or one
+    // arriving after a restart — still can't add a second row for one resub.
+    test('a redelivered subscription.message does not add a second row', async () => {
+      const actor = `merge-f-${crypto.randomUUID()}`;
+      const userId = crypto.randomUUID();
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {
+        user_id: userId, user_name: actor, tier: '1000', cumulative_months: 3,
+      });
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {
+        user_id: userId, user_name: actor, tier: '1000', cumulative_months: 3,
+      });
+      expect(countEventsFor(actor)).toBe(1);
+    });
+
     test('a resub with no month count omits the month segment', async () => {
       const actor = `merge-e-${crypto.randomUUID()}`;
       await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {

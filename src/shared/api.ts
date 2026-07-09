@@ -139,6 +139,7 @@ export type WhisperMessage = {
 export type StreamEvent = {
   id: string;
   kind: 'raid' | 'gift' | 'sub' | 'cheer' | 'follow' | 'redeem' | 'ad_break';
+  /** Twitch display name. */
   actor: string;
   detail: string;
   ago: string;
@@ -150,7 +151,10 @@ export type StreamEvent = {
 
 /** One person to thank at the end of the stream, with everything they did this session. */
 export type SessionShoutout = {
+  /** Twitch display name. */
   actor: string;
+  /** Twitch login, or null for rows recorded before logins were stored. */
+  login: string | null;
   kinds: string[];
   detail: string;
   firstAt: string;

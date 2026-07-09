@@ -66,6 +66,15 @@ db.exec(`
     received_at text not null
   );
 
+  -- Twitch fires channel.subscribe and channel.subscription.message for one
+  -- resub. Persisted so a restart between the two doesn't emit a duplicate row.
+  create table if not exists sub_merge_state (
+    user_key text primary key,
+    event_id text not null,
+    has_message integer not null default 0,
+    at integer not null
+  );
+
   create table if not exists twitch_oauth (
     provider text primary key,
     access_token text not null,
@@ -309,6 +318,7 @@ const allowedMigrationColumns = new Set([
   'chatterbox_base_url',
   'discord_announce_error',
   'session_id',
+  'actor_login',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
@@ -329,6 +339,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   chatterbox_base_url: "text not null default 'http://127.0.0.1:8008'",
   discord_announce_error: 'text',
   session_id: 'text',
+  actor_login: 'text',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -370,6 +381,9 @@ addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');
 // Events recorded before this column existed stay null and read as "an earlier stream".
 addColumnIfMissing('stream_events', 'session_id', 'text');
 db.exec('create index if not exists idx_stream_events_session on stream_events(session_id)');
+// `actor` is a display name, which for a localized name doesn't lowercase to the
+// login. Rows predating this column stay null and fall back to the old guess.
+addColumnIfMissing('stream_events', 'actor_login', 'text');
 
 // tmi logins are already lowercase, but historically some rows were stored with
 // mixed case. Normalize them once so username queries can use plain equality and

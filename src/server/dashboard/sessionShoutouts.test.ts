@@ -66,6 +66,38 @@ describe('getSessionShoutouts', () => {
     expect(getSessionShoutouts().map(s => s.actor)).toEqual(['NewFan']);
   });
 
+  // `actor` is a display name; only the login addresses the viewer.
+  test('carries the login Twitch sent, so a localized display name still opens', async () => {
+    startSession('test-login');
+    await emit('channel.follow', { user_name: 'ヤマダ', user_login: 'yamada_jp' });
+    await emit('channel.raid', { from_broadcaster_user_name: 'Sorlus', from_broadcaster_user_login: 'sorlus', viewers: 8 });
+
+    const byActor = Object.fromEntries(getSessionShoutouts().map(s => [s.actor, s.login]));
+    expect(byActor).toEqual({ 'ヤマダ': 'yamada_jp', Sorlus: 'sorlus' });
+  });
+
+  test('groups a person by login even when the display name is not its lowercase', async () => {
+    startSession('test-login-group');
+    await emit('channel.follow', { user_name: 'ヤマダ', user_login: 'yamada_jp' });
+    await emit('channel.cheer', { user_name: 'ヤマダ', user_login: 'yamada_jp', bits: 100 });
+
+    const shoutouts = getSessionShoutouts();
+    expect(shoutouts).toHaveLength(1);
+    expect(shoutouts[0]?.kinds.sort()).toEqual(['cheer', 'follow']);
+  });
+
+  // The query is an allowlist, so a future non-thankable kind can't reach the
+  // public ticker just by being written to stream_events.
+  test('a kind outside the thank-worthy list never reaches the roster', () => {
+    const session = startSession('test-allowlist');
+    db.prepare(`
+      insert into stream_events (id, kind, actor, detail, tone, received_at, session_id)
+      values (?, 'ban', 'SomeMod', 'banned a troll', 'info', ?, ?)
+    `).run(crypto.randomUUID(), new Date().toISOString(), session.id);
+
+    expect(getSessionShoutouts()).toEqual([]);
+  });
+
   test('a resub merged in place still counts once', async () => {
     startSession('test-resub');
     const userId = 'u-1';

@@ -2,6 +2,7 @@ import type express from 'express';
 import {
   DASHBOARD_HEARTBEAT_MS,
   DASHBOARD_RECENT_VIEWER_MESSAGE_LIMIT,
+  THANK_WORTHY_EVENT_KINDS,
   TWITCH_AD_SCHEDULE_CACHE_MS,
   TWITCH_STREAM_STATUS_CACHE_MS,
 } from '../../shared/constants';
@@ -534,24 +535,33 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
   });
 }
 
+// An allowlist, matching the attention feed's: a new non-thankable kind must not
+// silently appear on the public /overlay/shoutouts ticker.
+const shoutoutKindPlaceholders = THANK_WORTHY_EVENT_KINDS.map(() => '?').join(', ');
+const selectSessionShoutoutRows = db.prepare(`
+  select kind, actor, actor_login as login, detail, received_at as receivedAt
+  from stream_events
+  where session_id = ? and kind in (${shoutoutKindPlaceholders})
+  order by received_at asc
+`);
+
 export function getSessionShoutouts(): SessionShoutout[] {
   const sessionId = getCurrentStreamSessionId();
   if (!sessionId) return [];
 
-  const rows = db.prepare(`
-    select kind, actor, detail, received_at as receivedAt
-    from stream_events
-    where session_id = ? and kind != 'ad_break'
-    order by received_at asc
-  `).all(sessionId) as Array<{ kind: string; actor: string; detail: string; receivedAt: string }>;
+  const rows = selectSessionShoutoutRows.all(sessionId, ...THANK_WORTHY_EVENT_KINDS) as Array<{
+    kind: string; actor: string; login: string | null; detail: string; receivedAt: string;
+  }>;
 
   const byActor = new Map<string, SessionShoutout>();
   for (const row of rows) {
-    const key = row.actor.toLowerCase();
+    // Group by login where we have one; older rows fall back to the display name.
+    const key = row.login ?? row.actor.toLowerCase();
     const existing = byActor.get(key);
     if (!existing) {
       byActor.set(key, {
         actor: row.actor,
+        login: row.login,
         kinds: [row.kind],
         detail: row.detail,
         firstAt: row.receivedAt,
@@ -563,6 +573,7 @@ export function getSessionShoutouts(): SessionShoutout[] {
     // Keep the most recent detail — a resub says more than the follow that preceded it.
     existing.detail = row.detail;
     existing.lastAt = row.receivedAt;
+    existing.login ??= row.login;
   }
 
   return [...byActor.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
