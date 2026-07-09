@@ -3,7 +3,6 @@ import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
 import { useAttention, useAttentionSettings } from '../attention';
-import { ClipStage, useMediaQueue } from '../clips';
 import { playTone } from '../sounds';
 import {
   disconnectTwitch,
@@ -453,10 +452,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       .finally(() => setStreamInfoSaving(false));
   }, [refreshDashboardStatus, streamInfoForm]);
 
-  // Fallback clip player: the server only routes redeem media here when no
-  // /overlay/clips browser source is connected, so this never double-plays.
-  const redeemMedia = useMediaQueue();
-
   const attention = useAttention({
     events,
     chat,
@@ -709,15 +704,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
           onTwitchLogout={handleTwitchLogout}
           onTwitchBotLogout={handleTwitchBotLogout}
         />
-      )}
-
-      {redeemMedia.current && (
-        <div className="clip-fallback">
-          <div className="clip-fallback-head">
-            redeem preview{redeemMedia.depth > 1 ? ` · ${redeemMedia.depth - 1} queued` : ''}
-          </div>
-          <ClipStage item={redeemMedia.current} onFinished={redeemMedia.onFinished} />
-        </div>
       )}
 
       <div className="popout-layer">

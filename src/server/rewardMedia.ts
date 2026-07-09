@@ -2,7 +2,7 @@ import type { MediaKind, MediaPlayback, RewardMedia } from '../shared/api';
 import { db } from './db';
 import { HttpRouteError } from './http';
 import { isKnownMediaSrc } from './media';
-import { broadcastMedia } from './realtime';
+import { broadcast } from './realtime';
 
 const DEFAULT_VOLUME = 0.8;
 
@@ -63,13 +63,14 @@ export function deleteRewardMedia(rewardId: string): void {
 }
 
 /**
- * Broadcast a reward's media to the /overlay/clips browser source. Returns null
- * when the reward has no binding, so the caller can 404 or simply do nothing.
+ * Broadcast a reward's media to the /overlay/clips browser source, the only
+ * listener for media:play. Returns null when the reward has no binding, so the
+ * caller can 404 or simply do nothing.
  */
 export function playRewardMedia(rewardId: string, actor?: string): MediaPlayback | null {
   const media = getRewardMedia(rewardId);
   if (!media) return null;
   const payload: MediaPlayback = { id: crypto.randomUUID(), ...media, ...(actor ? { actor } : {}) };
-  broadcastMedia('media:play', payload);
+  broadcast('media:play', payload);
   return payload;
 }

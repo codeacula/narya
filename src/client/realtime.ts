@@ -15,25 +15,12 @@ let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let hasConnected = false;
 
-/**
- * The dedicated clip browser source claims redeem media; every other client is
- * only a fallback player. The server routes `media:play` accordingly, so a clip
- * never plays twice.
- */
-export const CLIP_PLAYER_ROLE = 'clip-player';
-
-function socketRole(): string {
-  const path = window.location.pathname.replace(/\/+$/, '');
-  return path === '/overlay/clips' ? CLIP_PLAYER_ROLE : 'app';
-}
-
 function ensureSocket() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     return;
   }
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const url = `${protocol}://${window.location.host}/socket?role=${encodeURIComponent(socketRole())}`;
-  socket = new WebSocket(withToken(url));
+  socket = new WebSocket(withToken(`${protocol}://${window.location.host}/socket`));
 
   socket.addEventListener('open', () => {
     if (hasConnected) {

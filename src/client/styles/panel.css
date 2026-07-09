@@ -1777,24 +1777,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .evt-filter-item:hover { background: rgba(255,255,255,0.03); }
 .evt-filter-item input[type="checkbox"] { accent-color: var(--gold-500); cursor: pointer; width: 13px; height: 13px; flex: none; }
 
-/* ================= REDEEM FALLBACK PLAYER ================= */
-/* Only rendered when no /overlay/clips source is connected. */
-.clip-fallback {
-  position: fixed; right: 16px; bottom: 16px; z-index: 60;
-  width: max-content; max-width: min(300px, 40vw);
-  border: 1px solid var(--border-2); border-radius: 10px;
-  background: var(--bg-2); box-shadow: var(--shadow-3);
-  overflow: hidden;
-}
-.clip-fallback-head {
-  padding: 6px 10px;
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--fg-3); border-bottom: 1px solid var(--border-1);
-}
-/* A portrait clip would otherwise tower over the column, so bound the height and
-   let the width follow the aspect ratio. */
-.clip-fallback .clipVideo { display: block; max-height: 38vh; max-width: 100%; width: auto; height: auto; }
-
 /* ================= SESSION SHOUTOUTS ================= */
 .shout-feed { display: flex; flex-direction: column; min-height: 0; }
 .shout-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
