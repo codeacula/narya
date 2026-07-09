@@ -52,9 +52,11 @@ curl http://localhost:4317/api/music/current
 ```
 src/
   client/
+    attention.ts        # useAttention hook: thank-worthy events + tagged chat, ack set, chime
     chat.tsx            # useChat hook + ChatPanel component
     music.tsx           # useMusic hook + MusicPanel + MusicControls
-    sounds.ts           # useSoundEvents hook + quack sound sources
+    shoutouts.tsx       # useSessionShoutouts hook + ShoutoutTicker (overlay)
+    sounds.ts           # useSoundEvents hook + quack sounds + playTone/playAttentionChime
     tts.ts              # useTtsEvents hook (plays TTS audio from WebSocket)
     realtime.ts         # shared WebSocket singleton + useSocket hook
     routing.ts          # dashboardRouteFromPath / pathForDashboardRoute
@@ -74,7 +76,8 @@ src/
       ViewerRewardsPage.tsx # Twitch viewer rewards management
       ViewerWindow.tsx      # popout viewer info window
       StreamInfoModal.tsx   # go-live stream info editor
-      Overlay.tsx           # browser-source overlay (transparent, chat + now-playing)
+      Overlay.tsx           # browser-source overlays (transparent): combined frame plus
+                            # per-widget routes /overlay/{chat,nowplaying,sounds,shoutouts}
       Tablet.tsx            # surface stream-deck controls
     styles/
       tokens.css        # design tokens (colors, type, spacing, motion)
@@ -120,6 +123,8 @@ src/
 **Service boundary** — `src/client/services/dashboard.ts` is the dashboard's REST data boundary. Components and hooks import shared domain contracts from `src/shared/api.ts` and dashboard data from the service layer instead of calling `fetch` directly.
 
 **Real-time data flow** — the backend broadcasts WebSocket events (`chat:message`, `chat:moderated`, `music:updated`, `sound:play`). The frontend's `useSocket` hook subscribes per event name and merges updates into local state seeded by initial REST fetches.
+
+**Stream-session scoping** — `stream_events.session_id` stamps each event with the active `stream_sessions` row at emit time (null when off-stream, and for rows predating the column). The dashboard dims events whose `sessionId` differs from `DashboardStatus.streamSessionId`, the attention feed ignores them, and `GET /api/dashboard/session-shoutouts` groups the current session's events per actor to drive the Shoutouts tab and the `/overlay/shoutouts` ticker.
 
 **Chat dual-layer storage** — `chat_events` is append-only (raw events). `chat_messages` is a mutable projection with soft-delete columns (`deleted_at`, `deleted_reason`, `moderation_event_id`). Dashboard shows moderated messages with a reason; overlay hides them entirely (the `compact` prop on `ChatPanel`).
 

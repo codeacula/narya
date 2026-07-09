@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
-import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, MODULES, PanelCtx } from '../ui/panels';
+import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
 import { useAttention, useAttentionSettings } from '../attention';
 import { playTone } from '../sounds';
@@ -19,6 +19,7 @@ import {
   runGoLive,
   switchObsScene,
   getChatters,
+  getSessionShoutouts,
   reconnectEventSub,
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
@@ -29,7 +30,7 @@ import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } fr
 import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
-import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, SessionShoutout, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
 
 /* ---------------- constants ---------------- */
 
@@ -116,7 +117,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [chatters, setChatters] = useState<Chatter[]>([]);
   const [chattersError, setChattersError] = useState<string | null>(null);
   const automodQueue = useAutomodQueue();
-  const [rightTab, setRightTab] = useState<'chatters' | 'automod'>('chatters');
+  const [rightTab, setRightTab] = useState<'chatters' | 'shoutouts' | 'automod'>('chatters');
+  const [shoutouts, setShoutouts] = useState<SessionShoutout[]>([]);
   const { settings: attentionSettings, update: updateAttentionSettings } = useAttentionSettings();
   const lastChatAt = React.useRef<number>(0);
   // Mirror the channel into a ref so the stable chat:message handler can read
@@ -202,6 +204,14 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       clearInterval(chattersRefresh);
     };
   }, []);
+
+  // The roster reads the whole session server-side, so refresh it whenever a new
+  // event lands or the session itself changes (go live / go offline).
+  useEffect(() => {
+    void getSessionShoutouts().then(setShoutouts).catch((error: unknown) => {
+      console.error('Failed to load session shoutouts:', error);
+    });
+  }, [events, status.streamSessionId]);
 
   // Real Twitch EventSub events from the backend
   useSocket<StreamEvent>('stream:event', React.useCallback((evt) => {
@@ -438,6 +448,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     viewers,
     tag: attentionSettings.tag,
     soundEnabled: attentionSettings.soundEnabled,
+    currentSessionId: status.streamSessionId,
   });
 
   const ctx: PanelCtx = {
@@ -445,6 +456,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     chat,
     events,
     channel: status.channel,
+    currentSessionId: status.streamSessionId,
     openViewerPopout: login => {
       const windowName = `viewer_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       window.open(`/viewer?login=${encodeURIComponent(login)}`, windowName, 'width=380,height=560');
@@ -594,19 +606,28 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             id="chatters"
             title="viewers"
             dot={true}
-            count={rightTab === 'chatters' ? chatters.length : automodQueue.pending.length}
+            count={
+              rightTab === 'chatters'
+                ? chatters.length
+                : rightTab === 'shoutouts'
+                  ? shoutouts.length
+                  : automodQueue.pending.length
+            }
             popped={!!popped['chatters']}
             onPop={handlePop}
             tabs={[
               { id: 'chatters', label: 'Viewers' },
+              { id: 'shoutouts', label: 'Shoutouts', badge: shoutouts.length },
               { id: 'automod', label: 'AutoMod', badge: automodQueue.pending.length },
             ]}
             activeTab={rightTab}
-            onTabChange={id => setRightTab(id as 'chatters' | 'automod')}
+            onTabChange={id => setRightTab(id as 'chatters' | 'shoutouts' | 'automod')}
           >
             {rightTab === 'chatters'
               ? <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />
-              : <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />}
+              : rightTab === 'shoutouts'
+                ? <ShoutoutsPanel shoutouts={shoutouts} streamActive={status.streamSessionId !== null} onOpenViewer={ctx.openViewerPopout} />
+                : <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />}
           </Panel>
         </div>
       </div>

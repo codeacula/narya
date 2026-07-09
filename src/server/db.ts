@@ -300,6 +300,7 @@ const allowedMigrationColumns = new Set([
   'temperature',
   'chatterbox_base_url',
   'discord_announce_error',
+  'session_id',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
@@ -319,6 +320,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   temperature: 'real not null default 0.8',
   chatterbox_base_url: "text not null default 'http://127.0.0.1:8008'",
   discord_announce_error: 'text',
+  session_id: 'text',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -357,6 +359,9 @@ addColumnIfMissing('tts_settings', 'cfg_weight', 'real not null default 0.5');
 addColumnIfMissing('tts_settings', 'temperature', 'real not null default 0.8');
 addColumnIfMissing('app_config', 'chatterbox_base_url', "text not null default 'http://127.0.0.1:8008'");
 addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');
+// Events recorded before this column existed stay null and read as "an earlier stream".
+addColumnIfMissing('stream_events', 'session_id', 'text');
+db.exec('create index if not exists idx_stream_events_session on stream_events(session_id)');
 
 // tmi logins are already lowercase, but historically some rows were stored with
 // mixed case. Normalize them once so username queries can use plain equality and

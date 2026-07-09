@@ -44,14 +44,18 @@ export function projectAttentionItems(input: {
   chat: ChatEntry[];
   viewers: Record<string, Viewer>;
   tag: string;
+  /** When set, only events from this stream session are worth thanking. */
+  currentSessionId?: string | null;
 }): AttentionItem[] {
-  const { events, chat, viewers } = input;
+  const { events, chat, viewers, currentSessionId } = input;
   const tag = normalizeTag(input.tag);
 
   const items: AttentionItem[] = [];
 
   for (const event of events) {
     if (!ATTENTION_EVENT_KINDS.has(event.kind)) continue;
+    // Off-stream and earlier-stream events were handled on a previous stream.
+    if (currentSessionId && event.sessionId !== currentSessionId) continue;
     items.push({
       id: event.id,
       source: 'event',
@@ -145,13 +149,14 @@ export function useAttention(input: {
   viewers: Record<string, Viewer>;
   tag: string;
   soundEnabled: boolean;
+  currentSessionId: string | null;
 }) {
-  const { events, chat, viewers, tag, soundEnabled } = input;
+  const { events, chat, viewers, tag, soundEnabled, currentSessionId } = input;
   const [acked, setAcked] = React.useState<Set<string>>(() => loadAckedIds());
 
   const items = React.useMemo(
-    () => projectAttentionItems({ events, chat, viewers, tag }),
-    [events, chat, viewers, tag],
+    () => projectAttentionItems({ events, chat, viewers, tag, currentSessionId }),
+    [events, chat, viewers, tag, currentSessionId],
   );
 
   const seenIds = React.useRef<Set<string> | null>(null);

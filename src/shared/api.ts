@@ -140,6 +140,17 @@ export type StreamEvent = {
   ago: string;
   tone: string;
   receivedAt?: string;
+  /** Stream session the event belongs to. Null for events recorded off-stream or before sessions were tracked. */
+  sessionId?: string | null;
+};
+
+/** One person to thank at the end of the stream, with everything they did this session. */
+export type SessionShoutout = {
+  actor: string;
+  kinds: string[];
+  detail: string;
+  firstAt: string;
+  lastAt: string;
 };
 
 export type StreamEventUpdate = {

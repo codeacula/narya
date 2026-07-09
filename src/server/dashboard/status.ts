@@ -5,6 +5,7 @@ import {
   TWITCH_AD_SCHEDULE_CACHE_MS,
   TWITCH_STREAM_STATUS_CACHE_MS,
 } from '../../shared/constants';
+import type { SessionShoutout } from '../../shared/api';
 import { chatHighlight, getViewerRolesFromBadges } from '../../shared/roles';
 import { twitchClient } from '../chat';
 import { appConfig } from '../appConfig';
@@ -13,7 +14,7 @@ import { HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
 import { broadcast, getSocketCount } from '../realtime';
 import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus } from '../runtime';
-import { getActiveStreamSession, getSessionChatterCount } from '../streamSession';
+import { getActiveStreamSession, getCurrentStreamSessionId, getSessionChatterCount } from '../streamSession';
 import { getTwitchAuthStatus, REQUIRED_TWITCH_OAUTH_SCOPES } from '../twitch/auth';
 import { fetchBroadcasterId, getTwitchApiHeaders, getTwitchUserApiHeaders } from '../twitch/api';
 
@@ -503,11 +504,14 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
 
   app.get('/api/dashboard/events', (_request, response) => {
     const rows = db.prepare(`
-      select id, kind, actor, detail, tone, received_at as receivedAt
+      select id, kind, actor, detail, tone, received_at as receivedAt, session_id as sessionId
       from stream_events
       order by received_at desc
       limit 50
-    `).all() as Array<{ id: string; kind: string; actor: string; detail: string; tone: string; receivedAt: string }>;
+    `).all() as Array<{
+      id: string; kind: string; actor: string; detail: string;
+      tone: string; receivedAt: string; sessionId: string | null;
+    }>;
 
     if (rows.length > 0) {
       response.json(rows.map(r => ({ ...r, ago: formatAgo(r.receivedAt) })));
@@ -516,6 +520,47 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
 
     response.json([]);
   });
+
+  // Everyone worth thanking this session, newest activity first. Unlike the
+  // 50-row event feed this reads the whole session, so a long stream doesn't
+  // drop the people who showed up early.
+  app.get('/api/dashboard/session-shoutouts', (_request, response) => {
+    response.json(getSessionShoutouts());
+  });
+}
+
+export function getSessionShoutouts(): SessionShoutout[] {
+  const sessionId = getCurrentStreamSessionId();
+  if (!sessionId) return [];
+
+  const rows = db.prepare(`
+    select kind, actor, detail, received_at as receivedAt
+    from stream_events
+    where session_id = ? and kind != 'ad_break'
+    order by received_at asc
+  `).all(sessionId) as Array<{ kind: string; actor: string; detail: string; receivedAt: string }>;
+
+  const byActor = new Map<string, SessionShoutout>();
+  for (const row of rows) {
+    const key = row.actor.toLowerCase();
+    const existing = byActor.get(key);
+    if (!existing) {
+      byActor.set(key, {
+        actor: row.actor,
+        kinds: [row.kind],
+        detail: row.detail,
+        firstAt: row.receivedAt,
+        lastAt: row.receivedAt,
+      });
+      continue;
+    }
+    if (!existing.kinds.includes(row.kind)) existing.kinds.push(row.kind);
+    // Keep the most recent detail — a resub says more than the follow that preceded it.
+    existing.detail = row.detail;
+    existing.lastAt = row.receivedAt;
+  }
+
+  return [...byActor.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
 }
 
 export function startDashboardHeartbeat(state: RuntimeState) {

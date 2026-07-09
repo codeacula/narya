@@ -9,13 +9,13 @@ import { db } from './db';
 import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
-import { endActiveStreamSession } from './streamSession';
+import { endActiveStreamSession, getCurrentStreamSessionId } from './streamSession';
 import { isTtsRewardEnabled, speakText } from './tts';
 import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials, runTwitchCommercial } from './twitch/api';
 
 const insertStreamEvent = db.prepare(`
-  insert or ignore into stream_events (id, kind, actor, detail, tone, received_at)
-  values (?, ?, ?, ?, ?, ?)
+  insert or ignore into stream_events (id, kind, actor, detail, tone, received_at, session_id)
+  values (?, ?, ?, ?, ?, ?, ?)
 `);
 
 const updateStreamEventDetail = db.prepare(`
@@ -25,8 +25,9 @@ const updateStreamEventDetail = db.prepare(`
 function emitStreamEvent(kind: string, actor: string, detail: string, tone: string): string {
   const id = crypto.randomUUID();
   const receivedAt = new Date().toISOString();
-  insertStreamEvent.run(id, kind, actor, detail, tone, receivedAt);
-  broadcast('stream:event', { id, kind, actor, detail, tone, ago: 'just now', receivedAt });
+  const sessionId = getCurrentStreamSessionId();
+  insertStreamEvent.run(id, kind, actor, detail, tone, receivedAt, sessionId);
+  broadcast('stream:event', { id, kind, actor, detail, tone, ago: 'just now', receivedAt, sessionId });
   return id;
 }
 

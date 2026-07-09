@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   MusicInfo,
   StreamEvent,
+  SessionShoutout,
   RunItem,
   RunItemUpdate,
   DashboardStatus,
@@ -121,6 +122,10 @@ export async function getChatEntriesBefore(id: string): Promise<ChatEntry[]> {
 
 export async function getStreamEvents(): Promise<StreamEvent[]> {
   return fetchJson<StreamEvent[]>('/api/dashboard/events');
+}
+
+export async function getSessionShoutouts(): Promise<SessionShoutout[]> {
+  return fetchJson<SessionShoutout[]>('/api/dashboard/session-shoutouts');
 }
 
 export async function getDashboardStatus(): Promise<DashboardStatus> {

@@ -26,8 +26,8 @@ function viewer(login: string, tags: string[]): Viewer {
   };
 }
 
-function event(kind: StreamEvent['kind'], actor: string, at: string): StreamEvent {
-  return { id: `${kind}-${actor}-${at}`, kind, actor, detail: `${kind} detail`, ago: '', tone: 'warning', receivedAt: at };
+function event(kind: StreamEvent['kind'], actor: string, at: string, sessionId: string | null = 'live'): StreamEvent {
+  return { id: `${kind}-${actor}-${at}`, kind, actor, detail: `${kind} detail`, ago: '', tone: 'warning', receivedAt: at, sessionId };
 }
 
 function chatEntry(id: string, user: string, text: string, at: string): ChatEntry {
@@ -85,6 +85,22 @@ describe('projectAttentionItems', () => {
     const chat = [chatEntry('m1', 'tagged', 'later', '2026-07-09T10:05:00Z')];
     const items = projectAttentionItems({ events, chat, viewers, tag: 'notify' });
     expect(items.map(i => i.id)).toEqual(['m1', 'sub-a-2026-07-09T10:00:00Z']);
+  });
+
+  test('excludes events from an earlier stream session', () => {
+    const events = [
+      event('sub', 'thisStream', '2026-07-09T10:00:00Z', 'live'),
+      event('sub', 'lastStream', '2026-07-09T10:01:00Z', 'old-session'),
+      event('sub', 'offStream', '2026-07-09T10:02:00Z', null),
+    ];
+    const items = projectAttentionItems({ events, chat: [], viewers, tag: 'notify', currentSessionId: 'live' });
+    expect(items.map(i => i.actor)).toEqual(['thisStream']);
+  });
+
+  test('without a current session, session filtering is skipped', () => {
+    const events = [event('sub', 'anyone', '2026-07-09T10:00:00Z', 'old-session')];
+    const items = projectAttentionItems({ events, chat: [], viewers, tag: 'notify', currentSessionId: null });
+    expect(items.map(i => i.actor)).toEqual(['anyone']);
   });
 
   test('caps the feed at 30 items', () => {
