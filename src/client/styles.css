@@ -282,10 +282,65 @@ nav {
   overflow: hidden;
 }
 
+/* Ponder the orb: the clip plays inside a glass sphere, drawn with the same
+   --note violet as the app's empty-state orb. */
+.clipOrb {
+  position: relative;
+  width: min(62vmin, 540px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(158, 130, 232, 0.34),
+    0 0 70px 10px rgba(107, 79, 184, 0.45),
+    0 18px 50px rgba(0, 0, 0, 0.45);
+  animation:
+    clipOrbIn 520ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    clipOrbFloat 6s ease-in-out 520ms infinite;
+}
+
+/* Rim, inner shade, and the specular highlight, painted over the video. */
+.clipOrb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    /* specular highlight */
+    radial-gradient(ellipse 30% 22% at 31% 23%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.08) 55%, transparent 78%),
+    /* reflected rim light, lower right */
+    radial-gradient(ellipse 34% 26% at 72% 80%, rgba(188, 166, 240, 0.28), transparent 72%),
+    /* vignette so the sphere reads round, not like a hole punched in the video */
+    radial-gradient(circle at 50% 50%, transparent 52%, rgba(12, 16, 28, 0.68) 100%);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(188, 166, 240, 0.55),
+    inset 0 0 60px rgba(107, 79, 184, 0.4);
+}
+
+@keyframes clipOrbIn {
+  from { opacity: 0; transform: scale(0.86); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes clipOrbFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clipOrb { animation: none; }
+}
+
 .clipVideo {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  /* Bias the crop downward: portrait clips carry burned-in captions near the
+     bottom, and a centred crop slices them in half. */
+  object-position: center 62%;
 }
 
 /* Shoutout ticker: renders nothing when the roster is empty, so the browser

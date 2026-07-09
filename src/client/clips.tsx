@@ -67,15 +67,18 @@ export function ClipStage({ item, onFinished }: { item: MediaPlayback | null; on
     );
   }
 
+  // The rim and highlight are pseudo-elements, which <video> cannot carry, so
+  // the clip plays inside a wrapper that draws the glass around it.
   return (
-    <video
-      key={item.id}
-      ref={el => { mediaRef.current = el; }}
-      className="clipVideo"
-      src={item.src}
-      playsInline
-      onEnded={onFinished}
-      onError={onFinished}
-    />
+    <div className="clipOrb" key={item.id}>
+      <video
+        ref={el => { mediaRef.current = el; }}
+        className="clipVideo"
+        src={item.src}
+        playsInline
+        onEnded={onFinished}
+        onError={onFinished}
+      />
+    </div>
   );
 }
