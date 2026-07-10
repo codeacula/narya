@@ -691,16 +691,12 @@ nav {
   overflow-wrap: anywhere;
 }
 
-/* Soundboard buttons hold a fixed 5-up grid so every button is the same width
-   whether a group has three sounds or a dozen, instead of stretching to fill. */
+/* Soundboard buttons stay a uniform width instead of stretching to fill: auto-fill
+   keeps the empty tracks so a group of three reads at the same size as a group of a
+   dozen. The 165px floor lands on ~7-8 per row at Surface Pro width while keeping
+   every button comfortably readable and touchable, and wraps down on smaller screens. */
 .mediaPanel .tabletButtonGrid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-@media (max-width: 760px) {
-  .mediaPanel .tabletButtonGrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+  grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
 }
 
 .mediaGroup + .mediaGroup {

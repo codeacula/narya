@@ -98,6 +98,9 @@ export function NavBar({
       </div>
       <div className="nav-spacer" />
       {alert}
+      <a className="nav-icon" href="/tablet" title="Tablet mode" aria-label="Tablet mode">
+        <Icon name="dock" size={15} />
+      </a>
       <button
         className={'nav-icon' + (tweaksOpen ? ' active' : '')}
         title="Dev Menu"
