@@ -198,7 +198,17 @@ export function StreamInfoModal({
                 disabled={loading || saving}
                 onChange={event => {
                   const picked = categoryOptions.find(option => option.id === event.target.value);
-                  if (picked) setForm(current => ({ ...current, category: picked.name, categoryId: picked.id }));
+                  if (!picked) return;
+                  // The saved list carries each category's tag set; a remembered stub may not.
+                  const savedTags = savedCategories.find(cat => cat.id === picked.id)?.tags ?? [];
+                  setForm(current => ({
+                    ...current,
+                    category: picked.name,
+                    categoryId: picked.id,
+                    // Replace tags only when this category actually defines a set,
+                    // so picking an untagged category never wipes the current tags.
+                    tags: savedTags.length > 0 ? savedTags : current.tags,
+                  }));
                 }}
               >
                 <option value="" disabled>{categoryOptions.length ? 'Select a category…' : 'No saved categories — use Add'}</option>
