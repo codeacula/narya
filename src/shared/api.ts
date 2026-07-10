@@ -14,6 +14,8 @@ export type ChatMessage = {
   isFirstThisSession: boolean;
   isFirstEver: boolean;
   isExiting?: boolean;
+  /** Stream session the message was sent during. Null when sent off-stream. */
+  sessionId?: string | null;
 };
 
 export type ChatModerationEvent = {
@@ -118,6 +120,10 @@ export type ChatEntry = {
   user: string;
   text: string;
   time: string;
+  /** ISO timestamp; `time` is a display-only clock string. */
+  at?: string;
+  /** Stream session the message was sent during. Null when sent off-stream. */
+  sessionId?: string | null;
   highlight?: 'first-session' | 'first-ever' | 'broadcaster' | 'sub' | 'mod' | 'vip';
   kind?: 'whisper';
 };
@@ -133,11 +139,32 @@ export type WhisperMessage = {
 export type StreamEvent = {
   id: string;
   kind: 'raid' | 'gift' | 'sub' | 'cheer' | 'follow' | 'redeem' | 'ad_break';
+  /** Twitch display name. */
   actor: string;
   detail: string;
   ago: string;
   tone: string;
   receivedAt?: string;
+  /** Stream session the event belongs to. Null for events recorded off-stream or before sessions were tracked. */
+  sessionId?: string | null;
+};
+
+/** One person to thank at the end of the stream, with everything they did this session. */
+export type SessionShoutout = {
+  /** Twitch display name. */
+  actor: string;
+  /** Twitch login, or null for rows recorded before logins were stored. */
+  login: string | null;
+  kinds: string[];
+  detail: string;
+  firstAt: string;
+  lastAt: string;
+};
+
+export type StreamEventUpdate = {
+  id: string;
+  detail: string;
+  tone: string;
 };
 
 export type RunItem = {
@@ -314,6 +341,28 @@ export type ViewerRewardCategory = {
   games: RewardStreamCategory[];
 };
 
+export type MediaKind = 'video' | 'audio';
+
+/** A playable file discovered under public/clips or public/sounds. */
+export type MediaFile = {
+  src: string;
+  label: string;
+  kind: MediaKind;
+  sizeBytes: number;
+};
+
+/** What a channel-point reward plays when redeemed. */
+export type RewardMedia = {
+  kind: MediaKind;
+  src: string;
+  volume: number;
+};
+
+export type MediaPlayback = RewardMedia & {
+  id: string;
+  actor?: string;
+};
+
 export type ViewerReward = {
   id: string;
   title: string;
@@ -331,6 +380,7 @@ export type ViewerReward = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
+  media: RewardMedia | null;
 };
 
 export type ViewerRewardsResponse = {
@@ -351,6 +401,8 @@ export type ViewerRewardUpsert = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
+  /** Omit to leave the existing binding alone; null clears it. */
+  media?: RewardMedia | null;
 };
 
 export type ViewerRewardCategoryToggleResult = ViewerRewardsResponse & {

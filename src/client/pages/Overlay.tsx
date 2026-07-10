@@ -1,6 +1,8 @@
 import React from 'react';
 import { ChatPanel } from '../chat';
+import { ClipStage, useMediaQueue } from '../clips';
 import { MusicPanel } from '../music';
+import { ShoutoutTicker, useSessionShoutouts } from '../shoutouts';
 import { quackSoundSources, useSoundEvents } from '../sounds';
 import { useTtsEvents } from '../tts';
 
@@ -34,6 +36,24 @@ export function OverlayNowPlayingPage() {
   return (
     <main className="overlayWidget overlayNowPlayingWidget">
       <MusicPanel />
+    </main>
+  );
+}
+
+export function OverlayClipsPage() {
+  const { current, onFinished } = useMediaQueue();
+  return (
+    <main className="overlayWidget overlayClipsWidget" aria-label="Redeem clip overlay">
+      <ClipStage item={current} onFinished={onFinished} />
+    </main>
+  );
+}
+
+export function OverlayShoutoutsPage() {
+  const shoutouts = useSessionShoutouts();
+  return (
+    <main className="overlayWidget overlayShoutoutsWidget" aria-label="Stream shoutouts overlay">
+      <ShoutoutTicker shoutouts={shoutouts} />
     </main>
   );
 }

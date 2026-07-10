@@ -2,9 +2,11 @@ import type express from 'express';
 import {
   DASHBOARD_HEARTBEAT_MS,
   DASHBOARD_RECENT_VIEWER_MESSAGE_LIMIT,
+  THANK_WORTHY_EVENT_KINDS,
   TWITCH_AD_SCHEDULE_CACHE_MS,
   TWITCH_STREAM_STATUS_CACHE_MS,
 } from '../../shared/constants';
+import type { SessionShoutout } from '../../shared/api';
 import { chatHighlight, getViewerRolesFromBadges } from '../../shared/roles';
 import { twitchClient } from '../chat';
 import { appConfig } from '../appConfig';
@@ -13,7 +15,7 @@ import { HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
 import { broadcast, getSocketCount } from '../realtime';
 import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus } from '../runtime';
-import { getActiveStreamSession, getSessionChatterCount } from '../streamSession';
+import { getActiveStreamSession, getCurrentStreamSessionId, getSessionChatterCount } from '../streamSession';
 import { getTwitchAuthStatus, REQUIRED_TWITCH_OAUTH_SCOPES } from '../twitch/auth';
 import { fetchBroadcasterId, getTwitchApiHeaders, getTwitchUserApiHeaders } from '../twitch/api';
 
@@ -452,7 +454,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
             received_at as receivedAt,
             badges_json as badgesJson,
             is_first_in_session as isFirstThisSession,
-            is_first_ever as isFirstEver
+            is_first_ever as isFirstEver,
+            stream_session_id as sessionId
           from chat_messages
           where (received_at, id) < (select received_at, id from chat_messages where id = ?)
           order by received_at desc, id desc
@@ -465,6 +468,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           badgesJson: string | null;
           isFirstThisSession: number;
           isFirstEver: number;
+          sessionId: string | null;
         }>
       : db.prepare(`
           select
@@ -474,7 +478,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
             received_at as receivedAt,
             badges_json as badgesJson,
             is_first_in_session as isFirstThisSession,
-            is_first_ever as isFirstEver
+            is_first_ever as isFirstEver,
+            stream_session_id as sessionId
           from chat_messages
           order by received_at desc, id desc
           limit 80
@@ -486,6 +491,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           badgesJson: string | null;
           isFirstThisSession: number;
           isFirstEver: number;
+          sessionId: string | null;
         }>;
 
     response.json(rows.reverse().map((row) => {
@@ -495,6 +501,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         user: row.username.toLowerCase(),
         text: row.message,
         time: formatClockTime(row.receivedAt),
+        at: row.receivedAt,
+        sessionId: row.sessionId,
         highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
       };
     }));
@@ -502,11 +510,14 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
 
   app.get('/api/dashboard/events', (_request, response) => {
     const rows = db.prepare(`
-      select id, kind, actor, detail, tone, received_at as receivedAt
+      select id, kind, actor, detail, tone, received_at as receivedAt, session_id as sessionId
       from stream_events
       order by received_at desc
       limit 50
-    `).all() as Array<{ id: string; kind: string; actor: string; detail: string; tone: string; receivedAt: string }>;
+    `).all() as Array<{
+      id: string; kind: string; actor: string; detail: string;
+      tone: string; receivedAt: string; sessionId: string | null;
+    }>;
 
     if (rows.length > 0) {
       response.json(rows.map(r => ({ ...r, ago: formatAgo(r.receivedAt) })));
@@ -515,6 +526,57 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
 
     response.json([]);
   });
+
+  // Everyone worth thanking this session, newest activity first. Unlike the
+  // 50-row event feed this reads the whole session, so a long stream doesn't
+  // drop the people who showed up early.
+  app.get('/api/dashboard/session-shoutouts', (_request, response) => {
+    response.json(getSessionShoutouts());
+  });
+}
+
+// An allowlist, matching the attention feed's: a new non-thankable kind must not
+// silently appear on the public /overlay/shoutouts ticker.
+const shoutoutKindPlaceholders = THANK_WORTHY_EVENT_KINDS.map(() => '?').join(', ');
+const selectSessionShoutoutRows = db.prepare(`
+  select kind, actor, actor_login as login, detail, received_at as receivedAt
+  from stream_events
+  where session_id = ? and kind in (${shoutoutKindPlaceholders})
+  order by received_at asc
+`);
+
+export function getSessionShoutouts(): SessionShoutout[] {
+  const sessionId = getCurrentStreamSessionId();
+  if (!sessionId) return [];
+
+  const rows = selectSessionShoutoutRows.all(sessionId, ...THANK_WORTHY_EVENT_KINDS) as Array<{
+    kind: string; actor: string; login: string | null; detail: string; receivedAt: string;
+  }>;
+
+  const byActor = new Map<string, SessionShoutout>();
+  for (const row of rows) {
+    // Group by login where we have one; older rows fall back to the display name.
+    const key = row.login ?? row.actor.toLowerCase();
+    const existing = byActor.get(key);
+    if (!existing) {
+      byActor.set(key, {
+        actor: row.actor,
+        login: row.login,
+        kinds: [row.kind],
+        detail: row.detail,
+        firstAt: row.receivedAt,
+        lastAt: row.receivedAt,
+      });
+      continue;
+    }
+    if (!existing.kinds.includes(row.kind)) existing.kinds.push(row.kind);
+    // Keep the most recent detail — a resub says more than the follow that preceded it.
+    existing.detail = row.detail;
+    existing.lastAt = row.receivedAt;
+    existing.login ??= row.login;
+  }
+
+  return [...byActor.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
 }
 
 export function startDashboardHeartbeat(state: RuntimeState) {

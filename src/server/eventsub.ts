@@ -8,27 +8,98 @@ import { recordAutomodHold, resolveAutomodHold } from './automod';
 import { db } from './db';
 import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
+import { playRewardMedia } from './rewardMedia';
 import type { RuntimeState } from './runtime';
-import { endActiveStreamSession } from './streamSession';
+import { endActiveStreamSession, getCurrentStreamSessionId } from './streamSession';
 import { isTtsRewardEnabled, speakText } from './tts';
 import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials, runTwitchCommercial } from './twitch/api';
 
 const insertStreamEvent = db.prepare(`
-  insert or ignore into stream_events (id, kind, actor, detail, tone, received_at)
-  values (?, ?, ?, ?, ?, ?)
+  insert or ignore into stream_events (id, kind, actor, detail, tone, received_at, session_id, actor_login)
+  values (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-function emitStreamEvent(kind: string, actor: string, detail: string, tone: string) {
+const updateStreamEventDetail = db.prepare(`
+  update stream_events set detail = ?, tone = ? where id = ?
+`);
+
+/** `actor` is the display name shown on screen; `actorLogin` addresses the viewer. */
+function emitStreamEvent(kind: string, actor: string, detail: string, tone: string, actorLogin?: string): string {
   const id = crypto.randomUUID();
   const receivedAt = new Date().toISOString();
-  insertStreamEvent.run(id, kind, actor, detail, tone, receivedAt);
-  broadcast('stream:event', { id, kind, actor, detail, tone, ago: 'just now', receivedAt });
+  const sessionId = getCurrentStreamSessionId();
+  const login = actorLogin?.toLowerCase() || null;
+  insertStreamEvent.run(id, kind, actor, detail, tone, receivedAt, sessionId, login);
+  broadcast('stream:event', { id, kind, actor, detail, tone, ago: 'just now', receivedAt, sessionId });
+  return id;
+}
+
+function loginOf(event: Record<string, unknown>, field = 'user_login'): string | undefined {
+  const value = event[field];
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+function updateStreamEvent(id: string, detail: string, tone: string) {
+  updateStreamEventDetail.run(detail, tone, id);
+  broadcast('stream:event:update', { id, detail, tone });
 }
 
 function tierLabel(tier: string): string {
   if (tier === '2000') return 'Tier 2';
   if (tier === '3000') return 'Tier 3';
   return 'Tier 1';
+}
+
+// Twitch fires both channel.subscribe and channel.subscription.message for a
+// resub, in no guaranteed order. Track the sub event we already emitted per user
+// so the second notification updates that row instead of adding another. Kept in
+// SQLite rather than memory: a restart between the two notifications would
+// otherwise persist a duplicate 'sub' row forever.
+const SUB_MERGE_WINDOW_MS = 60_000;
+
+const selectRecentSub = db.prepare(
+  'select event_id as eventId, has_message as hasMessage from sub_merge_state where user_key = ? and at > ?',
+);
+const upsertRecentSub = db.prepare(`
+  insert into sub_merge_state (user_key, event_id, has_message, at)
+  values (?, ?, ?, ?)
+  on conflict(user_key) do update set
+    event_id = excluded.event_id,
+    has_message = excluded.has_message,
+    at = excluded.at
+`);
+const deleteExpiredSubs = db.prepare('delete from sub_merge_state where at <= ?');
+const deleteAllSubs = db.prepare('delete from sub_merge_state');
+
+type RecentSub = { eventId: string; hasMessage: boolean };
+
+function takeRecentSub(userKey: string, now: number): RecentSub | undefined {
+  const cutoff = now - SUB_MERGE_WINDOW_MS;
+  deleteExpiredSubs.run(cutoff);
+  const row = selectRecentSub.get(userKey, cutoff) as { eventId: string; hasMessage: number } | undefined;
+  if (!row) return undefined;
+  return { eventId: row.eventId, hasMessage: row.hasMessage !== 0 };
+}
+
+function rememberRecentSub(userKey: string, eventId: string, hasMessage: boolean, now: number): void {
+  upsertRecentSub.run(userKey, eventId, hasMessage ? 1 : 0, now);
+}
+
+export function resetSubMergeState() {
+  deleteAllSubs.run();
+}
+
+function subMergeKey(event: Record<string, unknown>): string {
+  const userId = event.user_id;
+  if (typeof userId === 'string' && userId !== '') return userId;
+  return String(event.user_name ?? '').toLowerCase();
+}
+
+function resubDetail(event: Record<string, unknown>): string {
+  const months = Number(event.cumulative_months);
+  const tier = tierLabel(event.tier as string);
+  if (!Number.isFinite(months) || months <= 0) return `resub · ${tier}`;
+  return `resub · ${tier} · ${months} month${months !== 1 ? 's' : ''}`;
 }
 
 export async function handleEventSubNotification(state: RuntimeState, type: string, event: Record<string, unknown>) {
@@ -52,42 +123,62 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       endActiveStreamSession();
       break;
     case 'channel.follow':
-      emitStreamEvent('follow', event.user_name as string, 'followed', 'silver');
+      emitStreamEvent('follow', event.user_name as string, 'followed', 'silver', loginOf(event));
       break;
-    case 'channel.subscribe':
-      if (!(event.is_gift as boolean)) {
-        emitStreamEvent('sub', event.user_name as string,
-          `subscribed · ${tierLabel(event.tier as string)}`, 'warning');
+    case 'channel.subscribe': {
+      if (event.is_gift as boolean) break;
+      const now = Date.now();
+      const key = subMergeKey(event);
+      // A channel.subscription.message already landed for this user and carries
+      // the richer resub detail, so this notification adds nothing.
+      if (takeRecentSub(key, now)) break;
+      const eventId = emitStreamEvent('sub', event.user_name as string,
+        `new sub · ${tierLabel(event.tier as string)}`, 'warning', loginOf(event));
+      rememberRecentSub(key, eventId, false, now);
+      break;
+    }
+    case 'channel.subscription.message': {
+      const now = Date.now();
+      const key = subMergeKey(event);
+      const detail = resubDetail(event);
+      const pending = takeRecentSub(key, now);
+      if (pending && !pending.hasMessage) {
+        updateStreamEvent(pending.eventId, detail, 'warning');
+        rememberRecentSub(key, pending.eventId, true, now);
+        break;
       }
+      if (pending) break; // A duplicate message notification for the same resub.
+      const eventId = emitStreamEvent('sub', event.user_name as string, detail, 'warning', loginOf(event));
+      rememberRecentSub(key, eventId, true, now);
       break;
-    case 'channel.subscription.message':
-      emitStreamEvent('sub', event.user_name as string,
-        `resubscribed · ${event.cumulative_months} months · ${tierLabel(event.tier as string)}`, 'warning');
-      break;
+    }
     case 'channel.subscription.gift':
       emitStreamEvent('gift',
         (event.user_name as string) || 'Anonymous',
-        `gifted ${event.total} sub${(event.total as number) !== 1 ? 's' : ''} to the channel`, 'warning');
+        `gifted ${event.total} sub${(event.total as number) !== 1 ? 's' : ''} to the channel`, 'warning',
+        loginOf(event));
       break;
     case 'channel.cheer':
       emitStreamEvent('cheer',
         (event.user_name as string) || 'Anonymous',
-        `cheered ${event.bits} bits`, 'info');
+        `cheered ${event.bits} bits`, 'info', loginOf(event));
       break;
     case 'channel.raid':
       emitStreamEvent('raid',
         event.from_broadcaster_user_name as string,
-        `raided with ${event.viewers} viewer${(event.viewers as number) !== 1 ? 's' : ''}`, 'note');
+        `raided with ${event.viewers} viewer${(event.viewers as number) !== 1 ? 's' : ''}`, 'note',
+        loginOf(event, 'from_broadcaster_user_login'));
       break;
     case 'channel.channel_points_custom_reward_redemption.add': {
       const reward = event.reward as { id: string; title: string };
-      emitStreamEvent('redeem', event.user_name as string, `redeemed "${reward.title}"`, 'info');
+      emitStreamEvent('redeem', event.user_name as string, `redeemed "${reward.title}"`, 'info', loginOf(event));
       const userInput = typeof event.user_input === 'string' ? event.user_input.trim() : '';
       if (userInput && isTtsRewardEnabled(reward.id)) {
         void speakText(userInput).catch((err: unknown) => {
           console.error('TTS: failed to speak redemption text:', err);
         });
       }
+      playRewardMedia(reward.id, event.user_name as string);
       break;
     }
     case 'channel.ad_break.begin': {
@@ -104,7 +195,8 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
         const streak = event.watch_streak as { cumulative_months: number };
         emitStreamEvent('redeem',
           event.chatter_user_name as string,
-          `watch streak · ${streak.cumulative_months} month${streak.cumulative_months !== 1 ? 's' : ''}`, 'silver');
+          `watch streak · ${streak.cumulative_months} month${streak.cumulative_months !== 1 ? 's' : ''}`, 'silver',
+          loginOf(event, 'chatter_user_login'));
       }
       break;
     }

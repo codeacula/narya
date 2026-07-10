@@ -140,7 +140,7 @@ export function AutomodPanel({
       {error ? (
         <p className="automodError">{error}</p>
       ) : pending.length === 0 ? (
-        <p className="muted">No messages currently held.</p>
+        <div className="panel-empty">No messages currently held.</div>
       ) : (
         pending.map(hold => <AutomodItem key={hold.id} hold={hold} onAllow={allow} onDeny={deny} />)
       )}

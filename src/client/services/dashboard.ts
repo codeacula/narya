@@ -3,8 +3,12 @@ import type {
   Viewer,
   ChatEntry,
   ChatMessage,
+  MediaFile,
+  MediaPlayback,
   MusicInfo,
+  RewardMedia,
   StreamEvent,
+  SessionShoutout,
   RunItem,
   RunItemUpdate,
   DashboardStatus,
@@ -123,6 +127,10 @@ export async function getStreamEvents(): Promise<StreamEvent[]> {
   return fetchJson<StreamEvent[]>('/api/dashboard/events');
 }
 
+export async function getSessionShoutouts(): Promise<SessionShoutout[]> {
+  return fetchJson<SessionShoutout[]>('/api/dashboard/session-shoutouts');
+}
+
 export async function getDashboardStatus(): Promise<DashboardStatus> {
   return fetchJson<DashboardStatus>('/api/dashboard/status');
 }
@@ -200,6 +208,20 @@ export async function updateViewerReward(id: string, reward: Partial<ViewerRewar
 
 export async function deleteViewerReward(id: string): Promise<void> {
   return sendVoid(`/api/twitch/rewards/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+export async function getMediaFiles(): Promise<MediaFile[]> {
+  return fetchJson<MediaFile[]>('/api/media');
+}
+
+/** Plays a reward's media on the overlay without spending channel points. */
+/** Pass `media` to preview an unsaved binding; omit it to play the saved one. */
+export async function testRewardMedia(id: string, media?: RewardMedia | null): Promise<MediaPlayback> {
+  return sendJson<MediaPlayback>(
+    `/api/twitch/rewards/${encodeURIComponent(id)}/media/play`,
+    'POST',
+    media ? { media } : {},
+  );
 }
 
 export async function createViewerRewardCategory(name: string): Promise<ViewerRewardCategory> {

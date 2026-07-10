@@ -45,6 +45,7 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   bits: <path d="m13 2-9 11h7l-1 9 9-11h-7z"/>,
+  chat: <path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-4.5A8 8 0 0 1 5 5.6 8 8 0 0 1 13 4a8 8 0 0 1 8 8Z"/>,
   play: <path d="M5 5v14l14-7z"/>,
   edit: (
     <>

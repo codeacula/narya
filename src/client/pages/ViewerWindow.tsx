@@ -22,6 +22,7 @@ export function ViewerWindowPage() {
     chat: [],
     events: [],
     channel: '',
+    currentSessionId: null,
     openViewerPopout: () => {},
     updateViewerProfile: async (profileLogin, profile) => {
       const updated = await updateViewerProfile(profileLogin, profile);

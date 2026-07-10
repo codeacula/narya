@@ -1,7 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { getAutomodQueue } from './automod';
 import { db } from './db';
-import { handleEventSubNotification } from './eventsub';
+import { handleEventSubNotification, resetSubMergeState } from './eventsub';
+import { listMediaFiles } from './media';
+import { getRewardMedia, setRewardMedia } from './rewardMedia';
 import { RuntimeState } from './runtime';
 
 function latestEventFor(actor: string): { kind: string; detail: string; tone: string } | null {
@@ -23,9 +25,7 @@ describe('handleEventSubNotification', () => {
   test('channel.subscribe records a sub event', async () => {
     const actor = `sub-${crypto.randomUUID()}`;
     await handleEventSubNotification(new RuntimeState(), 'channel.subscribe', { user_name: actor, tier: '1000', is_gift: false });
-    const row = latestEventFor(actor);
-    expect(row?.kind).toBe('sub');
-    expect(row?.detail).toContain('subscribed');
+    expect(latestEventFor(actor)).toMatchObject({ kind: 'sub', detail: 'new sub · Tier 1' });
   });
 
   test('channel.subscribe skips gifted subs (avoids double-count with the gift event)', async () => {
@@ -39,10 +39,109 @@ describe('handleEventSubNotification', () => {
     await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {
       user_name: actor, tier: '2000', cumulative_months: 7,
     });
-    const row = latestEventFor(actor);
-    expect(row?.kind).toBe('sub');
-    expect(row?.detail).toContain('resubscribed');
-    expect(row?.detail).toContain('7 months');
+    expect(latestEventFor(actor)).toMatchObject({ kind: 'sub', detail: 'resub · Tier 2 · 7 months' });
+  });
+
+  describe('resub merging', () => {
+    beforeEach(() => { resetSubMergeState(); });
+
+    // Twitch fires both notifications for one resub. Either order must collapse
+    // to a single row carrying the richer resub detail.
+    test('subscribe then subscription.message updates the row in place', async () => {
+      const actor = `merge-a-${crypto.randomUUID()}`;
+      const userId = crypto.randomUUID();
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscribe', {
+        user_id: userId, user_name: actor, tier: '1000', is_gift: false,
+      });
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {
+        user_id: userId, user_name: actor, tier: '1000', cumulative_months: 3,
+      });
+      expect(countEventsFor(actor)).toBe(1);
+      expect(latestEventFor(actor)).toMatchObject({ kind: 'sub', detail: 'resub · Tier 1 · 3 months' });
+    });
+
+    test('subscription.message then subscribe drops the bare subscribe', async () => {
+      const actor = `merge-b-${crypto.randomUUID()}`;
+      const userId = crypto.randomUUID();
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {
+        user_id: userId, user_name: actor, tier: '3000', cumulative_months: 12,
+      });
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscribe', {
+        user_id: userId, user_name: actor, tier: '3000', is_gift: false,
+      });
+      expect(countEventsFor(actor)).toBe(1);
+      expect(latestEventFor(actor)).toMatchObject({ detail: 'resub · Tier 3 · 12 months' });
+    });
+
+    test('two different subscribers still produce two rows', async () => {
+      const first = `merge-c1-${crypto.randomUUID()}`;
+      const second = `merge-c2-${crypto.randomUUID()}`;
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscribe', {
+        user_id: crypto.randomUUID(), user_name: first, tier: '1000', is_gift: false,
+      });
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscribe', {
+        user_id: crypto.randomUUID(), user_name: second, tier: '1000', is_gift: false,
+      });
+      expect(countEventsFor(first)).toBe(1);
+      expect(countEventsFor(second)).toBe(1);
+    });
+
+    test('a later resub by the same user is not swallowed once the window lapses', async () => {
+      const actor = `merge-d-${crypto.randomUUID()}`;
+      const userId = crypto.randomUUID();
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {
+        user_id: userId, user_name: actor, tier: '1000', cumulative_months: 3,
+      });
+      resetSubMergeState(); // stands in for the 60s merge window elapsing
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscribe', {
+        user_id: userId, user_name: actor, tier: '1000', is_gift: false,
+      });
+      expect(countEventsFor(actor)).toBe(2);
+    });
+
+    // The merge state lives in SQLite, so a redelivered notification — or one
+    // arriving after a restart — still can't add a second row for one resub.
+    test('a redelivered subscription.message does not add a second row', async () => {
+      const actor = `merge-f-${crypto.randomUUID()}`;
+      const userId = crypto.randomUUID();
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {
+        user_id: userId, user_name: actor, tier: '1000', cumulative_months: 3,
+      });
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {
+        user_id: userId, user_name: actor, tier: '1000', cumulative_months: 3,
+      });
+      expect(countEventsFor(actor)).toBe(1);
+    });
+
+    test('a resub with no month count omits the month segment', async () => {
+      const actor = `merge-e-${crypto.randomUUID()}`;
+      await handleEventSubNotification(new RuntimeState(), 'channel.subscription.message', {
+        user_id: crypto.randomUUID(), user_name: actor, tier: '1000',
+      });
+      expect(latestEventFor(actor)).toMatchObject({ detail: 'resub · Tier 1' });
+    });
+  });
+
+  test('a redeem bound to media still records its activity event', async () => {
+    const actor = `redeemer-${crypto.randomUUID()}`;
+    const rewardId = crypto.randomUUID();
+    const audio = listMediaFiles().find(file => file.kind === 'audio')?.src ?? '';
+    setRewardMedia(rewardId, { kind: 'audio', src: audio, volume: 0.5 });
+    await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
+      user_name: actor, reward: { id: rewardId, title: 'Play a clip' },
+    });
+    expect(latestEventFor(actor)).toMatchObject({ kind: 'redeem', detail: 'redeemed "Play a clip"' });
+    expect(getRewardMedia(rewardId)).toMatchObject({ src: audio });
+  });
+
+  test('a redeem with no media bound plays nothing and still records the event', async () => {
+    const actor = `redeemer-${crypto.randomUUID()}`;
+    const rewardId = crypto.randomUUID();
+    await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
+      user_name: actor, reward: { id: rewardId, title: 'Just points' },
+    });
+    expect(latestEventFor(actor)).toMatchObject({ kind: 'redeem' });
+    expect(getRewardMedia(rewardId)).toBeNull();
   });
 
   test('channel.cheer records a cheer event', async () => {

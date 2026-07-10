@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
-import { ChatInput, ControlsPanel, ChattersPanel, MODULES, PanelCtx } from '../ui/panels';
+import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
+import { useAttention, useAttentionSettings } from '../attention';
+import { playTone } from '../sounds';
 import {
   disconnectTwitch,
   getViewers,
@@ -19,6 +21,7 @@ import {
   getChatters,
   reconnectEventSub,
 } from '../services/dashboard';
+import { useSessionShoutouts } from '../shoutouts';
 import { useSocket } from '../realtime';
 import { chatHighlight } from '../../shared/roles';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
@@ -27,29 +30,24 @@ import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } fr
 import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
-import type { Viewer, ChatEntry, StreamEvent, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
-
-/* ---------------- audio ---------------- */
-
-function playTone(freq: number, durationMs: number, volume: number) {
-  const ctx = new AudioContext();
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.frequency.value = freq;
-  gain.gain.setValueAtTime(volume, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
-  osc.start();
-  osc.stop(ctx.currentTime + durationMs / 1000);
-  osc.onended = () => void ctx.close();
-}
+import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
 
 /* ---------------- constants ---------------- */
 
 const POP_DEFAULTS: Record<string, { w: number; h: number }> = {
   chat:      { w: 380, h: 540 },
-  events:    { w: 360, h: 460 },
+  attention: { w: 380, h: 360 },
+  chatters:  { w: 360, h: 500 },
+};
+
+type RightTab = 'chatters' | 'activity' | 'shoutouts' | 'automod';
+
+// The tab strip names the panel on screen; this titles the popped-out window.
+const RIGHT_TAB_TITLE: Record<RightTab, string> = {
+  chatters: 'viewers',
+  activity: 'activity feed',
+  shoutouts: 'shoutouts',
+  automod: 'automod',
 };
 
 type PoppedState = { x: number; y: number; w: number; h: number };
@@ -128,7 +126,12 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [chatters, setChatters] = useState<Chatter[]>([]);
   const [chattersError, setChattersError] = useState<string | null>(null);
   const automodQueue = useAutomodQueue();
-  const [rightTab, setRightTab] = useState<'activity' | 'chatters' | 'automod'>('activity');
+  const [rightTab, setRightTab] = useState<RightTab>('chatters');
+  // False until the first REST refresh lands, so the attention feed can tell the
+  // backlog apart from activity that arrived while you were watching.
+  const [seeded, setSeeded] = useState(false);
+  const { settings: attentionSettings, update: updateAttentionSettings } = useAttentionSettings();
+  const shoutouts = useSessionShoutouts(status.streamSessionId);
   const lastChatAt = React.useRef<number>(0);
   // Mirror the channel into a ref so the stable chat:message handler can read
   // the current login without hardcoding it or re-subscribing.
@@ -186,6 +189,10 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       } catch (error) {
         console.error('Failed to refresh dashboard data:', error);
         if (!cancelled) setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
+      } finally {
+        // Even a failed seed ends the quiet period; otherwise one bad fetch would
+        // mute the attention chime for the rest of the session.
+        if (!cancelled) setSeeded(true);
       }
     };
 
@@ -219,6 +226,14 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setEvents(evs => evs.some(existing => existing.id === evt.id) ? evs : [evt, ...evs.slice(0, 49)]);
   }, []));
 
+  // A resub's second EventSub notification rewrites the row already on screen
+  // rather than adding a duplicate. See emitStreamEvent/updateStreamEvent.
+  useSocket<StreamEventUpdate>('stream:event:update', React.useCallback((update) => {
+    setEvents(evs => evs.some(e => e.id === update.id)
+      ? evs.map(e => e.id === update.id ? { ...e, detail: update.detail, tone: update.tone } : e)
+      : evs);
+  }, []));
+
   useSocket<LiveChatMessage>('chat:message', React.useCallback((message) => {
     const now = Date.now();
     if (lastChatAt.current > 0 && now - lastChatAt.current > 5 * 60 * 1000) {
@@ -239,6 +254,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       user: login,
       text: message.message,
       time: new Date(message.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+      at: message.receivedAt,
+      sessionId: message.sessionId ?? null,
       highlight: chatHighlight(message.badges, Boolean(message.isFirstEver), Boolean(message.isFirstThisSession)),
     };
 
@@ -436,11 +453,22 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       .finally(() => setStreamInfoSaving(false));
   }, [refreshDashboardStatus, streamInfoForm]);
 
+  const attention = useAttention({
+    events,
+    chat,
+    viewers,
+    tag: attentionSettings.tag,
+    soundEnabled: attentionSettings.soundEnabled,
+    currentSessionId: status.streamSessionId,
+    seeded,
+  });
+
   const ctx: PanelCtx = {
     viewers,
     chat,
     events,
     channel: status.channel,
+    currentSessionId: status.streamSessionId,
     openViewerPopout: login => {
       const windowName = `viewer_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       window.open(`/viewer?login=${encodeURIComponent(login)}`, windowName, 'width=380,height=560');
@@ -505,12 +533,71 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     );
   }
 
+  function renderRightTab(tab: RightTab) {
+    if (tab === 'chatters') {
+      return <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />;
+    }
+    if (tab === 'activity') return MODULES.events.render(ctx);
+    if (tab === 'shoutouts') {
+      return <ShoutoutsPanel shoutouts={shoutouts} streamActive={status.streamSessionId !== null} onOpenViewer={ctx.openViewerPopout} />;
+    }
+    return <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />;
+  }
+
+  // Rendered in both the docked panel and its popped-out window, so the two can't
+  // drift apart as props are added.
+  const attentionBody = (
+    <AttentionPanel
+      items={attention.items}
+      acked={attention.acked}
+      settings={attentionSettings}
+      onAck={attention.ack}
+      onSettingsChange={updateAttentionSettings}
+    />
+  );
+
+  // Poppable panels that aren't MODULES entries render their own body here.
+  function popoutContent(id: string): { title: string; body: React.ReactNode; footer?: React.ReactNode } | null {
+    if (id === 'attention') {
+      return { title: 'attention', body: attentionBody };
+    }
+    // The popped-out window follows whichever tab is active.
+    if (id === 'chatters') {
+      return { title: RIGHT_TAB_TITLE[rightTab], body: renderRightTab(rightTab) };
+    }
+    const m = MODULES[id];
+    if (!m) return null;
+    return {
+      title: m.title,
+      body: m.render(ctx),
+      footer: m.footer ? <ChatInput channel={status.channel} /> : undefined,
+    };
+  }
+
   const showControls = status.obsConnected;
+
+  const attentionPanel = (
+    <Panel
+      id="attention"
+      title="attention"
+      dot={true}
+      count={attention.unackedCount || undefined}
+      popped={!!popped['attention']}
+      onPop={handlePop}
+      className="panel--attention"
+      bodyClass="no-pad"
+      headerActions={
+        <AttentionDismissAll disabled={attention.unackedCount === 0} onDismiss={attention.dismissAll} />
+      }
+    >
+      {attentionBody}
+    </Panel>
+  );
 
   const dashboardLayout = (
     <div className="stage stage--cockpit">
       {slot('chat')}
-      <div className={`col-stack${showControls ? ' s2-top-auto' : ''}`}>
+      <div className={`col-stack attention-stack${showControls ? ' with-controls' : ''}`}>
         {showControls && (
           <Panel
             id="controls"
@@ -528,32 +615,24 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             />
           </Panel>
         )}
+        {attentionPanel}
         <Panel
-          id="events"
-          title="activity feed"
+          id="chatters"
+          title={RIGHT_TAB_TITLE[rightTab]}
+          titleHidden
           dot={true}
-          count={
-            rightTab === 'activity'
-              ? MODULES.events.count?.(ctx)
-              : rightTab === 'chatters'
-                ? chatters.length
-                : automodQueue.pending.length
-          }
-          popped={!!popped['events']}
+          popped={!!popped['chatters']}
           onPop={handlePop}
           tabs={[
-            { id: 'activity', label: 'Activity' },
-            { id: 'chatters', label: 'Chatters' },
+            { id: 'chatters', label: 'Viewers', badge: chatters.length },
+            { id: 'activity', label: 'Activity', badge: events.length },
+            { id: 'shoutouts', label: 'Shoutouts', badge: shoutouts.length },
             { id: 'automod', label: 'AutoMod', badge: automodQueue.pending.length },
           ]}
           activeTab={rightTab}
-          onTabChange={id => setRightTab(id as 'activity' | 'chatters' | 'automod')}
+          onTabChange={id => setRightTab(id as RightTab)}
         >
-          {rightTab === 'activity'
-            ? MODULES.events.render(ctx)
-            : rightTab === 'chatters'
-              ? <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />
-              : <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />}
+          {renderRightTab(rightTab)}
         </Panel>
       </div>
     </div>
@@ -573,7 +652,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             title="Held messages awaiting review"
             onClick={() => {
               changePage('dashboard');
-              handlePop('events', false);
+              // The AutoMod queue lives in the tabbed right panel; re-dock it so
+              // the tab switch below lands somewhere the operator can see.
+              handlePop('chatters', false);
               setRightTab('automod');
             }}
           >
@@ -626,17 +707,18 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
       <div className="popout-layer">
         {Object.keys(popped).map(id => {
-          const m = MODULES[id];
+          const pop = popoutContent(id);
+          if (!pop) return null;
           return (
             <PopWindow
               key={id}
               id={id}
-              title={m.title}
+              title={pop.title}
               initial={popped[id]}
               onClose={x => handlePop(x, false)}
-              footer={m.footer ? <ChatInput channel={status.channel} /> : undefined}
+              footer={pop.footer}
             >
-              {m.render(ctx)}
+              {pop.body}
             </PopWindow>
           );
         })}

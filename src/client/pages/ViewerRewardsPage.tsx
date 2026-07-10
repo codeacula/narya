@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { RewardStreamCategory, SavedStreamCategory, SavedStreamCategoryInput, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
+import type { MediaFile, MediaKind, RewardStreamCategory, SavedStreamCategory, SavedStreamCategoryInput, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
 import {
   addSavedStreamCategory,
   applyViewerRewardCategoryColor,
@@ -10,9 +10,11 @@ import {
   createViewerRewardCategory,
   deleteViewerReward,
   deleteViewerRewardCategory,
+  getMediaFiles,
   getTtsEnabledRewards,
   getViewerRewards,
   setTtsRewardEnabled,
+  testRewardMedia,
   updateViewerReward,
   updateViewerRewardCategory,
 } from '../services/dashboard';
@@ -33,7 +35,10 @@ const EMPTY_REWARD: ViewerRewardUpsert = {
   globalCooldown: { enabled: false, seconds: 60 },
   maxPerStream: { enabled: false, max: 1 },
   maxPerUserPerStream: { enabled: false, max: 1 },
+  media: null,
 };
+
+const DEFAULT_MEDIA_VOLUME = 0.8;
 
 const COOLDOWN_UNITS = [
   { id: 'seconds', label: 'seconds', mult: 1 },
@@ -79,6 +84,7 @@ function formFromReward(reward: ViewerReward): ViewerRewardUpsert {
     globalCooldown: reward.globalCooldown.seconds > 0 ? reward.globalCooldown : { ...reward.globalCooldown, seconds: 60 },
     maxPerStream: reward.maxPerStream,
     maxPerUserPerStream: reward.maxPerUserPerStream,
+    media: reward.media,
   };
 }
 
@@ -116,20 +122,24 @@ function SwitchRow({
 
 function RewardEditor({
   categories,
+  mediaFiles,
   form,
   editing,
   busy,
   onChange,
   onCancel,
   onSubmit,
+  onTestMedia,
 }: {
   categories: ViewerRewardCategory[];
+  mediaFiles: MediaFile[];
   form: ViewerRewardUpsert;
   editing: boolean;
   busy: boolean;
   onChange: React.Dispatch<React.SetStateAction<ViewerRewardUpsert>>;
   onCancel: () => void;
   onSubmit: (event: React.FormEvent) => void;
+  onTestMedia: (() => void) | null;
 }) {
   const initialCooldown = splitCooldown(form.globalCooldown.seconds);
   const [cooldownValue, setCooldownValue] = useState(initialCooldown.value);
@@ -139,6 +149,28 @@ function RewardEditor({
     setCooldownValue(value);
     setCooldownUnit(unit);
     onChange(current => ({ ...current, globalCooldown: { ...current.globalCooldown, seconds: cooldownToSeconds(value, unit) } }));
+  };
+
+  const media = form.media ?? null;
+  const mediaKind = media?.kind ?? 'none';
+  const filesForKind = mediaFiles.filter(file => file.kind === mediaKind);
+  // The bound file was deleted from public/. Say so rather than letting the
+  // select silently display some other file as if it were the binding.
+  const boundFileMissing = Boolean(media) && !mediaFiles.some(file => file.src === media?.src);
+
+  // Switching kind picks the first file of that kind, so the form never holds a
+  // binding whose src doesn't match its kind (the server would reject it).
+  const applyMediaKind = (kind: 'none' | MediaKind) => {
+    if (kind === 'none') {
+      onChange(current => ({ ...current, media: null }));
+      return;
+    }
+    const first = mediaFiles.find(file => file.kind === kind);
+    if (!first) return;
+    onChange(current => ({
+      ...current,
+      media: { kind, src: first.src, volume: current.media?.volume ?? DEFAULT_MEDIA_VOLUME },
+    }));
   };
 
   return (
@@ -208,6 +240,72 @@ function RewardEditor({
               onChange={event => onChange(current => ({ ...current, backgroundColor: event.target.value }))}
             />
           </label>
+        </div>
+      </fieldset>
+
+      <fieldset className="reward-fieldset">
+        <legend className="reward-legend">Media</legend>
+        <div className="reward-form-grid">
+          <label className="field">
+            <span>Plays on redeem</span>
+            <select
+              disabled={busy}
+              value={mediaKind}
+              onChange={event => applyMediaKind(event.target.value as 'none' | MediaKind)}
+            >
+              <option value="none">Nothing</option>
+              <option value="video" disabled={!mediaFiles.some(f => f.kind === 'video')}>Video clip</option>
+              <option value="audio" disabled={!mediaFiles.some(f => f.kind === 'audio')}>Sound</option>
+            </select>
+          </label>
+          {media && (
+            <>
+              <label className="field">
+                <span>File</span>
+                <select
+                  disabled={busy}
+                  value={media.src}
+                  onChange={event => onChange(current => ({
+                    ...current,
+                    media: current.media ? { ...current.media, src: event.target.value } : null,
+                  }))}
+                >
+                  {boundFileMissing && media && (
+                    <option value={media.src}>{media.src} (missing)</option>
+                  )}
+                  {filesForKind.map(file => <option key={file.src} value={file.src}>{file.label}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span>Volume — {Math.round(media.volume * 100)}%</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  disabled={busy}
+                  value={media.volume}
+                  onChange={event => onChange(current => ({
+                    ...current,
+                    media: current.media ? { ...current.media, volume: Number(event.target.value) } : null,
+                  }))}
+                />
+              </label>
+            </>
+          )}
+        </div>
+        {boundFileMissing && media && (
+          <div className="set-sub reward-media-missing">
+            <code>{media.src}</code> is bound to this reward but is no longer in <code>public/</code>, so
+            redeeming it plays nothing. Pick another file, or restore it and reload.
+          </div>
+        )}
+        <div className="set-sub">
+          Files come from <code>public/clips</code> and <code>public/sounds</code>. Playback happens on the
+          <code> /overlay/clips</code> browser source — add it to any scene that should show clips.
+          {onTestMedia && (
+            <> <button className="modbtn" type="button" disabled={busy} onClick={onTestMedia}>Test</button></>
+          )}
         </div>
       </fieldset>
 
@@ -576,6 +674,7 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   const [rewardForm, setRewardForm] = useState<ViewerRewardUpsert>(EMPTY_REWARD);
   const [ttsEnabledIds, setTtsEnabledIds] = useState<Set<string>>(new Set());
   const [savedCategories, setSavedCategories] = useState<SavedStreamCategory[]>([]);
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
 
   const groupedRewards = useMemo(() => {
     const groups = new Map<string | null, ViewerReward[]>();
@@ -605,6 +704,14 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
 
   useEffect(() => { void refresh(); }, []);
 
+  // The media catalog is local and has nothing to do with Twitch, so load it
+  // separately: a failing rewards fetch must not leave the file picker empty.
+  useEffect(() => {
+    void getMediaFiles().then(setMediaFiles).catch((mediaError: unknown) => {
+      console.error('Could not load media files:', mediaError);
+    });
+  }, []);
+
   // A stream-category change can auto-toggle reward groups server-side; refetch silently so the list reflects it.
   useSocket<{ at: string }>('rewards:updated', React.useCallback(() => {
     void getViewerRewards().then(setData).catch(() => undefined);
@@ -625,6 +732,21 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
       setError(errorMessage(toggleError, 'Could not update TTS setting.'));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // Only offered while editing a saved reward — a reward being created has no id
+  // to play yet. The form's own binding is sent, so Test plays what's on screen
+  // rather than whatever was last saved.
+  const handleTestMedia = async () => {
+    if (!editingId) return;
+    setError(null);
+    setMessage(null);
+    try {
+      await testRewardMedia(editingId, rewardForm.media);
+      setMessage('Sent to the /overlay/clips browser source.');
+    } catch (testError) {
+      setError(errorMessage(testError, 'Could not play the media. Save the reward first?'));
     }
   };
 
@@ -953,12 +1075,14 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
           <div className="set-group">
             <RewardEditor
               categories={data.categories}
+              mediaFiles={mediaFiles}
               form={rewardForm}
               editing={Boolean(editingId)}
               busy={Boolean(busyId)}
               onChange={setRewardForm}
               onCancel={() => { setShowEditor(false); setEditingId(null); }}
               onSubmit={handleRewardSubmit}
+              onTestMedia={editingId && rewardForm.media ? () => void handleTestMedia() : null}
             />
           </div>
         ) : null}

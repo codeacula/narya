@@ -8,6 +8,7 @@ import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { triggerQuackSound } from './sounds';
 import {
+  getCurrentStreamSessionId,
   hasSeenChatterBefore,
   recordCurrentSessionChatter,
 } from './streamSession';
@@ -115,9 +116,15 @@ twitchClient.on('message', (channel, tags, message, self) => {
   const isChannelOwner = username === appConfig.twitchChannel.toLowerCase() || Boolean(badges?.broadcaster);
   const messageId = tags.id ?? crypto.randomUUID();
   const isFirstEver = !isChannelOwner && !hasSeenChatterBefore(username);
+  // The broadcaster is excluded from session chatter counts, but their messages
+  // still belong to the live session — otherwise the dashboard renders them as
+  // past-stream chat and draws a spurious "this stream" divider after them.
+  // recordCurrentSessionChatter already resolved the session for everyone else,
+  // so only the owner needs a lookup of their own.
   const sessionChatter = !isChannelOwner
     ? recordCurrentSessionChatter(username, messageId, occurredAt)
-    : { sessionId: null, isFirstInSession: false };
+    : { sessionId: getCurrentStreamSessionId(), isFirstInSession: false };
+  const sessionId = sessionChatter.sessionId;
 
   const chatMessage: ChatMessage = {
     id: messageId,
@@ -134,6 +141,7 @@ twitchClient.on('message', (channel, tags, message, self) => {
     isFirstTimer: isFirstEver,
     isFirstThisSession: sessionChatter.isFirstInSession,
     isFirstEver,
+    sessionId,
   };
 
   appendChatEvent('message.created', chatMessage.channel, { tags, message }, {
@@ -152,7 +160,7 @@ twitchClient.on('message', (channel, tags, message, self) => {
     chatMessage.receivedAt,
     chatMessage.badges ? JSON.stringify(chatMessage.badges) : null,
     chatMessage.emotes ? JSON.stringify(chatMessage.emotes) : null,
-    sessionChatter.sessionId,
+    sessionId,
     chatMessage.isFirstThisSession ? 1 : 0,
     chatMessage.isFirstEver ? 1 : 0,
   ) as { changes: number };

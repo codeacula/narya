@@ -7,8 +7,11 @@ import {
   sendViewerWhisper,
   timeoutViewer,
 } from '../services/dashboard';
-import type { Viewer, ChatEntry, StreamEvent, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, SessionShoutout, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter } from '../../shared/api';
+import { DEFAULT_ATTENTION_TAG, type AttentionItem, type AttentionSettings } from '../attention';
+import { kindChip, kindTone } from '../eventKinds';
 import { sceneLabel, switchableScenes } from '../scenes';
+import { loadStoredJson, saveStoredJson } from '../storage';
 
 /* ---------------- types ---------------- */
 
@@ -17,6 +20,7 @@ export type PanelCtx = {
   chat: ChatEntry[];
   events: StreamEvent[];
   channel: string;
+  currentSessionId: string | null;
   openViewerPopout: (login: string) => void;
   updateViewerProfile: (login: string, profile: ViewerProfileUpdate) => Promise<ViewerProfileUpdate>;
   loadOlderChat: () => Promise<boolean>;
@@ -41,6 +45,55 @@ const ROLE_BADGE: Record<string, string> = {
 
 const MAX_VIEWER_TAGS = 12;
 type ViewerActionKind = 'whisper' | 'timeout' | 'ban';
+
+/**
+ * Whether a chat message or stream event belongs to the stream happening right
+ * now. Off-stream rows (null session) and rows from an earlier session both read
+ * as "past", and when nothing is live nothing is current.
+ */
+export function belongsToCurrentSession(sessionId: string | null | undefined, currentSessionId: string | null): boolean {
+  if (currentSessionId === null) return false;
+  return sessionId === currentSessionId;
+}
+
+/** A row that carries no session of its own can't mark where a session begins. */
+export type SessionRow = { sessionId?: string | null; sessionless?: boolean };
+
+/**
+ * Index of the row where the session changes, or -1 when the list holds no
+ * boundary to draw. One definition for both feeds, which read in opposite
+ * directions: chat is oldest-first and marks where the current session begins,
+ * the event feed is newest-first and marks where past streams begin.
+ *
+ * Rows flagged `sessionless` (whispers, which arrive live and carry no session)
+ * are skipped when looking for a neighbour, so one landing mid-stream doesn't
+ * read as a session change.
+ *
+ * `markListStart` decides whether a list that opens on the far side is itself a
+ * boundary: the event feed heads a wholly-past list with "earlier streams", while
+ * chat that opens in the current session has nothing above it to divide from.
+ */
+export function sessionBoundaryIndex(
+  rows: SessionRow[],
+  currentSessionId: string | null,
+  options: { side: 'current' | 'past'; markListStart: boolean },
+): number {
+  if (currentSessionId === null) return -1;
+  const wanted = options.side === 'current';
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index];
+    if (!row || row.sessionless) continue;
+    if (belongsToCurrentSession(row.sessionId, currentSessionId) !== wanted) continue;
+
+    // Walk back past sessionless rows to the nearest neighbour that has a session.
+    let previous = index - 1;
+    while (previous >= 0 && rows[previous]?.sessionless) previous--;
+    if (previous < 0) return options.markListStart ? index : -1;
+    if (belongsToCurrentSession(rows[previous]?.sessionId, currentSessionId) === wanted) continue;
+    return index;
+  }
+  return -1;
+}
 
 function badgesFor(viewer: Viewer | undefined): string[] {
   if (!viewer) return [];
@@ -148,6 +201,16 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
     setNewCount(0);
   }, []);
 
+  // Chat is oldest-first, so the boundary is the first message of this stream.
+  const currentSessionStart = React.useMemo(
+    () => sessionBoundaryIndex(
+      displayedChat.map(m => ({ sessionId: m.sessionId, sessionless: m.kind === 'whisper' })),
+      ctx.currentSessionId,
+      { side: 'current', markListStart: false },
+    ),
+    [displayedChat, ctx.currentSessionId],
+  );
+
   return (
     <>
       <div className="chat-bar">
@@ -164,13 +227,14 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
       </div>
       <div className="chat-list" ref={listRef} onScroll={handleScroll}>
         {loadingOlder && <div className="chat-loading">loading…</div>}
-        {displayedChat.map((m) => {
+        {displayedChat.map((m, index) => {
           const login = m.user.toLowerCase();
           const viewer = ctx.viewers[login];
           const color = viewer?.color ?? '#d7dce2';
           const display = viewer?.display ?? m.user;
 
           if (m.kind === 'whisper') {
+            // Whispers arrive live and carry no session, so they never read as past.
             return (
               <div className="msg msg-whisper" key={m.id}>
                 <span className="msg-time">{m.time}</span>
@@ -183,9 +247,13 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
             );
           }
 
+          const fromThisStream = belongsToCurrentSession(m.sessionId, ctx.currentSessionId);
+
           const hlClass = m.highlight ? ' hl-' + m.highlight : '';
           return (
-            <div className={'msg' + hlClass} key={m.id}>
+            <React.Fragment key={m.id}>
+              {index === currentSessionStart && <div className="chat-divider">this stream</div>}
+            <div className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past')}>
               <span className="msg-time">{m.time}</span>
               {m.highlight === 'first-ever' && <span className="hl-tag">first time</span>}
               {m.highlight === 'first-session' && <span className="hl-tag">first this stream</span>}
@@ -203,6 +271,7 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
               </span>
               <span className="msg-text">{m.text}</span>
             </div>
+            </React.Fragment>
           );
         })}
       </div>
@@ -719,6 +788,7 @@ const EVT_ICON: Record<string, string> = {
   raid: 'swords',
   redeem: 'star',
   ad_break: 'play',
+  chat: 'chat',
 };
 
 const EVT_TONE_OVERRIDE: Partial<Record<string, string>> = {
@@ -740,17 +810,11 @@ const EVT_FILTER_KEY = 'eventFeedHiddenKinds';
 const EVT_DEFAULT_HIDDEN = new Set(['ad_break']);
 
 function loadHiddenKinds(): Set<string> {
-  try {
-    const raw = localStorage.getItem(EVT_FILTER_KEY);
-    if (raw === null) return new Set(EVT_DEFAULT_HIDDEN);
-    return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    return new Set(EVT_DEFAULT_HIDDEN);
-  }
+  return loadStoredJson(EVT_FILTER_KEY, raw => new Set(raw as string[]), () => new Set(EVT_DEFAULT_HIDDEN));
 }
 
 function saveHiddenKinds(hidden: Set<string>): void {
-  localStorage.setItem(EVT_FILTER_KEY, JSON.stringify([...hidden]));
+  saveStoredJson(EVT_FILTER_KEY, [...hidden]);
 }
 
 // Compute the relative age client-side from receivedAt so it doesn't go stale
@@ -774,6 +838,186 @@ function formatAgo(receivedAt: string): string {
   if (days < 30) return `${days}d ago`;
   const months = Math.floor(days / 30);
   return `${months}mo ago`;
+}
+
+/* ---------------- Session Shoutouts ---------------- */
+
+export function ShoutoutsPanel({
+  shoutouts,
+  streamActive,
+  onOpenViewer,
+}: {
+  shoutouts: SessionShoutout[];
+  streamActive: boolean;
+  onOpenViewer: (login: string) => void;
+}) {
+  const [copied, setCopied] = React.useState(false);
+
+  const copyNames = React.useCallback(() => {
+    const names = shoutouts.map(s => s.actor).join(' ');
+    void navigator.clipboard.writeText(names).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch((error: unknown) => {
+      console.error('Failed to copy shoutout names:', error);
+    });
+  }, [shoutouts]);
+
+  if (!streamActive) {
+    return <div className="panel-empty">No stream session is active. Shoutouts collect once you go live.</div>;
+  }
+  if (shoutouts.length === 0) {
+    return <div className="panel-empty">Nobody to shout out yet. Follows, subs, cheers, and raids collect here.</div>;
+  }
+
+  return (
+    <div className="shout-feed">
+      <div className="att-toolbar">
+        <span className="att-hint">{shoutouts.length} to thank this stream</span>
+        <button className="att-dismiss" type="button" onClick={copyNames}>
+          {copied ? 'Copied' : 'Copy names'}
+        </button>
+      </div>
+      <div className="shout-list">
+        {shoutouts.map(s => (
+          <button
+            key={s.login ?? s.actor.toLowerCase()}
+            type="button"
+            className="shout-row"
+            // `actor` is a display name, which for a localized name doesn't
+            // lowercase to the login — use the login Twitch gave us.
+            onClick={() => onOpenViewer(s.login ?? s.actor.toLowerCase())}
+            title={`Open ${s.actor}`}
+          >
+            <span className="shout-actor">{s.actor}</span>
+            <span className="shout-kinds">
+              {s.kinds.map(kind => (
+                <span key={kind} className={'shout-chip tone-' + kindTone(kind)}>
+                  {kindChip(kind)}
+                </span>
+              ))}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Attention Feed ---------------- */
+
+export function AttentionDismissAll({ disabled, onDismiss }: { disabled: boolean; onDismiss: () => void }) {
+  return (
+    <button
+      className="att-dismiss"
+      type="button"
+      disabled={disabled}
+      onClick={onDismiss}
+      title="Clear every highlight"
+    >
+      Dismiss all
+    </button>
+  );
+}
+
+export function AttentionPanel({
+  items,
+  acked,
+  settings,
+  onAck,
+  onSettingsChange,
+}: {
+  items: AttentionItem[];
+  acked: Set<string>;
+  settings: AttentionSettings;
+  onAck: (id: string) => void;
+  onSettingsChange: (patch: Partial<AttentionSettings>) => void;
+}) {
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const settingsRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!settingsOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setSettingsOpen(false);
+    };
+    const keyHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') setSettingsOpen(false); };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', keyHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', keyHandler);
+    };
+  }, [settingsOpen]);
+
+  return (
+    <div className="att-feed">
+      <div className="att-toolbar">
+        <span className="att-hint">
+          {items.length === 0 ? 'nothing waiting' : 'click an item to clear its highlight'}
+        </span>
+        <div className="evt-filter-anchor" ref={settingsRef}>
+          <button
+            className={'evt-filter-btn' + (settingsOpen ? ' open' : '')}
+            onClick={() => setSettingsOpen(o => !o)}
+            title="Attention feed settings"
+            type="button"
+          >
+            Settings
+          </button>
+          {settingsOpen && (
+            <div className="evt-filter-menu att-settings">
+              <label className="att-settings-field">
+                <span>Route chat from viewers tagged</span>
+                <input
+                  type="text"
+                  value={settings.tag}
+                  placeholder={DEFAULT_ATTENTION_TAG}
+                  onChange={e => onSettingsChange({ tag: e.target.value })}
+                />
+              </label>
+              <label className="evt-filter-item">
+                <input
+                  type="checkbox"
+                  checked={settings.soundEnabled}
+                  onChange={e => onSettingsChange({ soundEnabled: e.target.checked })}
+                />
+                Chime on new items
+              </label>
+            </div>
+          )}
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <div className="panel-empty">Follows, subs, cheers, raids, and tagged chat land here.</div>
+      ) : (
+        <div className="att-list">
+          {items.map(item => {
+            const unacked = !acked.has(item.id);
+            const tone = kindTone(item.kind);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`att-row tone-${tone}${unacked ? ' att-row--unacked' : ''}`}
+                onClick={() => onAck(item.id)}
+                title={unacked ? 'Click to clear the highlight' : 'Cleared'}
+              >
+                <span className="evt-icon">
+                  <Icon name={EVT_ICON[item.kind] ?? 'star'} />
+                </span>
+                <span className="evt-body">
+                  <span className="evt-actor">{item.actor}</span>
+                  <span className="evt-detail">{item.detail}</span>
+                </span>
+                <span className="evt-ago">{item.at ? formatAgo(item.at) : ''}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function EventFeed({ ctx }: { ctx: PanelCtx }) {
@@ -831,6 +1075,12 @@ function EventFeed({ ctx }: { ctx: PanelCtx }) {
     });
   }, [ctx.events, hiddenKinds, evtSearch]);
 
+  // Events are newest-first, so the boundary is the first row from a past stream.
+  const pastSessionStart = React.useMemo(
+    () => sessionBoundaryIndex(visibleEvents, ctx.currentSessionId, { side: 'past', markListStart: true }),
+    [visibleEvents, ctx.currentSessionId],
+  );
+
   return (
     <div className="evt-feed">
       <div className="evt-toolbar">
@@ -867,21 +1117,25 @@ function EventFeed({ ctx }: { ctx: PanelCtx }) {
         )}
       </div>
       <div className="evt-list">
-        {visibleEvents.map((e) => {
+        {visibleEvents.map((e, index) => {
           const tone = EVT_TONE_OVERRIDE[e.kind] ?? e.tone;
+          const fromThisStream = belongsToCurrentSession(e.sessionId, ctx.currentSessionId);
           return (
-            <div className={'evt tone-' + tone} key={e.id}>
-              <div className="evt-icon">
-                <Icon name={EVT_ICON[e.kind] ?? 'star'} />
-              </div>
-              <div className="evt-body">
-                <div className="evt-actor">
-                  {e.actor} <span className="verb">{e.kind === 'follow' ? 'followed' : ''}</span>
+            <React.Fragment key={e.id}>
+              {index === pastSessionStart && <div className="evt-divider">earlier streams</div>}
+              <div className={'evt tone-' + tone + (fromThisStream ? '' : ' evt--past')}>
+                <div className="evt-icon">
+                  <Icon name={EVT_ICON[e.kind] ?? 'star'} />
                 </div>
-                {e.kind !== 'follow' && <div className="evt-detail">{e.detail}</div>}
+                <div className="evt-body">
+                  <div className="evt-actor">
+                    {e.actor} <span className="verb">{e.kind === 'follow' ? 'followed' : ''}</span>
+                  </div>
+                  {e.kind !== 'follow' && <div className="evt-detail">{e.detail}</div>}
+                </div>
+                <div className="evt-ago">{e.receivedAt ? formatAgo(e.receivedAt) : e.ago}</div>
               </div>
-              <div className="evt-ago">{e.receivedAt ? formatAgo(e.receivedAt) : e.ago}</div>
-            </div>
+            </React.Fragment>
           );
         })}
       </div>
