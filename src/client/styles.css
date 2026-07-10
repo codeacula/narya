@@ -695,6 +695,19 @@ nav {
   overflow-wrap: anywhere;
 }
 
+.mediaGroup + .mediaGroup {
+  margin-top: 16px;
+}
+
+.mediaGroupLabel {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+
 .sceneButton {
   display: grid;
   align-content: center;

@@ -23,6 +23,8 @@ import type {
   SoundButton,
   SoundButtonUpdate,
   SoundPlayback,
+  ClipButton,
+  ClipButtonUpdate,
   AutomodHold,
   AutomodQueue,
   ChatbotCommand,
@@ -339,6 +341,26 @@ export async function deleteSoundButton(id: string): Promise<void> {
 
 export async function playSoundButton(id: string): Promise<SoundPlayback> {
   return sendJson<SoundPlayback>(`/api/sounds/${encodeURIComponent(id)}/play`, 'POST');
+}
+
+export async function getClipButtons(): Promise<ClipButton[]> {
+  return fetchJson<ClipButton[]>('/api/clips');
+}
+
+export async function createClipButton(clip: ClipButtonUpdate): Promise<ClipButton> {
+  return sendJson<ClipButton>('/api/clips', 'POST', clip);
+}
+
+export async function updateClipButton(id: string, clip: ClipButtonUpdate): Promise<ClipButton> {
+  return sendJson<ClipButton>(`/api/clips/${encodeURIComponent(id)}`, 'PUT', clip);
+}
+
+export async function deleteClipButton(id: string): Promise<void> {
+  return sendVoid(`/api/clips/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+export async function playClipButton(id: string): Promise<MediaPlayback> {
+  return sendJson<MediaPlayback>(`/api/clips/${encodeURIComponent(id)}/play`, 'POST');
 }
 
 export async function getAutomodQueue(): Promise<AutomodQueue> {

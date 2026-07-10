@@ -1,11 +1,13 @@
 import React from 'react';
 import type { ObsStatus } from '../../shared/api';
 import { AutomodQuickActions } from '../automod';
+import { useClipButtons } from '../clips';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
 import { sceneLabel, switchableScenes } from '../scenes';
 import {
   getObsStatus,
+  playClipButton,
   playSoundButton,
   switchObsScene,
   triggerObsTransition,
@@ -50,6 +52,7 @@ function useObsStatus() {
 export function TabletPage() {
   const { obsStatus, setObsStatus, error: statusError } = useObsStatus();
   const soundButtons = useSoundButtons();
+  const clipButtons = useClipButtons();
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [commandError, setCommandError] = React.useState<string | null>(null);
 
@@ -80,6 +83,12 @@ export function TabletPage() {
   function playSound(id: string) {
     void playSoundButton(id).catch((caught: unknown) => {
       setCommandError(caught instanceof Error ? caught.message : `Failed to play sound ${id}`);
+    });
+  }
+
+  function playClip(id: string) {
+    void playClipButton(id).catch((caught: unknown) => {
+      setCommandError(caught instanceof Error ? caught.message : `Failed to play clip ${id}`);
     });
   }
 
@@ -184,16 +193,31 @@ export function TabletPage() {
         <section className="tabletPanel">
           <div className="tabletPanelHeader">
             <div>
-              <p className="eyebrow">Audio</p>
-              <h2>Sounds</h2>
+              <p className="eyebrow">Soundboard</p>
+              <h2>Media</h2>
             </div>
           </div>
-          <div className="tabletButtonGrid">
-            {soundButtons.length > 0 ? soundButtons.map(sound => (
-              <button key={sound.id} onClick={() => playSound(sound.id)}>
-                {sound.label}
-              </button>
-            )) : <p className="muted">No sound buttons configured.</p>}
+
+          <div className="mediaGroup">
+            <p className="mediaGroupLabel">Sounds</p>
+            <div className="tabletButtonGrid">
+              {soundButtons.length > 0 ? soundButtons.map(sound => (
+                <button key={sound.id} onClick={() => playSound(sound.id)}>
+                  {sound.label}
+                </button>
+              )) : <p className="muted">No sounds yet — add them in Settings → Content.</p>}
+            </div>
+          </div>
+
+          <div className="mediaGroup">
+            <p className="mediaGroupLabel">Clips</p>
+            <div className="tabletButtonGrid">
+              {clipButtons.length > 0 ? clipButtons.map(clip => (
+                <button key={clip.id} onClick={() => playClip(clip.id)}>
+                  {clip.label}
+                </button>
+              )) : <p className="muted">No clips yet — add them in Settings → Content.</p>}
+            </div>
           </div>
         </section>
         </div>
