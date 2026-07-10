@@ -5,7 +5,7 @@ import { useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import type { SavedStreamCategory, TwitchCategorySuggestion } from '../../shared/api';
 
-export type StreamInfoForm = { title: string; category: string; categoryId?: string; tags: string[] };
+export type StreamInfoForm = { title: string; category: string; categoryId?: string; tags: string[]; status: string };
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -288,6 +288,18 @@ export function StreamInfoModal({
           </div>
           <small>{form.tags.length}/10</small>
         </div>
+
+        <label className="field">
+          <span>Status line</span>
+          <input
+            value={form.status}
+            maxLength={280}
+            placeholder="Set a stream status line…"
+            disabled={loading || saving}
+            onChange={event => setForm(current => ({ ...current, status: event.target.value }))}
+          />
+          <small>Shown on your overlay. Leave blank to hide it. {form.status.length}/280</small>
+        </label>
 
         {(loading || message || error) && (
           <div className={'modal-status' + (error ? ' error' : '')}>

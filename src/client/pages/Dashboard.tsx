@@ -14,6 +14,8 @@ import {
   getObsStatus,
   getStreamInfo,
   updateStreamInfo,
+  getStreamStatus,
+  updateStreamStatus,
   runPrerollAds,
   updateViewerProfile,
   runGoLive,
@@ -22,7 +24,6 @@ import {
   reconnectEventSub,
 } from '../services/dashboard';
 import { useSessionShoutouts } from '../shoutouts';
-import { StreamStatusBar } from '../streamStatus';
 import { useSocket } from '../realtime';
 import { chatHighlight } from '../../shared/roles';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
@@ -118,7 +119,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
   const [streamInfoOpen, setStreamInfoOpen] = useState(false);
-  const [streamInfoForm, setStreamInfoForm] = useState<StreamInfoForm>({ title: '', category: '', tags: [] });
+  const [streamInfoForm, setStreamInfoForm] = useState<StreamInfoForm>({ title: '', category: '', tags: [], status: '' });
   const [streamInfoLoading, setStreamInfoLoading] = useState(false);
   const [streamInfoSaving, setStreamInfoSaving] = useState(false);
   const [streamInfoMessage, setStreamInfoMessage] = useState<string | null>(null);
@@ -433,13 +434,14 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setStreamInfoLoading(true);
     setStreamInfoMessage(null);
     setStreamInfoError(null);
-    void getStreamInfo()
-      .then(info => {
+    void Promise.all([getStreamInfo(), getStreamStatus()])
+      .then(([info, status]) => {
         setStreamInfoForm({
           title: info.title,
           category: info.category,
           categoryId: info.categoryId || undefined,
           tags: info.tags,
+          status: status.text,
         });
       })
       .catch(error => {
@@ -453,12 +455,15 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setStreamInfoSaving(true);
     setStreamInfoMessage(null);
     setStreamInfoError(null);
-    void updateStreamInfo({
-      title: streamInfoForm.title,
-      category: streamInfoForm.category,
-      categoryId: streamInfoForm.categoryId,
-      tags: streamInfoForm.tags,
-    })
+    void Promise.all([
+      updateStreamInfo({
+        title: streamInfoForm.title,
+        category: streamInfoForm.category,
+        categoryId: streamInfoForm.categoryId,
+        tags: streamInfoForm.tags,
+      }),
+      updateStreamStatus(streamInfoForm.status),
+    ])
       .then(() => {
         setStreamInfoMessage('Saved');
         setActionMessage('Stream info saved');
@@ -712,7 +717,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         eventSubError={status.eventSubError}
         onReconnectEventSub={handleReconnectEventSub}
       />
-      {page === 'dashboard' ? <StreamStatusBar /> : null}
       {page === 'dashboard' ? dashboardLayout : page === 'rewards' ? (
         <ViewerRewardsPage onBack={() => changePage('settings')} />
       ) : page === 'categories' ? (
