@@ -1,5 +1,5 @@
 import React from 'react';
-import { Spotlight } from '../ui/panels';
+import { ChatMessageRow, Spotlight } from '../ui/panels';
 import type { PanelCtx } from '../ui/panels';
 import type { ChatEntry, Viewer, ViewerDetails, ViewerRosterEntry } from '../../shared/api';
 import { getViewerDetails, getViewerMessages, getViewerRoster } from '../services/dashboard';
@@ -148,21 +148,17 @@ export function ViewerDetailPage({
           ) : messages.length === 0 ? (
             <div className="viewer-history-empty">No chat messages recorded for this viewer yet.</div>
           ) : (
-            <>
+            <div className="viewer-history-chat">
+              {/* Newest first: the array is oldest→newest, so render it reversed. */}
+              {[...messages].reverse().map(message => (
+                <ChatMessageRow key={message.id} m={message} viewer={viewer ?? undefined} />
+              ))}
               {hasMore ? (
                 <button className="modbtn viewer-history-more" type="button" disabled={loadingMore} onClick={loadOlder}>
                   {loadingMore ? 'Loading…' : 'Load older'}
                 </button>
               ) : null}
-              <ul className="viewer-history-list">
-                {messages.map(message => (
-                  <li key={message.id} className="viewer-history-row">
-                    <span className="viewer-history-time">{message.time}</span>
-                    <span className="viewer-history-text">{message.text}</span>
-                  </li>
-                ))}
-              </ul>
-            </>
+            </div>
           )}
         </section>
       </div>

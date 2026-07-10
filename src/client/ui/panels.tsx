@@ -105,6 +105,62 @@ function badgesFor(viewer: Viewer | undefined): string[] {
   return out;
 }
 
+/**
+ * A single chat row. Shared by the dashboard chat panel and the viewer detail
+ * page's history so both read identically. `viewer` supplies the name colour and
+ * role badges; pass `onUserClick` to make the name open a popout (the dashboard
+ * does, the viewer page — already on that person — does not). `fromThisStream`
+ * dims rows from an earlier session; leave it true where session dimming doesn't
+ * apply.
+ */
+export function ChatMessageRow({
+  m,
+  viewer,
+  fromThisStream = true,
+  onUserClick,
+}: {
+  m: ChatEntry;
+  viewer?: Viewer;
+  fromThisStream?: boolean;
+  onUserClick?: (login: string) => void;
+}) {
+  const color = viewer?.color ?? '#d7dce2';
+  const display = viewer?.display ?? m.user;
+  const nameStyle = onUserClick ? { color } : { color, cursor: 'default' as const };
+  const onNameClick = onUserClick ? () => onUserClick(m.user) : undefined;
+
+  if (m.kind === 'whisper') {
+    return (
+      <div className="msg msg-whisper">
+        <span className="msg-time">{m.time}</span>
+        <span className="hl-tag whisper-tag">whisper</span>
+        <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
+        <span className="msg-text">{m.text}</span>
+      </div>
+    );
+  }
+
+  const hlClass = m.highlight ? ' hl-' + m.highlight : '';
+  return (
+    <div className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past')}>
+      <span className="msg-time">{m.time}</span>
+      {m.highlight === 'first-ever' && <span className="hl-tag">first time</span>}
+      {m.highlight === 'first-session' && <span className="hl-tag">first this stream</span>}
+      {m.highlight === 'broadcaster' && <span className="hl-tag" title="broadcaster">♛</span>}
+      {m.highlight === 'mod' && <span className="hl-tag" title="moderator">⚔</span>}
+      {m.highlight === 'vip' && <span className="hl-tag" title="VIP">★</span>}
+      {m.highlight === 'sub' && <span className="hl-tag">sub</span>}
+      <span className="badges">
+        {badgesFor(viewer).map(b => (
+          <span className={'cbadge ' + b} key={b} title={b}>{ROLE_BADGE[b]}</span>
+        ))}
+      </span>
+      <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
+      <span className="msg-text">{m.text}</span>
+    </div>
+  );
+}
+
 function normalizeProfileTag(value: string): string {
   return value.trim().replace(/^#/, '').slice(0, 32);
 }
@@ -228,49 +284,17 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
       <div className="chat-list" ref={listRef} onScroll={handleScroll}>
         {loadingOlder && <div className="chat-loading">loading…</div>}
         {displayedChat.map((m, index) => {
-          const login = m.user.toLowerCase();
-          const viewer = ctx.viewers[login];
-          const color = viewer?.color ?? '#d7dce2';
-          const display = viewer?.display ?? m.user;
-
-          if (m.kind === 'whisper') {
-            // Whispers arrive live and carry no session, so they never read as past.
-            return (
-              <div className="msg msg-whisper" key={m.id}>
-                <span className="msg-time">{m.time}</span>
-                <span className="hl-tag whisper-tag">whisper</span>
-                <span className="msg-user" style={{ color }} onClick={() => ctx.openViewerPopout(m.user)}>
-                  {display}
-                </span>
-                <span className="msg-text">{m.text}</span>
-              </div>
-            );
-          }
-
-          const fromThisStream = belongsToCurrentSession(m.sessionId, ctx.currentSessionId);
-
-          const hlClass = m.highlight ? ' hl-' + m.highlight : '';
+          // Whispers arrive live and carry no session, so they never read as past.
+          const fromThisStream = m.kind === 'whisper' || belongsToCurrentSession(m.sessionId, ctx.currentSessionId);
           return (
             <React.Fragment key={m.id}>
               {index === currentSessionStart && <div className="chat-divider">this stream</div>}
-            <div className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past')}>
-              <span className="msg-time">{m.time}</span>
-              {m.highlight === 'first-ever' && <span className="hl-tag">first time</span>}
-              {m.highlight === 'first-session' && <span className="hl-tag">first this stream</span>}
-              {m.highlight === 'broadcaster' && <span className="hl-tag" title="broadcaster">♛</span>}
-              {m.highlight === 'mod' && <span className="hl-tag" title="moderator">⚔</span>}
-              {m.highlight === 'vip' && <span className="hl-tag" title="VIP">★</span>}
-              {m.highlight === 'sub' && <span className="hl-tag">sub</span>}
-              <span className="badges">
-                {badgesFor(viewer).map(b => (
-                  <span className={'cbadge ' + b} key={b} title={b}>{ROLE_BADGE[b]}</span>
-                ))}
-              </span>
-              <span className="msg-user" style={{ color }} onClick={() => ctx.openViewerPopout(m.user)}>
-                {display}
-              </span>
-              <span className="msg-text">{m.text}</span>
-            </div>
+              <ChatMessageRow
+                m={m}
+                viewer={ctx.viewers[m.user.toLowerCase()]}
+                fromThisStream={fromThisStream}
+                onUserClick={ctx.openViewerPopout}
+              />
             </React.Fragment>
           );
         })}
