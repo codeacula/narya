@@ -221,14 +221,23 @@ export function ViewersPage() {
   const searchLogin = term.replace(/^@/, '');
   const searchIsNew = searchLogin.length > 0 && !people.some(p => p.login === searchLogin);
 
-  const runAction = (action: () => Promise<{ message: string }>, label: string) => {
+  const runAction = async (action: () => Promise<{ message: string }>, label: string) => {
     setBusy(true);
     setError(null);
     setMessage(null);
-    void action()
-      .then(result => setMessage(result.message ?? `Done: ${label}.`))
-      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : `Could not ${label}.`))
-      .finally(() => { setBusy(false); void refresh(); });
+    let outcome: { ok: boolean; text: string };
+    try {
+      const result = await action();
+      outcome = { ok: true, text: result.message ?? `Done: ${label}.` };
+    } catch (caught) {
+      outcome = { ok: false, text: caught instanceof Error ? caught.message : `Could not ${label}.` };
+    }
+    // Re-sync the roster/role lists first, THEN surface the outcome — refresh() clears
+    // `error` on entry, so setting it afterward keeps the action's feedback from being wiped.
+    await refresh();
+    if (outcome.ok) setMessage(outcome.text);
+    else setError(outcome.text);
+    setBusy(false);
   };
 
   return (
