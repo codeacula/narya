@@ -1949,6 +1949,20 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .cats-toolbar { margin-bottom: var(--space-4); }
 
+.cats-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 420px;
+  margin: 0 0 var(--space-5);
+}
+.cats-add-label {
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  letter-spacing: var(--track-wide);
+  color: var(--fg-2);
+}
+
 .cat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));

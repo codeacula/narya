@@ -1,7 +1,9 @@
 import React from 'react';
-import type { SavedStreamCategory } from '../../shared/api';
+import type { SavedStreamCategory, TwitchCategorySuggestion } from '../../shared/api';
 import {
+  addSavedStreamCategory,
   deleteStreamCategory,
+  getCategorySuggestions,
   getSavedStreamCategories,
   getTagHistorySuggestions,
   setSavedStreamCategoryHidden,
@@ -143,6 +145,72 @@ function CategoryCard({
   );
 }
 
+function AddCategoryControl({
+  busy,
+  onAdd,
+}: {
+  busy: boolean;
+  onAdd: (suggestion: TwitchCategorySuggestion) => void;
+}) {
+  const [search, setSearch] = React.useState('');
+  const [focused, setFocused] = React.useState(false);
+  const { suggestions, loading } = useDebouncedSuggestions(search, getCategorySuggestions, { enabled: !busy });
+  const showSuggestions = focused && (loading || suggestions.length > 0 || search.trim().length >= 2);
+
+  const pick = (suggestion: TwitchCategorySuggestion) => {
+    onAdd(suggestion);
+    setSearch('');
+    setFocused(false);
+  };
+
+  return (
+    <div className="cats-add">
+      <span className="cats-add-label">Add a category</span>
+      <div className="stream-cat-picker">
+        <div className="suggestion-anchor">
+          <input
+            aria-label="Search Twitch categories to add"
+            value={search}
+            placeholder="Search Twitch categories…"
+            disabled={busy}
+            onFocus={() => setFocused(true)}
+            onBlur={() => window.setTimeout(() => setFocused(false), SUGGESTION_DISMISS_MS)}
+            onChange={event => setSearch(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                if (suggestions.length > 0) pick(suggestions[0]);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                setSearch('');
+              }
+            }}
+          />
+          {showSuggestions && (
+            <div className="suggestion-list">
+              {loading ? (
+                <div className="suggestion-empty">Searching categories...</div>
+              ) : suggestions.length === 0 ? (
+                <div className="suggestion-empty">No matches</div>
+              ) : suggestions.map(category => (
+                <button
+                  key={category.id}
+                  type="button"
+                  className="suggestion-item"
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => pick(category)}
+                >
+                  <span>{category.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function StreamCategoriesPage({ onBack }: { onBack: () => void }) {
   const [categories, setCategories] = React.useState<SavedStreamCategory[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -189,6 +257,11 @@ export function StreamCategoriesPage({ onBack }: { onBack: () => void }) {
 
         <p className="cats-intro">Tags you set on a category replace your stream tags automatically when you switch to it in Stream Info. Linked reward groups flip on with it too.</p>
 
+        <AddCategoryControl
+          busy={busy}
+          onAdd={suggestion => void run(() => addSavedStreamCategory({ id: suggestion.id, name: suggestion.name, boxArtUrl: suggestion.boxArtUrl }))}
+        />
+
         {error ? <div className="viewers-status is-error" role="status">{error}</div> : null}
 
         {loading ? (
@@ -197,7 +270,7 @@ export function StreamCategoriesPage({ onBack }: { onBack: () => void }) {
           <div className="empty-state">
             <div className="es-orb" />
             <div className="es-title">No saved categories yet</div>
-            <div className="es-sub">Pick a category in Stream Info or map one to a reward group, and it lands here.</div>
+            <div className="es-sub">Search for a category above to add your first one — or pick one in Stream Info and it lands here.</div>
           </div>
         ) : (
           <>
