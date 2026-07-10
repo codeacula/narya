@@ -460,7 +460,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .spot-id { min-width: 0; }
 .spot-name { font-size: var(--step-1); font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .spot-real-name { font-size: 13px; color: var(--ivory-100); margin-top: 1px; }
-.spot-pronouns { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+.spot-meta { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
 .spot-roles { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
 .rolepill {
   font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;

@@ -689,7 +689,7 @@ export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
           <div className="spot-id">
             <div className="spot-name" style={{ color: viewer.color }}>{viewer.display}</div>
             {viewer.realName && <div className="spot-real-name">{viewer.realName}</div>}
-            <div className="spot-pronouns">{viewer.pronouns} · {viewer.accountAge}</div>
+            <div className="spot-meta">{viewer.accountAge}</div>
             <div className="spot-roles">
               {viewer.roles.includes('mod') && <span className="rolepill mod">moderator</span>}
               {viewer.roles.includes('vip') && <span className="rolepill vip">vip</span>}

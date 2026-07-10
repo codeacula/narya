@@ -21,7 +21,7 @@ import {
 
 function viewer(login: string, tags: string[]): Viewer {
   return {
-    login, display: login, color: '', realName: '', tags, pronouns: '', roles: [],
+    login, display: login, color: '', realName: '', tags, roles: [],
     followed: '', subbed: '', seen: '', msgs: 0, accountAge: '', note: '', recent: [],
   };
 }

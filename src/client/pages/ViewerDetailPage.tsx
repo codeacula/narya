@@ -1,8 +1,8 @@
 import React from 'react';
 import { Spotlight } from '../ui/panels';
 import type { PanelCtx } from '../ui/panels';
-import type { ChatEntry, Viewer, ViewerRosterEntry } from '../../shared/api';
-import { getViewerMessages, getViewerRoster } from '../services/dashboard';
+import type { ChatEntry, Viewer, ViewerDetails, ViewerRosterEntry } from '../../shared/api';
+import { getViewerDetails, getViewerMessages, getViewerRoster } from '../services/dashboard';
 
 const PAGE_SIZE = 80;
 
@@ -13,7 +13,6 @@ function minimalViewer(login: string): Viewer {
     color: 'var(--silver-400)',
     realName: '',
     tags: [],
-    pronouns: 'not available',
     roles: [],
     followed: 'not available',
     subbed: 'not available',
@@ -26,8 +25,8 @@ function minimalViewer(login: string): Viewer {
 }
 
 // Build a Viewer from a roster row for viewers who fell outside the recent-window
-// map. Some fields (realName, tags, pronouns) aren't in the roster, so they read
-// as their unset defaults — the page still shows who the person is.
+// map. Some fields (realName, tags) aren't in the roster, so they read as their
+// unset defaults — the page still shows who the person is.
 function rosterEntryToViewer(entry: ViewerRosterEntry): Viewer {
   let seen = 'not available';
   try {
@@ -75,11 +74,24 @@ export function ViewerDetailPage({
     return () => { cancelled = true; };
   }, [inMap, normalized]);
 
-  const spotlightCtx: PanelCtx = inMap || !fallback
-    ? ctx
-    : { ...ctx, viewers: { ...ctx.viewers, [normalized]: fallback } };
+  // On-demand live Twitch facts (follow date, subscription, account age).
+  const [details, setDetails] = React.useState<ViewerDetails | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    setDetails(null);
+    getViewerDetails(normalized)
+      .then(next => { if (!cancelled) setDetails(next); })
+      .catch(() => { if (!cancelled) setDetails(null); });
+    return () => { cancelled = true; };
+  }, [normalized]);
 
-  const display = spotlightCtx.viewers[normalized]?.display ?? login;
+  const baseViewer = ctx.viewers[normalized] ?? fallback;
+  const viewer = baseViewer && details ? { ...baseViewer, ...details } : baseViewer;
+  const spotlightCtx: PanelCtx = viewer
+    ? { ...ctx, viewers: { ...ctx.viewers, [normalized]: viewer } }
+    : ctx;
+
+  const display = viewer?.display ?? login;
 
   // Full chat history for this viewer, paged oldest-appended-on-top.
   const [messages, setMessages] = React.useState<ChatEntry[]>([]);

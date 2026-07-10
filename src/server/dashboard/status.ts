@@ -17,7 +17,7 @@ import { broadcast, getSocketCount } from '../realtime';
 import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus } from '../runtime';
 import { getActiveStreamSession, getCurrentStreamSessionId, getSessionChatterCount } from '../streamSession';
 import { getTwitchAuthStatus, REQUIRED_TWITCH_OAUTH_SCOPES } from '../twitch/auth';
-import { fetchBroadcasterId, getTwitchApiHeaders, getTwitchUserApiHeaders } from '../twitch/api';
+import { fetchBroadcasterId, fetchViewerTwitchDetails, getTwitchApiHeaders, getTwitchUserApiHeaders } from '../twitch/api';
 
 type ChatMessageRow = {
   id: string;
@@ -380,7 +380,6 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
       color: string;
       realName: string;
       tags: string[];
-      pronouns: string;
       roles: string[];
       followed: string;
       subbed: string;
@@ -407,7 +406,6 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           color: row.color ?? fallbackColor(login),
           realName: profile?.realName ?? '',
           tags: profile?.tags ?? [],
-          pronouns: 'not available',
           roles,
           followed: 'not available',
           subbed: roles.includes('sub') ? 'subscriber badge present' : 'not available',
@@ -614,6 +612,22 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
       };
     }));
+  });
+
+  // Live Twitch facts (follow date, subscription, account age) for one viewer,
+  // fetched on demand when their page opens. Best-effort; missing scopes or a
+  // disconnected Twitch just yield 'not available' fields.
+  app.get('/api/viewers/:login/details', async (request, response) => {
+    const login = request.params.login.trim().toLowerCase();
+    if (!login) {
+      sendRouteError(response, new HttpRouteError(400, 'Viewer login is required.'));
+      return;
+    }
+    try {
+      response.json(await fetchViewerTwitchDetails(state, login));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
   });
 
   app.get('/api/dashboard/events', (_request, response) => {
