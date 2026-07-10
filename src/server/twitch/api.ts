@@ -4,6 +4,7 @@ import { appConfig } from '../appConfig';
 import { HttpRouteError, readResponseError, sendRouteError } from '../http';
 import type { RuntimeState } from '../runtime';
 import { parseTwitchGameId } from '../streamCategories';
+import { mergeTagSuggestions, normalizeTag, normalizeTags, recordTagHistory, suggestTagHistory } from '../tags';
 import { applyRewardGroupsForStreamCategory } from '../viewerRewards';
 import {
   getTwitchBotAccessToken,
@@ -510,25 +511,6 @@ export async function runTwitchCommercial(state: RuntimeState): Promise<TwitchCo
   }
 }
 
-export function normalizeTags(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const tags: string[] = [];
-  for (const item of value) {
-    if (typeof item !== 'string') continue;
-    const tag = normalizeTwitchTagCandidate(item);
-    if (!tag || seen.has(tag.toLowerCase())) continue;
-    seen.add(tag.toLowerCase());
-    tags.push(tag);
-    if (tags.length === 10) break;
-  }
-  return tags;
-}
-
-export function normalizeTwitchTagCandidate(value: string): string {
-  return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
-}
-
 export async function searchTwitchCategories(query: string, credentials: { clientId: string; authorization: string }) {
   const res = await fetch(
     `https://api.twitch.tv/helix/search/categories?query=${encodeURIComponent(query)}&first=20`,
@@ -638,29 +620,27 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
   app.get('/api/twitch/tag-suggestions', async (request, response) => {
     try {
       const query = typeof request.query['query'] === 'string' ? request.query['query'].trim() : '';
-      const credentials = await getTwitchActionCredentials(state, []);
-      const res = await fetch(
-        `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
-        { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
-      );
+      const candidate = normalizeTag(query);
+      const history = suggestTagHistory(query, 8);
 
-      if (!res.ok) {
-        const message = await readResponseError(res, 'Twitch channel tags are unavailable.');
-        throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+      // The channel's current tags are a nice-to-have; if Twitch is unreachable or
+      // unauthenticated, fall back to history-only suggestions rather than 500ing.
+      let channelTags: string[] = [];
+      try {
+        const credentials = await getTwitchActionCredentials(state, []);
+        const res = await fetch(
+          `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
+          { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+        );
+        if (res.ok) {
+          const data = await res.json() as { data?: Array<{ tags?: string[] }> };
+          channelTags = normalizeTags(data.data?.[0]?.tags ?? []);
+        }
+      } catch {
+        // history-only suggestions
       }
 
-      const data = await res.json() as { data?: Array<{ tags?: string[] }> };
-      const existingTags = normalizeTags(data.data?.[0]?.tags ?? []);
-      const candidate = normalizeTwitchTagCandidate(query);
-      const suggestions = new Set<string>();
-      const lowerQuery = candidate.toLowerCase();
-
-      for (const tag of existingTags) {
-        if (!lowerQuery || tag.toLowerCase().includes(lowerQuery)) suggestions.add(tag);
-      }
-      if (candidate) suggestions.add(candidate);
-
-      response.json([...suggestions].slice(0, 8));
+      response.json(mergeTagSuggestions({ history, channelTags, candidate }));
     } catch (error) {
       sendRouteError(response, error);
     }
@@ -708,6 +688,9 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
         const message = await readResponseError(res, 'Twitch channel update failed.');
         throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
       }
+
+      // Remember these tags so the type-ahead can suggest them next time.
+      recordTagHistory(tags);
 
       // Swap reward groups to match the new stream category (best-effort — never fails the update).
       await applyRewardGroupsForStreamCategory(state, gameId);
