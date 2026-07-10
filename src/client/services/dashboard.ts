@@ -25,8 +25,6 @@ import type {
   SoundPlayback,
   AutomodHold,
   AutomodQueue,
-  TickerItem,
-  TickerItemUpdate,
   ChatbotCommand,
   ChatbotCommandUpsert,
   LlmSettings,
@@ -353,22 +351,6 @@ export async function allowAutomodHold(id: string): Promise<AutomodHold> {
 
 export async function denyAutomodHold(id: string): Promise<AutomodHold> {
   return sendJson<AutomodHold>(`/api/automod/${encodeURIComponent(id)}/deny`, 'POST');
-}
-
-export async function getTicker(): Promise<TickerItem[]> {
-  return fetchJson<TickerItem[]>('/api/ticker');
-}
-
-export async function createTickerItem(item: TickerItemUpdate): Promise<TickerItem> {
-  return sendJson<TickerItem>('/api/ticker', 'POST', item);
-}
-
-export async function updateTickerItem(id: string, item: TickerItemUpdate): Promise<TickerItem> {
-  return sendJson<TickerItem>(`/api/ticker/${encodeURIComponent(id)}`, 'PUT', item);
-}
-
-export async function deleteTickerItem(id: string): Promise<void> {
-  return sendVoid(`/api/ticker/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 export async function getChatters(): Promise<ChattersResponse> {

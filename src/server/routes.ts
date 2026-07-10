@@ -29,33 +29,6 @@ import {
   updateTtsSettings,
 } from './tts';
 
-const listTickerItems = db.prepare(`
-  select id, text, position
-  from ticker_items
-  order by position asc, text collate nocase
-`);
-
-const createTickerItemRow = db.prepare(`
-  insert into ticker_items (id, text, position)
-  values (?, ?, ?)
-`);
-const updateTickerItemRow = db.prepare(`
-  update ticker_items
-  set text = ?
-  where id = ?
-`);
-const deleteTickerItemRow = db.prepare('delete from ticker_items where id = ?');
-const getTickerItemRow = db.prepare('select id, text, position from ticker_items where id = ?');
-const getMaxTickerPosition = db.prepare('select coalesce(max(position), -1) as position from ticker_items');
-
-function normalizeTickerBody(body: unknown) {
-  const value = body as { text?: unknown };
-  const text = typeof value.text === 'string' ? value.text.trim() : '';
-  if (!text) throw new HttpRouteError(400, 'Ticker item text is required.');
-  if (text.length > 160) throw new HttpRouteError(400, 'Ticker item text must be 160 characters or fewer.');
-  return { text };
-}
-
 export function registerCoreRoutes(app: Express, state: RuntimeState) {
   app.get('/api/health', (_request, response) => {
     response.json({
@@ -78,45 +51,6 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
       ...obsStatus,
       scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : appConfig.obsScenes,
     });
-  });
-
-  app.get('/api/ticker', (_request, response) => {
-    response.json(listTickerItems.all());
-  });
-
-  app.post('/api/ticker', (request, response) => {
-    try {
-      const item = normalizeTickerBody(request.body);
-      const id = crypto.randomUUID();
-      const maxPosition = getMaxTickerPosition.get() as { position: number };
-      createTickerItemRow.run(id, item.text, maxPosition.position + 1);
-      response.status(201).json(getTickerItemRow.get(id));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.put('/api/ticker/:id', (request, response) => {
-    try {
-      const existing = getTickerItemRow.get(request.params.id);
-      if (!existing) throw new HttpRouteError(404, 'Ticker item not found.');
-      const item = normalizeTickerBody(request.body);
-      updateTickerItemRow.run(item.text, request.params.id);
-      response.json(getTickerItemRow.get(request.params.id));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.delete('/api/ticker/:id', (request, response) => {
-    try {
-      const existing = getTickerItemRow.get(request.params.id);
-      if (!existing) throw new HttpRouteError(404, 'Ticker item not found.');
-      deleteTickerItemRow.run(request.params.id);
-      response.status(204).end();
-    } catch (error) {
-      sendRouteError(response, error);
-    }
   });
 
   app.get('/api/music/current', (_request, response) => {

@@ -1,14 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import type { SoundButton, TickerItem } from '../../../shared/api';
+import type { SoundButton } from '../../../shared/api';
 import {
   createSoundButton,
-  createTickerItem,
   deleteSoundButton,
-  deleteTickerItem,
   getSoundButtons,
-  getTicker,
   updateSoundButton,
-  updateTickerItem,
 } from '../../services/dashboard';
 
 type SoundForm = {
@@ -17,28 +13,14 @@ type SoundForm = {
   filename: string;
 };
 
-type TickerForm = {
-  id: string | null;
-  text: string;
-};
-
 const EMPTY_SOUND_FORM: SoundForm = {
   id: null,
   label: '',
   filename: '',
 };
 
-const EMPTY_TICKER_FORM: TickerForm = {
-  id: null,
-  text: '',
-};
-
 function sortSoundButtons(items: SoundButton[]): SoundButton[] {
   return [...items].sort((a, b) => a.label.localeCompare(b.label));
-}
-
-function sortByPosition<T extends { position: number; text: string }>(items: T[]): T[] {
-  return [...items].sort((a, b) => a.position - b.position || a.text.localeCompare(b.text));
 }
 
 function formFromSound(sound: SoundButton): SoundForm {
@@ -49,18 +31,9 @@ function formFromSound(sound: SoundButton): SoundForm {
   };
 }
 
-function formFromTicker(item: TickerItem): TickerForm {
-  return {
-    id: item.id,
-    text: item.text,
-  };
-}
-
 export function ContentSection() {
   const [soundButtons, setSoundButtons] = useState<SoundButton[]>([]);
-  const [tickerItems, setTickerItems] = useState<TickerItem[]>([]);
   const [soundForm, setSoundForm] = useState<SoundForm>(EMPTY_SOUND_FORM);
-  const [tickerForm, setTickerForm] = useState<TickerForm>(EMPTY_TICKER_FORM);
   const [contentLoading, setContentLoading] = useState(true);
   const [contentSaving, setContentSaving] = useState(false);
   const [contentMessage, setContentMessage] = useState<string | null>(null);
@@ -69,11 +42,10 @@ export function ContentSection() {
   useEffect(() => {
     let cancelled = false;
     setContentLoading(true);
-    void Promise.all([getSoundButtons(), getTicker()])
-      .then(([nextSoundButtons, nextTickerItems]) => {
+    void getSoundButtons()
+      .then(nextSoundButtons => {
         if (!cancelled) {
           setSoundButtons(sortSoundButtons(nextSoundButtons));
-          setTickerItems(sortByPosition(nextTickerItems));
           setContentError(null);
         }
       })
@@ -120,40 +92,6 @@ export function ContentSection() {
         setContentMessage('Sound deleted');
       })
       .catch(error => setContentError(error instanceof Error ? error.message : 'Could not delete sound'))
-      .finally(() => setContentSaving(false));
-  };
-
-  const handleTickerSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setContentSaving(true);
-    setContentMessage(null);
-    setContentError(null);
-    const payload = { text: tickerForm.text };
-    const request = tickerForm.id ? updateTickerItem(tickerForm.id, payload) : createTickerItem(payload);
-
-    void request
-      .then(saved => {
-        setTickerItems(current => sortByPosition([...current.filter(item => item.id !== saved.id), saved]));
-        setTickerForm(formFromTicker(saved));
-        setContentMessage('Ticker saved');
-      })
-      .catch(error => setContentError(error instanceof Error ? error.message : 'Could not save ticker item'))
-      .finally(() => setContentSaving(false));
-  };
-
-  const handleTickerDelete = (id: string) => {
-    const item = tickerItems.find(row => row.id === id);
-    if (!item || !window.confirm(`Delete "${item.text}"?`)) return;
-    setContentSaving(true);
-    setContentMessage(null);
-    setContentError(null);
-    void deleteTickerItem(id)
-      .then(() => {
-        setTickerItems(current => current.filter(row => row.id !== id));
-        if (tickerForm.id === id) setTickerForm(EMPTY_TICKER_FORM);
-        setContentMessage('Ticker item deleted');
-      })
-      .catch(error => setContentError(error instanceof Error ? error.message : 'Could not delete ticker item'))
       .finally(() => setContentSaving(false));
   };
 
@@ -233,67 +171,6 @@ export function ContentSection() {
           <div className="command-settings-actions">
             <button className="modbtn gold" type="submit" disabled={contentLoading || contentSaving}>
               {contentSaving ? 'Saving...' : 'Save Sound'}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <div className="settings-editor-section">
-        <div className="command-editor-head">
-          <div>
-            <div className="set-label">Ticker</div>
-            <div className="set-sub">Short text items for overlay or dashboard ticker surfaces.</div>
-          </div>
-          <button
-            className="modbtn"
-            type="button"
-            disabled={contentSaving}
-            onClick={() => {
-              setTickerForm(EMPTY_TICKER_FORM);
-              setContentMessage(null);
-              setContentError(null);
-            }}
-          >
-            New
-          </button>
-        </div>
-
-        <div className="settings-mini-list">
-          {contentLoading ? (
-            <div className="command-empty">Loading ticker...</div>
-          ) : tickerItems.length === 0 ? (
-            <div className="command-empty">No ticker items configured.</div>
-          ) : tickerItems.map(item => (
-            <div className="settings-item-row" key={item.id}>
-              <div className="settings-item-main">
-                <b>{item.text}</b>
-              </div>
-              <div className="command-row-actions">
-                <button className="modbtn" type="button" disabled={contentSaving} onClick={() => setTickerForm(formFromTicker(item))}>
-                  Edit
-                </button>
-                <button className="modbtn danger" type="button" disabled={contentSaving} onClick={() => handleTickerDelete(item.id)}>
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <form className="settings-mini-form" onSubmit={handleTickerSubmit}>
-          <label className="field settings-wide-field">
-            <span>Text</span>
-            <input
-              value={tickerForm.text}
-              disabled={contentLoading || contentSaving}
-              maxLength={160}
-              placeholder="Follow for more local nonsense"
-              onChange={event => setTickerForm(current => ({ ...current, text: event.target.value }))}
-            />
-          </label>
-          <div className="command-settings-actions">
-            <button className="modbtn gold" type="submit" disabled={contentLoading || contentSaving}>
-              {contentSaving ? 'Saving...' : 'Save Ticker'}
             </button>
           </div>
         </form>

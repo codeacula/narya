@@ -233,26 +233,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .health-bars { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
 .health-bars i { width: 3px; background: var(--success-base); border-radius: 1px; display: block; opacity: 0.85; }
 
-.ticker {
-  flex: 1;
-  display: flex; flex-direction: column; justify-content: center;
-  gap: 4px;
-  padding: 0 var(--space-5);
-  border-left: 1px solid var(--border-1);
-  min-width: 0;
-  position: relative; z-index: 1;
-}
-.ticker-window { overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 6%, #000 88%, transparent); }
-.ticker-track {
-  display: inline-flex; gap: 26px; white-space: nowrap;
-  font-family: var(--font-mono); font-size: 12px; color: var(--fg-2);
-  letter-spacing: 0.02em;
-  animation: tickerscroll 38s linear infinite;
-}
-.ticker-track b { color: var(--accent-fg); font-weight: 500; }
-.ticker-track .sep { color: var(--silver-600); }
-@keyframes tickerscroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-
 /* ================= STAGE (columns) ================= */
 .stage {
   min-height: 0;
