@@ -123,6 +123,11 @@ export async function getChatEntriesBefore(id: string): Promise<ChatEntry[]> {
   return fetchJson<ChatEntry[]>(`/api/dashboard/chat?before=${encodeURIComponent(id)}`);
 }
 
+export async function getViewerMessages(login: string, before?: string): Promise<ChatEntry[]> {
+  const suffix = before ? `?before=${encodeURIComponent(before)}` : '';
+  return fetchJson<ChatEntry[]>(`/api/viewers/${encodeURIComponent(login)}/messages${suffix}`);
+}
+
 export async function getStreamEvents(): Promise<StreamEvent[]> {
   return fetchJson<StreamEvent[]>('/api/dashboard/events');
 }

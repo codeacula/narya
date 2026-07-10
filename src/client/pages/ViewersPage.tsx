@@ -60,10 +60,12 @@ function StarRow({
   person,
   busy,
   onAction,
+  onOpenViewerPage,
 }: {
   person: Person;
   busy: boolean;
   onAction: (action: () => Promise<{ message: string }>, label: string) => void;
+  onOpenViewerPage?: (login: string) => void;
 }) {
   const ring = topRole(person.roles);
   const orbClass = ['roster-orb', ring ? `is-${ring}` : '', person.isLive ? 'is-live' : ''].filter(Boolean).join(' ');
@@ -78,7 +80,18 @@ function StarRow({
 
       <div className="roster-identity">
         <div className="roster-nameline">
-          <span className="roster-name">{person.display}</span>
+          {onOpenViewerPage ? (
+            <button
+              type="button"
+              className="roster-name roster-name-btn"
+              title={`Open @${person.login}'s page`}
+              onClick={() => onOpenViewerPage(person.login)}
+            >
+              {person.display}
+            </button>
+          ) : (
+            <span className="roster-name">{person.display}</span>
+          )}
           {isMod ? <span className="roster-badge is-mod">Mod</span> : null}
           {isVip ? <span className="roster-badge is-vip">VIP</span> : null}
           {person.roles.has('sub') ? <span className="roster-badge is-sub">Sub</span> : null}
@@ -133,7 +146,7 @@ const SEGMENTS: Array<{ id: Segment; label: string }> = [
   { id: 'mods', label: 'Mods' },
 ];
 
-export function ViewersPage() {
+export function ViewersPage({ onOpenViewerPage }: { onOpenViewerPage?: (login: string) => void } = {}) {
   const [roster, setRoster] = React.useState<ViewerRosterEntry[]>([]);
   const [liveLogins, setLiveLogins] = React.useState<Set<string>>(new Set());
   const [vips, setVips] = React.useState<Chatter[]>([]);
@@ -315,7 +328,7 @@ export function ViewersPage() {
         ) : (
           <div className="roster-list">
             {shown.map(person => (
-              <StarRow key={person.login} person={person} busy={busy} onAction={runAction} />
+              <StarRow key={person.login} person={person} busy={busy} onAction={runAction} onOpenViewerPage={onOpenViewerPage} />
             ))}
           </div>
         )}
