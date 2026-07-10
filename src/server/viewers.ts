@@ -15,13 +15,28 @@ function getHeaders(credentials: ActionCredentials) {
 }
 
 async function listRoleUsers(url: string, credentials: ActionCredentials): Promise<Chatter[]> {
-  const res = await fetch(url, { headers: getHeaders(credentials) });
-  if (!res.ok) {
-    const message = await readResponseError(res, 'Twitch request failed.');
-    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
-  }
-  const data = await res.json() as { data?: Array<{ user_id: string; user_login: string; user_name: string }> };
-  return (data.data ?? []).map(user => ({ userId: user.user_id, userLogin: user.user_login, userName: user.user_name }));
+  // Helix caps each page at 100 and returns a cursor; a channel with more than
+  // 100 mods/VIPs would otherwise drop everyone past the first page, so they'd
+  // show as ordinary users with the wrong (grant, not revoke) role action.
+  const users: Chatter[] = [];
+  let cursor: string | undefined;
+  do {
+    const pageUrl = cursor ? `${url}&after=${encodeURIComponent(cursor)}` : url;
+    const res = await fetch(pageUrl, { headers: getHeaders(credentials) });
+    if (!res.ok) {
+      const message = await readResponseError(res, 'Twitch request failed.');
+      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+    }
+    const data = await res.json() as {
+      data?: Array<{ user_id: string; user_login: string; user_name: string }>;
+      pagination?: { cursor?: string };
+    };
+    for (const user of data.data ?? []) {
+      users.push({ userId: user.user_id, userLogin: user.user_login, userName: user.user_name });
+    }
+    cursor = data.pagination?.cursor || undefined;
+  } while (cursor);
+  return users;
 }
 
 async function writeRole(

@@ -11,6 +11,7 @@ import {
   removeModerator,
   removeVip,
   sendViewerShoutout,
+  sendViewerWhisper,
   timeoutViewer,
 } from '../services/dashboard';
 
@@ -100,6 +101,17 @@ function StarRow({
           ? <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => removeModerator(person.login), `remove mod from @${person.login}`)}>Un-Mod</button>
           : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantModerator(person.login), `mod @${person.login}`)}>Mod</button>}
         <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => sendViewerShoutout(person.login), `shout out @${person.login}`)}>Shout out</button>
+        <button
+          className="modbtn"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            const message = window.prompt(`Whisper to @${person.login}:`)?.trim();
+            if (message) onAction(() => sendViewerWhisper(person.login, message), `whisper @${person.login}`);
+          }}
+        >
+          Whisper
+        </button>
         <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => timeoutViewer(person.login, 600, ''), `time out @${person.login}`)}>Timeout</button>
         <button
           className="modbtn danger"
