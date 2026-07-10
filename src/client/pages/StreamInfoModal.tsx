@@ -46,7 +46,7 @@ export function StreamInfoModal({
 
   React.useEffect(() => {
     if (form.categoryId && form.category) {
-      seenCategoriesRef.current.set(form.categoryId, { id: form.categoryId, name: form.category, boxArtUrl: null, hidden: false });
+      seenCategoriesRef.current.set(form.categoryId, { id: form.categoryId, name: form.category, boxArtUrl: null, hidden: false, tags: [], rewardGroups: [] });
     }
   }, [form.categoryId, form.category]);
 
@@ -94,7 +94,7 @@ export function StreamInfoModal({
   const savedIds = new Set(visibleSaved.map(cat => cat.id));
   const remembered = new Map(seenCategoriesRef.current);
   if (form.categoryId && form.category) {
-    remembered.set(form.categoryId, { id: form.categoryId, name: form.category, boxArtUrl: null, hidden: false });
+    remembered.set(form.categoryId, { id: form.categoryId, name: form.category, boxArtUrl: null, hidden: false, tags: [], rewardGroups: [] });
   }
   const categoryOptions: SavedStreamCategory[] = [
     ...[...remembered.values()].filter(cat => !savedIds.has(cat.id)),

@@ -287,7 +287,13 @@ export type SavedStreamCategoryInput = {
   boxArtUrl: string | null;
 };
 
-export type SavedStreamCategory = TwitchCategorySuggestion & { hidden: boolean };
+export type StreamCategoryRewardGroup = { id: string; name: string };
+
+export type SavedStreamCategory = TwitchCategorySuggestion & {
+  hidden: boolean;
+  tags: string[];
+  rewardGroups: StreamCategoryRewardGroup[];
+};
 
 export type StreamInfoUpdate = {
   title: string;
