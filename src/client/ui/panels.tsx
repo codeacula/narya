@@ -144,17 +144,6 @@ export function ChatMessageRow({
   return (
     <div className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past')}>
       <span className="msg-time">{m.time}</span>
-      {m.highlight === 'first-ever' && <span className="hl-tag">first time</span>}
-      {m.highlight === 'first-session' && <span className="hl-tag">first this stream</span>}
-      {m.highlight === 'broadcaster' && <span className="hl-tag" title="broadcaster">♛</span>}
-      {m.highlight === 'mod' && <span className="hl-tag" title="moderator">⚔</span>}
-      {m.highlight === 'vip' && <span className="hl-tag" title="VIP">★</span>}
-      {m.highlight === 'sub' && <span className="hl-tag">sub</span>}
-      <span className="badges">
-        {badgesFor(viewer).map(b => (
-          <span className={'cbadge ' + b} key={b} title={b}>{ROLE_BADGE[b]}</span>
-        ))}
-      </span>
       <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
       <span className="msg-text">{m.text}</span>
     </div>
