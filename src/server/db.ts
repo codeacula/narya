@@ -127,13 +127,6 @@ db.exec(`
     updated_at text not null
   );
 
-  create table if not exists runsheet_items (
-    id text primary key,
-    text text not null,
-    done integer not null default 0,
-    position integer not null default 0
-  );
-
   create table if not exists ticker_items (
     id text primary key,
     text text not null,
@@ -264,7 +257,6 @@ db.exec(`
   create index if not exists idx_chat_messages_channel on chat_messages(channel);
   create index if not exists idx_chat_messages_received_at on chat_messages(received_at);
   create index if not exists idx_chat_messages_username on chat_messages(username);
-  create index if not exists idx_runsheet_items_position on runsheet_items(position);
   create index if not exists idx_ticker_items_position on ticker_items(position);
   create index if not exists idx_chatbot_commands_trigger on chatbot_commands(trigger);
   create index if not exists idx_chatbot_command_actions_command on chatbot_command_actions(command_id, position);
@@ -274,6 +266,9 @@ db.exec(`
   create index if not exists idx_viewer_reward_category_games_category on viewer_reward_category_games(category_id);
   create index if not exists idx_automod_holds_resolved_at on automod_holds(resolved_at);
 `);
+
+// The runsheet feature was removed; drop its table from databases created before that.
+db.exec('drop table if exists runsheet_items;');
 
 const allowedMigrationTables = new Set([
   'chat_messages',
@@ -285,7 +280,6 @@ const allowedMigrationTables = new Set([
   'chatbot_commands',
   'chatbot_command_actions',
   'llm_settings',
-  'runsheet_items',
   'ticker_items',
   'stream_sessions',
   'stream_session_chatters',

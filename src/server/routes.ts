@@ -29,29 +29,12 @@ import {
   updateTtsSettings,
 } from './tts';
 
-const listRunsheetItems = db.prepare(`
-  select id, text, done, position
-  from runsheet_items
-  order by position asc, text collate nocase
-`);
-
 const listTickerItems = db.prepare(`
   select id, text, position
   from ticker_items
   order by position asc, text collate nocase
 `);
 
-const createRunsheetItemRow = db.prepare(`
-  insert into runsheet_items (id, text, done, position)
-  values (?, ?, ?, ?)
-`);
-const updateRunsheetItemRow = db.prepare(`
-  update runsheet_items
-  set text = ?, done = ?
-  where id = ?
-`);
-const deleteRunsheetItemRow = db.prepare('delete from runsheet_items where id = ?');
-const getRunsheetItemRow = db.prepare('select id, text, done, position from runsheet_items where id = ?');
 const createTickerItemRow = db.prepare(`
   insert into ticker_items (id, text, position)
   values (?, ?, ?)
@@ -63,19 +46,7 @@ const updateTickerItemRow = db.prepare(`
 `);
 const deleteTickerItemRow = db.prepare('delete from ticker_items where id = ?');
 const getTickerItemRow = db.prepare('select id, text, position from ticker_items where id = ?');
-const getMaxRunsheetPosition = db.prepare('select coalesce(max(position), -1) as position from runsheet_items');
 const getMaxTickerPosition = db.prepare('select coalesce(max(position), -1) as position from ticker_items');
-
-function normalizeRunsheetBody(body: unknown) {
-  const value = body as { text?: unknown; done?: unknown };
-  const text = typeof value.text === 'string' ? value.text.trim() : '';
-  if (!text) throw new HttpRouteError(400, 'Runsheet item text is required.');
-  if (text.length > 240) throw new HttpRouteError(400, 'Runsheet item text must be 240 characters or fewer.');
-  return {
-    text,
-    done: typeof value.done === 'boolean' ? value.done : false,
-  };
-}
 
 function normalizeTickerBody(body: unknown) {
   const value = body as { text?: unknown };
@@ -83,15 +54,6 @@ function normalizeTickerBody(body: unknown) {
   if (!text) throw new HttpRouteError(400, 'Ticker item text is required.');
   if (text.length > 160) throw new HttpRouteError(400, 'Ticker item text must be 160 characters or fewer.');
   return { text };
-}
-
-function rowToRunItem(row: { id: string; text: string; done: number; position: number }) {
-  return {
-    id: row.id,
-    text: row.text,
-    done: row.done === 1,
-    position: row.position,
-  };
 }
 
 export function registerCoreRoutes(app: Express, state: RuntimeState) {
@@ -116,48 +78,6 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
       ...obsStatus,
       scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : appConfig.obsScenes,
     });
-  });
-
-  app.get('/api/runsheet', (_request, response) => {
-    const rows = listRunsheetItems.all() as Array<{ id: string; text: string; done: number; position: number }>;
-    response.json(rows.map(rowToRunItem));
-  });
-
-  app.post('/api/runsheet', (request, response) => {
-    try {
-      const item = normalizeRunsheetBody(request.body);
-      const id = crypto.randomUUID();
-      const maxPosition = getMaxRunsheetPosition.get() as { position: number };
-      createRunsheetItemRow.run(id, item.text, item.done ? 1 : 0, maxPosition.position + 1);
-      const row = getRunsheetItemRow.get(id) as { id: string; text: string; done: number; position: number };
-      response.status(201).json(rowToRunItem(row));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.put('/api/runsheet/:id', (request, response) => {
-    try {
-      const existing = getRunsheetItemRow.get(request.params.id) as { id: string; text: string; done: number; position: number } | null;
-      if (!existing) throw new HttpRouteError(404, 'Runsheet item not found.');
-      const item = normalizeRunsheetBody(request.body);
-      updateRunsheetItemRow.run(item.text, item.done ? 1 : 0, request.params.id);
-      const row = getRunsheetItemRow.get(request.params.id) as { id: string; text: string; done: number; position: number };
-      response.json(rowToRunItem(row));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.delete('/api/runsheet/:id', (request, response) => {
-    try {
-      const existing = getRunsheetItemRow.get(request.params.id);
-      if (!existing) throw new HttpRouteError(404, 'Runsheet item not found.');
-      deleteRunsheetItemRow.run(request.params.id);
-      response.status(204).end();
-    } catch (error) {
-      sendRouteError(response, error);
-    }
   });
 
   app.get('/api/ticker', (_request, response) => {

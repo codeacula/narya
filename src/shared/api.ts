@@ -167,18 +167,6 @@ export type StreamEventUpdate = {
   tone: string;
 };
 
-export type RunItem = {
-  id: string;
-  text: string;
-  done: boolean;
-  position: number;
-};
-
-export type RunItemUpdate = {
-  text: string;
-  done: boolean;
-};
-
 export type TickerItem = {
   id: string;
   text: string;

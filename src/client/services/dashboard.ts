@@ -9,8 +9,6 @@ import type {
   RewardMedia,
   StreamEvent,
   SessionShoutout,
-  RunItem,
-  RunItemUpdate,
   DashboardStatus,
   StreamInfo,
   TwitchCategorySuggestion,
@@ -355,22 +353,6 @@ export async function allowAutomodHold(id: string): Promise<AutomodHold> {
 
 export async function denyAutomodHold(id: string): Promise<AutomodHold> {
   return sendJson<AutomodHold>(`/api/automod/${encodeURIComponent(id)}/deny`, 'POST');
-}
-
-export async function getRunsheet(): Promise<RunItem[]> {
-  return fetchJson<RunItem[]>('/api/runsheet');
-}
-
-export async function createRunsheetItem(item: RunItemUpdate): Promise<RunItem> {
-  return sendJson<RunItem>('/api/runsheet', 'POST', item);
-}
-
-export async function updateRunsheetItem(id: string, item: RunItemUpdate): Promise<RunItem> {
-  return sendJson<RunItem>(`/api/runsheet/${encodeURIComponent(id)}`, 'PUT', item);
-}
-
-export async function deleteRunsheetItem(id: string): Promise<void> {
-  return sendVoid(`/api/runsheet/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 export async function getTicker(): Promise<TickerItem[]> {
