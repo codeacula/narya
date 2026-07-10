@@ -13,10 +13,8 @@ data/*.sqlite-wal
 # Operator-supplied clip media — served from public/, restored by hand
 public/clips/
 
-# Operator-supplied sound media — served from public/, restored by hand.
-# Bundled quack defaults stay tracked; loose/added sounds are ignored.
-public/sounds/*
-!public/sounds/quacks/
+# Operator-supplied sound media — served from public/, restored by hand
+public/sounds/
 
 .DS_Store
 
