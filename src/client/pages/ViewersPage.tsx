@@ -247,9 +247,6 @@ export function ViewersPage() {
           <button className="modbtn" type="button" disabled={busy || loading} onClick={() => void refresh()}>Refresh</button>
         </header>
 
-        {error ? <div className="set-status error">{error}</div> : null}
-        {message ? <div className="set-status">{message}</div> : null}
-
         <div className="viewers-toolbar">
           <div className="viewers-segments" role="tablist" aria-label="Filter viewers">
             {SEGMENTS.map(seg => (
@@ -273,6 +270,9 @@ export function ViewersPage() {
             onChange={event => setSearch(event.target.value)}
           />
         </div>
+
+        {error ? <div className="viewers-status is-error" role="status">{error}</div> : null}
+        {message ? <div className="viewers-status" role="status">{message}</div> : null}
 
         {loading ? (
           <div className="empty-state"><div className="es-orb" /><div className="es-title">Gathering your viewers…</div></div>
