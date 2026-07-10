@@ -202,7 +202,10 @@ export function TabletPage() {
             <p className="mediaGroupLabel">Sounds</p>
             <div className="tabletButtonGrid">
               {soundButtons.length > 0 ? soundButtons.map(sound => (
-                <button key={sound.id} onClick={() => playSound(sound.id)}>
+                <button
+                  key={sound.id}
+                  onClick={event => { event.currentTarget.blur(); playSound(sound.id); }}
+                >
                   {sound.label}
                 </button>
               )) : <p className="muted">No sounds yet — add them in Settings → Content.</p>}
@@ -213,7 +216,10 @@ export function TabletPage() {
             <p className="mediaGroupLabel">Clips</p>
             <div className="tabletButtonGrid">
               {clipButtons.length > 0 ? clipButtons.map(clip => (
-                <button key={clip.id} onClick={() => playClip(clip.id)}>
+                <button
+                  key={clip.id}
+                  onClick={event => { event.currentTarget.blur(); playClip(clip.id); }}
+                >
                   {clip.label}
                 </button>
               )) : <p className="muted">No clips yet — add them in Settings → Content.</p>}
