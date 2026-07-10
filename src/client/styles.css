@@ -173,38 +173,41 @@ nav {
 }
 
 .chatMessage {
-  --border-color: rgba(162, 170, 188, 0.35);
+  --border-color: var(--border-2);
   display: grid;
   gap: 2px;
   padding: 9px 12px 9px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-3);
   border-left: 3px solid var(--border-color);
   background: rgba(28, 39, 62, 0.88);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(4px);
+  font-family: var(--font-body);
 }
 
 .chatMessage.moderated {
   opacity: 0.55;
-  --border-color: rgba(162, 170, 188, 0.3);
+  --border-color: var(--border-2);
 }
 
-/* Role-based left border */
-.chatMessage[data-role='broadcaster'] { --border-color: var(--gold); }
-.chatMessage[data-role='moderator']   { --border-color: #50fa7b; }
-.chatMessage[data-role='vip']         { --border-color: #ff79c6; }
-.chatMessage[data-role='subscriber']  { --border-color: #bd93f9; }
+/* Role-based left border — brand semantic colors, matching the dashboard chat */
+.chatMessage[data-role='broadcaster'] { --border-color: var(--gold-500); }
+.chatMessage[data-role='moderator']   { --border-color: var(--success-base); }
+.chatMessage[data-role='vip']         { --border-color: var(--note-base); }
+.chatMessage[data-role='subscriber']  { --border-color: var(--gold-500); }
 
-/* First-time chatter — green tinted card */
+/* First-time chatter — info border with a soft orb glow (matches dashboard first-ever) */
 .chatMessage.firstTime {
-  background: rgba(80, 250, 123, 0.07);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(80, 250, 123, 0.22);
+  --border-color: var(--info-base);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--info-border),
+    0 0 22px rgba(106, 168, 212, 0.25);
 }
 
-/* Mention — gold tinted card with ring */
+/* Mention — the streamer was @'d; gold border with a soft orb glow */
 .chatMessage.mention {
-  background: rgba(255, 184, 108, 0.09);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 184, 108, 0.38);
+  --border-color: var(--gold-500);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--warning-border),
+    0 0 22px rgba(255, 184, 108, 0.28);
 }
 
 .chatEmote {
@@ -222,13 +225,13 @@ nav {
 }
 
 .chatMessage span {
-  color: var(--ivory);
+  color: var(--ivory-50);
   font-size: 14px;
   line-height: 1.45;
 }
 
 .chatMessage em {
-  color: var(--silver);
+  color: var(--silver-400);
   font-size: 11px;
   font-style: normal;
 }

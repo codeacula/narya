@@ -175,7 +175,7 @@ export function ChatPanel({ compact = false }: { compact?: boolean }) {
 
         return (
           <article className={classes} data-role={role} key={message.id}>
-            <strong style={{ color: message.color ?? 'var(--gold)' }}>{message.displayName}</strong>
+            <strong style={{ color: message.color ?? 'var(--gold-500)' }}>{message.displayName}</strong>
             <span>{renderContent(message.message, message.emotes, emoteMap)}</span>
             {message.deletedAt ? <em>{message.deletedReason ?? 'moderated'}</em> : null}
           </article>
