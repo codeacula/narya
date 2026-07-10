@@ -150,55 +150,6 @@ nav {
   gap: 10px;
 }
 
-.musicControls {
-  display: grid;
-  gap: 10px;
-}
-
-.musicControls label {
-  display: grid;
-  gap: 5px;
-}
-
-.musicControls label span {
-  color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.musicSource {
-  color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.musicControls input,
-.musicControls select {
-  min-height: 44px;
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-2);
-  background: var(--bg-void);
-  color: var(--fg-1);
-  font-family: var(--font-body);
-  padding: 0 11px;
-  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
-}
-
-.musicControls input:focus,
-.musicControls select:focus {
-  outline: none;
-  border-color: var(--border-3);
-  box-shadow: 0 0 0 3px rgba(255, 184, 108, 0.12);
-}
-
-.musicControlActions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
 
 /* ── Chat panel (dashboard) ─────────────────────────────── */
 
@@ -611,8 +562,8 @@ nav {
   align-items: start;
 }
 
-.tabletControlGrid > section,
-.tabletPanel {
+.tabletPanel,
+.tabletSideStack > section {
   border: 1px solid var(--border-1);
   border-left: 2px solid rgba(255, 184, 108, 0.2);
   border-radius: var(--radius-3);
@@ -622,8 +573,13 @@ nav {
   padding: 18px;
 }
 
-.obsPanel {
-  grid-row: span 2;
+/* Right column: Music, Sounds, and Moderation stack under one another so
+   Moderation sits beside the OBS panel rather than orphaned below it. */
+.tabletSideStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
 .tabletPanelHeader {
@@ -775,18 +731,6 @@ nav {
 
 .transitionButton small {
   color: var(--fg-arcane);
-}
-
-/* The music form's primary action. Scoped under .tabletShell to beat the base
-   button background; the gold-tint idiom matches the app's other primary actions. */
-.tabletShell .musicControlActions .accent {
-  border-color: var(--border-3);
-  background: rgba(255, 184, 108, 0.12);
-  color: var(--gold-300);
-}
-
-.tabletShell .musicControlActions .accent:hover:not(:disabled) {
-  background: rgba(255, 184, 108, 0.2);
 }
 
 @keyframes chatIn {
