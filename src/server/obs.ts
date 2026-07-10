@@ -19,11 +19,24 @@ const obsStatus: ObsStatus = {
   updatedAt: new Date().toISOString(),
 };
 
+type ObsScene = { sceneName?: string; sceneIndex?: number };
+
 type SceneListResponse = {
-  scenes?: Array<{ sceneName?: string }>;
+  scenes?: ObsScene[];
   currentProgramSceneName?: string;
   currentPreviewSceneName?: string;
 };
+
+// OBS returns scenes bottom-to-top relative to its UI list — scenes[0] is the
+// bottom scene and sceneIndex counts up from there, so the top scene has the
+// highest index. Sort by sceneIndex descending to list them in the same order
+// the operator sees in OBS.
+export function orderedSceneNames(scenes: ObsScene[] | undefined): string[] {
+  return [...(scenes ?? [])]
+    .sort((a, b) => (b.sceneIndex ?? 0) - (a.sceneIndex ?? 0))
+    .map(scene => scene.sceneName)
+    .filter((name): name is string => Boolean(name));
+}
 
 type StudioModeResponse = {
   studioModeEnabled?: boolean;
@@ -34,7 +47,7 @@ type SceneNameEvent = {
 };
 
 type SceneListChangedEvent = {
-  scenes?: Array<{ sceneName?: string }>;
+  scenes?: ObsScene[];
 };
 
 type StudioModeEvent = {
@@ -92,7 +105,7 @@ export async function refreshObsStatus() {
   ]);
   updateObsStatus({
     connected: true,
-    scenes: (sceneList.scenes ?? []).map(scene => scene.sceneName).filter((name): name is string => Boolean(name)),
+    scenes: orderedSceneNames(sceneList.scenes),
     currentProgramScene: sceneList.currentProgramSceneName ?? null,
     currentPreviewScene: sceneList.currentPreviewSceneName ?? null,
     studioMode: studioMode.studioModeEnabled ?? false,
@@ -172,7 +185,7 @@ obs.on('CurrentPreviewSceneChanged', (event: SceneNameEvent) => {
 
 obs.on('SceneListChanged', (event: SceneListChangedEvent) => {
   updateObsStatus({
-    scenes: (event.scenes ?? []).map(scene => scene.sceneName).filter((name): name is string => Boolean(name)),
+    scenes: orderedSceneNames(event.scenes),
     lastError: null,
   });
   void refreshObsStatus().catch((error: unknown) => {

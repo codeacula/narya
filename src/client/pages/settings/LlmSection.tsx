@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { LlmSettingsUpdate } from '../../../shared/api';
 import { getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
 
@@ -7,7 +7,7 @@ type LlmSettingsForm = LlmSettingsUpdate & {
 };
 
 const EMPTY_LLM_SETTINGS: LlmSettingsForm = {
-  enabled: true,
+  enabled: false,
   baseUrl: 'http://localhost:1234/v1',
   model: '',
   apiKey: '',
@@ -21,6 +21,9 @@ const EMPTY_LLM_SETTINGS: LlmSettingsForm = {
 
 export function LlmSection() {
   const [llmSettings, setLlmSettings] = useState<LlmSettingsForm>(EMPTY_LLM_SETTINGS);
+  // Last settings the server confirmed; the enable toggle saves from this so it
+  // never commits unsaved form edits (a half-typed key, or a pending clear).
+  const savedLlm = useRef<LlmSettingsForm>(EMPTY_LLM_SETTINGS);
   const [llmLoading, setLlmLoading] = useState(true);
   const [llmSaving, setLlmSaving] = useState(false);
   const [llmTesting, setLlmTesting] = useState(false);
@@ -35,7 +38,7 @@ export function LlmSection() {
     void getLlmSettings()
       .then(settings => {
         if (!cancelled) {
-          setLlmSettings({
+          const loaded: LlmSettingsForm = {
             enabled: settings.enabled,
             baseUrl: settings.baseUrl,
             model: settings.model,
@@ -46,7 +49,9 @@ export function LlmSection() {
             temperature: settings.temperature,
             maxOutputTokens: settings.maxOutputTokens,
             timeoutMs: settings.timeoutMs,
-          });
+          };
+          savedLlm.current = loaded;
+          setLlmSettings(loaded);
           setLlmError(null);
         }
       })
@@ -62,24 +67,23 @@ export function LlmSection() {
     };
   }, []);
 
-  const handleLlmSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const saveLlmSettings = (form: LlmSettingsForm, successMessage: string) => {
     setLlmSaving(true);
     setLlmMessage(null);
     setLlmError(null);
     void updateLlmSettings({
-      enabled: llmSettings.enabled,
-      baseUrl: llmSettings.baseUrl,
-      model: llmSettings.model,
-      apiKey: llmSettings.apiKey,
-      clearApiKey: llmSettings.clearApiKey,
-      personalityPrompt: llmSettings.personalityPrompt,
-      temperature: llmSettings.temperature,
-      maxOutputTokens: llmSettings.maxOutputTokens,
-      timeoutMs: llmSettings.timeoutMs,
+      enabled: form.enabled,
+      baseUrl: form.baseUrl,
+      model: form.model,
+      apiKey: form.apiKey,
+      clearApiKey: form.clearApiKey,
+      personalityPrompt: form.personalityPrompt,
+      temperature: form.temperature,
+      maxOutputTokens: form.maxOutputTokens,
+      timeoutMs: form.timeoutMs,
     })
       .then(settings => {
-        setLlmSettings({
+        const saved: LlmSettingsForm = {
           enabled: settings.enabled,
           baseUrl: settings.baseUrl,
           model: settings.model,
@@ -90,13 +94,27 @@ export function LlmSection() {
           temperature: settings.temperature,
           maxOutputTokens: settings.maxOutputTokens,
           timeoutMs: settings.timeoutMs,
-        });
-        setLlmMessage('Saved');
+        };
+        savedLlm.current = saved;
+        setLlmSettings(saved);
+        setLlmMessage(successMessage);
       })
       .catch(error => {
+        setLlmSettings(llmSettings);
         setLlmError(error instanceof Error ? error.message : 'Could not save LLM settings');
       })
       .finally(() => setLlmSaving(false));
+  };
+
+  const handleLlmSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    saveLlmSettings(llmSettings, 'Saved');
+  };
+
+  const handleLlmEnabledToggle = (enabled: boolean) => {
+    const next = { ...savedLlm.current, enabled };
+    setLlmSettings(next);
+    saveLlmSettings(next, enabled ? 'LLM enabled.' : 'LLM disabled.');
   };
 
   const handleLlmTest = () => {
@@ -116,18 +134,28 @@ export function LlmSection() {
 
   return (
     <div className="set-group">
-      <div className="set-group-label">LLM settings</div>
-      <form className="command-settings-form" onSubmit={handleLlmSubmit}>
-        <label className="command-enabled">
-          <input
-            type="checkbox"
-            checked={llmSettings.enabled}
-            disabled={llmLoading || llmSaving}
-            onChange={event => setLlmSettings(current => ({ ...current, enabled: event.target.checked }))}
-          />
-          <span>Enabled</span>
-        </label>
+      <div className="set-group-label set-group-label--toggle">
+        <span>LLM settings</span>
+        <input
+          className="set-group-toggle"
+          type="checkbox"
+          aria-label="Enable LLM"
+          checked={llmSettings.enabled}
+          disabled={llmLoading || llmSaving}
+          onChange={event => handleLlmEnabledToggle(event.target.checked)}
+        />
+      </div>
 
+      {!llmSettings.enabled && (llmMessage || llmError) && (
+        <div className="set-group-note">
+          <div className={'command-settings-status' + (llmError ? ' error' : '')}>
+            {llmError ?? llmMessage}
+          </div>
+        </div>
+      )}
+
+      {llmSettings.enabled && (
+      <form className="command-settings-form" onSubmit={handleLlmSubmit}>
         <label className="field">
           <span>Base URL</span>
           <input
@@ -262,6 +290,7 @@ export function LlmSection() {
           </button>
         </div>
       </form>
+      )}
     </div>
   );
 }

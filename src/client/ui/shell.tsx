@@ -52,8 +52,7 @@ export function NavBar({
   channel: string;
   alert?: React.ReactNode;
 }) {
-  const brand = channel.trim();
-  const displayBrand = brand ? brand.toUpperCase() : '...';
+  const channelName = channel.trim();
 
   return (
     <div className="navbar">
@@ -63,7 +62,7 @@ export function NavBar({
           alt=""
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
         />
-        <span className="wm">{displayBrand}</span>
+        <span className="wm">Narya</span>
       </div>
       <div className="navlinks">
         <button
@@ -97,7 +96,7 @@ export function NavBar({
       <button className="nav-icon" title="Settings" onClick={() => setPage('settings')}>
         <Icon name="settings" size={15} />
       </button>
-      <div className="nav-avatar">{brand ? displayBrand[0] : '?'}</div>
+      <div className="nav-avatar">{channelName ? channelName[0].toUpperCase() : '?'}</div>
     </div>
   );
 }

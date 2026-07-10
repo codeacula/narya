@@ -67,7 +67,7 @@ src/
     ui/
       icons.tsx         # Icon component
       shell.tsx         # NavBar, StatBar, Panel, PopWindow, useDrag
-      panels.tsx        # Chat, Spotlight, EventFeed, RunSheet, MODULES registry
+      panels.tsx        # Chat, Spotlight, EventFeed, MODULES registry
       tweaks.tsx        # useTweaks (localStorage) + TweakSection/Radio/Toggle/Color controls
       notifications.tsx # ToastProvider + toast system
       serviceStatus.tsx # ServiceStatusToasts (settings:updated WebSocket events)
