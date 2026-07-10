@@ -194,6 +194,19 @@ db.exec(`
     created_at text not null
   );
 
+  create table if not exists stream_category_tags (
+    game_id text not null,
+    tag text not null,
+    created_at text not null,
+    primary key (game_id, tag)
+  );
+
+  create table if not exists stream_tag_history (
+    tag_key text primary key,
+    display text not null,
+    last_used_at text not null
+  );
+
   create table if not exists tts_settings (
     id integer primary key,
     enabled integer not null default 1,
