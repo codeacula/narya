@@ -636,6 +636,7 @@ function ViewerActionModal({
 export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
   const normalizedLogin = login?.toLowerCase();
   const viewer = normalizedLogin ? ctx.viewers[normalizedLogin] : null;
+  const emoteMap = useEmotes();
   const [profileOpen, setProfileOpen] = React.useState(false);
   const [actionOpen, setActionOpen] = React.useState<ViewerActionKind | null>(null);
   const [busyAction, setBusyAction] = React.useState<ViewerActionKind | 'shoutout' | null>(null);
@@ -754,7 +755,7 @@ export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
             {viewer.recent.map((r, i) => (
               <div className={'rmsg' + (r.kind ? ' ' + r.kind : '')} key={i}>
                 <span className="ago">{r.ago}</span>
-                <span className="body">{r.t}</span>
+                <span className="body">{renderContent(r.t, r.emotes ?? null, emoteMap)}</span>
               </div>
             ))}
           </div>

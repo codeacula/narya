@@ -372,7 +372,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
       note: row.note,
     }]));
     const recentRows = db.prepare(`
-      select username, display_name as displayName, color, message, received_at as receivedAt, badges_json as badgesJson
+      select username, display_name as displayName, color, message, received_at as receivedAt,
+             badges_json as badgesJson, emotes_json as emotesJson
       from chat_messages
       order by received_at desc
       limit ${DASHBOARD_RECENT_VIEWER_MESSAGE_LIMIT}
@@ -383,6 +384,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
       message: string;
       receivedAt: string;
       badgesJson: string | null;
+      emotesJson: string | null;
     }>;
 
     type ViewerProjection = {
@@ -398,7 +400,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
       msgs: number;
       accountAge: string;
       note: string;
-      recent: Array<{ t: string; ago: string; kind?: string }>;
+      recent: Array<{ t: string; ago: string; kind?: string; emotes?: Record<string, string[]> | null }>;
     };
 
     const viewers: Record<string, ViewerProjection> = {};
@@ -432,6 +434,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         viewers[login].recent.push({
           t: row.message,
           ago: formatAgo(row.receivedAt),
+          emotes: parseEmotesJson(row.emotesJson),
         });
       }
     }

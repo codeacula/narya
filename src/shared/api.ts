@@ -116,7 +116,7 @@ export type Viewer = {
   msgs: number;
   accountAge: string;
   note: string;
-  recent: Array<{ t: string; ago: string; kind?: string }>;
+  recent: Array<{ t: string; ago: string; kind?: string; emotes?: Record<string, string[]> | null }>;
 };
 
 export type ViewerProfileUpdate = {
