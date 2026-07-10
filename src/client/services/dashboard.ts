@@ -19,6 +19,7 @@ import type {
   ControlConfig,
   ControlResponse,
   ObsStatus,
+  Chatter,
   ChattersResponse,
   SoundButton,
   SoundButtonUpdate,
@@ -389,6 +390,30 @@ export async function denyAutomodHold(id: string): Promise<AutomodHold> {
 
 export async function getChatters(): Promise<ChattersResponse> {
   return fetchJson<ChattersResponse>('/api/chatters');
+}
+
+export async function getVips(): Promise<Chatter[]> {
+  return fetchJson<Chatter[]>('/api/twitch/vips');
+}
+
+export async function getModerators(): Promise<Chatter[]> {
+  return fetchJson<Chatter[]>('/api/twitch/moderators');
+}
+
+export async function grantVip(login: string): Promise<TwitchUserActionResult> {
+  return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/vip`, 'POST');
+}
+
+export async function removeVip(login: string): Promise<TwitchUserActionResult> {
+  return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/vip`, 'DELETE');
+}
+
+export async function grantModerator(login: string): Promise<TwitchUserActionResult> {
+  return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/moderator`, 'POST');
+}
+
+export async function removeModerator(login: string): Promise<TwitchUserActionResult> {
+  return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/moderator`, 'DELETE');
 }
 
 export async function reconnectEventSub(): Promise<{ ok: boolean }> {

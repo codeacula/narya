@@ -29,6 +29,7 @@ import { SettingsPage } from './SettingsPage';
 import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } from '../routing';
 import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamCategoriesPage } from './StreamCategoriesPage';
+import { ViewersPage } from './ViewersPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
 import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
@@ -701,6 +702,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         <ViewerRewardsPage onBack={() => changePage('settings')} />
       ) : page === 'categories' ? (
         <StreamCategoriesPage onBack={() => changePage('settings')} />
+      ) : page === 'viewers' ? (
+        <ViewersPage />
       ) : (
         <SettingsPage
           status={status}

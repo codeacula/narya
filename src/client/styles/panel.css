@@ -1926,3 +1926,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   margin-top: 8px;
 }
 .category-card.is-hidden { opacity: 0.6; }
+
+/* ---------------- Viewers page ---------------- */
+.viewer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-1, rgba(255, 255, 255, 0.08));
+}
+.viewer-row:first-of-type { border-top: none; }
+.viewer-row-main { display: flex; align-items: center; gap: 8px; }
+.viewer-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
