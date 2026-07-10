@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { TtsSettings, TtsVoice } from '../../../shared/api';
 import { TTS_TONE_PRESETS } from '../../../shared/tts';
 import {
@@ -27,6 +27,9 @@ export function TtsSection() {
     volume: 0.8,
     updatedAt: null,
   });
+  // Last settings the server confirmed; the enable toggle saves from this so it
+  // never commits unsaved form edits.
+  const savedTts = useRef<TtsSettings | null>(null);
   const [ttsVoices, setTtsVoices] = useState<TtsVoice[]>([]);
   const [ttsStatus, setTtsStatus] = useState<TtsStatus | null>(null);
   const [ttsLoading, setTtsLoading] = useState(true);
@@ -46,6 +49,7 @@ export function TtsSection() {
     ])
       .then(([settings, voices, status]) => {
         if (!cancelled) {
+          savedTts.current = settings;
           setTtsSettings(settings);
           setTtsVoices(voices);
           setTtsStatus(status);
@@ -76,6 +80,7 @@ export function TtsSection() {
       volume: settings.volume,
     })
       .then(saved => {
+        savedTts.current = saved;
         setTtsSettings(saved);
         setTtsMessage(successMessage);
       })
@@ -92,7 +97,7 @@ export function TtsSection() {
   };
 
   const handleTtsEnabledToggle = (enabled: boolean) => {
-    const next = { ...ttsSettings, enabled };
+    const next = { ...(savedTts.current ?? ttsSettings), enabled };
     setTtsSettings(next);
     saveTtsSettings(next, enabled ? 'Text-to-Speech enabled.' : 'Text-to-Speech disabled.');
   };

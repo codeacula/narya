@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { LlmSettingsUpdate } from '../../../shared/api';
 import { getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
 
@@ -21,6 +21,9 @@ const EMPTY_LLM_SETTINGS: LlmSettingsForm = {
 
 export function LlmSection() {
   const [llmSettings, setLlmSettings] = useState<LlmSettingsForm>(EMPTY_LLM_SETTINGS);
+  // Last settings the server confirmed; the enable toggle saves from this so it
+  // never commits unsaved form edits (a half-typed key, or a pending clear).
+  const savedLlm = useRef<LlmSettingsForm>(EMPTY_LLM_SETTINGS);
   const [llmLoading, setLlmLoading] = useState(true);
   const [llmSaving, setLlmSaving] = useState(false);
   const [llmTesting, setLlmTesting] = useState(false);
@@ -35,7 +38,7 @@ export function LlmSection() {
     void getLlmSettings()
       .then(settings => {
         if (!cancelled) {
-          setLlmSettings({
+          const loaded: LlmSettingsForm = {
             enabled: settings.enabled,
             baseUrl: settings.baseUrl,
             model: settings.model,
@@ -46,7 +49,9 @@ export function LlmSection() {
             temperature: settings.temperature,
             maxOutputTokens: settings.maxOutputTokens,
             timeoutMs: settings.timeoutMs,
-          });
+          };
+          savedLlm.current = loaded;
+          setLlmSettings(loaded);
           setLlmError(null);
         }
       })
@@ -78,7 +83,7 @@ export function LlmSection() {
       timeoutMs: form.timeoutMs,
     })
       .then(settings => {
-        setLlmSettings({
+        const saved: LlmSettingsForm = {
           enabled: settings.enabled,
           baseUrl: settings.baseUrl,
           model: settings.model,
@@ -89,7 +94,9 @@ export function LlmSection() {
           temperature: settings.temperature,
           maxOutputTokens: settings.maxOutputTokens,
           timeoutMs: settings.timeoutMs,
-        });
+        };
+        savedLlm.current = saved;
+        setLlmSettings(saved);
         setLlmMessage(successMessage);
       })
       .catch(error => {
@@ -105,7 +112,7 @@ export function LlmSection() {
   };
 
   const handleLlmEnabledToggle = (enabled: boolean) => {
-    const next = { ...llmSettings, enabled };
+    const next = { ...savedLlm.current, enabled };
     setLlmSettings(next);
     saveLlmSettings(next, enabled ? 'LLM enabled.' : 'LLM disabled.');
   };
