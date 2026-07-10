@@ -85,6 +85,24 @@ export function StreamInfoModal({
     setForm(current => ({ ...current, tags: current.tags.filter(item => item !== tag) }));
   }, [setForm]);
 
+  // Apply a category selection to the form. Loads that category's saved
+  // "tags on switch" set from `sourceCategories` when it defines one, and
+  // leaves the current tags untouched when it doesn't — so picking an
+  // untagged category never wipes what's already there. Shared by the
+  // dropdown and the search/"Add" flows so both behave identically.
+  const applyCategorySelection = React.useCallback(
+    (id: string, name: string, sourceCategories: SavedStreamCategory[]) => {
+      const savedTags = sourceCategories.find(cat => cat.id === id)?.tags ?? [];
+      setForm(current => ({
+        ...current,
+        category: name,
+        categoryId: id,
+        tags: savedTags.length > 0 ? savedTags : current.tags,
+      }));
+    },
+    [setForm],
+  );
+
   const showCategorySuggestions = categoryFocused
     && (categoryLoading || categorySuggestions.length > 0 || categorySearch.trim().length >= 2);
   const showTagSuggestions = tagFocused && (tagLoading || tagSuggestions.length > 0);
@@ -102,9 +120,14 @@ export function StreamInfoModal({
   ];
 
   const addSearchedCategory = (suggestion: TwitchCategorySuggestion) => {
-    setForm(current => ({ ...current, category: suggestion.name, categoryId: suggestion.id }));
+    // Seed from the list we have now, then re-apply once the upsert returns the
+    // refreshed list — a re-added category we've tagged before then loads its tags.
+    applyCategorySelection(suggestion.id, suggestion.name, savedCategories);
     void addSavedStreamCategory({ id: suggestion.id, name: suggestion.name, boxArtUrl: suggestion.boxArtUrl })
-      .then(setSavedCategories)
+      .then(next => {
+        setSavedCategories(next);
+        applyCategorySelection(suggestion.id, suggestion.name, next);
+      })
       .catch(() => undefined);
     setCategoryMode('select');
     setCategorySearch('');
@@ -200,15 +223,7 @@ export function StreamInfoModal({
                   const picked = categoryOptions.find(option => option.id === event.target.value);
                   if (!picked) return;
                   // The saved list carries each category's tag set; a remembered stub may not.
-                  const savedTags = savedCategories.find(cat => cat.id === picked.id)?.tags ?? [];
-                  setForm(current => ({
-                    ...current,
-                    category: picked.name,
-                    categoryId: picked.id,
-                    // Replace tags only when this category actually defines a set,
-                    // so picking an untagged category never wipes the current tags.
-                    tags: savedTags.length > 0 ? savedTags : current.tags,
-                  }));
+                  applyCategorySelection(picked.id, picked.name, savedCategories);
                 }}
               >
                 <option value="" disabled>{categoryOptions.length ? 'Select a category…' : 'No saved categories — use Add'}</option>
