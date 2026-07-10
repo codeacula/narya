@@ -337,7 +337,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .msg {
   padding: var(--row-pad-y) 14px;
-  font-size: 13px; line-height: 1.5;
+  font-size: 15px; line-height: 1.5;
   border-left: 2px solid transparent;
   transition: background var(--dur-fast);
 }
@@ -373,6 +373,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .msg-user:hover { border-bottom-color: currentColor; }
 .msg-user::after { content: ":"; color: var(--fg-3); font-weight: 400; margin-right: 5px; }
 .msg-text { color: var(--ivory-100); }
+/* Inline chat emotes (Twitch + BTTV/7TV) sized for the dense dashboard list;
+   the overlay's larger .chatEmote base is overridden here by higher specificity. */
+.msg-text .chatEmote { height: 22px; width: auto; vertical-align: middle; margin: 0 1px; }
 .msg-time { float: right; font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); opacity: 0; transition: opacity var(--dur-fast); }
 .msg:hover .msg-time { opacity: 1; }
 .msg.hl-first,

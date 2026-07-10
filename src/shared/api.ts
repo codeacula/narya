@@ -144,6 +144,8 @@ export type ChatEntry = {
   sessionId?: string | null;
   highlight?: 'first-session' | 'first-ever' | 'broadcaster' | 'sub' | 'mod' | 'vip';
   kind?: 'whisper';
+  /** Twitch emote positions (emoteId → ["start-end", …]) for inline emote rendering. */
+  emotes?: Record<string, string[]> | null;
 };
 
 export type WhisperMessage = {

@@ -8,6 +8,7 @@ import {
   timeoutViewer,
 } from '../services/dashboard';
 import type { Viewer, ChatEntry, StreamEvent, SessionShoutout, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter } from '../../shared/api';
+import { renderContent, useEmotes } from '../chat';
 import { DEFAULT_ATTENTION_TAG, type AttentionItem, type AttentionSettings } from '../attention';
 import { kindChip, kindTone } from '../eventKinds';
 import { sceneLabel, switchableScenes } from '../scenes';
@@ -118,16 +119,19 @@ export function ChatMessageRow({
   viewer,
   fromThisStream = true,
   onUserClick,
+  emoteMap = {},
 }: {
   m: ChatEntry;
   viewer?: Viewer;
   fromThisStream?: boolean;
   onUserClick?: (login: string) => void;
+  emoteMap?: Record<string, string>;
 }) {
   const color = viewer?.color ?? '#d7dce2';
   const display = viewer?.display ?? m.user;
   const nameStyle = onUserClick ? { color } : { color, cursor: 'default' as const };
   const onNameClick = onUserClick ? () => onUserClick(m.user) : undefined;
+  const body = renderContent(m.text, m.emotes ?? null, emoteMap);
 
   if (m.kind === 'whisper') {
     return (
@@ -135,7 +139,7 @@ export function ChatMessageRow({
         <span className="msg-time">{m.time}</span>
         <span className="hl-tag whisper-tag">whisper</span>
         <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
-        <span className="msg-text">{m.text}</span>
+        <span className="msg-text">{body}</span>
       </div>
     );
   }
@@ -145,7 +149,7 @@ export function ChatMessageRow({
     <div className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past')}>
       <span className="msg-time">{m.time}</span>
       <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
-      <span className="msg-text">{m.text}</span>
+      <span className="msg-text">{body}</span>
     </div>
   );
 }
@@ -174,6 +178,7 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   const [newCount, setNewCount] = React.useState(0);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
   const [chatSearch, setChatSearch] = React.useState('');
+  const emoteMap = useEmotes();
 
   React.useLayoutEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -283,6 +288,7 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
                 viewer={ctx.viewers[m.user.toLowerCase()]}
                 fromThisStream={fromThisStream}
                 onUserClick={ctx.openViewerPopout}
+                emoteMap={emoteMap}
               />
             </React.Fragment>
           );

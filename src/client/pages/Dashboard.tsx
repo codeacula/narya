@@ -275,6 +275,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       at: message.receivedAt,
       sessionId: message.sessionId ?? null,
       highlight: chatHighlight(message.badges, Boolean(message.isFirstEver), Boolean(message.isFirstThisSession)),
+      emotes: message.emotes,
     };
 
     // Cap live-append so long streams don't grow render cost forever.

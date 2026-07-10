@@ -25,6 +25,7 @@ type ChatMessageRow = {
   message: string;
   receivedAt: string;
   badgesJson: string | null;
+  emotesJson: string | null;
   isFirstThisSession: number;
   isFirstEver: number;
   sessionId: string | null;
@@ -65,6 +66,16 @@ function parseBadgesJson(value: string | null): Record<string, string> | null {
     return JSON.parse(value) as Record<string, string>;
   } catch (error) {
     console.error('Chat: failed to parse badges JSON:', error);
+    return null;
+  }
+}
+
+function parseEmotesJson(value: string | null): Record<string, string[]> | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as Record<string, string[]>;
+  } catch (error) {
+    console.error('Chat: failed to parse emotes JSON:', error);
     return null;
   }
 }
@@ -511,6 +522,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
             message,
             received_at as receivedAt,
             badges_json as badgesJson,
+            emotes_json as emotesJson,
             is_first_in_session as isFirstThisSession,
             is_first_ever as isFirstEver,
             stream_session_id as sessionId
@@ -524,6 +536,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           message: string;
           receivedAt: string;
           badgesJson: string | null;
+          emotesJson: string | null;
           isFirstThisSession: number;
           isFirstEver: number;
           sessionId: string | null;
@@ -535,6 +548,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
             message,
             received_at as receivedAt,
             badges_json as badgesJson,
+            emotes_json as emotesJson,
             is_first_in_session as isFirstThisSession,
             is_first_ever as isFirstEver,
             stream_session_id as sessionId
@@ -547,6 +561,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           message: string;
           receivedAt: string;
           badgesJson: string | null;
+          emotesJson: string | null;
           isFirstThisSession: number;
           isFirstEver: number;
           sessionId: string | null;
@@ -562,6 +577,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         at: row.receivedAt,
         sessionId: row.sessionId,
         highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
+        emotes: parseEmotesJson(row.emotesJson),
       };
     }));
   });
@@ -581,7 +597,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
       ? db.prepare(`
           select
             id, username, message, received_at as receivedAt,
-            badges_json as badgesJson, is_first_in_session as isFirstThisSession,
+            badges_json as badgesJson, emotes_json as emotesJson,
+            is_first_in_session as isFirstThisSession,
             is_first_ever as isFirstEver, stream_session_id as sessionId
           from chat_messages
           where username = ?
@@ -592,7 +609,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
       : db.prepare(`
           select
             id, username, message, received_at as receivedAt,
-            badges_json as badgesJson, is_first_in_session as isFirstThisSession,
+            badges_json as badgesJson, emotes_json as emotesJson,
+            is_first_in_session as isFirstThisSession,
             is_first_ever as isFirstEver, stream_session_id as sessionId
           from chat_messages
           where username = ?
@@ -610,6 +628,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         at: row.receivedAt,
         sessionId: row.sessionId,
         highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
+        emotes: parseEmotesJson(row.emotesJson),
       };
     }));
   });

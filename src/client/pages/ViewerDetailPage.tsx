@@ -2,6 +2,7 @@ import React from 'react';
 import { ChatMessageRow, Spotlight } from '../ui/panels';
 import type { PanelCtx } from '../ui/panels';
 import type { ChatEntry, Viewer, ViewerDetails, ViewerRosterEntry } from '../../shared/api';
+import { useEmotes } from '../chat';
 import { getViewerDetails, getViewerMessages, getViewerRoster } from '../services/dashboard';
 
 const PAGE_SIZE = 80;
@@ -93,6 +94,8 @@ export function ViewerDetailPage({
 
   const display = viewer?.display ?? login;
 
+  const emoteMap = useEmotes();
+
   // Full chat history for this viewer, paged oldest-appended-on-top.
   const [messages, setMessages] = React.useState<ChatEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = React.useState(true);
@@ -151,7 +154,7 @@ export function ViewerDetailPage({
             <div className="viewer-history-chat">
               {/* Newest first: the array is oldest→newest, so render it reversed. */}
               {[...messages].reverse().map(message => (
-                <ChatMessageRow key={message.id} m={message} viewer={viewer ?? undefined} />
+                <ChatMessageRow key={message.id} m={message} viewer={viewer ?? undefined} emoteMap={emoteMap} />
               ))}
               {hasMore ? (
                 <button className="modbtn viewer-history-more" type="button" disabled={loadingMore} onClick={loadOlder}>
