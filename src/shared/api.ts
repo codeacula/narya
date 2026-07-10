@@ -481,6 +481,19 @@ export type ChattersResponse = {
   total: number;
 };
 
+// Everyone who has ever chatted, drawn from the persistent `chatters` table joined
+// to each person's most recent message (display name, color, badges) and profile note.
+export type ViewerRosterEntry = {
+  login: string;
+  display: string;
+  color: string;
+  roles: string[];
+  messageCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  note: string;
+};
+
 export type TtsVoice = {
   id: string;
   name: string;

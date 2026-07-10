@@ -6,7 +6,7 @@ import {
   TWITCH_AD_SCHEDULE_CACHE_MS,
   TWITCH_STREAM_STATUS_CACHE_MS,
 } from '../../shared/constants';
-import type { SessionShoutout } from '../../shared/api';
+import type { SessionShoutout, ViewerRosterEntry } from '../../shared/api';
 import { chatHighlight, getViewerRolesFromBadges } from '../../shared/roles';
 import { twitchClient } from '../chat';
 import { appConfig } from '../appConfig';
@@ -417,6 +417,55 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
     }
 
     response.json(viewers);
+  });
+
+  // The full roster: everyone in the persistent `chatters` table, each joined to
+  // their most recent message for a current display name/color/badges. Ordered
+  // most-recently-seen first so "who's come by" reads top-down. Client-side search
+  // covers the rest; a channel with tens of thousands of chatters would want
+  // server-side paging, but this stays simple for the common case.
+  app.get('/api/viewers/roster', (_request, response) => {
+    const rows = db.prepare(`
+      select
+        c.login as login,
+        c.first_seen_at as firstSeen,
+        c.message_count as msgs,
+        m.display_name as display,
+        m.color as color,
+        m.received_at as lastSeen,
+        m.badges_json as badgesJson
+      from chatters c
+      left join (
+        select username, display_name, color, received_at, badges_json,
+               row_number() over (partition by username order by received_at desc) as rn
+        from chat_messages
+      ) m on m.username = c.login and m.rn = 1
+      order by coalesce(m.received_at, c.first_seen_at) desc
+    `).all() as Array<{
+      login: string;
+      firstSeen: string;
+      msgs: number;
+      display: string | null;
+      color: string | null;
+      lastSeen: string | null;
+      badgesJson: string | null;
+    }>;
+
+    const noteRows = db.prepare(`select login, note from viewer_profiles`).all() as Array<{ login: string; note: string }>;
+    const notes = new Map(noteRows.map(row => [row.login, row.note]));
+
+    const roster: ViewerRosterEntry[] = rows.map(row => ({
+      login: row.login,
+      display: row.display ?? row.login,
+      color: row.color ?? fallbackColor(row.login),
+      roles: getViewerRolesFromBadges(parseBadgesJson(row.badgesJson)),
+      messageCount: row.msgs,
+      firstSeenAt: row.firstSeen,
+      lastSeenAt: row.lastSeen ?? row.firstSeen,
+      note: notes.get(row.login) ?? '',
+    }));
+
+    response.json(roster);
   });
 
   app.patch('/api/dashboard/viewers/:login/profile', (request, response) => {

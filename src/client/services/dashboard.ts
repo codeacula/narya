@@ -21,6 +21,7 @@ import type {
   ObsStatus,
   Chatter,
   ChattersResponse,
+  ViewerRosterEntry,
   SoundButton,
   SoundButtonUpdate,
   SoundPlayback,
@@ -390,6 +391,10 @@ export async function denyAutomodHold(id: string): Promise<AutomodHold> {
 
 export async function getChatters(): Promise<ChattersResponse> {
   return fetchJson<ChattersResponse>('/api/chatters');
+}
+
+export async function getViewerRoster(): Promise<ViewerRosterEntry[]> {
+  return fetchJson<ViewerRosterEntry[]>('/api/viewers/roster');
 }
 
 export async function getVips(): Promise<Chatter[]> {
