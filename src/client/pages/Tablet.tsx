@@ -100,30 +100,34 @@ export function TabletPage() {
               <p className="eyebrow">OBS</p>
               <h2>Scene Control</h2>
             </div>
-            <span className="tabletStatus">
-              <span className={connectionClass} />
-              {obsStatus.connected ? 'Connected' : 'Unavailable'}
-            </span>
-          </div>
-
-          <div className="obsSceneSummary">
-            {programOffList ? (
-              <div>
-                <span>Program</span>
-                <b>{currentProgram ?? 'None'}</b>
-              </div>
-            ) : null}
-            {obsStatus.studioMode ? (
-              <div>
-                <span>Preview</span>
-                <b>{obsStatus.currentPreviewScene ?? 'None'}</b>
-              </div>
-            ) : null}
-            <div>
-              <span>Studio Mode</span>
-              <b>{obsStatus.studioMode ? 'On' : 'Off'}</b>
+            <div className="tabletStatusGroup">
+              <span className="tabletStatus">
+                <span className={connectionClass} />
+                {obsStatus.connected ? 'Connected' : 'Unavailable'}
+              </span>
+              <span className="tabletStatus">
+                <span className={'tabletStatusDot ' + (obsStatus.studioMode ? 'connected' : 'idle')} />
+                Studio {obsStatus.studioMode ? 'On' : 'Off'}
+              </span>
             </div>
           </div>
+
+          {programOffList || obsStatus.studioMode ? (
+            <div className="obsSceneSummary">
+              {programOffList ? (
+                <div>
+                  <span>Program</span>
+                  <b>{currentProgram ?? 'None'}</b>
+                </div>
+              ) : null}
+              {obsStatus.studioMode ? (
+                <div>
+                  <span>Preview</span>
+                  <b>{obsStatus.currentPreviewScene ?? 'None'}</b>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {statusError || obsStatus.lastError || commandError ? (
             <p className="tabletError">{commandError ?? statusError ?? obsStatus.lastError}</p>
@@ -170,6 +174,16 @@ export function TabletPage() {
         <section className="tabletPanel">
           <div className="tabletPanelHeader">
             <div>
+              <p className="eyebrow">Moderation</p>
+              <h2>AutoMod Queue</h2>
+            </div>
+          </div>
+          <AutomodQuickActions />
+        </section>
+
+        <section className="tabletPanel">
+          <div className="tabletPanelHeader">
+            <div>
               <p className="eyebrow">Audio</p>
               <h2>Sounds</h2>
             </div>
@@ -181,16 +195,6 @@ export function TabletPage() {
               </button>
             )) : <p className="muted">No sound buttons configured.</p>}
           </div>
-        </section>
-
-        <section className="tabletPanel">
-          <div className="tabletPanelHeader">
-            <div>
-              <p className="eyebrow">Moderation</p>
-              <h2>AutoMod Queue</h2>
-            </div>
-          </div>
-          <AutomodQuickActions />
         </section>
         </div>
       </div>
