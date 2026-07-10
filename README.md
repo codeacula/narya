@@ -7,9 +7,11 @@ Local stream tooling for codeacula.
 - `http://localhost:5173/` or `/dashboard` - side-monitor dashboard
 - `http://localhost:5173/tablet` - touch-first controls
 - `http://localhost:5173/overlay` - transparent OBS browser source overlay
+- `http://localhost:5173/overlay/clips` - centered portrait/landscape clip playback overlay
 - `http://localhost:5173/overlay/sounds` - dedicated OBS browser source for TTS and sound effects
 
 The overlay is designed for a `1920x1080` browser source, with Twitch chat in the top right and now-playing music in the bottom left.
+Use `/overlay/clips` as its own `1920x1080` browser source. Clips stay centered, preserve their full frame, and scale automatically for portrait or landscape video while the rest of the source remains transparent.
 Keep the sound overlay loaded as a separate OBS browser source. Broadcast TTS and sound effects play only through that source, independently of the dashboard and visual overlays.
 
 Music display uses `playerctl` from the backend process. Install `playerctl` on the host and run the app in the same desktop session as Strawberry.

@@ -21,6 +21,22 @@ export function useClipButtons() {
 /** Cap so a redeem storm can't grow the queue without bound. */
 const MAX_QUEUE = 20;
 
+/** Metadata should always be positive, but a safe ratio keeps malformed videos visible. */
+export function videoAspectRatio(width: number, height: number): number {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return 16 / 9;
+  return width / height;
+}
+
+type VideoLayout = {
+  itemId: string;
+  aspectRatio: number;
+};
+
+type ClipFrameStyle = React.CSSProperties & {
+  '--clip-aspect': number;
+  '--clip-width-from-height': string;
+};
+
 /** Append unless the id is already queued — a replayed socket event must not double-play. */
 export function enqueue(queue: MediaPlayback[], item: MediaPlayback): MediaPlayback[] {
   if (queue.some(queued => queued.id === item.id)) return queue;
@@ -67,6 +83,7 @@ export function useMediaQueue() {
  */
 export function ClipStage({ item, onFinished }: { item: MediaPlayback | null; onFinished: (id: string) => void }) {
   const mediaRef = React.useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
+  const [videoLayout, setVideoLayout] = React.useState<VideoLayout | null>(null);
 
   React.useEffect(() => {
     const element = mediaRef.current;
@@ -95,15 +112,31 @@ export function ClipStage({ item, onFinished }: { item: MediaPlayback | null; on
     );
   }
 
+  const aspectRatio = videoLayout?.itemId === item.id ? videoLayout.aspectRatio : null;
+  const frameStyle: ClipFrameStyle | undefined = aspectRatio === null ? undefined : {
+    '--clip-aspect': aspectRatio,
+    '--clip-width-from-height': `${aspectRatio * 82}vh`,
+  };
+
   // The glow and highlight are pseudo-elements, which <video> cannot carry, so
   // the clip plays inside a wrapper that draws them around it.
   return (
-    <div className="clipFrame" key={item.id}>
+    <div
+      className={`clipFrame${aspectRatio === null ? '' : ' clipFrameReady'}`}
+      key={item.id}
+      style={frameStyle}
+    >
       <video
         ref={el => { mediaRef.current = el; }}
         className="clipVideo"
         src={item.src}
         playsInline
+        onLoadedMetadata={event => {
+          setVideoLayout({
+            itemId: item.id,
+            aspectRatio: videoAspectRatio(event.currentTarget.videoWidth, event.currentTarget.videoHeight),
+          });
+        }}
         onEnded={finish}
         onError={finish}
       />

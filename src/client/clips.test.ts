@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { MediaPlayback } from '../shared/api';
-import { advance, enqueue } from './clips';
+import { advance, enqueue, videoAspectRatio } from './clips';
 
 function item(id: string): MediaPlayback {
   return { id, kind: 'video', src: `/clips/${id}.mp4`, volume: 0.8 };
@@ -18,6 +18,19 @@ function captureWarnings(body: () => void): string[] {
   }
   return warnings;
 }
+
+describe('videoAspectRatio', () => {
+  test('preserves portrait, landscape, and square metadata', () => {
+    expect(videoAspectRatio(576, 1024)).toBeCloseTo(9 / 16);
+    expect(videoAspectRatio(1280, 720)).toBeCloseTo(16 / 9);
+    expect(videoAspectRatio(800, 800)).toBe(1);
+  });
+
+  test('falls back to landscape when metadata is invalid', () => {
+    expect(videoAspectRatio(0, 720)).toBeCloseTo(16 / 9);
+    expect(videoAspectRatio(1280, Number.NaN)).toBeCloseTo(16 / 9);
+  });
+});
 
 describe('enqueue', () => {
   test('appends in arrival order so nobody\'s redeem jumps the line', () => {
