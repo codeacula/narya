@@ -91,8 +91,20 @@ export function mergeTagSuggestions(params: {
     seen.add(key);
     out.push(tag);
   };
-  for (const tag of history) add(tag);
-  for (const tag of channelTags) add(tag);
-  if (candidate) add(candidate);
+
+  // A brand-new typed value must always be offered, so when it isn't already one
+  // of the merged sources, hold back a slot for it while filling the rest.
+  const normalizedCandidate = normalizeTag(candidate);
+  const candidateKey = normalizedCandidate.toLowerCase();
+  const pool = [...history, ...channelTags];
+  const candidateInPool = candidateKey !== ''
+    && pool.some(tag => normalizeTag(tag).toLowerCase() === candidateKey);
+  const fillLimit = normalizedCandidate && !candidateInPool ? limit - 1 : limit;
+
+  for (const tag of pool) {
+    if (out.length >= fillLimit) break;
+    add(tag);
+  }
+  if (normalizedCandidate) add(normalizedCandidate);
   return out.slice(0, limit);
 }

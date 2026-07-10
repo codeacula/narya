@@ -65,4 +65,16 @@ describe('mergeTagSuggestions', () => {
     expect(mergeTagSuggestions({ history: [], channelTags: [], candidate: 'Fresh' }))
       .toEqual(['Fresh']);
   });
+  test('reserves a slot for a novel candidate even when sources fill the limit', () => {
+    const history = Array.from({ length: 8 }, (_, i) => `Tag${i}`);
+    const merged = mergeTagSuggestions({ history, channelTags: [], candidate: 'Fresh', limit: 8 });
+    expect(merged).toHaveLength(8);
+    expect(merged).toContain('Fresh');
+    expect(merged[merged.length - 1]).toBe('Fresh');
+  });
+  test('does not waste the reserved slot when the candidate is already a source', () => {
+    const history = Array.from({ length: 8 }, (_, i) => `Tag${i}`);
+    const merged = mergeTagSuggestions({ history, channelTags: [], candidate: 'Tag3', limit: 8 });
+    expect(merged).toEqual(history);
+  });
 });

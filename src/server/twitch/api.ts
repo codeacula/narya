@@ -634,7 +634,12 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
         );
         if (res.ok) {
           const data = await res.json() as { data?: Array<{ tags?: string[] }> };
-          channelTags = normalizeTags(data.data?.[0]?.tags ?? []);
+          // Filter the channel's tags by the query the same way history is, so a
+          // search like "cod" can't surface unrelated tags (English, Cozy) and
+          // crowd out the relevant candidate. An empty query browses them all.
+          const needle = candidate.toLowerCase();
+          channelTags = normalizeTags(data.data?.[0]?.tags ?? [])
+            .filter(tag => !needle || tag.toLowerCase().includes(needle));
         }
       } catch {
         // history-only suggestions
