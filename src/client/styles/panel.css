@@ -632,6 +632,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--fg-3); padding: 9px 14px; border-bottom: 1px solid var(--border-1); background: rgba(255,255,255,0.012);
 }
+.set-group-label--toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.set-group-label--toggle:last-child { border-bottom: none; }
+.set-group-toggle { accent-color: var(--gold-500); cursor: pointer; }
+.set-group-toggle:disabled { cursor: default; opacity: 0.5; }
+.set-group-note { padding: 14px; }
 .set-row { display: flex; align-items: center; gap: 20px; padding: 11px 14px; border-bottom: 1px solid var(--border-1); }
 .set-row:last-child { border-bottom: none; }
 .set-label { font-size: 14px; color: var(--fg-1); }

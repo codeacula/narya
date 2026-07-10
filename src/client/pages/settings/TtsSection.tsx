@@ -61,29 +61,40 @@ export function TtsSection() {
     return () => { cancelled = true; };
   }, []);
 
-  const handleTtsSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const saveTtsSettings = (settings: TtsSettings, successMessage: string) => {
     setTtsSaving(true);
     setTtsMessage(null);
     setTtsError(null);
     void updateTtsSettings({
-      enabled: ttsSettings.enabled,
-      voiceProfileId: ttsSettings.voiceProfileId,
-      languageId: ttsSettings.languageId,
-      tonePreset: ttsSettings.tonePreset,
-      exaggeration: ttsSettings.exaggeration,
-      cfgWeight: ttsSettings.cfgWeight,
-      temperature: ttsSettings.temperature,
-      volume: ttsSettings.volume,
+      enabled: settings.enabled,
+      voiceProfileId: settings.voiceProfileId,
+      languageId: settings.languageId,
+      tonePreset: settings.tonePreset,
+      exaggeration: settings.exaggeration,
+      cfgWeight: settings.cfgWeight,
+      temperature: settings.temperature,
+      volume: settings.volume,
     })
       .then(saved => {
         setTtsSettings(saved);
-        setTtsMessage('TTS settings saved.');
+        setTtsMessage(successMessage);
       })
       .catch(error => {
+        setTtsSettings(ttsSettings);
         setTtsError(error instanceof Error ? error.message : 'Could not save TTS settings');
       })
       .finally(() => setTtsSaving(false));
+  };
+
+  const handleTtsSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    saveTtsSettings(ttsSettings, 'TTS settings saved.');
+  };
+
+  const handleTtsEnabledToggle = (enabled: boolean) => {
+    const next = { ...ttsSettings, enabled };
+    setTtsSettings(next);
+    saveTtsSettings(next, enabled ? 'Text-to-Speech enabled.' : 'Text-to-Speech disabled.');
   };
 
   const handleTtsTest = () => {
@@ -102,18 +113,28 @@ export function TtsSection() {
 
   return (
     <div className="set-group">
-      <div className="set-group-label">Text-to-Speech</div>
-      <form className="command-settings-form" onSubmit={handleTtsSubmit}>
-        <label className="command-enabled">
-          <input
-            type="checkbox"
-            checked={ttsSettings.enabled}
-            disabled={ttsLoading || ttsSaving}
-            onChange={event => setTtsSettings(current => ({ ...current, enabled: event.target.checked }))}
-          />
-          <span>Enabled</span>
-        </label>
+      <div className="set-group-label set-group-label--toggle">
+        <span>Text-to-Speech</span>
+        <input
+          className="set-group-toggle"
+          type="checkbox"
+          aria-label="Enable Text-to-Speech"
+          checked={ttsSettings.enabled}
+          disabled={ttsLoading || ttsSaving}
+          onChange={event => handleTtsEnabledToggle(event.target.checked)}
+        />
+      </div>
 
+      {!ttsSettings.enabled && (ttsMessage || ttsError) && (
+        <div className="set-group-note">
+          <div className={'command-settings-status' + (ttsError ? ' error' : '')}>
+            {ttsError ?? ttsMessage}
+          </div>
+        </div>
+      )}
+
+      {ttsSettings.enabled && (
+      <form className="command-settings-form" onSubmit={handleTtsSubmit}>
         {ttsStatus && (
           <div className={'settings-alert ' + (ttsStatus.ok ? 'settings-alert--info' : 'settings-alert--warn')}>
             <span className="settings-alert-icon">{ttsStatus.ok ? 'i' : '!'}</span>
@@ -242,7 +263,7 @@ export function TtsSection() {
             <button
               className="modbtn"
               type="button"
-              disabled={ttsLoading || ttsSaving || ttsTesting || !ttsSettings.enabled}
+              disabled={ttsLoading || ttsSaving || ttsTesting}
               onClick={handleTtsTest}
             >
               {ttsTesting ? 'Sending...' : 'Test TTS'}
@@ -262,6 +283,7 @@ export function TtsSection() {
           </button>
         </div>
       </form>
+      )}
     </div>
   );
 }
