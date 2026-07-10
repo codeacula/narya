@@ -33,8 +33,18 @@ function CategoryCard({
   const [tagFocused, setTagFocused] = React.useState(false);
   const dirty = tags.join(' ') !== category.tags.join(' ');
 
-  // Keep local edits in sync when the server list refreshes after a save.
-  React.useEffect(() => { setTags(category.tags); }, [category.tags]);
+  // Any save/hide/delete replaces the whole category list, handing every card a
+  // fresh `tags` array. Sync local state only when THIS card's persisted value
+  // actually changed (e.g. its own save) — otherwise a refresh triggered by
+  // another card would silently discard unsaved edits here.
+  const syncedTags = React.useRef(category.tags.join('\n'));
+  React.useEffect(() => {
+    const serverKey = category.tags.join('\n');
+    if (serverKey !== syncedTags.current) {
+      syncedTags.current = serverKey;
+      setTags(category.tags);
+    }
+  }, [category.tags]);
 
   const tagFetcher = React.useCallback(
     (query: string) => getTagHistorySuggestions(query).then(list => {
