@@ -124,13 +124,31 @@ export function useChat(expireAfterMs = 0) {
   return messages;
 }
 
+// Shared across every useEmotes() caller in a document so a page with multiple
+// chat surfaces (dashboard chat + spotlight, or the viewer page's history +
+// spotlight) issues one /api/emotes request instead of one per mount. Cleared on
+// failure so a later mount can retry rather than reusing a rejected promise.
+let emoteMapRequest: Promise<Record<string, string>> | null = null;
+
+function loadEmoteMap(): Promise<Record<string, string>> {
+  if (!emoteMapRequest) {
+    emoteMapRequest = getEmotes().catch((error) => {
+      emoteMapRequest = null;
+      throw error;
+    });
+  }
+  return emoteMapRequest;
+}
+
 export function useEmotes() {
   const [emoteMap, setEmoteMap] = React.useState<Record<string, string>>({});
 
   React.useEffect(() => {
-    getEmotes()
-      .then(setEmoteMap)
+    let active = true;
+    loadEmoteMap()
+      .then(map => { if (active) setEmoteMap(map); })
       .catch(() => {});
+    return () => { active = false; };
   }, []);
 
   return emoteMap;
