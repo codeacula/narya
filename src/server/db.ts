@@ -57,6 +57,12 @@ db.exec(`
     filename text not null
   );
 
+  create table if not exists clip_buttons (
+    id text primary key,
+    label text not null,
+    filename text not null
+  );
+
   create table if not exists stream_events (
     id text primary key,
     kind text not null,

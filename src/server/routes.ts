@@ -5,6 +5,13 @@ import { getAutomodHold, getAutomodQueue, resolveAutomodHold } from './automod';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
 import { HttpRouteError, parseJsonColumn, sendRouteError } from './http';
+import {
+  createClipButton,
+  deleteClipButton,
+  getClipButtons,
+  triggerClipButton,
+  updateClipButton,
+} from './clips';
 import { clearManualMusic, getCurrentMusic, setManualMusic } from './music';
 import { getObsStatus, isObsConnected, switchObsScene, triggerObsTransition } from './obs';
 import { listMediaFiles } from './media';
@@ -196,6 +203,44 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     const playback = triggerSoundButton(request.params.id);
     if (!playback) {
       response.status(404).json({ error: 'Sound button not found' });
+      return;
+    }
+    response.json(playback);
+  });
+
+  app.get('/api/clips', (_request, response) => {
+    response.json(getClipButtons());
+  });
+
+  app.post('/api/clips', (request, response) => {
+    try {
+      response.status(201).json(createClipButton(request.body));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.put('/api/clips/:id', (request, response) => {
+    try {
+      response.json(updateClipButton(request.params.id, request.body));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.delete('/api/clips/:id', (request, response) => {
+    try {
+      deleteClipButton(request.params.id);
+      response.status(204).end();
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.post('/api/clips/:id/play', (request, response) => {
+    const playback = triggerClipButton(request.params.id);
+    if (!playback) {
+      response.status(404).json({ error: 'Clip button not found' });
       return;
     }
     response.json(playback);

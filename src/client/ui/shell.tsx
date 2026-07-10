@@ -290,12 +290,18 @@ export function StatBar({
     : obsConnected
       ? Math.max(0, 1 - dropPct / 5)
       : 0;
-  const barCount = obsConnected ? Math.max(1, Math.round(healthScore * 5)) : 0;
+  // Bitrate is the truest "actually streaming" signal — a connected but idle OBS
+  // still reports dropped/lagged frame counts, so keying off those would light the
+  // health meter green while the value reads "N/A" and the stream is offline.
+  const hasThroughput = obsConnected && bitrateKbps !== null;
+  const barCount = hasThroughput ? Math.max(1, Math.round(healthScore * 5)) : 0;
   const barHeights = ['7px', '10px', '13px', '16px', '12px'];
-  const healthDotClass = !obsConnected ? 'bad' : healthScore > 0.7 ? 'good' : healthScore > 0.4 ? 'warn' : 'bad';
+  const healthDotClass = !hasThroughput ? 'bad' : healthScore > 0.7 ? 'good' : healthScore > 0.4 ? 'warn' : 'bad';
+  // Green only when an ad is actually scheduled/counting down — not merely because
+  // the ad system is reachable, which would tint an idle "N/A" green.
   const adClass = adCountdown?.mode === 'active'
     ? 'ad-warn'
-    : adCountdown !== null || adScheduleStatus === 'available'
+    : adCountdown !== null
       ? 'ad-safe'
       : '';
   const adSub = adCountdown?.mode === 'active'
@@ -416,7 +422,7 @@ export function StatBar({
         </div>
         <div className="gauge-sub">
           {hasObsStats
-            ? `drop: ${droppedFrameCount} (${dropPct.toFixed(2)}%) · lag: ${laggedFrames ?? 'N/A'}`
+            ? `drop: ${droppedFrameCount} (${dropPct.toFixed(2)}%) · lag: ${laggedFrames !== null ? `${laggedFrames} frames` : 'N/A'}`
             : 'OBS unavailable'}
         </div>
       </Gauge>

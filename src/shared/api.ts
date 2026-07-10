@@ -73,6 +73,17 @@ export type SoundButtonUpdate = {
   filename: string;
 };
 
+export type ClipButton = {
+  id: string;
+  label: string;
+  filename: string;
+};
+
+export type ClipButtonUpdate = {
+  label: string;
+  filename: string;
+};
+
 export type ControlConfig = {
   scenes: string[];
 };

@@ -52,15 +52,33 @@ button:disabled {
 /* The tablet surface uses unclassed buttons that lean on this default chrome.
    The dashboard/overlay set their own button styles, so keep the visuals scoped here. */
 .tabletShell button {
-  min-height: 48px;
-  border: 1px solid #2f4367;
-  border-radius: 8px;
-  background: var(--navy);
-  color: var(--ivory);
+  min-height: 56px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-3);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--fg-1);
+  font-family: var(--font-body);
+  font-size: 15px;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
-.tabletShell button:hover {
-  border-color: var(--gold);
+.tabletShell button:hover:not(:disabled) {
+  border-color: var(--border-3);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Touch surface: a clear pressed state matters more than hover. */
+.tabletShell button:active:not(:disabled) {
+  transform: scale(0.97);
+  background: rgba(255, 184, 108, 0.12);
+}
+
+.tabletShell button:focus-visible {
+  outline: 2px solid var(--gold-400);
+  outline-offset: 2px;
 }
 
 .accent {
@@ -129,38 +147,6 @@ nav {
 .buttonGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
-}
-
-.musicControls {
-  display: grid;
-  gap: 10px;
-}
-
-.musicControls label {
-  display: grid;
-  gap: 5px;
-}
-
-.musicControls label span,
-.musicSource {
-  color: var(--silver);
-  font-size: 12px;
-}
-
-.musicControls input,
-.musicControls select {
-  min-height: 40px;
-  border: 1px solid #2f4367;
-  border-radius: 8px;
-  background: var(--navy-deep);
-  color: var(--ivory);
-  padding: 0 10px;
-}
-
-.musicControlActions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -520,6 +506,53 @@ nav {
 
 .tabletShell {
   padding: 16px;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(61, 43, 107, 0.12), transparent 60%),
+    var(--bg-1);
+  color: var(--fg-1);
+  font-family: var(--font-body);
+}
+
+.tabletShell > header {
+  margin-bottom: 20px;
+}
+
+.tabletShell .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  margin-bottom: 4px;
+}
+
+.tabletShell h1 {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ivory-50);
+}
+
+.tabletBackLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-pill);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+}
+
+.tabletBackLink:hover {
+  color: var(--gold-400);
+  border-color: var(--border-3);
+  background: rgba(255, 184, 108, 0.1);
 }
 
 .tabletControlGrid {
@@ -529,16 +562,24 @@ nav {
   align-items: start;
 }
 
-.tabletControlGrid > section,
-.tabletPanel {
-  border: 1px solid #2a3a58;
-  border-radius: 8px;
-  background: var(--navy);
-  padding: 16px;
+.tabletPanel,
+.tabletSideStack > section {
+  border: 1px solid var(--border-1);
+  border-left: 2px solid rgba(255, 184, 108, 0.2);
+  border-radius: var(--radius-3);
+  background:
+    radial-gradient(circle at 95% 5%, rgba(61, 43, 107, 0.07), transparent 60%),
+    var(--bg-2);
+  padding: 18px;
 }
 
-.obsPanel {
-  grid-row: span 2;
+/* Right column: Music, Sounds, and Moderation stack under one another so
+   Moderation sits beside the OBS panel rather than orphaned below it. */
+.tabletSideStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
 .tabletPanelHeader {
@@ -546,54 +587,81 @@ nav {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
+}
+
+.tabletPanelHeader h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.tabletStatusGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .tabletStatus {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--silver);
-  font-size: 14px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .tabletStatusDot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
 }
 
 .tabletStatusDot.connected {
-  background: #50fa7b;
-  box-shadow: 0 0 0 4px rgba(80, 250, 123, 0.12);
+  background: var(--success-base);
+  box-shadow: 0 0 8px rgba(127, 200, 163, 0.6);
 }
 
 .tabletStatusDot.disconnected {
-  background: #ff5555;
-  box-shadow: 0 0 0 4px rgba(255, 85, 85, 0.12);
+  background: var(--danger-base);
+  box-shadow: 0 0 8px rgba(224, 122, 107, 0.5);
+}
+
+/* Studio Mode off is a resting state, not an error — dim rather than red. */
+.tabletStatusDot.idle {
+  background: var(--silver-600);
 }
 
 .obsSceneSummary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .obsSceneSummary > div {
+  flex: 1 1 140px;
   min-width: 0;
-  border: 1px solid #2f4367;
-  border-radius: 8px;
-  background: var(--navy-deep);
-  padding: 12px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-void);
+  padding: 10px 12px;
 }
 
 .obsSceneSummary span,
 .sceneButton small,
 .transitionButton small {
   display: block;
-  color: var(--silver);
-  font-size: 12px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .obsSceneSummary b {
@@ -602,49 +670,93 @@ nav {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 15px;
 }
 
 .tabletError {
   margin-bottom: 14px;
-  border: 1px solid rgba(255, 85, 85, 0.36);
-  border-radius: 8px;
-  background: rgba(255, 85, 85, 0.1);
-  color: #ffb3b3;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-2);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
   padding: 10px 12px;
+  font-size: 13px;
 }
 
 .tabletButtonGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
 
 .tabletButtonGrid button {
-  min-height: 86px;
-  padding: 12px;
+  min-height: 60px;
+  padding: 10px 12px;
   overflow-wrap: anywhere;
+}
+
+.mediaGroup + .mediaGroup {
+  margin-top: 16px;
+}
+
+.mediaGroupLabel {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-3);
 }
 
 .sceneButton {
   display: grid;
   align-content: center;
   gap: 4px;
+  font-size: 16px;
 }
 
-.sceneButton.current {
-  border-color: var(--gold);
-  background: rgba(255, 184, 108, 0.16);
-  color: #ffe2bf;
+.sceneButton small {
+  color: var(--gold-400);
+}
+
+/* Solid gold so the live scene reads at a glance — the color alone marks it,
+   no "Live" label needed. Matches the dashboard's active scene chip. */
+.sceneButton.current,
+.sceneButton.current:disabled {
+  border-color: var(--gold-400);
+  background: var(--gold-500);
+  color: var(--navy-950);
+  box-shadow: 0 0 20px rgba(255, 184, 108, 0.22);
   opacity: 1;
 }
 
-.tablet {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.sceneButton.current small {
+  color: var(--navy-800);
 }
 
-.tablet button {
-  min-height: 78px;
-  font-size: 20px;
+/* Transition is an action, not a scene — pulled out of the grid and given a
+   distinct arcane outline so it can't be mistaken for a scene tile. Scoped under
+   .tabletShell to win over the base button hover styles without !important. */
+.tabletShell .transitionButton {
+  margin-top: 12px;
+  width: 100%;
+  min-height: 60px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border-color: var(--arcane-400);
+  background: rgba(107, 79, 184, 0.14);
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.tabletShell .transitionButton:hover:not(:disabled) {
+  border-color: var(--fg-arcane);
+  background: rgba(107, 79, 184, 0.24);
+}
+
+.transitionButton small {
+  color: var(--fg-arcane);
 }
 
 @keyframes chatIn {
@@ -691,9 +803,9 @@ nav {
 }
 
 .automodItem {
-  border: 1px solid #2a3a58;
-  border-radius: 8px;
-  background: var(--navy-deep);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-3);
+  background: var(--bg-void);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -749,10 +861,10 @@ nav {
 .automodItemActions button {
   min-height: 36px;
   padding: 6px 14px;
-  border: 1px solid #2f4367;
-  border-radius: 8px;
-  background: var(--navy);
-  color: var(--ivory);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-2);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--fg-1);
 }
 
 .automodItemActions button:hover:not(:disabled) {
@@ -771,7 +883,7 @@ nav {
 }
 
 .automodHistory {
-  border-top: 1px solid #2a3a58;
+  border-top: 1px solid var(--border-1);
   margin-top: 4px;
   padding-top: 10px;
   display: flex;

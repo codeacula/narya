@@ -1,12 +1,13 @@
 import React from 'react';
 import type { ObsStatus } from '../../shared/api';
 import { AutomodQuickActions } from '../automod';
-import { MusicControls } from '../music';
+import { useClipButtons } from '../clips';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
 import { sceneLabel, switchableScenes } from '../scenes';
 import {
   getObsStatus,
+  playClipButton,
   playSoundButton,
   switchObsScene,
   triggerObsTransition,
@@ -51,10 +52,16 @@ function useObsStatus() {
 export function TabletPage() {
   const { obsStatus, setObsStatus, error: statusError } = useObsStatus();
   const soundButtons = useSoundButtons();
+  const clipButtons = useClipButtons();
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [commandError, setCommandError] = React.useState<string | null>(null);
 
   const scenes = switchableScenes(obsStatus.scenes);
+  const currentProgram = obsStatus.currentProgramScene;
+  // The gold scene button already marks the live scene, so the Program readout is
+  // only worth showing when the current program has no button (a non-switchable
+  // scene, or nothing selected yet).
+  const programOffList = currentProgram === null || !scenes.includes(currentProgram);
   const obsUnavailable = !obsStatus.connected;
   const hasScenes = scenes.length > 0;
   const controlsDisabled = obsUnavailable || Boolean(pendingAction);
@@ -79,6 +86,12 @@ export function TabletPage() {
     });
   }
 
+  function playClip(id: string) {
+    void playClipButton(id).catch((caught: unknown) => {
+      setCommandError(caught instanceof Error ? caught.message : `Failed to play clip ${id}`);
+    });
+  }
+
   return (
     <main className="tabletShell">
       <header>
@@ -86,7 +99,7 @@ export function TabletPage() {
           <p className="eyebrow">Tablet Panel</p>
           <h1>Stream Controls</h1>
         </div>
-        <a href="/">Dashboard</a>
+        <a className="tabletBackLink" href="/">Dashboard</a>
       </header>
 
       <div className="tabletControlGrid">
@@ -96,34 +109,40 @@ export function TabletPage() {
               <p className="eyebrow">OBS</p>
               <h2>Scene Control</h2>
             </div>
-            <span className="tabletStatus">
-              <span className={connectionClass} />
-              {obsStatus.connected ? 'Connected' : 'Unavailable'}
-            </span>
+            <div className="tabletStatusGroup">
+              <span className="tabletStatus">
+                <span className={connectionClass} />
+                {obsStatus.connected ? 'Connected' : 'Unavailable'}
+              </span>
+              <span className="tabletStatus">
+                <span className={'tabletStatusDot ' + (obsStatus.studioMode ? 'connected' : 'idle')} />
+                Studio {obsStatus.studioMode ? 'On' : 'Off'}
+              </span>
+            </div>
           </div>
 
-          <div className="obsSceneSummary">
-            <div>
-              <span>Program</span>
-              <b>{obsStatus.currentProgramScene ?? 'None'}</b>
+          {programOffList || obsStatus.studioMode ? (
+            <div className="obsSceneSummary">
+              {programOffList ? (
+                <div>
+                  <span>Program</span>
+                  <b>{currentProgram ?? 'None'}</b>
+                </div>
+              ) : null}
+              {obsStatus.studioMode ? (
+                <div>
+                  <span>Preview</span>
+                  <b>{obsStatus.currentPreviewScene ?? 'None'}</b>
+                </div>
+              ) : null}
             </div>
-            {obsStatus.studioMode ? (
-              <div>
-                <span>Preview</span>
-                <b>{obsStatus.currentPreviewScene ?? 'None'}</b>
-              </div>
-            ) : null}
-            <div>
-              <span>Studio Mode</span>
-              <b>{obsStatus.studioMode ? 'On' : 'Off'}</b>
-            </div>
-          </div>
+          ) : null}
 
           {statusError || obsStatus.lastError || commandError ? (
             <p className="tabletError">{commandError ?? statusError ?? obsStatus.lastError}</p>
           ) : null}
 
-          <div className="tabletButtonGrid">
+          <div className="tabletButtonGrid sceneGrid">
             {hasScenes ? scenes.map(scene => {
               const isCurrent = scene === obsStatus.currentProgramScene;
               const className = isCurrent ? 'sceneButton current' : 'sceneButton';
@@ -138,43 +157,29 @@ export function TabletPage() {
                   }}
                 >
                   <span>{sceneLabel(scene)}</span>
-                  {isCurrent ? <small>Live</small> : isPending ? <small>Switching</small> : null}
+                  {isPending ? <small>Switching</small> : null}
                 </button>
               );
             }) : (
               <p className="muted">No OBS scenes available yet.</p>
             )}
+          </div>
+
+          {obsStatus.studioMode ? (
             <button
-              className="accent transitionButton"
+              className="transitionButton"
               disabled={controlsDisabled}
               onClick={() => {
                 void runObsCommand('transition', triggerObsTransition);
               }}
             >
               <span>Transition</span>
-              {pendingAction === 'transition' ? <small>Running</small> : null}
+              <small>{pendingAction === 'transition' ? 'Running' : 'Take preview live'}</small>
             </button>
-          </div>
+          ) : null}
         </section>
 
-        <MusicControls />
-
-        <section className="tabletPanel">
-          <div className="tabletPanelHeader">
-            <div>
-              <p className="eyebrow">Audio</p>
-              <h2>Sounds</h2>
-            </div>
-          </div>
-          <div className="tabletButtonGrid">
-            {soundButtons.length > 0 ? soundButtons.map(sound => (
-              <button key={sound.id} onClick={() => playSound(sound.id)}>
-                {sound.label}
-              </button>
-            )) : <p className="muted">No sound buttons configured.</p>}
-          </div>
-        </section>
-
+        <div className="tabletSideStack">
         <section className="tabletPanel">
           <div className="tabletPanelHeader">
             <div>
@@ -184,6 +189,38 @@ export function TabletPage() {
           </div>
           <AutomodQuickActions />
         </section>
+
+        <section className="tabletPanel">
+          <div className="tabletPanelHeader">
+            <div>
+              <p className="eyebrow">Soundboard</p>
+              <h2>Media</h2>
+            </div>
+          </div>
+
+          <div className="mediaGroup">
+            <p className="mediaGroupLabel">Sounds</p>
+            <div className="tabletButtonGrid">
+              {soundButtons.length > 0 ? soundButtons.map(sound => (
+                <button key={sound.id} onClick={() => playSound(sound.id)}>
+                  {sound.label}
+                </button>
+              )) : <p className="muted">No sounds yet — add them in Settings → Content.</p>}
+            </div>
+          </div>
+
+          <div className="mediaGroup">
+            <p className="mediaGroupLabel">Clips</p>
+            <div className="tabletButtonGrid">
+              {clipButtons.length > 0 ? clipButtons.map(clip => (
+                <button key={clip.id} onClick={() => playClip(clip.id)}>
+                  {clip.label}
+                </button>
+              )) : <p className="muted">No clips yet — add them in Settings → Content.</p>}
+            </div>
+          </div>
+        </section>
+        </div>
       </div>
     </main>
   );

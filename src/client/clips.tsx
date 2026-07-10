@@ -1,6 +1,22 @@
 import React from 'react';
-import type { MediaPlayback } from '../shared/api';
+import type { ClipButton, MediaPlayback } from '../shared/api';
+import { getClipButtons } from './services/dashboard';
 import { useSocket } from './realtime';
+
+/** Curated clip buttons for the tablet Media panel. */
+export function useClipButtons() {
+  const [clipButtons, setClipButtons] = React.useState<ClipButton[]>([]);
+
+  React.useEffect(() => {
+    getClipButtons()
+      .then(setClipButtons)
+      .catch((error: unknown) => {
+        console.error('Failed to load clip buttons:', error);
+      });
+  }, []);
+
+  return clipButtons;
+}
 
 /** Cap so a redeem storm can't grow the queue without bound. */
 const MAX_QUEUE = 20;
