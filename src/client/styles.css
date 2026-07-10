@@ -691,6 +691,18 @@ nav {
   overflow-wrap: anywhere;
 }
 
+/* Soundboard buttons hold a fixed 5-up grid so every button is the same width
+   whether a group has three sounds or a dozen, instead of stretching to fill. */
+.mediaPanel .tabletButtonGrid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 760px) {
+  .mediaPanel .tabletButtonGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .mediaGroup + .mediaGroup {
   margin-top: 16px;
 }
