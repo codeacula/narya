@@ -1167,12 +1167,20 @@ export function ControlsPanel({
   sceneSwitching: boolean;
 }) {
   const sceneOptions = switchableScenes(scenes);
+  // Lay scenes out in exactly two balanced rows so the buttons line up evenly
+  // instead of wrapping raggedly into a single tall row.
+  const sceneColumns = Math.max(1, Math.ceil(sceneOptions.length / 2));
   return (
     <div className="ctrl-panel">
       {status.obsConnected && sceneOptions.length > 0 && (
         <div className="ctrl-section ctrl-scene-section">
           <span className="ctrl-label">scene</span>
-          <div className="ctrl-scene-grid" role="group" aria-label="Switch OBS scene">
+          <div
+            className="ctrl-scene-grid"
+            style={{ gridTemplateColumns: `repeat(${sceneColumns}, minmax(0, 1fr))` }}
+            role="group"
+            aria-label="Switch OBS scene"
+          >
             {sceneOptions.map(sceneName => {
               const isActive = currentScene === sceneName;
               return (

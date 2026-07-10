@@ -874,12 +874,17 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .ctrl-scene-section .ctrl-label { padding-top: 8px; }
 .ctrl-scene-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+  /* Column count is set inline (ceil(scenes / 2)) so scenes fill exactly two
+     rows; this static value is the no-JS fallback. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   flex: 1;
   min-width: 0;
 }
 .ctrl-scene-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: 34px;
   padding: 7px 9px;
   border: 1px solid var(--border-2);
@@ -889,6 +894,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-align: center;
   cursor: pointer;
   transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
 }
