@@ -109,7 +109,6 @@ export type Viewer = {
   color: string;
   realName: string;
   tags: string[];
-  pronouns: string;
   roles: string[];
   followed: string;
   subbed: string;
@@ -124,6 +123,14 @@ export type ViewerProfileUpdate = {
   realName: string;
   tags: string[];
   note: string;
+};
+
+// Live Twitch-sourced viewer facts, fetched on demand for the viewer page.
+// Each field is a display-ready string (or 'not available' when unknown).
+export type ViewerDetails = {
+  followed: string;
+  subbed: string;
+  accountAge: string;
 };
 
 export type ChatEntry = {

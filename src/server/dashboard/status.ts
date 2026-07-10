@@ -17,7 +17,18 @@ import { broadcast, getSocketCount } from '../realtime';
 import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus } from '../runtime';
 import { getActiveStreamSession, getCurrentStreamSessionId, getSessionChatterCount } from '../streamSession';
 import { getTwitchAuthStatus, REQUIRED_TWITCH_OAUTH_SCOPES } from '../twitch/auth';
-import { fetchBroadcasterId, getTwitchApiHeaders, getTwitchUserApiHeaders } from '../twitch/api';
+import { fetchBroadcasterId, fetchViewerTwitchDetails, getTwitchApiHeaders, getTwitchUserApiHeaders } from '../twitch/api';
+
+type ChatMessageRow = {
+  id: string;
+  username: string;
+  message: string;
+  receivedAt: string;
+  badgesJson: string | null;
+  isFirstThisSession: number;
+  isFirstEver: number;
+  sessionId: string | null;
+};
 
 function formatAgo(receivedAt: string): string {
   const diffMs = Date.now() - new Date(receivedAt).getTime();
@@ -369,7 +380,6 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
       color: string;
       realName: string;
       tags: string[];
-      pronouns: string;
       roles: string[];
       followed: string;
       subbed: string;
@@ -396,7 +406,6 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           color: row.color ?? fallbackColor(login),
           realName: profile?.realName ?? '',
           tags: profile?.tags ?? [],
-          pronouns: 'not available',
           roles,
           followed: 'not available',
           subbed: roles.includes('sub') ? 'subscriber badge present' : 'not available',
@@ -555,6 +564,70 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
         highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
       };
     }));
+  });
+
+  // A single viewer's full chat history, newest-first with keyset pagination
+  // (`?before=<id>`). Uses the username index; the keyset is scoped to the same
+  // username so paging never leaks other viewers' messages.
+  app.get('/api/viewers/:login/messages', (request, response) => {
+    const login = request.params.login.trim().toLowerCase();
+    if (!login) {
+      sendRouteError(response, new HttpRouteError(400, 'Viewer login is required.'));
+      return;
+    }
+    const beforeId = typeof request.query['before'] === 'string' ? request.query['before'] : null;
+
+    const rows = beforeId
+      ? db.prepare(`
+          select
+            id, username, message, received_at as receivedAt,
+            badges_json as badgesJson, is_first_in_session as isFirstThisSession,
+            is_first_ever as isFirstEver, stream_session_id as sessionId
+          from chat_messages
+          where username = ?
+            and (received_at, id) < (select received_at, id from chat_messages where id = ?)
+          order by received_at desc, id desc
+          limit 80
+        `).all(login, beforeId) as ChatMessageRow[]
+      : db.prepare(`
+          select
+            id, username, message, received_at as receivedAt,
+            badges_json as badgesJson, is_first_in_session as isFirstThisSession,
+            is_first_ever as isFirstEver, stream_session_id as sessionId
+          from chat_messages
+          where username = ?
+          order by received_at desc, id desc
+          limit 80
+        `).all(login) as ChatMessageRow[];
+
+    response.json(rows.reverse().map((row) => {
+      const badges = parseBadgesJson(row.badgesJson);
+      return {
+        id: row.id,
+        user: row.username.toLowerCase(),
+        text: row.message,
+        time: formatClockTime(row.receivedAt),
+        at: row.receivedAt,
+        sessionId: row.sessionId,
+        highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
+      };
+    }));
+  });
+
+  // Live Twitch facts (follow date, subscription, account age) for one viewer,
+  // fetched on demand when their page opens. Best-effort; missing scopes or a
+  // disconnected Twitch just yield 'not available' fields.
+  app.get('/api/viewers/:login/details', async (request, response) => {
+    const login = request.params.login.trim().toLowerCase();
+    if (!login) {
+      sendRouteError(response, new HttpRouteError(400, 'Viewer login is required.'));
+      return;
+    }
+    try {
+      response.json(await fetchViewerTwitchDetails(state, login));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
   });
 
   app.get('/api/dashboard/events', (_request, response) => {

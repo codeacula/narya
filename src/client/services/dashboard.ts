@@ -1,6 +1,7 @@
 // Dashboard data service - calls backend API for all data.
 import type {
   Viewer,
+  ViewerDetails,
   ChatEntry,
   ChatMessage,
   MediaFile,
@@ -122,6 +123,15 @@ export async function getChatEntries(): Promise<ChatEntry[]> {
 
 export async function getChatEntriesBefore(id: string): Promise<ChatEntry[]> {
   return fetchJson<ChatEntry[]>(`/api/dashboard/chat?before=${encodeURIComponent(id)}`);
+}
+
+export async function getViewerMessages(login: string, before?: string): Promise<ChatEntry[]> {
+  const suffix = before ? `?before=${encodeURIComponent(before)}` : '';
+  return fetchJson<ChatEntry[]>(`/api/viewers/${encodeURIComponent(login)}/messages${suffix}`);
+}
+
+export async function getViewerDetails(login: string): Promise<ViewerDetails> {
+  return fetchJson<ViewerDetails>(`/api/viewers/${encodeURIComponent(login)}/details`);
 }
 
 export async function getStreamEvents(): Promise<StreamEvent[]> {

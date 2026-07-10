@@ -1,4 +1,5 @@
 import type express from 'express';
+import type { ViewerDetails } from '../../shared/api';
 import { TOKEN_EXPIRY_REFRESH_BUFFER_MS } from '../../shared/constants';
 import { appConfig } from '../appConfig';
 import { HttpRouteError, readResponseError, sendRouteError } from '../http';
@@ -165,6 +166,98 @@ export async function resolveTwitchUserId(login: string, credentials: { clientId
   const userId = data.data?.[0]?.id;
   if (!userId) throw new HttpRouteError(404, `No Twitch user found for "${normalizedLogin}".`);
   return userId;
+}
+
+const VIEWER_DETAIL_UNKNOWN = 'not available';
+
+function formatAccountAge(createdAt: string): string {
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return VIEWER_DETAIL_UNKNOWN;
+  const since = created.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+  const days = Math.floor((Date.now() - created.getTime()) / 86_400_000);
+  if (days < 60) return `${days} days (since ${since})`;
+  if (days < 730) return `${Math.floor(days / 30)} months (since ${since})`;
+  return `${Math.floor(days / 365)} years (since ${since})`;
+}
+
+function formatFollowDate(followedAt: string | undefined): string {
+  if (!followedAt) return 'not following';
+  const date = new Date(followedAt);
+  if (Number.isNaN(date.getTime())) return 'following';
+  return `since ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+}
+
+function formatSubTier(tier: string | undefined, isGift: boolean): string {
+  if (!tier) return 'not subscribed';
+  const label = tier === '3000' ? 'Tier 3' : tier === '2000' ? 'Tier 2' : 'Tier 1';
+  return isGift ? `${label} (gift)` : label;
+}
+
+// Best-effort live Twitch facts for one viewer, fetched on demand for the viewer
+// page. Each lookup is independent: a failure leaves that field 'not available'
+// rather than failing the whole request. Requires the already-granted
+// moderator:read:followers and channel:read:subscriptions scopes.
+export async function fetchViewerTwitchDetails(state: RuntimeState, login: string): Promise<ViewerDetails> {
+  const details: ViewerDetails = {
+    followed: VIEWER_DETAIL_UNKNOWN,
+    subbed: VIEWER_DETAIL_UNKNOWN,
+    accountAge: VIEWER_DETAIL_UNKNOWN,
+  };
+  const auth = await getTwitchUserApiHeaders(state);
+  if (!auth) return details;
+  const headers = { 'Client-Id': auth['Client-Id'], Authorization: auth.Authorization };
+  const normalized = login.trim().replace(/^@/, '').toLowerCase();
+  if (!normalized) return details;
+
+  // User lookup gives both the numeric id (for the calls below) and account age.
+  let userId: string | null = null;
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(normalized)}`, { headers });
+    if (res.ok) {
+      const data = await res.json() as { data?: Array<{ id?: string; created_at?: string }> };
+      const user = data.data?.[0];
+      userId = user?.id ?? null;
+      if (user?.created_at) details.accountAge = formatAccountAge(user.created_at);
+    }
+  } catch (error) {
+    console.error(`Twitch API: user lookup failed for "${normalized}":`, error);
+  }
+  if (!userId) return details;
+
+  const broadcasterId = state.broadcasterId ?? await fetchBroadcasterId(auth['Client-Id'], auth.userToken);
+  if (broadcasterId) state.broadcasterId = broadcasterId;
+  if (!broadcasterId) return details;
+
+  try {
+    const res = await fetch(
+      `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${encodeURIComponent(broadcasterId)}&user_id=${encodeURIComponent(userId)}`,
+      { headers },
+    );
+    if (res.ok) {
+      const data = await res.json() as { data?: Array<{ followed_at?: string }> };
+      details.followed = formatFollowDate(data.data?.[0]?.followed_at);
+    }
+  } catch (error) {
+    console.error(`Twitch API: follower lookup failed for "${normalized}":`, error);
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.twitch.tv/helix/subscriptions?broadcaster_id=${encodeURIComponent(broadcasterId)}&user_id=${encodeURIComponent(userId)}`,
+      { headers },
+    );
+    if (res.ok) {
+      const data = await res.json() as { data?: Array<{ tier?: string; is_gift?: boolean }> };
+      const sub = data.data?.[0];
+      details.subbed = sub ? formatSubTier(sub.tier, Boolean(sub.is_gift)) : 'not subscribed';
+    } else if (res.status === 404) {
+      details.subbed = 'not subscribed';
+    }
+  } catch (error) {
+    console.error(`Twitch API: subscription lookup failed for "${normalized}":`, error);
+  }
+
+  return details;
 }
 
 async function getAuthenticatedActionUser(

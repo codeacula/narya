@@ -460,7 +460,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .spot-id { min-width: 0; }
 .spot-name { font-size: var(--step-1); font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .spot-real-name { font-size: 13px; color: var(--ivory-100); margin-top: 1px; }
-.spot-pronouns { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+.spot-meta { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
 .spot-roles { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
 .rolepill {
   font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
@@ -2273,6 +2273,61 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-family: var(--font-body);
   font-weight: 600;
   font-size: var(--step-0);
+  color: var(--fg-1);
+}
+.roster-name-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.roster-name-btn:hover,
+.roster-name-btn:focus-visible {
+  color: var(--fg-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.viewer-history {
+  margin-top: var(--space-5);
+}
+.viewer-history .spot-section-label {
+  margin-bottom: var(--space-3);
+}
+.viewer-history-empty {
+  font-size: var(--step--1);
+  color: var(--fg-2);
+}
+.viewer-history-more {
+  margin-bottom: var(--space-3);
+}
+.viewer-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.viewer-history-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-2, 8px);
+  background: var(--bg-2, rgba(255, 255, 255, 0.03));
+}
+.viewer-history-time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  color: var(--fg-2);
+}
+.viewer-history-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--fg-1);
 }
 .roster-badge {

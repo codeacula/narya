@@ -27,10 +27,11 @@ import { useSocket } from '../realtime';
 import { chatHighlight } from '../../shared/roles';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
-import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } from '../routing';
+import { dashboardRouteFromPath, pathForDashboardRoute, pathForViewer, viewerLoginFromPath, type DashboardRoute } from '../routing';
 import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamCategoriesPage } from './StreamCategoriesPage';
 import { ViewersPage } from './ViewersPage';
+import { ViewerDetailPage } from './ViewerDetailPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
 import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
@@ -109,6 +110,7 @@ const EMPTY_OBS_STATUS: ObsStatus = {
 
 export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: DashboardRoute }) {
   const [page, setPage] = useState(initialPage);
+  const [viewerLogin, setViewerLogin] = useState<string | null>(() => viewerLoginFromPath(window.location.pathname));
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [popped, setPopped] = useState<Record<string, PoppedState>>({});
   const [viewers, setViewers] = useState<Record<string, Viewer>>({});
@@ -152,9 +154,20 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setPage(route);
   }, []);
 
+  // Navigate to a single viewer's page (/viewers/<login>). Kept separate from
+  // changePage because the destination carries a per-viewer path segment.
+  const navigateToViewer = React.useCallback((login: string) => {
+    const path = pathForViewer(login);
+    if (window.location.pathname !== path) window.history.pushState({}, '', path);
+    setViewerLogin(login.toLowerCase());
+    setPage('viewer');
+  }, []);
+
   useEffect(() => {
     const handlePopState = () => {
-      setPage(dashboardRouteFromPath(window.location.pathname));
+      const nextRoute = dashboardRouteFromPath(window.location.pathname);
+      setPage(nextRoute);
+      setViewerLogin(nextRoute === 'viewer' ? viewerLoginFromPath(window.location.pathname) : null);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -705,7 +718,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       ) : page === 'categories' ? (
         <StreamCategoriesPage onBack={() => changePage('settings')} />
       ) : page === 'viewers' ? (
-        <ViewersPage />
+        <ViewersPage onOpenViewerPage={navigateToViewer} />
+      ) : page === 'viewer' ? (
+        <ViewerDetailPage ctx={ctx} login={viewerLogin ?? ''} onBack={() => changePage('viewers')} />
       ) : (
         <SettingsPage
           status={status}

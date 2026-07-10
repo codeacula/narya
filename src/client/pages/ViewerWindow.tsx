@@ -3,6 +3,7 @@ import { getViewers, updateViewerProfile } from '../services/dashboard';
 import { Spotlight } from '../ui/panels';
 import type { PanelCtx } from '../ui/panels';
 import type { Viewer } from '../../shared/api';
+import { pathForViewer } from '../routing';
 
 export function ViewerWindowPage() {
   const params = new URLSearchParams(window.location.search);
@@ -45,6 +46,17 @@ export function ViewerWindowPage() {
 
   return (
     <div style={{ padding: '12px', background: 'var(--bg-0)', minHeight: '100vh' }}>
+      <div style={{ marginBottom: '10px', textAlign: 'right' }}>
+        <a
+          className="modbtn"
+          href={pathForViewer(login)}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: 'inline-block', textDecoration: 'none' }}
+        >
+          Open full page ↗
+        </a>
+      </div>
       <Spotlight ctx={ctx} login={login} />
     </div>
   );
