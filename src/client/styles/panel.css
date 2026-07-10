@@ -1904,28 +1904,141 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .settings-alert--info { border-color: var(--info-border); background: var(--info-bg); color: var(--info-fg); }
 .settings-alert-icon { flex: none; font-weight: 700; }
 
-/* ---------------- Stream categories page ---------------- */
-.category-card-head {
+/* ---------------- Stream categories — "game crests" ---------------- */
+.cats-head {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
 }
-.category-card-title {
+.cats-title {
+  margin: 2px 0 6px;
+  font-family: var(--font-display);
+  font-size: var(--step-4);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-tight);
+  color: var(--fg-1);
+}
+.cats-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  letter-spacing: var(--track-wide);
+  color: var(--fg-2);
+}
+.cats-count b { color: var(--fg-accent); font-weight: 600; }
+.cats-count-dot { width: 3px; height: 3px; border-radius: var(--radius-pill); background: var(--silver-600); }
+.cats-intro {
+  max-width: 60ch;
+  margin: 0 0 var(--space-5);
+  font-size: var(--step--1);
+  line-height: var(--lh-body);
+  color: var(--fg-2);
+}
+.cats-toolbar { margin-bottom: var(--space-4); }
+
+.cat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-4);
+}
+
+.cat-card {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  font-size: 15px;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-3);
+  background: var(--bg-2);
 }
-.category-card-actions { display: flex; gap: 8px; }
-.category-card-tagsave {
+.cat-card.is-hidden { opacity: 0.55; }
+
+.cat-card-head { display: flex; gap: var(--space-3); align-items: flex-start; }
+
+/* The crest: the game's box art as this category's star. */
+.cat-crest {
+  flex: none;
+  width: 60px;
+  height: 80px;
+  border-radius: var(--radius-2);
+  overflow: hidden;
+  border: 1px solid var(--border-2);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+.cat-crest img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cat-crest-empty { display: block; width: 100%; height: 100%; background: linear-gradient(160deg, var(--navy-700), var(--navy-900)); }
+
+.cat-card-id { flex: 1; min-width: 0; }
+.cat-card-name {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  color: var(--fg-1);
+  text-wrap: balance;
+}
+.cat-card-note { margin-top: 6px; font-size: var(--step--1); color: var(--fg-3); }
+.cat-groups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cat-group {
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--track-wide);
+  color: var(--fg-arcane);
+  background: var(--note-bg);
+  border: 1px solid var(--note-border);
+}
+.cat-card-acts { display: flex; flex-direction: column; gap: 6px; flex: none; }
+
+.cat-tags-label {
+  margin-bottom: 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+/* Chips and the input share one bordered field, so it reads as a token editor
+   rather than a chip list floating above an empty box. */
+.cat-tagfield {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-1);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.cat-tagfield:focus-within { border-color: var(--border-3); }
+.cat-tag-input { position: relative; flex: 1 1 90px; min-width: 90px; }
+.cat-tag-input input {
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-1);
+  font-family: var(--font-body);
+  font-size: var(--step--1);
+}
+.cat-tag-input input:focus { outline: none; }
+.cat-tag-input input::placeholder { color: var(--fg-3); }
+.cat-tags-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 8px;
+  margin-top: 10px;
 }
-.category-card.is-hidden { opacity: 0.6; }
+.cat-tags-foot small { font-family: var(--font-mono); font-size: var(--step--2); color: var(--fg-3); }
 
 /* ---------------- Viewers page — "constellation roster" ---------------- */
 .viewers-head {

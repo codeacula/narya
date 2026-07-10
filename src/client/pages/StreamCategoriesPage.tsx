@@ -54,26 +54,36 @@ function CategoryCard({
   };
   const removeTag = (tag: string) => setTags(current => current.filter(t => t !== tag));
 
-  const art = formatBoxArtUrl(category.boxArtUrl, 36, 48);
+  const art = formatBoxArtUrl(category.boxArtUrl, 120, 160);
   return (
-    <div className={'set-group category-card' + (category.hidden ? ' is-hidden' : '')}>
-      <div className="category-card-head">
-        {art ? <img className="suggestion-art" src={art} alt="" /> : <span className="suggestion-art placeholder" />}
-        <div className="category-card-title">
-          <b>{category.name}</b>
-          {category.hidden ? <span className="reward-state">Hidden</span> : null}
+    <div className={'cat-card' + (category.hidden ? ' is-hidden' : '')}>
+      <div className="cat-card-head">
+        <div className="cat-crest">
+          {art ? <img src={art} alt="" /> : <span className="cat-crest-empty" aria-hidden="true" />}
         </div>
-        <div className="category-card-actions">
+        <div className="cat-card-id">
+          <div className="cat-card-name">{category.name}</div>
+          {category.rewardGroups.length > 0 ? (
+            <div className="cat-groups">
+              {category.rewardGroups.map(group => (
+                <span className="cat-group" key={group.id} title="Reward group that switches on with this category">◆ {group.name}</span>
+              ))}
+            </div>
+          ) : (
+            <div className="cat-card-note">{category.hidden ? 'Hidden from pickers' : 'No reward groups linked'}</div>
+          )}
+        </div>
+        <div className="cat-card-acts">
           <button className="modbtn" type="button" disabled={busy} onClick={onToggleHidden}>
-            {category.hidden ? 'Unhide' : 'Hide'}
+            {category.hidden ? 'Show' : 'Hide'}
           </button>
           <button className="modbtn danger" type="button" disabled={busy} onClick={onDelete}>Remove</button>
         </div>
       </div>
 
-      <div className="field">
-        <span>Tags applied when you switch to this category</span>
-        <div className="tag-chip-list">
+      <div className="cat-tags">
+        <div className="cat-tags-label">Tags on switch</div>
+        <div className="cat-tagfield">
           {tags.map(tag => (
             <span className="tag-chip" key={tag}>
               {tag}
@@ -82,53 +92,43 @@ function CategoryCard({
               </button>
             </span>
           ))}
+          <div className="cat-tag-input suggestion-anchor">
+            <input
+              aria-label={`Add tag to ${category.name}`}
+              placeholder={tags.length === 0 ? 'Add a tag…' : ''}
+              value={tagInput}
+              disabled={busy || tags.length >= 10}
+              onFocus={() => setTagFocused(true)}
+              onBlur={() => window.setTimeout(() => setTagFocused(false), SUGGESTION_DISMISS_MS)}
+              onChange={event => setTagInput(event.target.value)}
+              onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addTag(tagInput); } }}
+            />
+            {showSuggestions && (
+              <div className="suggestion-list">
+                {loading ? (
+                  <div className="suggestion-empty">Searching tags...</div>
+                ) : suggestions.map(tag => (
+                  <button
+                    key={tag}
+                    type="button"
+                    className="suggestion-item"
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => addTag(tag)}
+                  >
+                    <span>{tag}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="suggestion-anchor">
-          <input
-            aria-label={`Add tag to ${category.name}`}
-            value={tagInput}
-            disabled={busy || tags.length >= 10}
-            onFocus={() => setTagFocused(true)}
-            onBlur={() => window.setTimeout(() => setTagFocused(false), SUGGESTION_DISMISS_MS)}
-            onChange={event => setTagInput(event.target.value)}
-            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addTag(tagInput); } }}
-          />
-          {showSuggestions && (
-            <div className="suggestion-list">
-              {loading ? (
-                <div className="suggestion-empty">Searching tags...</div>
-              ) : suggestions.map(tag => (
-                <button
-                  key={tag}
-                  type="button"
-                  className="suggestion-item"
-                  onMouseDown={event => event.preventDefault()}
-                  onClick={() => addTag(tag)}
-                >
-                  <span>{tag}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="category-card-tagsave">
+        <div className="cat-tags-foot">
           <small>{tags.length}/10</small>
           <button className="modbtn gold" type="button" disabled={busy || !dirty} onClick={() => onSaveTags(tags)}>
             {dirty ? 'Save tags' : 'Saved'}
           </button>
         </div>
       </div>
-
-      {category.rewardGroups.length > 0 && (
-        <div className="field">
-          <span>Reward groups that switch with this category</span>
-          <div className="tag-chip-list">
-            {category.rewardGroups.map(group => (
-              <span className="tag-chip" key={group.id}>{group.name}</span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -163,48 +163,62 @@ export function StreamCategoriesPage({ onBack }: { onBack: () => void }) {
   const hiddenCount = categories.filter(cat => cat.hidden).length;
 
   return (
-    <div className="settings-page">
+    <div className="settings-page cats-page">
       <div className="settings-inner">
-        <div className="rewards-header">
+        <header className="cats-head">
           <div>
             <div className="settings-eyebrow">settings</div>
-            <h2 className="settings-title">Stream categories</h2>
-            <p className="set-intro">Manage the Twitch categories you stream. Tags you assign here replace your stream tags automatically when you switch to that category in Stream Info.</p>
+            <h2 className="cats-title">Stream categories</h2>
+            <p className="cats-count">
+              <b>{categories.length}</b> saved
+              {hiddenCount > 0 ? <><span className="cats-count-dot" /><b>{hiddenCount}</b> hidden</> : null}
+            </p>
           </div>
           <button className="modbtn" type="button" onClick={onBack}>Back to settings</button>
-        </div>
+        </header>
 
-        {error ? <div className="set-status error">{error}</div> : null}
+        <p className="cats-intro">Tags you set on a category replace your stream tags automatically when you switch to it in Stream Info. Linked reward groups flip on with it too.</p>
+
+        {error ? <div className="viewers-status is-error" role="status">{error}</div> : null}
 
         {loading ? (
-          <div className="reward-loading">Loading stream categories...</div>
+          <div className="empty-state"><div className="es-orb" /><div className="es-title">Charting your categories…</div></div>
         ) : categories.length === 0 ? (
-          <div className="reward-empty-state">
-            <h3>No saved categories yet</h3>
-            <p>Categories are saved automatically when you pick one in Stream Info or map one to a reward group.</p>
+          <div className="empty-state">
+            <div className="es-orb" />
+            <div className="es-title">No saved categories yet</div>
+            <div className="es-sub">Pick a category in Stream Info or map one to a reward group, and it lands here.</div>
           </div>
         ) : (
           <>
             {hiddenCount > 0 && (
-              <label className="reward-toggle">
-                <input type="checkbox" checked={showHidden} onChange={() => setShowHidden(v => !v)} />
-                <span>Show hidden ({hiddenCount})</span>
-              </label>
+              <div className="cats-toolbar">
+                <button
+                  type="button"
+                  className={'viewers-chip' + (showHidden ? ' is-active' : '')}
+                  aria-pressed={showHidden}
+                  onClick={() => setShowHidden(v => !v)}
+                >
+                  Show hidden<span className="viewers-chip-n">{hiddenCount}</span>
+                </button>
+              </div>
             )}
-            {visible.map(category => (
-              <CategoryCard
-                key={category.id}
-                category={category}
-                busy={busy}
-                onSaveTags={tags => void run(() => setStreamCategoryTags(category.id, tags))}
-                onToggleHidden={() => void run(() => setSavedStreamCategoryHidden(category.id, !category.hidden))}
-                onDelete={() => {
-                  if (window.confirm(`Remove "${category.name}" from saved categories? Its tag mappings are deleted.`)) {
-                    void run(() => deleteStreamCategory(category.id));
-                  }
-                }}
-              />
-            ))}
+            <div className="cat-grid">
+              {visible.map(category => (
+                <CategoryCard
+                  key={category.id}
+                  category={category}
+                  busy={busy}
+                  onSaveTags={tags => void run(() => setStreamCategoryTags(category.id, tags))}
+                  onToggleHidden={() => void run(() => setSavedStreamCategoryHidden(category.id, !category.hidden))}
+                  onDelete={() => {
+                    if (window.confirm(`Remove "${category.name}" from saved categories? Its tag mappings are deleted.`)) {
+                      void run(() => deleteStreamCategory(category.id));
+                    }
+                  }}
+                />
+              ))}
+            </div>
           </>
         )}
       </div>
