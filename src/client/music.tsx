@@ -80,7 +80,12 @@ export function MusicControls() {
 
   return (
     <section>
-      <h2>Now Playing</h2>
+      <div className="tabletPanelHeader">
+        <div>
+          <p className="eyebrow">Music</p>
+          <h2>Now Playing</h2>
+        </div>
+      </div>
       <form className="musicControls" onSubmit={saveMusic}>
         <label>
           <span>Title</span>

@@ -55,6 +55,11 @@ export function TabletPage() {
   const [commandError, setCommandError] = React.useState<string | null>(null);
 
   const scenes = switchableScenes(obsStatus.scenes);
+  const currentProgram = obsStatus.currentProgramScene;
+  // The gold scene button already marks the live scene, so the Program readout is
+  // only worth showing when the current program has no button (a non-switchable
+  // scene, or nothing selected yet).
+  const programOffList = currentProgram === null || !scenes.includes(currentProgram);
   const obsUnavailable = !obsStatus.connected;
   const hasScenes = scenes.length > 0;
   const controlsDisabled = obsUnavailable || Boolean(pendingAction);
@@ -86,7 +91,7 @@ export function TabletPage() {
           <p className="eyebrow">Tablet Panel</p>
           <h1>Stream Controls</h1>
         </div>
-        <a href="/">Dashboard</a>
+        <a className="tabletBackLink" href="/">Dashboard</a>
       </header>
 
       <div className="tabletControlGrid">
@@ -103,10 +108,12 @@ export function TabletPage() {
           </div>
 
           <div className="obsSceneSummary">
-            <div>
-              <span>Program</span>
-              <b>{obsStatus.currentProgramScene ?? 'None'}</b>
-            </div>
+            {programOffList ? (
+              <div>
+                <span>Program</span>
+                <b>{currentProgram ?? 'None'}</b>
+              </div>
+            ) : null}
             {obsStatus.studioMode ? (
               <div>
                 <span>Preview</span>
@@ -123,7 +130,7 @@ export function TabletPage() {
             <p className="tabletError">{commandError ?? statusError ?? obsStatus.lastError}</p>
           ) : null}
 
-          <div className="tabletButtonGrid">
+          <div className="tabletButtonGrid sceneGrid">
             {hasScenes ? scenes.map(scene => {
               const isCurrent = scene === obsStatus.currentProgramScene;
               const className = isCurrent ? 'sceneButton current' : 'sceneButton';
@@ -138,23 +145,26 @@ export function TabletPage() {
                   }}
                 >
                   <span>{sceneLabel(scene)}</span>
-                  {isCurrent ? <small>Live</small> : isPending ? <small>Switching</small> : null}
+                  {isPending ? <small>Switching</small> : null}
                 </button>
               );
             }) : (
               <p className="muted">No OBS scenes available yet.</p>
             )}
+          </div>
+
+          {obsStatus.studioMode ? (
             <button
-              className="accent transitionButton"
+              className="transitionButton"
               disabled={controlsDisabled}
               onClick={() => {
                 void runObsCommand('transition', triggerObsTransition);
               }}
             >
               <span>Transition</span>
-              {pendingAction === 'transition' ? <small>Running</small> : null}
+              <small>{pendingAction === 'transition' ? 'Running' : 'Take preview live'}</small>
             </button>
-          </div>
+          ) : null}
         </section>
 
         <MusicControls />
