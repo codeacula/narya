@@ -148,7 +148,7 @@ export async function fetchAuthenticatedTwitchUser(
   }
 }
 
-async function resolveTwitchUserId(login: string, credentials: { clientId: string; authorization: string }): Promise<string> {
+export async function resolveTwitchUserId(login: string, credentials: { clientId: string; authorization: string }): Promise<string> {
   const normalizedLogin = login.trim().replace(/^@/, '').toLowerCase();
   if (!normalizedLogin) throw new HttpRouteError(400, 'Twitch login is required.');
 

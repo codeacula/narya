@@ -18,6 +18,8 @@ export const REQUIRED_TWITCH_OAUTH_SCOPES = [
   'moderator:manage:banned_users',
   'moderator:manage:automod',
   'moderator:manage:shoutouts',
+  'channel:manage:vips',
+  'channel:manage:moderators',
   'user:read:chat',
   'user:write:chat',
   'user:manage:whispers',
