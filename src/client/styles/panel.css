@@ -1903,3 +1903,26 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .settings-alert--ok { border-color: var(--success-border); background: var(--success-bg); color: var(--success-fg); }
 .settings-alert--info { border-color: var(--info-border); background: var(--info-bg); color: var(--info-fg); }
 .settings-alert-icon { flex: none; font-weight: 700; }
+
+/* ---------------- Stream categories page ---------------- */
+.category-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.category-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-size: 15px;
+}
+.category-card-actions { display: flex; gap: 8px; }
+.category-card-tagsave {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.category-card.is-hidden { opacity: 0.6; }

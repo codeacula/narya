@@ -78,6 +78,18 @@ export function NavBar({
           viewer rewards
         </button>
         <button
+          className={'navlink' + (page === 'categories' ? ' active' : '')}
+          onClick={() => setPage('categories')}
+        >
+          categories
+        </button>
+        <button
+          className={'navlink' + (page === 'viewers' ? ' active' : '')}
+          onClick={() => setPage('viewers')}
+        >
+          viewers
+        </button>
+        <button
           className={'navlink' + (page === 'settings' ? ' active' : '')}
           onClick={() => setPage('settings')}
         >

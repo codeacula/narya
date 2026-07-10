@@ -157,6 +157,18 @@ export async function getTagSuggestions(query: string): Promise<string[]> {
   return fetchJson<string[]>(`/api/twitch/tag-suggestions?query=${encodeURIComponent(query)}`);
 }
 
+export async function setStreamCategoryTags(gameId: string, tags: string[]): Promise<SavedStreamCategory[]> {
+  return sendJson<SavedStreamCategory[]>(`/api/stream-categories/${encodeURIComponent(gameId)}/tags`, 'PUT', { tags });
+}
+
+export async function deleteStreamCategory(gameId: string): Promise<SavedStreamCategory[]> {
+  return sendJson<SavedStreamCategory[]>(`/api/stream-categories/${encodeURIComponent(gameId)}`, 'DELETE');
+}
+
+export async function getTagHistorySuggestions(query: string): Promise<string[]> {
+  return fetchJson<string[]>(`/api/stream-tags?query=${encodeURIComponent(query)}`);
+}
+
 export async function updateStreamInfo(info: StreamInfoUpdate): Promise<StreamInfoUpdate & { ok: boolean; categoryId: string }> {
   return sendJson('/api/twitch/stream-info', 'PATCH', info);
 }

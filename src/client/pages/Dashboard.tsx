@@ -28,6 +28,7 @@ import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
 import { dashboardRouteFromPath, pathForDashboardRoute, type DashboardRoute } from '../routing';
 import { ViewerRewardsPage } from './ViewerRewardsPage';
+import { StreamCategoriesPage } from './StreamCategoriesPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
 import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
@@ -142,7 +143,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const viewersDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const changePage = React.useCallback((nextPage: string) => {
-    const route: DashboardRoute = nextPage === 'settings' || nextPage === 'rewards' ? nextPage : 'dashboard';
+    const knownRoutes = ['settings', 'rewards', 'categories', 'viewers'] as const;
+    const route: DashboardRoute = (knownRoutes as readonly string[]).includes(nextPage) ? nextPage as DashboardRoute : 'dashboard';
     const path = pathForDashboardRoute(route);
     if (window.location.pathname !== path) window.history.pushState({}, '', path);
     setPage(route);
@@ -697,6 +699,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       />
       {page === 'dashboard' ? dashboardLayout : page === 'rewards' ? (
         <ViewerRewardsPage onBack={() => changePage('settings')} />
+      ) : page === 'categories' ? (
+        <StreamCategoriesPage onBack={() => changePage('settings')} />
       ) : (
         <SettingsPage
           status={status}
