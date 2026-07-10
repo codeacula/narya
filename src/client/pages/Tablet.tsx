@@ -13,6 +13,15 @@ import {
   triggerObsTransition,
 } from '../services/dashboard';
 
+// Dropping focus after a tap keeps a tablet's on-screen button from staying
+// visually "stuck" highlighted. Keyboard activation (Enter/Space) also fires
+// onClick but reports an empty pointerType and detail 0 — leave that focus in
+// place so keyboard navigation isn't disrupted.
+function blurIfPointer(event: React.MouseEvent<HTMLButtonElement>): void {
+  const { pointerType } = event.nativeEvent as PointerEvent;
+  if (pointerType || event.detail > 0) event.currentTarget.blur();
+}
+
 const emptyObsStatus: ObsStatus = {
   connected: false,
   scenes: [],
@@ -203,7 +212,7 @@ export function TabletPage() {
               {soundButtons.length > 0 ? soundButtons.map(sound => (
                 <button
                   key={sound.id}
-                  onClick={event => { event.currentTarget.blur(); playSound(sound.id); }}
+                  onClick={event => { blurIfPointer(event); playSound(sound.id); }}
                 >
                   {sound.label}
                 </button>
@@ -217,7 +226,7 @@ export function TabletPage() {
               {clipButtons.length > 0 ? clipButtons.map(clip => (
                 <button
                   key={clip.id}
-                  onClick={event => { event.currentTarget.blur(); playClip(clip.id); }}
+                  onClick={event => { blurIfPointer(event); playClip(clip.id); }}
                 >
                   {clip.label}
                 </button>
