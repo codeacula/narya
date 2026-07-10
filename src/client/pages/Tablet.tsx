@@ -179,8 +179,7 @@ export function TabletPage() {
           ) : null}
         </section>
 
-        <div className="tabletSideStack">
-        <section className="tabletPanel">
+        <section className="tabletPanel automodPanel">
           <div className="tabletPanelHeader">
             <div>
               <p className="eyebrow">Moderation</p>
@@ -190,7 +189,7 @@ export function TabletPage() {
           <AutomodQuickActions />
         </section>
 
-        <section className="tabletPanel">
+        <section className="tabletPanel mediaPanel">
           <div className="tabletPanelHeader">
             <div>
               <p className="eyebrow">Soundboard</p>
@@ -226,7 +225,6 @@ export function TabletPage() {
             </div>
           </div>
         </section>
-        </div>
       </div>
     </main>
   );

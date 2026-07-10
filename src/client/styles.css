@@ -562,8 +562,7 @@ nav {
   align-items: start;
 }
 
-.tabletPanel,
-.tabletSideStack > section {
+.tabletPanel {
   border: 1px solid var(--border-1);
   border-left: 2px solid rgba(255, 184, 108, 0.2);
   border-radius: var(--radius-3);
@@ -573,13 +572,10 @@ nav {
   padding: 18px;
 }
 
-/* Right column: Music, Sounds, and Moderation stack under one another so
-   Moderation sits beside the OBS panel rather than orphaned below it. */
-.tabletSideStack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
+/* OBS and the AutoMod queue share the top row; the soundboard gets its own
+   full-width band beneath them so its buttons have room to breathe. */
+.mediaPanel {
+  grid-column: 1 / -1;
 }
 
 .tabletPanelHeader {
