@@ -22,6 +22,7 @@ import {
   reconnectEventSub,
 } from '../services/dashboard';
 import { useSessionShoutouts } from '../shoutouts';
+import { StreamStatusBar } from '../streamStatus';
 import { useSocket } from '../realtime';
 import { chatHighlight } from '../../shared/roles';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
@@ -698,6 +699,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         eventSubError={status.eventSubError}
         onReconnectEventSub={handleReconnectEventSub}
       />
+      {page === 'dashboard' ? <StreamStatusBar /> : null}
       {page === 'dashboard' ? dashboardLayout : page === 'rewards' ? (
         <ViewerRewardsPage onBack={() => changePage('settings')} />
       ) : page === 'categories' ? (

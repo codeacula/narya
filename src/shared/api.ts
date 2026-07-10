@@ -578,3 +578,14 @@ export type DiscordAnnounceFailedPayload = {
   reason: string;
   channelName: string;
 };
+
+// Freeform stream status line. Doubles as the GET /api/stream-status response
+// and the `status:updated` WebSocket payload.
+export type StreamStatus = {
+  text: string;
+  updatedAt: string;
+};
+
+export type StreamStatusUpdate = {
+  text: string;
+};

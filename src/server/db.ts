@@ -162,6 +162,12 @@ db.exec(`
     updated_at text not null
   );
 
+  create table if not exists stream_status (
+    id text primary key,
+    text text not null default '',
+    updated_at text not null
+  );
+
   create table if not exists viewer_reward_categories (
     id text primary key,
     name text not null unique,

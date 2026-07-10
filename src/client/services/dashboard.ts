@@ -54,6 +54,7 @@ import type {
   TtsVoice,
   AppConfig,
   AppConfigUpdate,
+  StreamStatus,
 } from '../../shared/api';
 import { getDashboardToken } from '../auth';
 
@@ -483,4 +484,12 @@ export async function setManualMusic(input: { title: string; artist: string; sta
 
 export async function clearManualMusic(): Promise<MusicInfo> {
   return sendJson<MusicInfo>('/api/music/current', 'DELETE');
+}
+
+export async function getStreamStatus(): Promise<StreamStatus> {
+  return fetchJson<StreamStatus>('/api/stream-status');
+}
+
+export async function updateStreamStatus(text: string): Promise<StreamStatus> {
+  return sendJson<StreamStatus>('/api/stream-status', 'PUT', { text });
 }

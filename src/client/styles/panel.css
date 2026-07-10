@@ -1625,6 +1625,34 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   color: var(--fg-3);
 }
 /* Stream-info: saved-category dropdown with an Add button that flips to search. */
+.stream-status-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--stroke-1, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-2, 8px);
+  background: var(--bg-2, rgba(255, 255, 255, 0.03));
+}
+.stream-status-label {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+.stream-status-input {
+  flex: 1;
+  min-width: 0;
+}
+.stream-status-error {
+  flex: none;
+  font-size: var(--step--1);
+  color: var(--fg-danger, #ff8a8a);
+}
+
 .stream-cat-picker { display: flex; gap: 8px; align-items: stretch; }
 .stream-cat-picker > .suggestion-anchor,
 .stream-cat-picker > select { flex: 1; min-width: 0; }

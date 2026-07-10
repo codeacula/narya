@@ -17,6 +17,7 @@ import { registerCoreRoutes } from './routes';
 import { RuntimeState } from './runtime';
 import { registerStaticRoutes } from './static';
 import { registerStreamCategoryRoutes } from './streamCategories';
+import { registerStreamStatusRoutes } from './streamStatus';
 import { hydrateTwitchAuthState, registerTwitchAuthRoutes } from './twitch/auth';
 import { registerTwitchApiRoutes } from './twitch/api';
 import { registerViewerRewardRoutes } from './viewerRewards';
@@ -65,6 +66,7 @@ registerTwitchAuthRoutes({
 registerTwitchApiRoutes(app, runtimeState);
 registerViewerRewardRoutes(app, runtimeState);
 registerStreamCategoryRoutes(app);
+registerStreamStatusRoutes(app);
 registerChatbotCommandRoutes(app);
 registerLlmRoutes(app);
 registerDiscordRoutes(app);

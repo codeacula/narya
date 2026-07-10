@@ -4,6 +4,7 @@ import { ClipStage, useMediaQueue } from '../clips';
 import { MusicPanel } from '../music';
 import { ShoutoutTicker, useSessionShoutouts } from '../shoutouts';
 import { quackSoundSources, useSoundEvents } from '../sounds';
+import { useStreamStatus } from '../streamStatus';
 import { useTtsEvents } from '../tts';
 
 export function OverlaySoundsPage() {
@@ -45,6 +46,16 @@ export function OverlayClipsPage() {
   return (
     <main className="overlayWidget overlayClipsWidget" aria-label="Redeem clip overlay">
       <ClipStage item={current} onFinished={onFinished} />
+    </main>
+  );
+}
+
+export function OverlayStatusPage() {
+  const status = useStreamStatus();
+  const text = status?.text ?? '';
+  return (
+    <main className="overlayWidget overlayStatusWidget" aria-label="Stream status overlay">
+      {text ? <div className="overlayStatusText">{text}</div> : null}
     </main>
   );
 }
