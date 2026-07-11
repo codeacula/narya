@@ -34,14 +34,23 @@ const insertAutomodHold = db.prepare(`
 const resolveAutomodHoldRow = db.prepare(`
   update automod_holds
   set resolved_at = ?, resolution = ?, resolved_by = ?
-  where id = ? and resolved_at is null
+  where id = ?
 `);
 
 const getAutomodHoldRow = db.prepare(`select ${automodHoldColumns} from automod_holds where id = ?`);
 
-const listPendingAutomodHolds = db.prepare(
-  `select ${automodHoldColumns} from automod_holds where resolved_at is null order by held_at asc limit ?`,
-);
+// Take the NEWEST holds up to the cap, then flip them back to oldest-first for
+// display. Selecting oldest-first and capping would drop the newest holds — the
+// exact ones a moderator needs during a spam wave.
+const listPendingAutomodHolds = db.prepare(`
+  select * from (
+    select ${automodHoldColumns} from automod_holds
+    where resolved_at is null
+    order by held_at desc
+    limit ?
+  )
+  order by heldAt asc
+`);
 
 const listRecentlyResolvedAutomodHolds = db.prepare(
   `select ${automodHoldColumns} from automod_holds where resolved_at is not null and resolved_at >= ? order by resolved_at desc limit ?`,
@@ -87,11 +96,27 @@ export function getAutomodHold(id: string): AutomodHold | null {
   return (getAutomodHoldRow.get(id) as AutomodHold | null) ?? null;
 }
 
+// `authoritative` means the outcome came from Twitch (an EventSub
+// automod.message.update, or a successful allow/deny call) rather than from one of
+// our provisional guesses. Both the stale sweep and the "Twitch says it's gone"
+// path record `expired` speculatively, and a provisional guess must not shadow the
+// real answer — so an authoritative result is allowed to replace an `expired` row.
+// Two authoritative outcomes stay idempotent: the first one wins.
 export function resolveAutomodHold(
   id: string,
   resolution: 'allowed' | 'denied' | 'expired',
   resolvedBy: string | null,
+  options: { authoritative?: boolean } = {},
 ): AutomodHold | null {
+  const existing = getAutomodHoldRow.get(id) as AutomodHold | null;
+  if (!existing) return null;
+
+  const isUnresolved = existing.resolvedAt == null;
+  const supersedesProvisionalExpiry = options.authoritative === true
+    && existing.resolution === 'expired'
+    && resolution !== 'expired';
+  if (!isUnresolved && !supersedesProvisionalExpiry) return existing;
+
   const resolvedAt = new Date().toISOString();
   const result = resolveAutomodHoldRow.run(resolvedAt, resolution, resolvedBy, id) as { changes: number };
   const row = getAutomodHoldRow.get(id) as AutomodHold | null;
