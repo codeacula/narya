@@ -161,7 +161,7 @@ src/
     automation.ts       # composition root: executor + trigger dispatcher
     automationTriggers.ts # trigger repository, routes, seeded slash commands
     categoryModules.ts  # category modules + the reward-group switch coordinator
-    chatbotCommands.ts  # LEGACY: migrated into Actions; runtime path retired
+    rewardMedia.ts      # the media:play broadcast (reward bindings are Actions now)
     legacyMigration.ts  # one-shot conversions into the automation schema (runOnce)
     mediaAssets.ts      # configured media catalog (media_assets)
     triggerDispatcher.ts # matching, cooldowns, dedup, bot-loop prevention
@@ -215,13 +215,17 @@ src/
 
 **Category modules** (`categoryModules.ts`) — a module owns Twitch categories and reward groups; switching game deactivates one and activates another. `category_module_games.game_id` is the **primary key**, which is what enforces "a category belongs to at most one module" in the database rather than in application code. The coordinator is fed by Narya's own stream-info update, EventSub `channel.update`, `stream.online`, every EventSub reconnect, and a manual reconcile — transitions are serialized by a generation number so a rapid A→B→C cannot let a stale transition land last. **A failed category lookup is not a null category**: null means "authoritatively no category" and stands every module down, while a lookup failure calls `onCategoryLookupFailed` and changes no remote reward state. A reward group with no module owner is never touched by switching.
 
-**Redeem media** — media files live in `public/clips` and `public/sounds` (Vite copies them into `dist/` on build; `public/clips/` is gitignored). `src/server/media.ts` scans those folders for `GET /api/media`; a reward's binding is stored in `reward_media` and **validated against that scan**, so a client can never bind a path outside `public/`. On redemption `eventsub.ts` calls `playRewardMedia()`, which broadcasts `media:play`; the `/overlay/clips` browser source queues and plays them one at a time. `POST /api/twitch/rewards/:id/media/play` triggers the same broadcast for testing. Never put media directly in `dist/` — `vite build` empties it.
+**Redeem media and alerts are Actions.** There is no reward→file table and no alert settings table read at runtime any more. A redeem plays media because a `reward` trigger fires an Action with a `play_media` step; a sub alert shows text because a `twitch_event` trigger fires an Action with `show_text` + `play_media`. The legacy `reward_media`, `tts_reward_enabled`, and `alert_settings` tables still exist but are only read by `legacyMigration.ts`. **If you add a second path that plays a redeem, you will double-play it** — `src/server/redeemOnce.test.ts` exists to catch exactly that.
+
+**Overlay sources** — `/overlay/clips` receives `media:play` and drains **audio and video as independent lanes**: only video is visually exclusive, so an alert sound never waits out a clip. `/overlay/text` receives `overlay:text` (Action `show_text` steps, including migrated alert banners, which carry an optional `tone` for their accent colour). `/overlay/alerts` is retired. Media files live in `public/clips` and `public/sounds` (Vite copies them into `dist/` on build; `public/clips/` is gitignored). Never put media directly in `dist/` — `vite build` empties it.
 
 **Stream-session scoping** — `stream_events.session_id` stamps each event with the active `stream_sessions` row at emit time (null when off-stream, and for rows predating the column). The dashboard dims events whose `sessionId` differs from `DashboardStatus.streamSessionId`, the attention feed ignores them, and `GET /api/dashboard/session-shoutouts` groups the current session's events per actor to drive the Shoutouts tab and the `/overlay/shoutouts` ticker.
 
 **Migrations** — the schema statements in `db.ts` are idempotent by construction (`create table if not exists`, the allowlisted `addColumnIfMissing`) and re-run every boot. **Data** migrations are not: deriving rows from other rows would duplicate them on every restart. Anything that writes rows computed from other rows goes through `runOnce(id, fn)` in `db.ts`, which shares a transaction with the ledger write. Legacy tables are left intact after migrating so a bad conversion is inspectable rather than unrecoverable.
 
 When verifying a migration against real data, snapshot with `VACUUM INTO`, not `cp`. The database runs in WAL mode, so a plain file copy silently omits recent writes and will make a correct migration look like it is dropping rows.
+
+**Never verify against the real database from an ad-hoc script.** `db.ts` resolves its path at import time, and ES imports are hoisted — a script that sets `NODE_ENV`/`STREAMER_TOOLS_DB` in its body has *already* opened `data/streamer-tools.sqlite` by the time that line runs, and any write lands in the operator's live data. Put the check in a `*.test.ts` file (`bun test` sets `NODE_ENV=test` before anything imports, so the DB is in-memory), or pass the override in the environment of the command itself.
 
 **Chat dual-layer storage** — `chat_events` is append-only (raw events). `chat_messages` is a mutable projection with soft-delete columns (`deleted_at`, `deleted_reason`, `moderation_event_id`). Dashboard shows moderated messages with a reason; overlay hides them entirely (the `compact` prop on `ChatPanel`).
 
