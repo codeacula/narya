@@ -316,6 +316,115 @@ db.exec(`
   );
 `);
 
+// --- Automation platform -----------------------------------------------------
+// Configured media, reusable Actions, typed triggers, and category modules.
+// Declared after the tables above because the foreign keys point back into
+// viewer_reward_categories.
+db.exec(`
+  create table if not exists media_assets (
+    id text primary key,
+    label text not null,
+    kind text not null,                 -- MediaKind: 'audio' | 'video'
+    source_type text not null,          -- 'local' (under public/) | 'remote' (http(s))
+    src text not null,
+    volume real not null default 0.8,
+    enabled integer not null default 1,
+    created_at text not null,
+    updated_at text not null
+  );
+
+  create table if not exists actions (
+    id text primary key,
+    name text not null unique,
+    description text not null default '',
+    enabled integer not null default 1,
+    created_at text not null,
+    updated_at text not null
+  );
+
+  create table if not exists action_steps (
+    id text primary key,
+    action_id text not null,
+    step_type text not null,            -- ActionStepType
+    payload_json text not null,
+    delay_ms integer not null default 0,
+    enabled integer not null default 1,
+    position integer not null default 0,
+    created_at text not null,
+    updated_at text not null,
+    foreign key (action_id) references actions(id) on delete cascade
+  );
+
+  create table if not exists category_modules (
+    id text primary key,
+    name text not null unique,
+    enabled integer not null default 1,
+    status text not null default 'idle',   -- CategoryModuleStatus
+    status_detail text not null default '',
+    created_at text not null,
+    updated_at text not null
+  );
+
+  -- game_id is the primary key, not a composite: that is what enforces "a Twitch
+  -- category belongs to at most one module". Do not widen it.
+  create table if not exists category_module_games (
+    game_id text primary key,
+    module_id text not null,
+    game_name text not null,
+    created_at text not null,
+    foreign key (module_id) references category_modules(id) on delete cascade
+  );
+
+  -- A reward group may be owned by several modules (a shared "always on" group);
+  -- the coordinator only toggles groups whose ownership actually changes.
+  create table if not exists category_module_reward_groups (
+    module_id text not null,
+    group_id text not null,
+    created_at text not null,
+    primary key (module_id, group_id),
+    foreign key (module_id) references category_modules(id) on delete cascade,
+    foreign key (group_id) references viewer_reward_categories(id) on delete cascade
+  );
+
+  create table if not exists automation_triggers (
+    id text primary key,
+    kind text not null,                 -- AutomationTriggerKind
+    action_id text not null,
+    module_id text,                     -- null = global (always armed)
+    enabled integer not null default 1,
+    config_json text not null,          -- kind-specific; see AutomationTriggerConfig
+    global_cooldown_ms integer not null default 30000,
+    user_cooldown_ms integer not null default 60000,
+    created_at text not null,
+    updated_at text not null,
+    foreign key (action_id) references actions(id) on delete cascade,
+    foreign key (module_id) references category_modules(id) on delete cascade
+  );
+
+  -- Invocation log. Doubles as the dedupe table: dedupe_key holds the source
+  -- event id (chat message id, EventSub message id) so a redelivery is a no-op.
+  create table if not exists automation_runs (
+    id text primary key,
+    trigger_id text not null,
+    dedupe_key text,
+    actor_login text,
+    status text not null,               -- ActionRunStatus
+    detail text not null default '',
+    ran_at text not null
+  );
+`);
+
+db.exec(`
+  create unique index if not exists idx_automation_runs_dedupe on automation_runs(dedupe_key) where dedupe_key is not null;
+  create index if not exists idx_automation_runs_cooldown on automation_runs(trigger_id, ran_at);
+  create index if not exists idx_automation_runs_user_cooldown on automation_runs(trigger_id, actor_login, ran_at);
+  create index if not exists idx_action_steps_action on action_steps(action_id, position);
+  create index if not exists idx_automation_triggers_kind on automation_triggers(kind, enabled);
+  create index if not exists idx_automation_triggers_module on automation_triggers(module_id);
+  create index if not exists idx_category_module_games_module on category_module_games(module_id);
+  create index if not exists idx_media_assets_enabled on media_assets(enabled);
+`);
+
 db.exec(`
   create index if not exists idx_chat_messages_channel on chat_messages(channel);
   create index if not exists idx_chat_messages_received_at on chat_messages(received_at);
@@ -332,6 +441,39 @@ db.exec(`
 // The runsheet and ticker features were removed; drop their tables from databases created before that.
 db.exec('drop table if exists runsheet_items;');
 db.exec('drop table if exists ticker_items;');
+
+// Versioned ledger for one-shot migrations. The schema statements above are
+// idempotent by construction (`create table if not exists`, addColumnIfMissing),
+// so they can re-run every boot. Data migrations cannot: deriving an Action row
+// from a legacy reward binding would duplicate it on every restart. Anything
+// that writes rows computed from other rows goes through runOnce.
+db.exec(`
+  create table if not exists schema_migrations (
+    id text primary key,
+    applied_at text not null
+  );
+`);
+
+const hasMigrationRun = db.prepare('select 1 as present from schema_migrations where id = ?');
+const recordMigration = db.prepare('insert into schema_migrations (id, applied_at) values (?, ?)');
+
+/**
+ * Run `migrate` exactly once across the life of the database, recording it in the
+ * ledger. The work and the ledger entry share a transaction, so a crash midway
+ * rolls both back and the migration retries cleanly on the next boot.
+ */
+export function runOnce(id: string, migrate: () => void): void {
+  if (hasMigrationRun.get(id)) return;
+  db.transaction(() => {
+    migrate();
+    recordMigration.run(id, new Date().toISOString());
+  })();
+}
+
+/** Whether a one-shot migration has already been applied. */
+export function hasRunMigration(id: string): boolean {
+  return hasMigrationRun.get(id) !== null;
+}
 
 const allowedMigrationTables = new Set([
   'chat_messages',
