@@ -191,6 +191,8 @@ export function ModulesSettingsPage() {
   const busy = loading || saving || reconciling;
   const activeModule = state.modules.find(module => module.id === state.activeModuleId) ?? null;
   const degraded = state.modules.filter(module => module.status === 'degraded');
+  // Delete and Retry act on the saved module, so they only exist while one is open.
+  const editingModule = editingId ? state.modules.find(module => module.id === editingId) ?? null : null;
 
   /** Categories owned by some OTHER module — what the server would 409 on. */
   const claimedElsewhere = useMemo(() => {
@@ -240,9 +242,12 @@ export function ModulesSettingsPage() {
 
     const request = editingId ? updateCategoryModule(editingId, draft) : createCategoryModule(draft);
     void request
-      .then(() => load())
-      .then(() => {
-        closeEditor();
+      .then(async saved => {
+        await load();
+        // Stay on the saved module: the editor is the right pane now, and after a create
+        // a second Save would otherwise make a duplicate rather than update this one.
+        setEditingId(saved.id);
+        setDraft(moduleToInput(saved));
         setMessage('Module saved');
       })
       // A 409 arrives as a plain sentence from the server ("X is already claimed by
@@ -295,10 +300,7 @@ export function ModulesSettingsPage() {
 
   return (
     <>
-        <SettingsHeader
-          section="modules"
-          actions={<button className="btn-primary" type="button" disabled={busy} onClick={startCreate}>New module</button>}
-        />
+        <SettingsHeader section="modules" />
 
         {(message || error) && (
           <div className={'command-settings-status' + (error ? ' error' : '')}>{error ?? message}</div>
@@ -347,17 +349,81 @@ export function ModulesSettingsPage() {
           </div>
         </div>
 
-        {draft && (
-          <div className="set-group">
-            <div className="set-group-label">{editingId ? 'Edit module' : 'New module'}</div>
+        <div className="set-group">
+          <div className="set-group-label">Modules</div>
 
+          <div className="settings-split">
+            <div className="settings-split-list">
+              <div className="split-list-head">
+                <div className="set-sub">Pick a module to edit which categories and reward groups it owns.</div>
+                <button className="modbtn gold" type="button" disabled={busy} onClick={startCreate}>New</button>
+              </div>
+
+              <div className="settings-mini-list">
+                {loading ? (
+                  <div className="command-empty">Loading modules...</div>
+                ) : state.modules.length === 0 ? (
+                  <div className="command-empty">No category modules yet.</div>
+                ) : state.modules.map(module => (
+                  <button
+                    type="button"
+                    key={module.id}
+                    className={'settings-item-row'
+                      + (module.status === 'degraded' ? ' settings-item-row--degraded' : '')
+                      + (editingId === module.id ? ' is-selected' : '')}
+                    aria-current={editingId === module.id ? 'true' : undefined}
+                    onClick={() => startEdit(module)}
+                  >
+                    <div className="settings-item-main">
+                      <b>{module.name}</b>
+                      <StatusBadge module={module} active={module.id === state.activeModuleId} />
+                      <span>
+                        {module.games.length > 0 ? module.games.map(game => game.name).join(', ') : 'no categories claimed'}
+                        {' \u00b7 '}
+                        {module.rewardGroups.length > 0
+                          ? `owns ${module.rewardGroups.map(group => group.name).join(', ')}`
+                          : 'owns no reward groups'}
+                      </span>
+                      <div className="set-sub">{STATUS_HINTS[module.status]}</div>
+                      {module.status === 'degraded' && module.statusDetail && (
+                        <div className="module-status-detail">{module.statusDetail}</div>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="settings-split-detail">
+              {!draft ? (
+                <div className="split-empty">
+                  <div className="es-orb" />
+                  <div className="es-title">Nothing selected</div>
+                  <div className="es-sub">
+                    Pick a module on the left to edit the Twitch categories it claims and the reward
+                    groups it switches. New adds one.
+                  </div>
+                </div>
+              ) : (
             <form className="settings-editor-section" onSubmit={handleSubmit}>
               <div className="command-editor-head">
                 <div>
                   <div className="set-label">{draft.name || 'Untitled module'}</div>
                   <div className="set-sub">A disabled module never activates, whatever category is live.</div>
                 </div>
-                <button className="modbtn" type="button" disabled={saving} onClick={closeEditor}>Close</button>
+                <div className="command-row-actions">
+                  {editingModule && editingModule.status === 'degraded' && (
+                    <button className="modbtn gold" type="button" disabled={busy} onClick={handleReconcile}>
+                      {reconciling ? 'Retrying...' : 'Retry'}
+                    </button>
+                  )}
+                  {editingModule && (
+                    <button className="modbtn danger" type="button" disabled={busy} onClick={() => handleDelete(editingModule)}>
+                      Delete
+                    </button>
+                  )}
+                  <button className="modbtn" type="button" disabled={saving} onClick={closeEditor}>Close</button>
+                </div>
               </div>
 
               <div className="settings-mini-form">
@@ -425,53 +491,7 @@ export function ModulesSettingsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        )}
-
-        <div className="set-group">
-          <div className="set-group-label">Modules</div>
-
-          <div className="settings-editor-section">
-            <div className="settings-mini-list">
-              {loading ? (
-                <div className="command-empty">Loading modules...</div>
-              ) : state.modules.length === 0 ? (
-                <div className="command-empty">No category modules yet.</div>
-              ) : state.modules.map(module => (
-                <div
-                  className={'settings-item-row' + (module.status === 'degraded' ? ' settings-item-row--degraded' : '')}
-                  key={module.id}
-                >
-                  <div className="settings-item-main">
-                    <b>{module.name}</b>
-                    <StatusBadge module={module} active={module.id === state.activeModuleId} />
-                    <span>
-                      {module.games.length > 0 ? module.games.map(game => game.name).join(', ') : 'no categories claimed'}
-                      {' · '}
-                      {module.rewardGroups.length > 0
-                        ? `owns ${module.rewardGroups.map(group => group.name).join(', ')}`
-                        : 'owns no reward groups'}
-                    </span>
-                    <div className="set-sub">{STATUS_HINTS[module.status]}</div>
-                    {module.status === 'degraded' && module.statusDetail && (
-                      <div className="module-status-detail">{module.statusDetail}</div>
-                    )}
-                  </div>
-                  <div className="command-row-actions">
-                    {module.status === 'degraded' && (
-                      <button className="modbtn gold" type="button" disabled={busy} onClick={handleReconcile}>
-                        {reconciling ? 'Retrying...' : 'Retry'}
-                      </button>
-                    )}
-                    <button className="modbtn" type="button" disabled={busy} onClick={() => startEdit(module)}>
-                      Edit
-                    </button>
-                    <button className="modbtn danger" type="button" disabled={busy} onClick={() => handleDelete(module)}>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
+              )}
             </div>
           </div>
         </div>

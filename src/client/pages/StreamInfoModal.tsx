@@ -156,7 +156,7 @@ export function StreamInfoModal({
             disabled={loading || saving}
             onChange={event => setForm(current => ({ ...current, title: event.target.value }))}
           />
-          <small>{form.title.length}/140</small>
+          <small className="field-count">{form.title.length}/140</small>
         </label>
 
         <div className="field">
@@ -286,7 +286,7 @@ export function StreamInfoModal({
               </div>
             )}
           </div>
-          <small>{form.tags.length}/10</small>
+          <small className="field-count">{form.tags.length}/10</small>
         </div>
 
         <label className="field">

@@ -34,6 +34,7 @@ import {
   formatCooldown,
   isGlobalTrigger,
   normalizeCommandName,
+  triggerToInput,
   parseAliases,
   isLifecycleKind,
   runResultTone,
@@ -77,11 +78,6 @@ function newTrigger(kind: AutomationTriggerKind): AutomationTriggerInput {
     case 'module_deactivate':
       return { ...base, kind, config: {} };
   }
-}
-
-function triggerToInput(trigger: AutomationTrigger): AutomationTriggerInput {
-  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...input } = trigger;
-  return input as AutomationTriggerInput;
 }
 
 function RoleAllowlist({
@@ -345,9 +341,12 @@ function TriggerEditor({
   modules,
   rewards,
   saving,
+  testing,
   onChange,
   onSubmit,
   onClose,
+  onTest,
+  onDelete,
 }: {
   draft: AutomationTriggerInput;
   editingId: string | null;
@@ -355,9 +354,13 @@ function TriggerEditor({
   modules: CategoryModule[];
   rewards: ViewerReward[];
   saving: boolean;
+  testing: boolean;
   onChange: (next: AutomationTriggerInput) => void;
   onSubmit: () => void;
   onClose: () => void;
+  /** Absent on an unsaved draft — there is nothing on the server to fire or remove yet. */
+  onTest?: () => void;
+  onDelete?: () => void;
 }) {
   const problem = validateTrigger(draft);
   const lifecycle = isLifecycleKind(draft.kind);
@@ -372,7 +375,17 @@ function TriggerEditor({
           <div className="set-label">{editingId ? 'Edit' : 'New'} {TRIGGER_KIND_LABELS[draft.kind].toLowerCase()} trigger</div>
           <div className="set-sub">{TRIGGER_KIND_HINTS[draft.kind]}</div>
         </div>
-        <button className="modbtn" type="button" disabled={saving} onClick={onClose}>Close</button>
+        <div className="command-row-actions">
+          {onTest && (
+            <button className="modbtn gold" type="button" disabled={saving || testing} onClick={onTest}>
+              {testing ? 'Running...' : 'Test'}
+            </button>
+          )}
+          {onDelete && (
+            <button className="modbtn danger" type="button" disabled={saving} onClick={onDelete}>Delete</button>
+          )}
+          <button className="modbtn" type="button" disabled={saving} onClick={onClose}>Close</button>
+        </div>
       </div>
 
       <div className="settings-mini-form">
@@ -527,9 +540,13 @@ export function AutomationSettingsPage() {
 
     const request = editingId ? updateAutomationTrigger(editingId, draft) : createAutomationTrigger(draft);
     void request
-      .then(() => load())
-      .then(() => {
-        closeEditor();
+      .then(async saved => {
+        await load();
+        // Stay on what was just saved rather than closing: the editor is the right pane
+        // now, so closing it would blank the half of the screen you are working in — and
+        // after a create, a second Save would otherwise add a duplicate trigger.
+        setEditingId(saved.id);
+        setDraft(triggerToInput(saved));
         setMessage('Trigger saved');
       })
       .catch(caught => setError(errorText(caught, 'Could not save the trigger')))
@@ -568,6 +585,10 @@ export function AutomationSettingsPage() {
     return grouped;
   }, [triggers]);
 
+  // Test and Delete act on the saved trigger, so they only exist while one is open.
+  const editingTrigger = editingId ? triggers.find(trigger => trigger.id === editingId) ?? null : null;
+  const editingRun = editingId ? runs[editingId] ?? null : null;
+
   return (
     <>
         <SettingsHeader section="automation" />
@@ -582,111 +603,125 @@ export function AutomationSettingsPage() {
           </div>
         )}
 
-        {draft && (
-          <div className="set-group">
-            <div className="set-group-label">{editingId ? 'Edit trigger' : 'New trigger'}</div>
-            <TriggerEditor
-              draft={draft}
-              editingId={editingId}
-              actions={actions}
-              modules={modules}
-              rewards={rewards}
-              saving={saving}
-              onChange={setDraft}
-              onSubmit={handleSubmit}
-              onClose={closeEditor}
-            />
-          </div>
-        )}
+        <div className="set-group">
+          <div className="set-group-label">Triggers</div>
 
-        {TRIGGER_KINDS.map(kind => {
-          const kindTriggers = byKind.get(kind) ?? [];
-          return (
-            <div className="set-group" key={kind}>
-              <div className="set-group-label">{TRIGGER_KIND_LABELS[kind]}</div>
-
-              <div className="settings-editor-section">
-                <div className="command-editor-head">
-                  <div>
-                    <div className="set-sub">{TRIGGER_KIND_HINTS[kind]}</div>
-                  </div>
-                  <button
-                    className="modbtn"
-                    type="button"
-                    disabled={busy || actions.length === 0}
-                    onClick={() => startCreate(kind)}
-                  >
-                    New
-                  </button>
-                </div>
-
-                <div className="settings-mini-list">
-                  {loading ? (
-                    <div className="command-empty">Loading...</div>
-                  ) : kindTriggers.length === 0 ? (
-                    <div className="command-empty">None configured.</div>
-                  ) : kindTriggers.map(trigger => (
-                    <React.Fragment key={trigger.id}>
-                      <div className="settings-item-row">
-                        <div className="settings-item-main">
-                          <b>{describeTriggerConfig(trigger, rewardTitles)}</b>
-                          <span>→ {actionNames[trigger.actionId] ?? 'unknown action'}</span>
-                          <div className="media-asset-tags">
-                            <span
-                              className={'media-asset-tag' + (isGlobalTrigger(trigger) ? ' media-asset-tag--global' : ' media-asset-tag--scoped')}
-                            >
-                              {triggerScopeLabel(trigger, modules)}
-                            </span>
-                            {!trigger.enabled && <span className="media-asset-tag media-asset-tag--off">disabled</span>}
-                            {supportsCooldowns(trigger.kind) && (
-                              <>
-                                <span className="media-asset-tag">
-                                  global cd {formatCooldown(trigger.globalCooldownMs)}
-                                </span>
-                                <span className="media-asset-tag">
-                                  per-viewer cd {formatCooldown(trigger.userCooldownMs)}
-                                </span>
-                              </>
-                            )}
-                            {!actionNames[trigger.actionId] && (
-                              <span className="media-asset-tag media-asset-tag--broken">action missing</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="command-row-actions">
-                          <button
-                            className="modbtn gold"
-                            type="button"
-                            disabled={busy || busyId === trigger.id}
-                            onClick={() => handleRun(trigger)}
-                          >
-                            {busyId === trigger.id ? 'Running...' : 'Test'}
-                          </button>
-                          <button className="modbtn" type="button" disabled={busy} onClick={() => startEdit(trigger)}>
-                            Edit
-                          </button>
-                          <button className="modbtn danger" type="button" disabled={busy} onClick={() => handleDelete(trigger)}>
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                      {runs[trigger.id] && (
-                        <div className={`action-run-result action-run-result--${runResultTone(runs[trigger.id])}`}>
-                          <div className="action-run-head">
-                            <span className={`action-run-status action-run-status--${runResultTone(runs[trigger.id])}`}>
-                              {runs[trigger.id].status}
-                            </span>
-                            <span>{summarizeRunResult(runs[trigger.id])}</span>
-                          </div>
-                        </div>
-                      )}
-                    </React.Fragment>
+          <div className="settings-split">
+            <div className="settings-split-list">
+              <div className="split-list-head">
+                <div className="set-sub">Pick a trigger to edit, test, or delete it. Grouped by what fires it.</div>
+                {/* The kind is fixed at creation — it decides which config fields exist — so
+                    New is a kind picker rather than a button. One entry point for all seven. */}
+                <select
+                  aria-label="New trigger"
+                  className="split-new-select"
+                  value=""
+                  disabled={busy || actions.length === 0}
+                  onChange={event => {
+                    const kind = event.target.value as AutomationTriggerKind;
+                    if (kind) startCreate(kind);
+                  }}
+                >
+                  <option value="">New…</option>
+                  {TRIGGER_KINDS.map(kind => (
+                    <option key={kind} value={kind}>{TRIGGER_KIND_LABELS[kind]}</option>
                   ))}
-                </div>
+                </select>
+              </div>
+
+              <div className="settings-mini-list">
+                {loading ? (
+                  <div className="command-empty">Loading...</div>
+                ) : triggers.length === 0 ? (
+                  <div className="command-empty">No triggers configured. Add one with New.</div>
+                ) : TRIGGER_KINDS.map(kind => {
+                  const kindTriggers = byKind.get(kind) ?? [];
+                  if (kindTriggers.length === 0) return null;
+                  return (
+                    <React.Fragment key={kind}>
+                      <div className="split-group-label">{TRIGGER_KIND_LABELS[kind]}</div>
+                      {kindTriggers.map(trigger => (
+                        <button
+                          type="button"
+                          key={trigger.id}
+                          className={'settings-item-row' + (editingId === trigger.id ? ' is-selected' : '')}
+                          aria-current={editingId === trigger.id ? 'true' : undefined}
+                          onClick={() => startEdit(trigger)}
+                        >
+                          <div className="settings-item-main">
+                            <b>{describeTriggerConfig(trigger, rewardTitles)}</b>
+                            <span>→ {actionNames[trigger.actionId] ?? 'unknown action'}</span>
+                            <div className="media-asset-tags">
+                              <span
+                                className={'media-asset-tag' + (isGlobalTrigger(trigger) ? ' media-asset-tag--global' : ' media-asset-tag--scoped')}
+                              >
+                                {triggerScopeLabel(trigger, modules)}
+                              </span>
+                              {!trigger.enabled && <span className="media-asset-tag media-asset-tag--off">disabled</span>}
+                              {supportsCooldowns(trigger.kind) && (
+                                <>
+                                  <span className="media-asset-tag">
+                                    global cd {formatCooldown(trigger.globalCooldownMs)}
+                                  </span>
+                                  <span className="media-asset-tag">
+                                    per-viewer cd {formatCooldown(trigger.userCooldownMs)}
+                                  </span>
+                                </>
+                              )}
+                              {!actionNames[trigger.actionId] && (
+                                <span className="media-asset-tag media-asset-tag--broken">action missing</span>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
               </div>
             </div>
-          );
-        })}
+
+            <div className="settings-split-detail">
+              {!draft ? (
+                <div className="split-empty">
+                  <div className="es-orb" />
+                  <div className="es-title">Nothing selected</div>
+                  <div className="es-sub">
+                    Pick a trigger on the left to see what fires it, which action it runs, and its
+                    cooldowns. New adds one.
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {editingRun && (
+                    <div className={`action-run-result action-run-result--${runResultTone(editingRun)}`}>
+                      <div className="action-run-head">
+                        <span className={`action-run-status action-run-status--${runResultTone(editingRun)}`}>
+                          {editingRun.status}
+                        </span>
+                        <span>{summarizeRunResult(editingRun)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <TriggerEditor
+                    draft={draft}
+                    editingId={editingId}
+                    actions={actions}
+                    modules={modules}
+                    rewards={rewards}
+                    saving={saving}
+                    testing={editingId !== null && busyId === editingId}
+                    onChange={setDraft}
+                    onSubmit={handleSubmit}
+                    onClose={closeEditor}
+                    onTest={editingTrigger ? () => handleRun(editingTrigger) : undefined}
+                    onDelete={editingTrigger ? () => handleDelete(editingTrigger) : undefined}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+        </div>
     </>
   );
 }

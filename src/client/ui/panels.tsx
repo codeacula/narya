@@ -614,7 +614,17 @@ function ViewerActionModal({
 
 /* ---------------- Spotlight ---------------- */
 
-export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
+export function Spotlight({
+  ctx,
+  login,
+  hideIdentity,
+}: {
+  ctx: PanelCtx;
+  login?: string;
+  /** Drop the avatar/name/roles block. The Viewers page's detail pane draws its own,
+   *  larger one with the role controls in it; two of them read as a rendering bug. */
+  hideIdentity?: boolean;
+}) {
   const normalizedLogin = login?.toLowerCase();
   const viewer = normalizedLogin ? ctx.viewers[normalizedLogin] : null;
   const emoteMap = useEmotes();
@@ -683,29 +693,31 @@ export function Spotlight({ ctx, login }: { ctx: PanelCtx; login?: string }) {
   return (
     <>
       <div className="spot">
-        <div className="spot-head">
-          <div className="spot-avatar" style={{ background: viewer.color }}>
-            {viewer.display[0].toUpperCase()}
-          </div>
-          <div className="spot-id">
-            <div className="spot-name" style={{ color: viewer.color }}>{viewer.display}</div>
-            {viewer.realName && <div className="spot-real-name">{viewer.realName}</div>}
-            <div className="spot-meta">{viewer.accountAge}</div>
-            <div className="spot-roles">
-              {viewer.roles.includes('mod') && <span className="rolepill mod">moderator</span>}
-              {viewer.roles.includes('vip') && <span className="rolepill vip">vip</span>}
-              {viewer.roles.includes('sub') && <span className="rolepill sub">subscriber</span>}
-              {viewer.roles.length === 0 && (
-                <span className="rolepill" style={{ color: 'var(--fg-3)', borderColor: 'var(--border-1)' }}>
-                  viewer
-                </span>
-              )}
-              {viewer.tags.map(tag => (
-                <span className="profile-tag" key={tag}>{tag}</span>
-              ))}
+        {!hideIdentity && (
+          <div className="spot-head">
+            <div className="spot-avatar" style={{ background: viewer.color }}>
+              {viewer.display[0].toUpperCase()}
+            </div>
+            <div className="spot-id">
+              <div className="spot-name" style={{ color: viewer.color }}>{viewer.display}</div>
+              {viewer.realName && <div className="spot-real-name">{viewer.realName}</div>}
+              <div className="spot-meta">{viewer.accountAge}</div>
+              <div className="spot-roles">
+                {viewer.roles.includes('mod') && <span className="rolepill mod">moderator</span>}
+                {viewer.roles.includes('vip') && <span className="rolepill vip">vip</span>}
+                {viewer.roles.includes('sub') && <span className="rolepill sub">subscriber</span>}
+                {viewer.roles.length === 0 && (
+                  <span className="rolepill" style={{ color: 'var(--fg-3)', borderColor: 'var(--border-1)' }}>
+                    viewer
+                  </span>
+                )}
+                {viewer.tags.map(tag => (
+                  <span className="profile-tag" key={tag}>{tag}</span>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="spot-stats">
           <div className="stat">

@@ -607,10 +607,70 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .panel-body::-webkit-scrollbar-thumb:hover, .popwin-body::-webkit-scrollbar-thumb:hover { background: rgba(162,170,188,0.35); background-clip: padding-box; }
 
-/* ================= SETTINGS PAGE ================= */
-/* Still worn by the pages outside the settings shell — /viewers and a viewer's detail. */
-.settings-page { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: var(--space-5); }
-.settings-inner { width: 100%; min-width: 0; max-width: 720px; margin: 0 auto; }
+/* ================= SPLIT SHELL ================= *
+   Pick on the left, work on the right. Worn by the Viewers page, and by the Media
+   section's library and button managers. The two panes scroll independently so a long
+   list never pushes the editor off screen, and the editor never scrolls away from the
+   thing it is editing. */
+.split-shell {
+  display: grid;
+  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+.split-list {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--space-5);
+  border-right: 1px solid var(--border-1);
+  background: linear-gradient(180deg, rgba(12, 18, 32, 0.55), rgba(12, 18, 32, 0.2));
+}
+.split-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6) var(--space-8);
+}
+/* Nothing selected: say what the right pane is for rather than sitting blank. */
+.split-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: 240px;
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--fg-3);
+}
+.split-detail .split-empty { min-height: 100%; }
+.split-empty .es-orb {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-2);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 184, 108, 0.22), transparent 62%);
+}
+.split-empty .es-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--step-1);
+  color: var(--ivory-200);
+}
+.split-empty .es-sub {
+  font-size: var(--step--1);
+  max-width: 44ch;
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .split-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; }
+  .split-list { border-right: none; border-bottom: 1px solid var(--border-1); overflow: visible; }
+  .split-detail { overflow: visible; }
+}
 
 /* ================= SETTINGS SHELL ================= *
    A rail and a canvas, each scrolling on its own inside the cockpit's content row.
@@ -928,6 +988,96 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   display: grid;
   gap: 8px;
 }
+
+/* ---- Split editor inside a settings card ---- *
+   The .split-shell pattern, folded into the scrolling settings canvas: pick on the left,
+   edit on the right. The editor is sticky, so it stays with you down a long list instead
+   of sitting at the bottom of the page where you cannot see whether the Save did anything. */
+.settings-split {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+  padding: 14px;
+}
+.settings-split-list {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+/* The head stays put; only the rows scroll. */
+.settings-split-list .settings-mini-list {
+  max-height: min(56vh, 540px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.split-list-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.split-list-head .set-sub { max-width: 40ch; }
+.settings-split-detail {
+  position: sticky;
+  top: 0;
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding-left: var(--space-5);
+  border-left: 1px solid var(--border-1);
+}
+.settings-split-detail .command-editor-head { margin: 0; }
+/* The editor already sits in a pane; it does not need the card padding and divider it
+   wore when it was a section stacked below the list. */
+.settings-split-detail .settings-editor-section {
+  padding: 0;
+  border-bottom: none;
+}
+/* The trigger editor drew its own outline back when it was a card floating above the
+   list. In the pane it IS the card, and the outline just boxed the text against it. */
+.settings-split-detail .trigger-editor { border: 0; }
+/* A kind/section heading inside a picking list (trigger kinds). */
+.split-group-label {
+  margin-top: var(--space-2);
+  padding: 0 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+.split-group-label:first-child { margin-top: 0; }
+/* "New…" where the kind must be chosen before the editor can exist. Reads as a control,
+   not a form field. */
+.split-new-select {
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid var(--gold-500);
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--fg-accent);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.split-new-select:disabled { opacity: 0.5; cursor: default; }
+
+@media (max-width: 1100px) {
+  .settings-split { grid-template-columns: minmax(0, 1fr); }
+  .settings-split-detail {
+    position: static;
+    padding-left: 0;
+    padding-top: var(--space-4);
+    border-left: none;
+    border-top: 1px solid var(--border-1);
+  }
+}
+
 .settings-item-row {
   display: flex;
   align-items: center;
@@ -938,6 +1088,28 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   background: rgba(255,255,255,0.018);
   padding: 9px 10px;
 }
+/* The button form of the row is the selector for the editor beside it. The div form
+   (Actions, Modules — rows that carry their own buttons) keeps its plain styling. */
+button.settings-item-row {
+  width: 100%;
+  border-left: 2px solid var(--border-1);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+button.settings-item-row:hover {
+  background: rgba(255,255,255,0.045);
+  border-color: var(--border-2);
+}
+button.settings-item-row:focus-visible { outline: 2px solid var(--gold-400); outline-offset: -2px; }
+button.settings-item-row.is-selected {
+  background: rgba(255, 184, 108, 0.09);
+  border-color: var(--border-2);
+  border-left-color: var(--gold-500);
+}
+button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-accent); }
 .settings-item-main {
   min-width: 0;
   display: grid;
@@ -965,10 +1137,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   gap: 5px;
   margin-top: 2px;
 }
-/* Outranks the monospaced .settings-item-main span rule above. */
+/* Outranks the monospaced .settings-item-main span rule above. A tag carrying a whole
+   description ("Ban a viewer. Usage: …") cannot shrink below its content, so it has to
+   be clamped or it runs straight out of a narrow list column. */
 .settings-item-main .media-asset-tag {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   padding: 1px 7px;
   border: 1px solid var(--border-1);
   border-radius: 99px;
@@ -978,7 +1153,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.03em;
-  overflow: visible;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .settings-item-main .media-asset-tag--off {
   color: var(--warning-fg);
@@ -990,16 +1167,25 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   border-color: var(--danger-border);
   background: var(--danger-bg);
 }
+/* Two even columns on a measure, not three fixed proportional ones. The old
+   `1fr 1.4fr 1fr` was tuned for a single form: every other field count left a hole in
+   the row, a checkbox could land in a column beside a text input, and `align-items: end`
+   bottom-aligned fields whose help text made them different heights. */
 .settings-mini-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: 10px;
-  align-items: end;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  align-items: start;
+  max-width: 880px;
 }
 .settings-wide-field {
   grid-column: 1 / -1;
 }
-.settings-mini-form .command-settings-actions {
+/* A toggle is not a column of a form row — give it its own line. */
+.settings-mini-form .command-enabled,
+.settings-mini-form .command-settings-actions,
+.settings-mini-form .command-settings-status,
+.settings-mini-form .command-example {
   grid-column: 1 / -1;
 }
 .command-settings-form {
@@ -1864,12 +2050,37 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   border-color: var(--border-3);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+/* A slider is not a text box: the input chrome above draws a bordered well around it
+   and leaves the thumb at the browser's default blue. */
+.field input[type="range"] {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--gold-500);
+  align-self: center;
+  height: 22px;
+}
+.field input[type="range"]:focus {
+  box-shadow: none;
+  outline: 2px solid var(--gold-400);
+  outline-offset: 2px;
+}
+/* Checkboxes inside a field row (the trigger role allowlist) get the same treatment. */
+.field input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--gold-500);
+}
 .field small {
-  align-self: flex-end;
+  align-self: flex-start;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--fg-3);
 }
+/* A counter ("12/140") reads as a right-aligned readout; a sentence of help does not. */
+.field small.field-count { align-self: flex-end; }
 .suggestion-anchor {
   position: relative;
 }
@@ -2332,6 +2543,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .cat-tags-foot small { font-family: var(--font-mono); font-size: var(--step--2); color: var(--fg-3); }
 
 /* ---------------- Viewers page — "constellation roster" ---------------- */
+/* The list is the left pane of a .split-shell; the viewer in focus fills the right. */
 .viewers-head {
   display: flex;
   align-items: flex-end;
@@ -2342,7 +2554,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .viewers-title {
   margin: 2px 0 6px;
   font-family: var(--font-display);
-  font-size: var(--step-4);
+  font-size: var(--step-2);
   font-weight: 600;
   line-height: var(--lh-tight);
   letter-spacing: var(--track-tight);
@@ -2368,9 +2580,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 
 .viewers-toolbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
 }
@@ -2401,9 +2612,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .viewers-chip.is-active .viewers-chip-n { opacity: 0.85; }
 
 .viewers-search {
-  min-width: 220px;
-  flex: 1 1 220px;
-  max-width: 320px;
+  width: 100%;
+  min-width: 0;
   padding: 8px 12px;
   border: 1px solid var(--border-1);
   border-radius: var(--radius-2);
@@ -2455,16 +2665,33 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   border-bottom: 1px solid var(--border-1);
 }
 
+/* The whole row is the control: selecting a viewer is the only thing the list does, and
+   every action on them lives in the detail pane. */
 .roster-row {
+  width: 100%;
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
+  border: 0;
   border-top: 1px solid var(--border-1);
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .roster-row:first-child { border-top: none; }
 .roster-row:hover { background: rgba(162, 170, 188, 0.045); }
+.roster-row:focus-visible { outline: 2px solid var(--gold-400); outline-offset: -2px; }
+.roster-row.is-selected {
+  background: rgba(255, 184, 108, 0.09);
+  border-left-color: var(--gold-500);
+}
+.roster-row.is-selected .roster-name { color: var(--fg-accent); }
 
 /* The orb: each viewer as a star, tinted by their chat color. */
 .roster-orb {
@@ -2480,6 +2707,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-family: var(--font-display);
   font-size: var(--step-1);
   font-weight: 700;
+}
+.roster-orb--lg {
+  width: 54px;
+  height: 54px;
+  font-size: var(--step-2);
 }
 .roster-orb.is-vip {
   border-color: var(--gold-500);
@@ -2517,19 +2749,36 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-size: var(--step-0);
   color: var(--fg-1);
 }
-.roster-name-btn {
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  text-align: left;
+/* ---------------- Viewer detail — the right pane ---------------- */
+.viewer-detail { min-width: 0; }
+.viewer-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-1);
 }
-.roster-name-btn:hover,
-.roster-name-btn:focus-visible {
-  color: var(--fg-accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+.viewer-detail-id { min-width: 0; flex: 1; }
+.viewer-detail-nameline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }
+.viewer-detail-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--step-3);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-tight);
+  color: var(--fg-1);
+}
+/* VIP and Mod live up here with identity, not down in Spotlight's action row: they
+   change who someone *is* in the channel, where shout out / timeout / ban act on the
+   moment. */
+.viewer-detail-roles { flex: none; display: flex; gap: 6px; }
 
 .viewer-history {
   margin-top: var(--space-5);
@@ -2592,8 +2841,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .roster-stat-seen.is-live { color: var(--gold-400); }
 .roster-stat-msgs { color: var(--fg-3); }
 
-.roster-actions { display: flex; gap: 6px; justify-content: flex-end; }
-
 @media (max-width: 760px) {
   .roster-row {
     grid-template-columns: 40px minmax(0, 1fr);
@@ -2605,7 +2852,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
     align-items: center;
     gap: var(--space-3);
   }
-  .roster-actions { grid-column: 1 / -1; flex-wrap: wrap; justify-content: flex-start; }
 }
 
 /* ================= AUTOMATION PLATFORM ================= */

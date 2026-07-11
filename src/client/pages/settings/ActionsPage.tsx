@@ -660,10 +660,7 @@ export function ActionsSettingsPage() {
 
   return (
     <>
-        <SettingsHeader
-          section="actions"
-          actions={<button className="btn-primary" type="button" disabled={busy} onClick={startCreate}>New action</button>}
-        />
+        <SettingsHeader section="actions" />
 
         {(message || error) && (
           <div className={'command-settings-status' + (error ? ' error' : '')}>{error ?? message}</div>
@@ -672,15 +669,26 @@ export function ActionsSettingsPage() {
         <div className="set-group">
           <div className="set-group-label">Actions</div>
 
-          <div className="settings-editor-section">
-            <div className="settings-mini-list">
-              {loading ? (
-                <div className="command-empty">Loading actions...</div>
-              ) : actions.length === 0 ? (
-                <div className="command-empty">No actions yet. Create one, then point a trigger at it.</div>
-              ) : actions.map(action => (
-                <React.Fragment key={action.id}>
-                  <div className="settings-item-row">
+          <div className="settings-split">
+            <div className="settings-split-list">
+              <div className="split-list-head">
+                <div className="set-sub">Pick an action to edit, run, or delete it.</div>
+                <button className="modbtn gold" type="button" disabled={busy} onClick={startCreate}>New</button>
+              </div>
+
+              <div className="settings-mini-list">
+                {loading ? (
+                  <div className="command-empty">Loading actions...</div>
+                ) : actions.length === 0 ? (
+                  <div className="command-empty">No actions yet. Create one, then point a trigger at it.</div>
+                ) : actions.map(action => (
+                  <button
+                    type="button"
+                    key={action.id}
+                    className={'settings-item-row' + (editingId === action.id ? ' is-selected' : '')}
+                    aria-current={editingId === action.id ? 'true' : undefined}
+                    onClick={() => startEdit(action)}
+                  >
                     <div className="settings-item-main">
                       <b>{action.name}</b>
                       <span>
@@ -692,42 +700,56 @@ export function ActionsSettingsPage() {
                         {action.description && <span className="media-asset-tag">{action.description}</span>}
                       </div>
                     </div>
-                    <div className="command-row-actions">
-                      <button
-                        className="modbtn gold"
-                        type="button"
-                        disabled={busy || busyId === action.id}
-                        onClick={() => handleRun(action)}
-                      >
-                        {busyId === action.id ? 'Running...' : 'Run'}
-                      </button>
-                      <button className="modbtn" type="button" disabled={busy} onClick={() => startEdit(action)}>
-                        Edit
-                      </button>
-                      <button className="modbtn danger" type="button" disabled={busy} onClick={() => handleDelete(action)}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                  {runs[action.id] && <RunResult result={runs[action.id]} />}
-                </React.Fragment>
-              ))}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        </div>
 
-        {draft && (
-          <div className="set-group">
-            <div className="set-group-label">{editingId ? 'Edit action' : 'New action'}</div>
-
+            <div className="settings-split-detail">
+              {!draft ? (
+                <div className="split-empty">
+                  <div className="es-orb" />
+                  <div className="es-title">Nothing selected</div>
+                  <div className="es-sub">
+                    Pick an action on the left to edit its steps, run it as a test, or delete it. New
+                    builds one from scratch.
+                  </div>
+                </div>
+              ) : (
             <form className="settings-editor-section" onSubmit={handleSave}>
               <div className="command-editor-head">
                 <div>
                   <div className="set-label">{draft.name || 'Untitled action'}</div>
                   <div className="set-sub">Steps run in order. A step that fails does not stop the ones after it.</div>
                 </div>
-                <button className="modbtn" type="button" disabled={saving} onClick={closeEditor}>Close</button>
+                <div className="command-row-actions">
+                  {/* Run and Delete act on what is *saved*, so they only exist once the
+                      action does — a draft has nothing on the server to fire or remove. */}
+                  {editingId && (
+                    <button
+                      className="modbtn gold"
+                      type="button"
+                      disabled={busy || busyId === editingId}
+                      onClick={() => { const action = actions.find(a => a.id === editingId); if (action) handleRun(action); }}
+                    >
+                      {busyId === editingId ? 'Running...' : 'Run'}
+                    </button>
+                  )}
+                  {editingId && (
+                    <button
+                      className="modbtn danger"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => { const action = actions.find(a => a.id === editingId); if (action) handleDelete(action); }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                  <button className="modbtn" type="button" disabled={saving} onClick={closeEditor}>Close</button>
+                </div>
               </div>
+
+              {editingId && runs[editingId] && <RunResult result={runs[editingId]} />}
 
               <div className="settings-mini-form">
                 <label className="field">
@@ -806,8 +828,10 @@ export function ActionsSettingsPage() {
                 </button>
               </div>
             </form>
+              )}
+            </div>
           </div>
-        )}
+        </div>
     </>
   );
 }

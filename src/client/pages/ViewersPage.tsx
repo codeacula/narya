@@ -1,34 +1,32 @@
 import React from 'react';
 import type { Chatter, ViewerRosterEntry } from '../../shared/api';
+import type { PanelCtx } from '../ui/panels';
+import { ViewerDetailPane } from './ViewerDetailPage';
 import {
-  banViewer,
   getChatters,
   getModerators,
   getViewerRoster,
   getVips,
-  grantModerator,
-  grantVip,
-  removeModerator,
-  removeVip,
-  sendViewerShoutout,
-  sendViewerWhisper,
-  timeoutViewer,
 } from '../services/dashboard';
 
 type Segment = 'all' | 'live' | 'vips' | 'mods';
 
-type Person = {
+export type Person = {
   login: string;
   display: string;
   color: string;
   roles: Set<string>;
   isLive: boolean;
   messageCount: number;
+  firstSeenAt: string;
   lastSeenAt: string;
   note: string;
 };
 
-function relTime(iso: string): string {
+/** Runs a viewer action, re-syncs the roster, and reports the outcome. */
+export type RunViewerAction = (action: () => Promise<{ message: string }>, label: string) => void;
+
+export function relTime(iso: string): string {
   if (!iso) return 'not in chat yet';
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (!Number.isFinite(seconds)) return 'unknown';
@@ -56,45 +54,58 @@ function topRole(roles: Set<string>): 'mod' | 'vip' | 'sub' | null {
   return null;
 }
 
-function StarRow({
+export function ViewerOrb({ person, size }: { person: Person; size?: 'lg' }) {
+  const ring = topRole(person.roles);
+  const className = [
+    'roster-orb',
+    size === 'lg' ? 'roster-orb--lg' : '',
+    ring ? `is-${ring}` : '',
+    person.isLive ? 'is-live' : '',
+  ].filter(Boolean).join(' ');
+  return (
+    <div className={className} style={{ ['--orb' as string]: person.color }}>
+      <span>{initial(person.display)}</span>
+    </div>
+  );
+}
+
+export function RoleBadges({ roles }: { roles: Set<string> }) {
+  return (
+    <>
+      {roles.has('mod') ? <span className="roster-badge is-mod">Mod</span> : null}
+      {roles.has('vip') ? <span className="roster-badge is-vip">VIP</span> : null}
+      {roles.has('sub') ? <span className="roster-badge is-sub">Sub</span> : null}
+    </>
+  );
+}
+
+/**
+ * One viewer in the left list. Selecting a row is all a row does — every action on a
+ * viewer lives in the detail pane, so there is a single place to act on someone and the
+ * list stays legible in a narrow column.
+ */
+function RosterRow({
   person,
-  busy,
-  onAction,
-  onOpenViewerPage,
+  selected,
+  onSelect,
 }: {
   person: Person;
-  busy: boolean;
-  onAction: (action: () => Promise<{ message: string }>, label: string) => void;
-  onOpenViewerPage?: (login: string) => void;
+  selected: boolean;
+  onSelect: (login: string) => void;
 }) {
-  const ring = topRole(person.roles);
-  const orbClass = ['roster-orb', ring ? `is-${ring}` : '', person.isLive ? 'is-live' : ''].filter(Boolean).join(' ');
-  const isVip = person.roles.has('vip');
-  const isMod = person.roles.has('mod');
-
   return (
-    <div className="roster-row">
-      <div className={orbClass} style={{ ['--orb' as string]: person.color }}>
-        <span>{initial(person.display)}</span>
-      </div>
+    <button
+      type="button"
+      className={'roster-row' + (selected ? ' is-selected' : '')}
+      aria-current={selected ? 'true' : undefined}
+      onClick={() => onSelect(person.login)}
+    >
+      <ViewerOrb person={person} />
 
       <div className="roster-identity">
         <div className="roster-nameline">
-          {onOpenViewerPage ? (
-            <button
-              type="button"
-              className="roster-name roster-name-btn"
-              title={`Open @${person.login}'s page`}
-              onClick={() => onOpenViewerPage(person.login)}
-            >
-              {person.display}
-            </button>
-          ) : (
-            <span className="roster-name">{person.display}</span>
-          )}
-          {isMod ? <span className="roster-badge is-mod">Mod</span> : null}
-          {isVip ? <span className="roster-badge is-vip">VIP</span> : null}
-          {person.roles.has('sub') ? <span className="roster-badge is-sub">Sub</span> : null}
+          <span className="roster-name">{person.display}</span>
+          <RoleBadges roles={person.roles} />
         </div>
         <div className="roster-sub">@{person.login}{person.note ? <span className="roster-note"> · {person.note}</span> : null}</div>
       </div>
@@ -105,37 +116,7 @@ function StarRow({
         </span>
         <span className="roster-stat-msgs">{person.messageCount.toLocaleString()} msg{person.messageCount === 1 ? '' : 's'}</span>
       </div>
-
-      <div className="roster-actions">
-        {isVip
-          ? <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => removeVip(person.login), `remove VIP from @${person.login}`)}>Un-VIP</button>
-          : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantVip(person.login), `VIP @${person.login}`)}>VIP</button>}
-        {isMod
-          ? <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => removeModerator(person.login), `remove mod from @${person.login}`)}>Un-Mod</button>
-          : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantModerator(person.login), `mod @${person.login}`)}>Mod</button>}
-        <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => sendViewerShoutout(person.login), `shout out @${person.login}`)}>Shout out</button>
-        <button
-          className="modbtn"
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            const message = window.prompt(`Whisper to @${person.login}:`)?.trim();
-            if (message) onAction(() => sendViewerWhisper(person.login, message), `whisper @${person.login}`);
-          }}
-        >
-          Whisper
-        </button>
-        <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => timeoutViewer(person.login, 600, ''), `time out @${person.login}`)}>Timeout</button>
-        <button
-          className="modbtn danger"
-          type="button"
-          disabled={busy}
-          onClick={() => { if (window.confirm(`Ban @${person.login}?`)) onAction(() => banViewer(person.login, ''), `ban @${person.login}`); }}
-        >
-          Ban
-        </button>
-      </div>
-    </div>
+    </button>
   );
 }
 
@@ -146,7 +127,16 @@ const SEGMENTS: Array<{ id: Segment; label: string }> = [
   { id: 'mods', label: 'Mods' },
 ];
 
-export function ViewersPage({ onOpenViewerPage }: { onOpenViewerPage?: (login: string) => void } = {}) {
+export function ViewersPage({
+  ctx,
+  selectedLogin,
+  onSelectViewer,
+}: {
+  ctx: PanelCtx;
+  /** The viewer whose page is open (/viewers/<login>), or null on the bare list. */
+  selectedLogin: string | null;
+  onSelectViewer: (login: string) => void;
+}) {
   const [roster, setRoster] = React.useState<ViewerRosterEntry[]>([]);
   const [liveLogins, setLiveLogins] = React.useState<Set<string>>(new Set());
   const [vips, setVips] = React.useState<Chatter[]>([]);
@@ -202,6 +192,7 @@ export function ViewersPage({ onOpenViewerPage }: { onOpenViewerPage?: (login: s
         roles: rolesFor(login, entry.roles),
         isLive: liveLogins.has(login),
         messageCount: entry.messageCount,
+        firstSeenAt: entry.firstSeenAt,
         lastSeenAt: entry.lastSeenAt,
         note: entry.note,
       });
@@ -218,6 +209,7 @@ export function ViewersPage({ onOpenViewerPage }: { onOpenViewerPage?: (login: s
         roles: rolesFor(login, []),
         isLive: liveLogins.has(login),
         messageCount: 0,
+        firstSeenAt: '',
         lastSeenAt: '',
         note: '',
       });
@@ -246,7 +238,30 @@ export function ViewersPage({ onOpenViewerPage }: { onOpenViewerPage?: (login: s
   const searchLogin = term.replace(/^@/, '');
   const searchIsNew = searchLogin.length > 0 && !people.some(p => p.login === searchLogin);
 
-  const runAction = async (action: () => Promise<{ message: string }>, label: string) => {
+  // A login we can act on but have never seen chat: the search box's escape hatch, and
+  // a /viewers/<login> URL for someone who has since fallen out of the roster.
+  const strangerFor = React.useCallback((login: string): Person => ({
+    login,
+    display: login,
+    color: 'var(--silver-400)',
+    roles: new Set(
+      vips.some(v => v.userLogin.toLowerCase() === login) ? ['vip']
+        : mods.some(m => m.userLogin.toLowerCase() === login) ? ['mod']
+          : [],
+    ),
+    isLive: liveLogins.has(login),
+    messageCount: 0,
+    firstSeenAt: '',
+    lastSeenAt: '',
+    note: '',
+  }), [vips, mods, liveLogins]);
+
+  const selected = selectedLogin?.toLowerCase() ?? null;
+  const selectedPerson = selected
+    ? people.find(person => person.login === selected) ?? strangerFor(selected)
+    : null;
+
+  const runAction: RunViewerAction = async (action, label) => {
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -266,8 +281,8 @@ export function ViewersPage({ onOpenViewerPage }: { onOpenViewerPage?: (login: s
   };
 
   return (
-    <div className="settings-page viewers-page">
-      <div className="settings-inner">
+    <div className="split-shell viewers-shell">
+      <aside className="split-list">
         <header className="viewers-head">
           <div>
             <div className="settings-eyebrow">viewers</div>
@@ -312,11 +327,11 @@ export function ViewersPage({ onOpenViewerPage }: { onOpenViewerPage?: (login: s
           <div className="empty-state"><div className="es-orb" /><div className="es-title">Gathering your viewers…</div></div>
         ) : searchIsNew ? (
           <div className="roster-list">
-            <div className="roster-hint">Not in your roster yet — act on <b>@{searchLogin}</b> directly:</div>
-            <StarRow
-              person={{ login: searchLogin, display: searchLogin, color: 'var(--silver-400)', roles: new Set(vips.some(v => v.userLogin.toLowerCase() === searchLogin) ? ['vip'] : mods.some(m => m.userLogin.toLowerCase() === searchLogin) ? ['mod'] : []), isLive: liveLogins.has(searchLogin), messageCount: 0, lastSeenAt: '', note: '' }}
-              busy={busy}
-              onAction={runAction}
+            <div className="roster-hint">Not in your roster yet — open <b>@{searchLogin}</b> to act on them:</div>
+            <RosterRow
+              person={strangerFor(searchLogin)}
+              selected={selected === searchLogin}
+              onSelect={onSelectViewer}
             />
           </div>
         ) : shown.length === 0 ? (
@@ -328,11 +343,36 @@ export function ViewersPage({ onOpenViewerPage }: { onOpenViewerPage?: (login: s
         ) : (
           <div className="roster-list">
             {shown.map(person => (
-              <StarRow key={person.login} person={person} busy={busy} onAction={runAction} onOpenViewerPage={onOpenViewerPage} />
+              <RosterRow
+                key={person.login}
+                person={person}
+                selected={selected === person.login}
+                onSelect={onSelectViewer}
+              />
             ))}
           </div>
         )}
-      </div>
+      </aside>
+
+      <section className="split-detail" aria-label="Viewer details">
+        {selectedPerson ? (
+          <ViewerDetailPane
+            ctx={ctx}
+            person={selectedPerson}
+            busy={busy}
+            onAction={runAction}
+          />
+        ) : (
+          <div className="split-empty">
+            <div className="es-orb" />
+            <div className="es-title">No one in focus</div>
+            <div className="es-sub">
+              Pick a viewer on the left. Their profile, roles, chat history, and the actions you can
+              take on them — VIP, mod, shout out, whisper, timeout, ban — all show up here.
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

@@ -38,7 +38,6 @@ import {
   type DashboardRoute,
 } from '../routing';
 import { ViewersPage } from './ViewersPage';
-import { ViewerDetailPage } from './ViewerDetailPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
 import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
@@ -473,7 +472,11 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       updateStreamStatus(streamInfoForm.status),
     ])
       .then(() => {
-        setStreamInfoMessage('Saved');
+        // A save that worked is done with the modal. The confirmation lands in the
+        // StatBar behind it, so closing loses nothing — leaving it open just made the
+        // operator hunt for a Cancel button to dismiss a form they had finished with.
+        setStreamInfoOpen(false);
+        setStreamInfoMessage(null);
         setActionMessage('Stream info saved');
         refreshDashboardStatus();
       })
@@ -726,10 +729,15 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         eventSubError={status.eventSubError}
         onReconnectEventSub={handleReconnectEventSub}
       />
-      {page === 'viewers' ? (
-        <ViewersPage onOpenViewerPage={navigateToViewer} />
-      ) : page === 'viewer' ? (
-        <ViewerDetailPage ctx={ctx} login={viewerLogin ?? ''} onBack={() => changePage('viewers')} />
+      {page === 'viewers' || page === 'viewer' ? (
+        // One page, two panes. /viewers is the list with nothing selected; /viewers/<login>
+        // is the same list with that viewer open on the right, so the URL stays linkable
+        // and Back walks the selections.
+        <ViewersPage
+          ctx={ctx}
+          selectedLogin={page === 'viewer' ? viewerLogin : null}
+          onSelectViewer={navigateToViewer}
+        />
       ) : isSettingsRoute(page) ? (
         <SettingsShell
           route={page}
