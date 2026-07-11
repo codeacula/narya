@@ -247,13 +247,15 @@ export function describeTriggerConfig(trigger: AutomationTrigger, rewardTitles: 
       return trigger.config.eventKind;
     case 'chat_phrase':
       return `${CHAT_PHRASE_MATCH_LABELS[trigger.config.match].toLowerCase()} "${trigger.config.phrase}" · ${formatRoles(trigger.config.roles)}`;
+    // The server's normalizeCommand stores the sigil, so command and aliases already
+    // read "!lurk" / "/ban". Prefixing again here rendered "!!lurk" and "//ban".
     case 'viewer_command': {
-      const aliases = trigger.config.aliases.length > 0 ? ` (${trigger.config.aliases.map(a => `!${a}`).join(', ')})` : '';
-      return `!${trigger.config.command}${aliases} · ${formatRoles(trigger.config.roles)}`;
+      const aliases = trigger.config.aliases.length > 0 ? ` (${trigger.config.aliases.join(', ')})` : '';
+      return `${trigger.config.command}${aliases} · ${formatRoles(trigger.config.roles)}`;
     }
     case 'dashboard_slash': {
-      const aliases = trigger.config.aliases.length > 0 ? ` (${trigger.config.aliases.map(a => `/${a}`).join(', ')})` : '';
-      return `/${trigger.config.command}${aliases}`;
+      const aliases = trigger.config.aliases.length > 0 ? ` (${trigger.config.aliases.join(', ')})` : '';
+      return `${trigger.config.command}${aliases}`;
     }
     case 'manual':
       return trigger.config.label || '(unlabelled button)';

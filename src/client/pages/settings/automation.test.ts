@@ -16,12 +16,12 @@ import {
   formatDelay,
   formatRoles,
   isGlobalTrigger,
+  isLifecycleKind,
   moveStep,
   newStep,
   normalizeCommandName,
   parseAliases,
   removeStep,
-  isLifecycleKind,
   runResultTone,
   summarizeRunResult,
   supportsCooldowns,
@@ -480,15 +480,17 @@ describe('describeTriggerConfig', () => {
   });
 
   test('a viewer command shows its bang prefix and aliases', () => {
+    // The server's normalizeCommand stores the sigil, so a trigger read back from the
+    // API always carries it. Fixtures without it modelled a shape that never exists.
     const described = describeTriggerConfig(
-      trigger({ kind: 'viewer_command', config: { command: 'hype', aliases: ['h'], roles: ['mod'] } }),
+      trigger({ kind: 'viewer_command', config: { command: '!hype', aliases: ['!h'], roles: ['mod'] } }),
     );
     expect(described).toBe('!hype (!h) · mod');
   });
 
   test('a dashboard command shows its slash prefix', () => {
     const described = describeTriggerConfig(
-      trigger({ kind: 'dashboard_slash', config: { command: 'brb', aliases: [] } }),
+      trigger({ kind: 'dashboard_slash', config: { command: '/brb', aliases: [] } }),
     );
     expect(described).toBe('/brb');
   });
@@ -551,5 +553,28 @@ describe('command name parsing', () => {
 
   test('an empty alias field yields no aliases', () => {
     expect(parseAliases('   ')).toEqual([]);
+  });
+});
+
+describe('describeTriggerConfig command rendering', () => {
+  test('does not double up the sigil the server already stored', () => {
+    // normalizeCommand on the server stores "!lurk" / "/ban", not "lurk" / "ban".
+    // Prefixing again here rendered "!!lurk" and "//shoutout (//so)" in the UI.
+    const viewer = {
+      id: 't1', kind: 'viewer_command', actionId: 'a', moduleId: null, enabled: true,
+      globalCooldownMs: 0, userCooldownMs: 0,
+      config: { command: '!lurk', aliases: [], roles: [] },
+      createdAt: '', updatedAt: '',
+    } as AutomationTrigger;
+    const slash = {
+      id: 't2', kind: 'dashboard_slash', actionId: 'a', moduleId: null, enabled: true,
+      globalCooldownMs: 0, userCooldownMs: 0,
+      config: { command: '/shoutout', aliases: ['/so'] },
+      createdAt: '', updatedAt: '',
+    } as AutomationTrigger;
+
+    expect(describeTriggerConfig(viewer, {})).toContain('!lurk');
+    expect(describeTriggerConfig(viewer, {})).not.toContain('!!');
+    expect(describeTriggerConfig(slash, {})).toBe('/shoutout (/so)');
   });
 });
