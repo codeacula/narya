@@ -155,7 +155,16 @@ src/
     index.ts            # Express routes and server startup
     appConfig.ts        # database-backed runtime config store (GET/PUT /api/config)
     chat.ts             # Twitch chat via tmi.js, persistence, moderation events
-    chatbotCommands.ts  # chatbot command dispatch
+    actions.ts          # Action repository + routes (reusable multi-step actions)
+    actionExecutor.ts   # runs an Action's steps; media resolution is an injected port
+    actionTemplates.ts  # {actor} {input} {arg1} {rest} … template renderer
+    automation.ts       # composition root: executor + trigger dispatcher
+    automationTriggers.ts # trigger repository, routes, seeded slash commands
+    categoryModules.ts  # category modules + the reward-group switch coordinator
+    chatbotCommands.ts  # LEGACY: migrated into Actions; runtime path retired
+    legacyMigration.ts  # one-shot conversions into the automation schema (runOnce)
+    mediaAssets.ts      # configured media catalog (media_assets)
+    triggerDispatcher.ts # matching, cooldowns, dedup, bot-loop prevention
     chatters.ts         # chatter tracking routes
     config.ts           # boot/infra-only env config (PORT, OAuth URIs)
     db.ts               # SQLite connection and schema migrations
@@ -192,11 +201,27 @@ src/
 
 **Service boundary** — `src/client/services/dashboard.ts` is the dashboard's REST data boundary. Components and hooks import shared domain contracts from `src/shared/api.ts` and dashboard data from the service layer instead of calling `fetch` directly.
 
-**Real-time data flow** — the backend broadcasts WebSocket events (`chat:message`, `chat:moderated`, `music:updated`, `sound:play`). The frontend's `useSocket` hook subscribes per event name and merges updates into local state seeded by initial REST fetches.
+**Real-time data flow** — the backend broadcasts WebSocket events (`chat:message`, `chat:moderated`, `music:updated`, `sound:play`, `overlay:text`, `category-modules:updated`). The frontend's `useSocket` hook subscribes per event name and merges updates into local state seeded by initial REST fetches. `OVERLAY_EVENTS` in `auth.ts` is the allowlist of events an unauthenticated overlay browser source may receive — a new overlay event must be added there or it never arrives, and anything carrying operator configuration must stay off it.
+
+**Automation platform** — three layers, deliberately separable, contracts in `src/shared/api.ts`:
+
+- `media_assets` (`mediaAssets.ts`) — the configured catalog. Rewards, Actions, and commands reference **asset IDs**; raw filesystem entries appear only in the Content settings picker. `resolveMediaAssetForPlayback()` is the single choke point that stops a disabled, missing, or unconfigured asset from reaching an overlay.
+- `actions` + `action_steps` (`actions.ts`, `actionExecutor.ts`) — named, reusable, ordered steps. **`delayMs` is relative to the start of the invocation, not the previous step**, so steps sharing a delay start together rather than queueing behind each other's playback. A failing step never aborts the others; the run rolls up to `succeeded`/`partial`/`failed`/`skipped`, and a `skipped` run broadcasts nothing. Pending delays are never replayed after a restart.
+- `automation_triggers` (`automationTriggers.ts`, `triggerDispatcher.ts`) — typed sources: reward, Twitch event, chat phrase, viewer `!command`, dashboard `/command`, manual, module lifecycle. A trigger with no `moduleId` is global; a module-scoped one fires only while its module is active. Deduplication keys off the source event ID in `automation_runs` (partial unique index) so a redelivery cannot fire an Action twice.
+
+`automation.ts` is the composition root — `eventsub.ts` and `chat.ts` both need the executor and dispatcher, and neither can import `index.ts` (where `RuntimeState` is built) without a cycle.
+
+**Slash commands are server-owned.** Anything the operator types starting with `/` goes to `POST /api/automation/slash` and is executed or **rejected there**. It is never forwarded to Twitch. The client must not parse them: the parser this replaced fell through to `sendChatMessage` on an unknown command, so a typo was published to chat.
+
+**Category modules** (`categoryModules.ts`) — a module owns Twitch categories and reward groups; switching game deactivates one and activates another. `category_module_games.game_id` is the **primary key**, which is what enforces "a category belongs to at most one module" in the database rather than in application code. The coordinator is fed by Narya's own stream-info update, EventSub `channel.update`, `stream.online`, every EventSub reconnect, and a manual reconcile — transitions are serialized by a generation number so a rapid A→B→C cannot let a stale transition land last. **A failed category lookup is not a null category**: null means "authoritatively no category" and stands every module down, while a lookup failure calls `onCategoryLookupFailed` and changes no remote reward state. A reward group with no module owner is never touched by switching.
 
 **Redeem media** — media files live in `public/clips` and `public/sounds` (Vite copies them into `dist/` on build; `public/clips/` is gitignored). `src/server/media.ts` scans those folders for `GET /api/media`; a reward's binding is stored in `reward_media` and **validated against that scan**, so a client can never bind a path outside `public/`. On redemption `eventsub.ts` calls `playRewardMedia()`, which broadcasts `media:play`; the `/overlay/clips` browser source queues and plays them one at a time. `POST /api/twitch/rewards/:id/media/play` triggers the same broadcast for testing. Never put media directly in `dist/` — `vite build` empties it.
 
 **Stream-session scoping** — `stream_events.session_id` stamps each event with the active `stream_sessions` row at emit time (null when off-stream, and for rows predating the column). The dashboard dims events whose `sessionId` differs from `DashboardStatus.streamSessionId`, the attention feed ignores them, and `GET /api/dashboard/session-shoutouts` groups the current session's events per actor to drive the Shoutouts tab and the `/overlay/shoutouts` ticker.
+
+**Migrations** — the schema statements in `db.ts` are idempotent by construction (`create table if not exists`, the allowlisted `addColumnIfMissing`) and re-run every boot. **Data** migrations are not: deriving rows from other rows would duplicate them on every restart. Anything that writes rows computed from other rows goes through `runOnce(id, fn)` in `db.ts`, which shares a transaction with the ledger write. Legacy tables are left intact after migrating so a bad conversion is inspectable rather than unrecoverable.
+
+When verifying a migration against real data, snapshot with `VACUUM INTO`, not `cp`. The database runs in WAL mode, so a plain file copy silently omits recent writes and will make a correct migration look like it is dropping rows.
 
 **Chat dual-layer storage** — `chat_events` is append-only (raw events). `chat_messages` is a mutable projection with soft-delete columns (`deleted_at`, `deleted_reason`, `moderation_event_id`). Dashboard shows moderated messages with a reason; overlay hides them entirely (the `compact` prop on `ChatPanel`).
 
