@@ -17,10 +17,25 @@ if (typeof Socket.prototype.destroySoon !== 'function') {
   });
 }
 
+// The dev server proxies /api and /socket to the backend, so exposing it to the
+// LAN exposes the backend too — a loopback-bound backend is no protection. Mirror
+// the backend's rule (src/server/index.ts): loopback unless HOST says otherwise,
+// and never off-box without a token.
+const host = process.env.HOST?.trim() || 'localhost';
+const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+if (!isLoopback && !process.env.DASHBOARD_TOKEN?.trim()) {
+  throw new Error(
+    `Refusing to start: HOST=${host} exposes the dev server (and the API it proxies) beyond loopback ` +
+    'but DASHBOARD_TOKEN is not set. Set DASHBOARD_TOKEN in .env, or drop HOST to bind loopback only.',
+  );
+}
+
 export default defineConfig({
   plugins: [react()],
+  preview: { host },
   server: {
     port: 5173,
+    host,
     proxy: {
       '/api': process.env.VITE_BACKEND_ORIGIN ?? 'http://localhost:4317',
       '/socket': {
