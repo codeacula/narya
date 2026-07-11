@@ -4,21 +4,86 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Verification
 
-After any code change, run typecheck, `bun test`, and build, and verify in-browser before declaring done. For dev servers, confirm the target port is free first (e.g. `lsof -i :PORT`) and kill stale processes before restarting.
+After code changes, run the relevant automated checks. Use `bun run typecheck` and `bun run build` as the baseline, run `bun test` when the affected behavior has test coverage, smoke-test relevant endpoints after backend changes, and perform visible Chromium/CDP validation for frontend behavior. Report any checks that were not run or could not be completed.
+
+For dev servers, confirm the target port is free first (e.g. `lsof -i :PORT`) and stop stale project processes before restarting.
 
 ## Workflow
 
-For any non-trivial feature, write a short plan first and confirm the approach before implementing across multiple files.
+For non-trivial features, write a short plan before implementation. Request confirmation only when the available choices materially change behavior, architecture, security, or scope.
 
 Superpowers skills write specs and plans under `docs/superpowers/`, and committing them is fine — no need to relocate them to `.claude/plans/`.
 
+## Code review
+
+When asked to review code, review the code that exists rather than implementing changes unless explicitly requested.
+
+Determine the review mode first:
+
+- **Diff mode** — review the staged diff, working-tree diff, commit, branch, or PR requested by the user. If changes are staged, inspect `git diff --cached`.
+- **Codebase mode** — audit the requested repository, module, or directory by architectural blast radius rather than crawling every file equally.
+
+Before reviewing a diff:
+
+- Identify the intended behavior and conceptual scope.
+- Set aside generated files, lockfiles, and formatting-only churn.
+- Request a split when unrelated concerns make the change unsafe to reason about.
+- Trace changed contracts through their producers and consumers. Do not limit review to changed lines when correctness depends on nearby code.
+- Verify architectural claims against the current repository; do not assume this document is current.
+
+Review in this order:
+
+1. Correctness and data integrity
+2. Security, authentication, authorization, and secret handling
+3. Client/server and persistence boundaries
+4. Failure behavior and operability
+5. Maintainability and readability
+6. Performance
+7. Style
+
+Every finding must identify a concrete failure mode and cite a file and location. Distinguish observed defects from inferred risks and preferences. Do not report speculative issues as defects.
+
+Use exactly one severity per comment:
+
+- **Blocking** — merge risks data integrity, security, or a durable contract.
+- **Should fix** — a demonstrated defect or meaningful architectural erosion.
+- **Suggestion** — an optional improvement or preference.
+- **Question** — intent cannot be established from available evidence.
+
+Cap suggestions at approximately five. Prioritize material findings over volume. If no material defects are found, say so directly rather than inventing comments.
+
+For substantial changes, ask:
+
+- What invariant or user-visible behavior is being protected?
+- What happens on duplicate delivery, repeated rendering, or retry?
+- What happens when the operation fails halfway through?
+- What happens under concurrent execution?
+- Are existing SQLite data and stored configuration still readable?
+- Are REST and WebSocket payload changes compatible with every producer and consumer?
+- Can stale asynchronous work overwrite newer state?
+- Is authentication and authorization enforced at the backend boundary?
+- Could secrets, tokens, chat content, or moderated content be exposed?
+- How will a production failure be detected?
+- Is the complexity proportional to the requirement?
+
+For a diff review, use this output:
+
+1. A verdict: Approve, Approve with changes, Request changes, Request split, or Unable to determine, followed by one sentence explaining why.
+2. Findings grouped by severity, highest first.
+3. A verification note stating what was and was not inspected or executed.
+4. The one or two most important unanswered questions, when applicable.
+
+For a codebase review, replace the verdict with a concise health summary, report systemic patterns with representative locations and rough instance counts, and order remediation by blast radius.
+
+A review request does not authorize editing, committing, or pushing. If the user asks to fix findings, target the reported defects directly and validate the specific failure paths.
+
 ## Preferences
 
-Prefer the simplest approach that meets the requirement. Avoid building full OAuth flows, token storage, or elaborate UI when simple env-based credentials suffice; ask before adding heavy infrastructure.
+Prefer the simplest approach that preserves the required security and runtime behavior. Do not bypass established OAuth, authorization, secret-storage, or runtime-configuration boundaries merely to reduce implementation size. Ask before introducing materially heavier infrastructure that is not required by the existing architecture.
 
 ## Editing
 
-When editing files with multi-byte/Unicode characters (powerline glyphs, emoji), expect the Edit tool to fail and fall back to a Python or sed-based replacement rather than retrying Edit repeatedly.
+Preserve file encoding and Unicode characters when editing. Inspect the resulting diff for unintended substitutions or normalization changes.
 
 ## Stack
 
@@ -44,6 +109,8 @@ curl http://localhost:4317/api/music/current
 ```
 
 ## Architecture
+
+The following is a navigation aid, not a substitute for inspecting the current repository. Verify paths, ownership, contracts, and runtime behavior before relying on these descriptions during review.
 
 **Modular backend** — `src/server/index.ts` wires the Express HTTP routes and startup sequence. Backend modules own narrower responsibilities: `config.ts` for boot/infra-only env values (`PORT`, OAuth redirect URIs, static asset paths), `appConfig.ts` for the database-backed runtime config (Twitch/OBS/Discord/Chatterbox credentials, channel, music + quack settings) edited from Settings, `db.ts` for SQLite setup, `realtime.ts` for `/socket` broadcasts, `chat.ts` for Twitch chat ingestion and moderation persistence, `emotes.ts` for BTTV/7TV emote aggregation, `obs.ts` for OBS WebSocket calls and stats, `music.ts` for playerctl/manual now-playing state, `sounds.ts` for sound playback broadcasts, and `http.ts` for route helpers.
 
@@ -141,6 +208,7 @@ src/
 
 - TypeScript strict mode; no linter or formatter configured — match existing two-space indentation.
 - Client/server API and WebSocket contracts live in `src/shared/api.ts`; import those instead of duplicating payload interfaces.
+- When a shared API or WebSocket contract changes, trace every producer and consumer. Check REST initialization and subsequent WebSocket updates together; they must agree on payload shape, ordering, deduplication, and stale-state behavior.
 - React components in PascalCase, hooks in `useCamelCase`, CSS classes in camelCase (`.chatPanel`, `.overlayFrame`).
 - Overlay CSS must stay browser-source friendly: transparent background, fixed-position regions, no app chrome.
 - Commits use semantic messages: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:` prefix, short imperative description (e.g. `feat: add chat command replies`).
@@ -157,6 +225,6 @@ Runtime config (Twitch/OBS/Discord/Chatterbox credentials, channel, OBS scenes, 
 
 Before handing work back, commit completed changes unless the user asks not to or the work is intentionally in progress.
 
-Keep commits focused — avoid mixing unrelated UI, backend, and config changes in one commit.
+Keep changes conceptually focused. Judge scope by architectural surface area rather than line count. If unrelated changes cross enough boundaries that correctness cannot be established confidently, split them along those boundaries. Avoid mixing unrelated UI, backend, and config changes in one commit.
 
 Pull requests should include a short summary, the verification commands run, and screenshots for any visible dashboard/tablet/overlay changes. Call out any required `.env`, OBS, or Twitch setup changes.
