@@ -8,6 +8,11 @@ import type {
   ViewerDetails,
   ChatEntry,
   ChatMessage,
+  MediaAsset,
+  MediaAssetInput,
+  MediaAssetsResponse,
+  MediaAssetUpdate,
+  DiscoveredMediaResponse,
   MediaFile,
   MediaPlayback,
   MusicInfo,
@@ -518,4 +523,29 @@ export async function getStreamStatus(): Promise<StreamStatus> {
 
 export async function updateStreamStatus(text: string): Promise<StreamStatus> {
   return sendJson<StreamStatus>('/api/stream-status', 'PUT', { text });
+}
+
+// --- Configured media catalog ------------------------------------------------
+// Everything that plays media references an asset by id. The raw scan
+// (getDiscoveredMedia) is only for the Content settings picker.
+
+export async function getMediaAssets(): Promise<MediaAsset[]> {
+  const response = await fetchJson<MediaAssetsResponse>('/api/media-assets');
+  return response.assets;
+}
+
+export async function createMediaAsset(input: MediaAssetInput): Promise<MediaAsset> {
+  return sendJson<MediaAsset>('/api/media-assets', 'POST', input);
+}
+
+export async function updateMediaAsset(id: string, update: MediaAssetUpdate): Promise<MediaAsset> {
+  return sendJson<MediaAsset>(`/api/media-assets/${encodeURIComponent(id)}`, 'PUT', update);
+}
+
+export async function deleteMediaAsset(id: string): Promise<void> {
+  return sendVoid(`/api/media-assets/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+export async function getDiscoveredMedia(): Promise<DiscoveredMediaResponse> {
+  return fetchJson<DiscoveredMediaResponse>('/api/media/discovered');
 }

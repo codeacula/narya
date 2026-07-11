@@ -739,6 +739,37 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.media-asset-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+/* Outranks the monospaced .settings-item-main span rule above. */
+.settings-item-main .media-asset-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--border-1);
+  border-radius: 99px;
+  background: rgba(255,255,255,0.03);
+  color: var(--fg-3);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  overflow: visible;
+}
+.settings-item-main .media-asset-tag--off {
+  color: var(--warning-fg);
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+.settings-item-main .media-asset-tag--broken {
+  color: var(--danger-fg);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
 .settings-mini-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
