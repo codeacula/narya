@@ -5,6 +5,7 @@ import { getActionExecutor, initAutomation } from './automation';
 import { startAutomaticAds } from './automaticAds';
 import { registerCategoryModuleRoutes, reconcileCategoryModules } from './categoryModules';
 import { registerChattersRoutes } from './chatters';
+import { migrateLegacyMediaIntoAssets } from './legacyMigration';
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { registerChatbotCommandRoutes } from './chatbotCommands';
@@ -29,6 +30,10 @@ import { registerViewerRoleRoutes } from './viewers';
 
 const runtimeState = new RuntimeState();
 hydrateTwitchAuthState(runtimeState);
+// Convert the pre-automation tables before anything serves a request, so the
+// first read of /api/media-assets already reflects the operator's existing media.
+// Guarded by the migration ledger; a second boot is a no-op.
+migrateLegacyMediaIntoAssets();
 initAutomation(runtimeState);
 
 // Apply a settings change by reconnecting only the services whose config changed,
