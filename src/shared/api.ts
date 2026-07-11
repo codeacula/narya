@@ -92,13 +92,17 @@ export type ClipButtonUpdate = {
   filename: string;
 };
 
-export type ControlConfig = {
-  scenes: string[];
-};
-
+/**
+ * `scenes` is whatever OBS currently reports, so it is empty while OBS is
+ * disconnected — there is no operator-maintained scene list to fall back on.
+ * `scenePrefix` is the configured convention (default "Scene - ") that marks a
+ * scene as one the operator switches between; the dashboard and tablet filter
+ * their scene buttons by it and strip it from the label.
+ */
 export type ObsStatus = {
   connected: boolean;
   scenes: string[];
+  scenePrefix: string;
   currentProgramScene: string | null;
   currentPreviewScene: string | null;
   studioMode: boolean;
@@ -205,11 +209,11 @@ export type DashboardStatus = {
   // the socket is up, but the events behind these types never arrive.
   eventSubFailedSubscriptions: string[];
   twitchAuthenticated: boolean;
-  twitchAuthSource: 'oauth' | 'env' | null;
+  twitchAuthSource: 'oauth' | null;
   twitchTokenExpiresAt: string | null;
   twitchMissingScopes: string[];
   twitchBotAuthenticated: boolean;
-  twitchBotAuthSource: 'oauth' | 'env' | null;
+  twitchBotAuthSource: 'oauth' | null;
   twitchBotTokenExpiresAt: string | null;
   twitchBotMissingScopes: string[];
   streamActive: boolean | null;
@@ -560,13 +564,16 @@ export type AppConfig = {
   twitchClientSecretConfigured: boolean;
   obsUrl: string;
   obsPasswordConfigured: boolean;
-  obsScenes: string[];
+  // The scene-name convention the dashboard and tablet filter their switch buttons
+  // by. OBS itself is the source of truth for which scenes exist.
+  obsScenePrefix: string;
   discordClientId: string;
   discordBotTokenConfigured: boolean;
   chatterboxBaseUrl: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
-  quackVolume: number;
+  // Default playback volume for tablet sound buttons.
+  soundVolume: number;
   updatedAt: string | null;
 };
 
@@ -580,14 +587,14 @@ export type AppConfigUpdate = {
   obsUrl?: string;
   obsPassword?: string;
   clearObsPassword?: boolean;
-  obsScenes?: string[];
+  obsScenePrefix?: string;
   discordClientId?: string;
   discordBotToken?: string;
   clearDiscordBotToken?: boolean;
   chatterboxBaseUrl?: string;
   musicPollIntervalMs?: number;
   musicPlayerctlPlayer?: string;
-  quackVolume?: number;
+  soundVolume?: number;
 };
 
 export type SettingsUpdatedPayload = {

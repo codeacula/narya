@@ -4,7 +4,7 @@ import { appConfig } from './appConfig';
 import { db } from './db';
 import { clearDiscordStatusCache, sendDiscordMessage } from './discord';
 import { HttpRouteError, sendRouteError } from './http';
-import { startObsStream, switchObsScene } from './obs';
+import { getObsStatus, startObsStream, switchObsScene } from './obs';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import {
@@ -54,8 +54,15 @@ const upsertGoLiveSettingsRow = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
+/**
+ * Only a suggestion for the Settings dropdown before the operator has picked one.
+ * Guesses from the scenes OBS actually reports, so it can never propose a scene
+ * that no longer exists; empty while OBS is disconnected, which the UI renders as
+ * "no scene selected" rather than a name that would fail on go-live.
+ */
 function defaultGoLiveScene(): string {
-  return appConfig.obsScenes.find(scene => scene.toLowerCase().includes('start')) ?? appConfig.obsScenes[0] ?? '';
+  const scenes = getObsStatus().scenes;
+  return scenes.find(scene => scene.toLowerCase().includes('start')) ?? scenes[0] ?? '';
 }
 
 function defaultDiscordMessage(): string {

@@ -1,11 +1,21 @@
 import type { SoundButton, SoundButtonUpdate, SoundPlayback } from '../shared/api';
 import { appConfig } from './appConfig';
-import { config } from './config';
 import { db } from './db';
 import { HttpRouteError } from './http';
 import { broadcast } from './realtime';
 
-const defaultSoundButtons = config.quackSounds.map((filename, index) => ({
+/**
+ * The sounds a fresh install starts with, so the tablet soundboard is not an empty
+ * grid on first run. Seeded once (see below); deleting a button keeps it deleted.
+ * These files are committed under public/sounds/quacks.
+ */
+export const DEFAULT_QUACK_SOUNDS = [
+  '/sounds/quacks/075176_duck-quack-40345.mp3',
+  '/sounds/quacks/duck-quack-112941.mp3',
+  '/sounds/quacks/duck-quacking-37392.mp3',
+];
+
+const defaultSoundButtons = DEFAULT_QUACK_SOUNDS.map((filename, index) => ({
   id: `quack-${index + 1}`,
   label: `Quack ${index + 1}`,
   filename,
@@ -91,7 +101,7 @@ export function deleteSoundButton(id: string) {
   deleteSoundButtonRow.run(id);
 }
 
-function playSound(src: string, volume = appConfig.quackVolume): SoundPlayback {
+function playSound(src: string, volume = appConfig.soundVolume): SoundPlayback {
   const payload = {
     id: crypto.randomUUID(),
     src,
@@ -99,11 +109,6 @@ function playSound(src: string, volume = appConfig.quackVolume): SoundPlayback {
   };
   broadcast('sound:play', payload);
   return payload;
-}
-
-export function triggerQuackSound(): SoundPlayback {
-  const src = config.quackSounds[Math.floor(Math.random() * config.quackSounds.length)];
-  return playSound(src);
 }
 
 export function triggerSoundButton(id: string): SoundPlayback | null {

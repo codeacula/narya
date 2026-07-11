@@ -112,7 +112,7 @@ curl http://localhost:4317/api/music/current
 
 The following is a navigation aid, not a substitute for inspecting the current repository. Verify paths, ownership, contracts, and runtime behavior before relying on these descriptions during review.
 
-**Modular backend** — `src/server/index.ts` wires the Express HTTP routes and startup sequence. Backend modules own narrower responsibilities: `config.ts` for boot/infra-only env values (`PORT`, OAuth redirect URIs, static asset paths), `appConfig.ts` for the database-backed runtime config (Twitch/OBS/Discord/Chatterbox credentials, channel, music + quack settings) edited from Settings, `db.ts` for SQLite setup, `realtime.ts` for `/socket` broadcasts, `chat.ts` for Twitch chat ingestion and moderation persistence, `emotes.ts` for BTTV/7TV emote aggregation, `obs.ts` for OBS WebSocket calls and stats, `music.ts` for playerctl/manual now-playing state, `sounds.ts` for sound playback broadcasts, and `http.ts` for route helpers.
+**Modular backend** — `src/server/index.ts` wires the Express HTTP routes and startup sequence. Backend modules own narrower responsibilities: `config.ts` for boot/infra-only env values (`PORT`, `HOST`, `DASHBOARD_TOKEN`, OAuth redirect URIs), `appConfig.ts` for the database-backed runtime config (Twitch/OBS/Discord/Chatterbox credentials, channel, OBS scene prefix, music + sound volume) edited from Settings, `db.ts` for SQLite setup, `realtime.ts` for `/socket` broadcasts, `chat.ts` for Twitch chat ingestion and moderation persistence, `emotes.ts` for BTTV/7TV emote aggregation, `obs.ts` for OBS WebSocket calls and stats, `music.ts` for playerctl/manual now-playing state, `sounds.ts` for sound playback broadcasts, and `http.ts` for route helpers.
 
 **Modular frontend** — `src/client/main.tsx` is a thin router (pathname-based, no router library): `/overlay` → `OverlayPage`, `/tablet` → `TabletPage`, default → `DashboardPage`. Source layout:
 
@@ -124,7 +124,7 @@ src/
     clips.tsx           # useMediaQueue hook + ClipStage (redeem clip/sound playback)
     music.tsx           # useMusic hook + MusicPanel + MusicControls
     shoutouts.tsx       # useSessionShoutouts hook + ShoutoutTicker (overlay)
-    sounds.ts           # useSoundEvents hook + quack sounds + playTone/playAttentionChime
+    sounds.ts           # useSoundEvents hook + preloaded quack sources + playTone/playAttentionChime
     tts.ts              # useTtsEvents hook (plays TTS audio from WebSocket)
     realtime.ts         # shared WebSocket singleton + useSocket hook
     routing.ts          # dashboardRouteFromPath / pathForDashboardRoute
@@ -217,6 +217,8 @@ src/
 
 **Redeem media and alerts are Actions.** There is no reward→file table and no alert settings table read at runtime any more. A redeem plays media because a `reward` trigger fires an Action with a `play_media` step; a sub alert shows text because a `twitch_event` trigger fires an Action with `show_text` + `play_media`. The legacy `reward_media`, `tts_reward_enabled`, and `alert_settings` tables still exist but are only read by `legacyMigration.ts`. **If you add a second path that plays a redeem, you will double-play it** — `src/server/redeemOnce.test.ts` exists to catch exactly that.
 
+**Chat commands are Actions too — do not hard-code one.** `!quack` used to be a branch in `chat.ts` that picked a random file from a constant array; it is now an Action with a single `play_media` step in `random` selection, fired by a `viewer_command` trigger (`migrateQuackCommandIntoAction`). Randomness is a property of the step — `PlayMediaPayload` is `{ assetIds: string[], selection: 'first' | 'random' }` — so "play a random one of these" never needs new code. `!tts` is the only built-in chat branch left. Adding another hard-coded command both bypasses cooldowns, roles, and dedup, and leaves the operator unable to see or edit it.
+
 **Overlay sources** — `/overlay/clips` receives `media:play` and drains **audio and video as independent lanes**: only video is visually exclusive, so an alert sound never waits out a clip. `/overlay/text` receives `overlay:text` (Action `show_text` steps, including migrated alert banners, which carry an optional `tone` for their accent colour). `/overlay/alerts` is retired. Media files live in `public/clips` and `public/sounds` (Vite copies them into `dist/` on build; `public/clips/` is gitignored). Never put media directly in `dist/` — `vite build` empties it.
 
 **Stream-session scoping** — `stream_events.session_id` stamps each event with the active `stream_sessions` row at emit time (null when off-stream, and for rows predating the column). The dashboard dims events whose `sessionId` differs from `DashboardStatus.streamSessionId`, the attention feed ignores them, and `GET /api/dashboard/session-shoutouts` groups the current session's events per actor to drive the Shoutouts tab and the `/overlay/shoutouts` ticker.
@@ -244,9 +246,15 @@ When verifying a migration against real data, snapshot with `VACUUM INTO`, not `
 
 ## Configuration
 
-Runtime config (Twitch/OBS/Discord/Chatterbox credentials, channel, OBS scenes, music + quack settings) lives in the database (`app_config` table) and is edited from **Settings → Connections & credentials**. Secrets are never returned to the client — `getAppConfig()` exposes `*Configured` booleans (the LLM `apiKeyConfigured` pattern). Saving via `PUT /api/config` reconnects only the affected services (`reconcileServices` in `index.ts`) and broadcasts `settings:updated`; no restart needed. The app boots gracefully with nothing configured.
+Runtime config (Twitch/OBS/Discord/Chatterbox credentials, channel, OBS scene prefix, music + sound volume) lives in the database (`app_config` table) and is edited from **Settings → Connections & credentials**. Secrets are never returned to the client — `getAppConfig()` exposes `*Configured` booleans (the LLM `apiKeyConfigured` pattern). Saving via `PUT /api/config` reconnects only the affected services (`reconcileServices` in `index.ts`) and broadcasts `settings:updated`; no restart needed. The app boots gracefully with nothing configured.
 
-`.env` is now minimal (copy from `.env.example`): only `PORT`, `TWITCH_REDIRECT_URI`, `DISCORD_REDIRECT_URI`, and `VITE_*` are read from the environment at runtime/build. The legacy credential vars are read **once on first boot** to seed `app_config` (see `seedFromEnv` in `appConfig.ts`), so existing setups migrate transparently; after that, edit values from the UI.
+**`.env` seeds nothing.** Only `PORT`, `HOST`, `DASHBOARD_TOKEN`, the two OAuth redirect URIs, and `VITE_*` are read from the environment, and all of them are read on *every* boot. There is no `seedFromEnv`: `TWITCH_CLIENT_ID`, `OBS_SCENES`, `QUACK_VOLUME` and friends used to populate `app_config` once on first boot and then be ignored forever, which made `.env` read like live configuration when it was not. Defaults for a fresh install are code literals (`DEFAULTS` in `appConfig.ts`). **Do not reintroduce an env read for anything the Settings UI owns.**
+
+The OAuth redirect URIs stay in the environment because they cannot be derived — they must match the Twitch/Discord app registration exactly — but they have working defaults, so `.env` need not set them.
+
+**OBS owns the scene list.** `app_config.obs_scene_prefix` (default `Scene - `) decides which of OBS's scenes become switch buttons and is stripped from the label; it rides on `ObsStatus.scenePrefix` so the dashboard and tablet get it without a second fetch. An empty prefix means "every scene". There is deliberately no configured scene list to fall back on when OBS is down — the old `obs_scenes` column was a hand-maintained copy that went stale the moment a scene was renamed, and `switchObsScene` would then reject the button it had just offered. A prefix change is its own `AppConfigChange` (`obsScenePrefix`) that re-broadcasts `obs:status` rather than reconnecting OBS, so a display tweak cannot drop a live session.
+
+**Twitch auth is OAuth-only.** The `TWITCH_USER_TOKEN` / `TWITCH_BOT_USER_TOKEN` env fallbacks are gone: a pasted token has no refresh token and no expiry, so it rotted silently while `authSource` still reported it as authenticated.
 
 `data/streamer-tools.sqlite` is private runtime data — never commit it. Do not commit `.env` either; use `.env.example` for documented defaults.
 

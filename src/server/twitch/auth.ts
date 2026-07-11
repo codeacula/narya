@@ -200,23 +200,26 @@ async function refreshTwitchToken(account: TwitchAuthAccount, state: RuntimeStat
   }
 }
 
+/**
+ * OAuth is the only way in. There used to be a TWITCH_USER_TOKEN / TWITCH_BOT_USER_TOKEN
+ * environment fallback here for deployments that minted tokens elsewhere; it is gone.
+ * A pasted token carries no refresh token and no expiry, so it silently rotted after a
+ * few hours and reported itself as authenticated the whole time.
+ */
 async function getTwitchAccessToken(account: TwitchAuthAccount, state: RuntimeState): Promise<string | null> {
   const token = account === 'bot'
     ? state.runtimeBotToken ?? loadCachedTwitchBotToken()
     : state.runtimeUserToken ?? loadCachedTwitchUserToken();
-  if (token) {
-    if (account === 'bot') state.runtimeBotToken = token;
-    else state.runtimeUserToken = token;
-    if (!token.expiresAtMs || token.expiresAtMs > Date.now() + TOKEN_EXPIRY_REFRESH_BUFFER_MS) {
-      return token.accessToken;
-    }
+  if (!token) return null;
 
-    const refreshed = await refreshTwitchToken(account, state, token);
-    return refreshed?.accessToken ?? null;
+  if (account === 'bot') state.runtimeBotToken = token;
+  else state.runtimeUserToken = token;
+  if (!token.expiresAtMs || token.expiresAtMs > Date.now() + TOKEN_EXPIRY_REFRESH_BUFFER_MS) {
+    return token.accessToken;
   }
 
-  if (account === 'user') return process.env.TWITCH_USER_TOKEN ?? null;
-  return process.env.TWITCH_BOT_USER_TOKEN ?? null;
+  const refreshed = await refreshTwitchToken(account, state, token);
+  return refreshed?.accessToken ?? null;
 }
 
 export async function getTwitchUserAccessToken(state: RuntimeState): Promise<string | null> {
@@ -232,30 +235,24 @@ function getTwitchAccountAuthStatus(
   state: RuntimeState,
 ): {
   authenticated: boolean;
-  authSource: 'oauth' | 'env' | null;
+  authSource: 'oauth' | null;
   tokenExpiresAt: string | null;
   missingScopes: string[];
 } {
   const token = account === 'bot'
     ? state.runtimeBotToken ?? loadCachedTwitchBotToken()
     : state.runtimeUserToken ?? loadCachedTwitchUserToken();
-  if (token) {
-    if (account === 'bot') state.runtimeBotToken = token;
-    else state.runtimeUserToken = token;
-    return {
-      authenticated: true,
-      authSource: 'oauth' as const,
-      tokenExpiresAt: token.expiresAtMs ? new Date(token.expiresAtMs).toISOString() : null,
-      missingScopes: TWITCH_AUTH_SCOPES[account].filter(scope => !token.scopes.includes(scope)),
-    };
+  if (!token) {
+    return { authenticated: false, authSource: null, tokenExpiresAt: null, missingScopes: [] };
   }
 
-  const envToken = account === 'bot' ? process.env.TWITCH_BOT_USER_TOKEN : process.env.TWITCH_USER_TOKEN;
+  if (account === 'bot') state.runtimeBotToken = token;
+  else state.runtimeUserToken = token;
   return {
-    authenticated: Boolean(envToken),
-    authSource: envToken ? 'env' as const : null,
-    tokenExpiresAt: null,
-    missingScopes: [],
+    authenticated: true,
+    authSource: 'oauth' as const,
+    tokenExpiresAt: token.expiresAtMs ? new Date(token.expiresAtMs).toISOString() : null,
+    missingScopes: TWITCH_AUTH_SCOPES[account].filter(scope => !token.scopes.includes(scope)),
   };
 }
 

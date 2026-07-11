@@ -12,6 +12,7 @@ import {
   migrateLegacyChatbotCommands,
   migrateLegacyMediaIntoAssets,
   migrateLegacyRewardBindings,
+  migrateQuackCommandIntoAction,
 } from './legacyMigration';
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
@@ -22,7 +23,7 @@ import { connectEventSub, disconnectEventSub, registerEventSubRoutes } from './e
 import { registerGoLiveRoutes } from './goLive';
 import { registerLlmRoutes } from './llm';
 import { restartMusicPolling, startMusicPolling } from './music';
-import { connectObs, reconnectObs } from './obs';
+import { broadcastObsStatus, connectObs, reconnectObs } from './obs';
 import { app, broadcast, server } from './realtime';
 import { registerCoreRoutes } from './routes';
 import { RuntimeState } from './runtime';
@@ -47,6 +48,10 @@ migrateLegacyChatbotCommands();
 migrateLegacyRewardBindings();
 migrateLegacyAlerts();
 migrateLegacyCategoryModules();
+// Same reason: !quack was a hard-coded chat branch, and is now an ordinary Action
+// with a random-selection play_media step. Must follow the media migration, which
+// is what gives the quack sounds the asset ids this binds to.
+migrateQuackCommandIntoAction();
 initAutomation(runtimeState);
 // The four commands the dashboard chat bar used to parse client-side, seeded as
 // ordinary editable Action + trigger rows rather than special-cased code paths.
@@ -66,6 +71,11 @@ function reconcileServices(changes: Set<AppConfigChange>) {
   }
   if (changes.has('obs')) {
     void reconnectObs();
+  }
+  // Display-only: the dashboard and tablet read the prefix off obs:status, so they
+  // just need to be told. Reconnecting OBS to apply it would drop a live session.
+  if (changes.has('obsScenePrefix')) {
+    broadcastObsStatus();
   }
   if (changes.has('music')) {
     restartMusicPolling();

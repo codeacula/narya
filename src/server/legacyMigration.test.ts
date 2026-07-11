@@ -6,6 +6,7 @@ import {
   migrateLegacyChatbotCommands,
   migrateLegacyMediaIntoAssets,
   migrateLegacyRewardBindings,
+  migrateQuackCommandIntoAction,
 } from './legacyMigration';
 
 type AssetRow = { id: string; label: string; kind: string; sourceType: string; src: string; volume: number; enabled: number };
@@ -393,5 +394,71 @@ describe('migrateLegacyAlerts', () => {
     migrateLegacyAlerts();
 
     expect(triggersOfKind('twitch_event')).toHaveLength(1);
+  });
+});
+
+describe('migrateQuackCommandIntoAction', () => {
+  function addQuackAssets(...srcs: string[]): void {
+    for (const src of srcs) {
+      db.prepare(`
+        insert into media_assets (id, label, kind, source_type, src, volume, enabled, created_at, updated_at)
+        values (?, ?, 'audio', 'local', ?, 0.8, 1, '', '')
+      `).run(crypto.randomUUID(), src, src);
+    }
+  }
+
+  test('binds every quack as one random-selection play_media step behind a !quack command', () => {
+    addQuackAssets('/sounds/quacks/a.mp3', '/sounds/quacks/b.mp3', '/sounds/quacks/c.mp3');
+
+    migrateQuackCommandIntoAction();
+
+    const trigger = triggerFor('!quack');
+    expect(trigger?.kind).toBe('viewer_command');
+    expect(trigger?.enabled).toBe(1);
+
+    const steps = stepsOf(trigger!.actionId);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]!.type).toBe('play_media');
+    // One step over all three assets, not three steps — `random` is what reproduces
+    // the old handler's behaviour. Three steps would play every quack at once.
+    const payload = JSON.parse(steps[0]!.payloadJson) as { assetIds: string[]; selection: string };
+    expect(payload.selection).toBe('random');
+    expect(payload.assetIds).toHaveLength(3);
+  });
+
+  // The rotation should follow the folder, not the three files that shipped with it.
+  test('picks up a quack the operator added to the folder', () => {
+    addQuackAssets('/sounds/quacks/a.mp3', '/sounds/quacks/custom-honk.mp3');
+
+    migrateQuackCommandIntoAction();
+
+    const payload = JSON.parse(stepsOf(triggerFor('!quack')!.actionId)[0]!.payloadJson) as { assetIds: string[] };
+    expect(payload.assetIds).toHaveLength(2);
+  });
+
+  test('does not bind sounds from outside the quacks folder', () => {
+    addQuackAssets('/sounds/quacks/a.mp3', '/sounds/airhorn.mp3');
+
+    migrateQuackCommandIntoAction();
+
+    const payload = JSON.parse(stepsOf(triggerFor('!quack')!.actionId)[0]!.payloadJson) as { assetIds: string[] };
+    expect(payload.assetIds).toHaveLength(1);
+  });
+
+  // A command that fires and plays nothing is worse than no command at all.
+  test('creates nothing when there are no quack assets', () => {
+    migrateQuackCommandIntoAction();
+
+    expect(triggerFor('!quack')).toBeUndefined();
+    expect(db.prepare('select count(*) as count from actions').get()).toEqual({ count: 0 });
+  });
+
+  test('is idempotent: a second run does not create a second !quack', () => {
+    addQuackAssets('/sounds/quacks/a.mp3');
+
+    migrateQuackCommandIntoAction();
+    migrateQuackCommandIntoAction();
+
+    expect(triggersOfKind('viewer_command')).toHaveLength(1);
   });
 });

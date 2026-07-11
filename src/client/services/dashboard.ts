@@ -32,7 +32,6 @@ import type {
   ChatSendResult,
   SlashCommandResponse,
   ChatSender,
-  ControlConfig,
   ControlResponse,
   ObsStatus,
   Chatter,
@@ -353,10 +352,6 @@ export async function disconnectTwitch(account: 'user' | 'bot' = 'user'): Promis
   const path = account === 'bot' ? '/api/auth/twitch/bot' : '/api/auth/twitch';
   const response = await fetch(`${API_BASE}${path}`, { method: 'DELETE', headers: authHeaders() });
   if (!response.ok) throw new Error(`Twitch logout failed with ${response.status}`);
-}
-
-export async function getControlConfig(): Promise<ControlConfig> {
-  return fetchJson<ControlConfig>('/api/control/config');
 }
 
 export async function getObsStatus(): Promise<ObsStatus> {

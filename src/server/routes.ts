@@ -20,7 +20,6 @@ import {
   createSoundButton,
   deleteSoundButton,
   getSoundButtons,
-  triggerQuackSound,
   triggerSoundButton,
   updateSoundButton,
 } from './sounds';
@@ -44,17 +43,8 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     });
   });
 
-  app.get('/api/control/config', (_request, response) => {
-    const obsStatus = getObsStatus();
-    response.json({ scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : appConfig.obsScenes });
-  });
-
   app.get('/api/obs/status', (_request, response) => {
-    const obsStatus = getObsStatus();
-    response.json({
-      ...obsStatus,
-      scenes: obsStatus.scenes.length > 0 ? obsStatus.scenes : appConfig.obsScenes,
-    });
+    response.json(getObsStatus());
   });
 
   app.get('/api/music/current', (_request, response) => {
@@ -161,10 +151,6 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
 
   app.get('/api/media', (_request, response) => {
     response.json(listMediaFiles());
-  });
-
-  app.post('/api/sounds/quack', (_request, response) => {
-    response.json(triggerQuackSound());
   });
 
   app.get('/api/sounds', (_request, response) => {

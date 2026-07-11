@@ -384,3 +384,45 @@ export function migrateLegacyCategoryModules(): void {
     }
   });
 }
+
+/**
+ * `!quack` was a hard-coded branch in the chat handler that picked a random file from
+ * a constant array. It is now what it always should have been: an Action with one
+ * `play_media` step in `random` selection, fired by a `viewer_command` trigger — so the
+ * operator can retune, rename, or delete it like anything else.
+ *
+ * Binds every asset under /sounds/quacks, not just the three seeded ones, so a quack
+ * dropped into the folder and configured in Content joins the rotation. The executor
+ * filters to enabled+available assets at run time, so a broken one is skipped rather
+ * than played as silence.
+ *
+ * Runs after the media migration, which is what turns the seeded sound buttons into
+ * the media assets this binds to. No quack assets means no Action at all, rather than
+ * a command that fires and plays nothing.
+ */
+export function migrateQuackCommandIntoAction(): void {
+  runOnce('2026-07-quack-command-into-action', () => {
+    const now = new Date().toISOString();
+    const assetIds = (db.prepare(`
+      select id from media_assets where src like '/sounds/quacks/%' order by src asc
+    `).all() as Array<{ id: string }>).map(row => row.id);
+    if (assetIds.length === 0) return;
+
+    const actionId = crypto.randomUUID();
+    insertAction.run(
+      actionId,
+      uniqueActionName('Quack'),
+      'Plays a random quack. Migrated from the built-in !quack command.',
+      1, now, now,
+    );
+    insertActionStep.run(
+      crypto.randomUUID(), actionId, 'play_media',
+      JSON.stringify({ assetIds, selection: 'random' }),
+      1, 0, now, now,
+    );
+    insertTrigger.run(
+      crypto.randomUUID(), 'viewer_command', actionId, 1,
+      JSON.stringify({ command: '!quack', aliases: [], roles: [] }), now, now,
+    );
+  });
+}

@@ -62,9 +62,9 @@ overlay token to drop the privileges they don't need.
 
 ## OBS Controls
 
-Enable OBS WebSocket on port `4455`, then set `OBS_WEBSOCKET_PASSWORD` in `.env` if OBS requires a password. The backend connects to OBS on startup, keeps a live scene list/current scene state, and broadcasts OBS updates to the tablet panel.
+Enable OBS WebSocket on port `4455`, then set the OBS WebSocket URL and password in Settings if OBS requires them. The backend connects to OBS on startup, keeps a live scene list/current scene state, and broadcasts OBS updates to the tablet panel.
 
-When OBS is connected, `/tablet` shows the live OBS scene list and highlights the current program scene. When OBS is unavailable, it falls back to the `OBS_SCENES` setting so the panel layout remains testable, but OBS buttons stay disabled until the connection returns.
+OBS is the source of truth for which scenes exist, so the dashboard and `/tablet` show no scene buttons while it is disconnected. Which scenes become buttons is decided by the **OBS scene prefix** in Settings (default `Scene - `): only scenes starting with it get a button, and the prefix is stripped from the label, so `Scene - Starting` reads as `Starting`. An optional numeric prefix after it (`Scene - 01 - Starting`) lets you force the button order from within OBS. Leave the prefix empty to switch between every scene.
 
 ## Docker
 
@@ -109,36 +109,27 @@ The dashboard can show moderated originals. The overlay hides moderated messages
 
 ## Configuration
 
-Copy `.env.example` to `.env` if you want to override defaults:
+Almost everything is configured from **Settings → "Connections & credentials"** and stored in the database (`data/streamer-tools.sqlite`): the Twitch channel and client credentials, OBS WebSocket URL and password, the OBS scene prefix, Discord, the Chatterbox URL, music polling, and sound volume. The app boots fine with none of it set, and saving reconnects only the affected services — no restart.
+
+`.env` holds only what cannot come from the database. Copy `.env.example` to `.env`:
 
 ```sh
-TWITCH_CHANNEL=codeacula
-OBS_WEBSOCKET_URL=ws://127.0.0.1:4455
-OBS_WEBSOCKET_PASSWORD=
-MUSIC_POLL_INTERVAL_MS=2000
-MUSIC_PLAYERCTL_PLAYER=strawberry
-QUACK_VOLUME=0.20
-TWITCH_CLIENT_ID=
-TWITCH_CLIENT_SECRET=
-TWITCH_USER_TOKEN=
-TWITCH_BOT_USER_TOKEN=
-TWITCH_REDIRECT_URI=http://localhost:5173/api/auth/twitch/callback
+PORT=4317
+# HOST=0.0.0.0            # exposes the API beyond loopback; REQUIRES DASHBOARD_TOKEN
+# DASHBOARD_TOKEN=        # openssl rand -hex 32
+VITE_BACKEND_ORIGIN=http://localhost:4317
+VITE_BACKEND_WS_ORIGIN=http://localhost:4317
 ```
 
-Use `http://localhost:5173/api/auth/twitch/callback` for `TWITCH_REDIRECT_URI` in both Docker and direct local development.
+`TWITCH_REDIRECT_URI` and `DISCORD_REDIRECT_URI` are also read from the environment, but only as overrides — they default to `http://localhost:5173/api/auth/{twitch,discord}/callback`, which is correct for both Docker and direct local development. They cannot be derived, because they must match what is registered in your Twitch/Discord developer console character for character.
 
-The dashboard Settings page is the primary Twitch setup path. Set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET`, register `TWITCH_REDIRECT_URI` in your Twitch app, then use Settings to log in the broadcaster account and the separate bot account.
+There is no `.env` seeding. `TWITCH_CLIENT_ID`, `OBS_SCENES`, `QUACK_VOLUME` and friends used to be read once on first boot to populate the database and then ignored forever; they have been removed, because a variable consulted once and never again reads like live configuration and is not.
 
-`TWITCH_USER_TOKEN` and `TWITCH_BOT_USER_TOKEN` are manual fallbacks for deployments that manage OAuth tokens outside the dashboard. Broadcaster credentials are used for EventSub, stream info, ads, moderation, shoutouts, and whispers. Bot credentials are used for dashboard chat sends and chat command replies.
+Twitch setup: put the client ID and secret into Settings, register the redirect URI in your Twitch app, then use Settings to log in the broadcaster account and the separate bot account. OAuth is the only way in — the old `TWITCH_USER_TOKEN` / `TWITCH_BOT_USER_TOKEN` environment fallbacks are gone, as a pasted token carried no refresh token and no expiry, so it silently rotted while still reporting itself as authenticated. Broadcaster credentials are used for EventSub, stream info, ads, moderation, shoutouts, and whispers; bot credentials for dashboard chat sends and chat command replies.
 
-For Docker, OBS is configured as `ws://host.docker.internal:4455` so the container can reach OBS running on the host. The Docker default disables playerctl polling with `MUSIC_POLL_INTERVAL_MS=0` because containers do not normally have access to the host desktop media session.
+For Docker, set the OBS URL to `ws://host.docker.internal:4455` in Settings so the container can reach OBS on the host, and set music polling to `0` — containers do not normally have access to the host desktop media session.
 
-For local Bun development, use `CHATTERBOX_BASE_URL=http://127.0.0.1:8008`.
-For Docker, `CHATTERBOX_DOCKER_BASE_URL` defaults to
-`http://host.docker.internal:8008` so the Narya container can reach the
-Chatterbox app running on the host without reusing the host-only loopback URL.
-Start Chatterbox with `--host 0.0.0.0 --port 8008` when using Narya in Docker;
-a service bound only to `127.0.0.1` is not reachable from the container.
+Set the Chatterbox URL in Settings: `http://127.0.0.1:8008` for local Bun development, `http://host.docker.internal:8008` for Docker. Start Chatterbox with `--host 0.0.0.0 --port 8008` when using Narya in Docker; a service bound only to `127.0.0.1` is not reachable from the container.
 
 ## License
 

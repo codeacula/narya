@@ -9,9 +9,13 @@ const reconnectDelayMs = 5000;
 let obsConnectPromise: Promise<void> | null = null;
 let reconnectTimer: Timer | null = null;
 
-const obsStatus: ObsStatus = {
+// `scenes` is empty until OBS tells us what exists. There is deliberately no
+// operator-configured fallback list: it was a hand-maintained copy of the live
+// list, so a scene renamed in OBS left the dashboard offering a button that
+// switchObsScene would then reject.
+const obsStatus: Omit<ObsStatus, 'scenePrefix'> = {
   connected: false,
-  scenes: appConfig.obsScenes,
+  scenes: [],
   currentProgramScene: null,
   currentPreviewScene: null,
   studioMode: false,
@@ -54,8 +58,17 @@ type StudioModeEvent = {
   studioModeEnabled?: boolean;
 };
 
-function updateObsStatus(next: Partial<ObsStatus>) {
+function updateObsStatus(next: Partial<Omit<ObsStatus, 'scenePrefix'>>) {
   Object.assign(obsStatus, next, { updatedAt: new Date().toISOString() });
+  broadcastObsStatus();
+}
+
+/**
+ * Re-send the status without touching the connection. The scene prefix is served
+ * from config on every read, so a Settings change reaches the dashboard and tablet
+ * by re-broadcasting — no OBS reconnect required to apply a display-only change.
+ */
+export function broadcastObsStatus() {
   broadcast('obs:status', getObsStatus());
 }
 
@@ -91,6 +104,7 @@ export function getObsStatus(): ObsStatus {
   return {
     ...obsStatus,
     scenes: [...obsStatus.scenes],
+    scenePrefix: appConfig.obsScenePrefix,
   };
 }
 
@@ -127,7 +141,7 @@ export async function connectObs() {
       const message = error instanceof Error ? error.message : 'OBS connection failed';
       updateObsStatus({
         connected: false,
-        scenes: appConfig.obsScenes,
+        scenes: [],
         currentProgramScene: null,
         currentPreviewScene: null,
         studioMode: false,
@@ -165,7 +179,7 @@ async function ensureObs() {
 obs.on('ConnectionClosed', () => {
   updateObsStatus({
     connected: false,
-    scenes: appConfig.obsScenes,
+    scenes: [],
     currentProgramScene: null,
     currentPreviewScene: null,
     studioMode: false,

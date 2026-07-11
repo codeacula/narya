@@ -104,6 +104,7 @@ const EMPTY_STATUS: DashboardStatus = {
 const EMPTY_OBS_STATUS: ObsStatus = {
   connected: false,
   scenes: [],
+  scenePrefix: '',
   currentProgramScene: null,
   currentPreviewScene: null,
   studioMode: false,
@@ -636,6 +637,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             <ControlsPanel
               status={status}
               scenes={obsStatus.scenes}
+              scenePrefix={obsStatus.scenePrefix}
               currentScene={obsStatus.currentProgramScene}
               onSwitchScene={handleSwitchScene}
               sceneSwitching={sceneSwitching}

@@ -26,6 +26,7 @@ function blurIfPointer(event: React.MouseEvent<HTMLButtonElement>): void {
 const emptyObsStatus: ObsStatus = {
   connected: false,
   scenes: [],
+  scenePrefix: '',
   currentProgramScene: null,
   currentPreviewScene: null,
   studioMode: false,
@@ -66,7 +67,7 @@ export function TabletPage() {
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [commandError, setCommandError] = React.useState<string | null>(null);
 
-  const scenes = switchableScenes(obsStatus.scenes);
+  const scenes = switchableScenes(obsStatus.scenes, obsStatus.scenePrefix);
   const currentProgram = obsStatus.currentProgramScene;
   // The gold scene button already marks the live scene, so the Program readout is
   // only worth showing when the current program has no button (a non-switchable
@@ -166,7 +167,7 @@ export function TabletPage() {
                     void runObsCommand(`scene:${scene}`, () => switchObsScene(scene));
                   }}
                 >
-                  <span>{sceneLabel(scene)}</span>
+                  <span>{sceneLabel(scene, obsStatus.scenePrefix)}</span>
                   {isPending ? <small>Switching</small> : null}
                 </button>
               );

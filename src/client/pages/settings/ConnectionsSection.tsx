@@ -13,7 +13,7 @@ type AppConfigForm = {
   obsPassword: string;
   obsPasswordConfigured: boolean;
   clearObsPassword: boolean;
-  obsScenes: string;
+  obsScenePrefix: string;
   discordClientId: string;
   discordBotToken: string;
   discordBotTokenConfigured: boolean;
@@ -21,7 +21,7 @@ type AppConfigForm = {
   chatterboxBaseUrl: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
-  quackVolume: number;
+  soundVolume: number;
 };
 
 function appConfigToForm(config: AppConfig): AppConfigForm {
@@ -35,7 +35,7 @@ function appConfigToForm(config: AppConfig): AppConfigForm {
     obsPassword: '',
     obsPasswordConfigured: config.obsPasswordConfigured,
     clearObsPassword: false,
-    obsScenes: config.obsScenes.join(', '),
+    obsScenePrefix: config.obsScenePrefix,
     discordClientId: config.discordClientId,
     discordBotToken: '',
     discordBotTokenConfigured: config.discordBotTokenConfigured,
@@ -43,7 +43,7 @@ function appConfigToForm(config: AppConfig): AppConfigForm {
     chatterboxBaseUrl: config.chatterboxBaseUrl,
     musicPollIntervalMs: config.musicPollIntervalMs,
     musicPlayerctlPlayer: config.musicPlayerctlPlayer,
-    quackVolume: config.quackVolume,
+    soundVolume: config.soundVolume,
   };
 }
 
@@ -57,7 +57,7 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   obsPassword: '',
   obsPasswordConfigured: false,
   clearObsPassword: false,
-  obsScenes: '',
+  obsScenePrefix: 'Scene - ',
   discordClientId: '',
   discordBotToken: '',
   discordBotTokenConfigured: false,
@@ -65,7 +65,7 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   chatterboxBaseUrl: 'http://127.0.0.1:8008',
   musicPollIntervalMs: 2000,
   musicPlayerctlPlayer: '',
-  quackVolume: 0.2,
+  soundVolume: 0.2,
 };
 
 export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: boolean }) {
@@ -108,14 +108,14 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
       obsUrl: appConfigForm.obsUrl,
       obsPassword: appConfigForm.obsPassword || undefined,
       clearObsPassword: appConfigForm.clearObsPassword,
-      obsScenes: appConfigForm.obsScenes.split(',').map(s => s.trim()).filter(Boolean),
+      obsScenePrefix: appConfigForm.obsScenePrefix,
       discordClientId: appConfigForm.discordClientId,
       discordBotToken: appConfigForm.discordBotToken || undefined,
       clearDiscordBotToken: appConfigForm.clearDiscordBotToken,
       chatterboxBaseUrl: appConfigForm.chatterboxBaseUrl,
       musicPollIntervalMs: appConfigForm.musicPollIntervalMs,
       musicPlayerctlPlayer: appConfigForm.musicPlayerctlPlayer,
-      quackVolume: appConfigForm.quackVolume,
+      soundVolume: appConfigForm.soundVolume,
     })
       .then(config => {
         setAppConfigForm(appConfigToForm(config));
@@ -241,14 +241,18 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
         </div>
 
         <label className="field">
-          <span>OBS scenes</span>
+          <span>OBS scene prefix</span>
           <input
-            value={appConfigForm.obsScenes}
+            value={appConfigForm.obsScenePrefix}
             disabled={appConfigLoading || appConfigSaving}
-            placeholder="Coding, BRB, Starting Soon, Ending"
-            onChange={event => setAppConfigForm(current => ({ ...current, obsScenes: event.target.value }))}
+            placeholder="Scene - "
+            onChange={event => setAppConfigForm(current => ({ ...current, obsScenePrefix: event.target.value }))}
           />
-          <small>Comma-separated fallback scene list used before OBS connects.</small>
+          <small>
+            Only scenes starting with this get a switch button on the dashboard and tablet, and the
+            prefix is stripped from the button label. Trailing spaces count. Leave empty to show every
+            scene. OBS itself supplies the scene list.
+          </small>
         </label>
 
         <div className="connections-2col">
@@ -319,16 +323,17 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
             />
           </label>
           <label className="field">
-            <span>Quack volume (0–1)</span>
+            <span>Sound volume (0–1)</span>
             <input
               type="number"
               min="0"
               max="1"
               step="0.05"
-              value={appConfigForm.quackVolume}
+              value={appConfigForm.soundVolume}
               disabled={appConfigLoading || appConfigSaving}
-              onChange={event => setAppConfigForm(current => ({ ...current, quackVolume: Number(event.target.value) }))}
+              onChange={event => setAppConfigForm(current => ({ ...current, soundVolume: Number(event.target.value) }))}
             />
+            <small>Default playback volume for tablet sound buttons.</small>
           </label>
         </div>
 

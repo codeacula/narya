@@ -6,7 +6,6 @@ import { getTriggerDispatcher } from './automation';
 import { db } from './db';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
-import { triggerQuackSound } from './sounds';
 import {
   getCurrentStreamSessionId,
   hasSeenChatterBefore,
@@ -173,12 +172,8 @@ twitchClient.on('message', (channel, tags, message, self) => {
 
   // The tmi client is anonymous, so `self` never fires for our own bot. Bot
   // messages sent via Helix arrive here as ordinary chat; skip command dispatch
-  // for them so replies can't re-enter commands / !quack (loop guard).
+  // for them so replies can't re-enter their own commands (loop guard).
   if (runtimeState?.twitchBotLogin && username === runtimeState.twitchBotLogin) return;
-
-  if (/^!quack\b/i.test(message.trim())) {
-    triggerQuackSound();
-  }
 
   const ttsMatch = /^!tts\s+(.+)/i.exec(message.trim());
   if (ttsMatch) {

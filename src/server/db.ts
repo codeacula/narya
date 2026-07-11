@@ -524,6 +524,8 @@ const allowedMigrationColumns = new Set([
   'sound_volume',
   'clip_src',
   'clip_volume',
+  'obs_scene_prefix',
+  'sound_button_volume',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
@@ -551,6 +553,13 @@ const allowedMigrationDefinitions: Record<string, string> = {
   sound_volume: 'real',
   clip_src: 'text',
   clip_volume: 'real',
+  // Lowercased because the guard below compares against `definition.toLowerCase()`.
+  // The DDL that actually runs keeps its original case, so the stored default is
+  // "Scene - ", not "scene - ".
+  obs_scene_prefix: "text not null default 'scene - '",
+  // Supersedes app_config.quack_volume, which named the built-in !quack command
+  // rather than what it actually controls: the default sound-button volume.
+  sound_button_volume: 'real not null default 0.2',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -588,6 +597,11 @@ addColumnIfMissing('tts_settings', 'exaggeration', 'real not null default 0.5');
 addColumnIfMissing('tts_settings', 'cfg_weight', 'real not null default 0.5');
 addColumnIfMissing('tts_settings', 'temperature', 'real not null default 0.8');
 addColumnIfMissing('app_config', 'chatterbox_base_url', "text not null default 'http://127.0.0.1:8008'");
+// OBS reports which scenes exist; the operator only configures which of them are
+// switch targets. Replaces app_config.obs_scenes, a hand-maintained duplicate of
+// the live scene list that went stale the moment a scene was renamed in OBS.
+addColumnIfMissing('app_config', 'obs_scene_prefix', "text not null default 'Scene - '");
+addColumnIfMissing('app_config', 'sound_button_volume', 'real not null default 0.2');
 addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');
 // A failed go-live announcement used to be suppressed forever. Track how many
 // attempts a session has burned, and whether the failure was terminal (bad token,

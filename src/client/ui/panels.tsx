@@ -1154,17 +1154,19 @@ function formatUptime(seconds: number): string {
 export function ControlsPanel({
   status,
   scenes,
+  scenePrefix,
   currentScene,
   onSwitchScene,
   sceneSwitching,
 }: {
   status: DashboardStatus;
   scenes: string[];
+  scenePrefix: string;
   currentScene: string | null;
   onSwitchScene: (sceneName: string) => void;
   sceneSwitching: boolean;
 }) {
-  const sceneOptions = switchableScenes(scenes);
+  const sceneOptions = switchableScenes(scenes, scenePrefix);
   // Lay scenes out in exactly two balanced rows so the buttons line up evenly
   // instead of wrapping raggedly into a single tall row.
   const sceneColumns = Math.max(1, Math.ceil(sceneOptions.length / 2));
@@ -1190,7 +1192,7 @@ export function ControlsPanel({
                   key={sceneName}
                   onClick={() => onSwitchScene(sceneName)}
                 >
-                  {sceneLabel(sceneName)}
+                  {sceneLabel(sceneName, scenePrefix)}
                 </button>
               );
             })}

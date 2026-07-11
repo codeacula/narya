@@ -10,13 +10,13 @@ function baseline() {
     clearTwitchClientSecret: true,
     obsUrl: 'ws://127.0.0.1:4455',
     clearObsPassword: true,
-    obsScenes: ['A', 'B'],
+    obsScenePrefix: 'Scene - ',
     discordClientId: 'disc-id',
     clearDiscordBotToken: true,
     chatterboxBaseUrl: 'http://127.0.0.1:8008',
     musicPollIntervalMs: 2000,
     musicPlayerctlPlayer: 'strawberry',
-    quackVolume: 0.2,
+    soundVolume: 0.2,
   }).config;
 }
 
@@ -28,8 +28,22 @@ describe('saveAppConfig', () => {
     expect(config.twitchChannel).toBe('basechan');
     expect(config.twitchClientId).toBe('base-client-id');
     expect(config.obsUrl).toBe('ws://127.0.0.1:4455');
-    expect(config.obsScenes).toEqual(['A', 'B']);
+    expect(config.obsScenePrefix).toBe('Scene - ');
     expect(config.musicPlayerctlPlayer).toBe('strawberry');
+  });
+
+  // The prefix is a naming convention, not a connection setting: applying it must
+  // not tear down a live OBS session mid-stream.
+  test('a scene-prefix change does not force an OBS reconnect', () => {
+    const { changes } = saveAppConfig({ obsScenePrefix: 'OBS: ' });
+    expect(changes.has('obsScenePrefix')).toBe(true);
+    expect(changes.has('obs')).toBe(false);
+  });
+
+  // "Scene - " ends in a space that separates the convention from the scene's real
+  // name. Trimming it would leave every button labelled "- Coding".
+  test('preserves a trailing space in the scene prefix', () => {
+    expect(saveAppConfig({ obsScenePrefix: 'Scene - ' }).config.obsScenePrefix).toBe('Scene - ');
   });
 
   test('secret is replaced when provided and kept when absent', () => {
