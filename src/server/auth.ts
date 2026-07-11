@@ -31,6 +31,9 @@ const OVERLAY_PATHS = new Set([
   '/api/clips',
   '/api/stream-status',
   '/api/dashboard/session-shoutouts',
+  // Read-only, and GET-only by the rule above: an overlay learns whether to draw its
+  // bounds, and cannot turn the boxes on for every other source.
+  '/api/overlay/placeholders',
 ]);
 
 // Events an overlay connection is allowed to receive. Everything else — whispers,
@@ -47,6 +50,8 @@ const OVERLAY_EVENTS = new Set([
   'stream:event',
   'stream:event:update',
   'status:updated',
+  // Carries one boolean (draw your bounds or don't) — no operator configuration.
+  'overlay:placeholders',
 ]);
 
 // Derived rather than separately configured so the operator has exactly one

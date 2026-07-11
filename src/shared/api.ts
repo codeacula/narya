@@ -606,6 +606,23 @@ export type DiscordAnnounceFailedPayload = {
   channelName: string;
 };
 
+/**
+ * Positioning aid: while enabled, every overlay browser source draws a labelled
+ * outline of its own bounds, so the operator can see and place a source that is
+ * otherwise invisible until an event fires. Real overlay content still renders on
+ * top — this only adds the outline.
+ *
+ * Doubles as the GET /api/overlay/placeholders response and the
+ * `overlay:placeholders` WebSocket payload.
+ *
+ * Deliberately NOT persisted: it lives in memory and a restart clears it. Left on
+ * by accident, it would draw boxes over a live stream, so the failure mode is
+ * "turns itself off", not "stays on across a reboot you didn't connect it to".
+ */
+export type OverlayPlaceholders = {
+  enabled: boolean;
+};
+
 // Freeform stream status line. Doubles as the GET /api/stream-status response
 // and the `status:updated` WebSocket payload.
 export type StreamStatus = {

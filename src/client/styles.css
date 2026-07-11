@@ -444,6 +444,38 @@ nav {
   overflow-wrap: anywhere;
 }
 
+/* Positioning aid, toggled from the dashboard. Outlines the browser source's own
+   bounds so an overlay that is invisible until an event fires can still be placed and
+   sized in OBS. Fixed to the viewport, which for a browser source IS the source's
+   rectangle. Never interactive: an overlay isn't clickable, and a full-bleed box that
+   swallowed clicks would be a trap in an OBS interact window. */
+.overlayPlaceholder {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  border: 2px dashed rgba(122, 214, 255, 0.85);
+  border-radius: 6px;
+  background: rgba(122, 214, 255, 0.07);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  z-index: 2147483647;
+}
+
+.overlayPlaceholderLabel {
+  margin: 6px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: rgba(10, 22, 32, 0.85);
+  color: #cdeeff;
+  font-family: var(--font-body, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 /* A browser source pointing at an overlay path that doesn't exist. Deliberately
    legible rather than blank — a silent transparent page is indistinguishable from a
    working overlay with nothing to show, so a dead URL would sit unnoticed in a scene.

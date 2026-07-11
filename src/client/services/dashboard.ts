@@ -69,6 +69,7 @@ import type {
   TtsVoice,
   AppConfig,
   AppConfigUpdate,
+  OverlayPlaceholders,
   StreamStatus,
 } from '../../shared/api';
 import { getDashboardToken, isDashboardTokenRejection, reportDashboardTokenRejected } from '../auth';
@@ -517,6 +518,16 @@ export async function getStreamStatus(): Promise<StreamStatus> {
 
 export async function updateStreamStatus(text: string): Promise<StreamStatus> {
   return sendJson<StreamStatus>('/api/stream-status', 'PUT', { text });
+}
+
+// Overlay bounds outlines. The GET is on the overlay token's read allowlist (a
+// browser source seeds from it); the PUT is operator-only.
+export async function getOverlayPlaceholders(): Promise<OverlayPlaceholders> {
+  return fetchJson<OverlayPlaceholders>('/api/overlay/placeholders');
+}
+
+export async function updateOverlayPlaceholders(enabled: boolean): Promise<OverlayPlaceholders> {
+  return sendJson<OverlayPlaceholders>('/api/overlay/placeholders', 'PUT', { enabled });
 }
 
 // --- Configured media catalog ------------------------------------------------

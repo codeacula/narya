@@ -15,6 +15,7 @@ import {
   migrateQuackCommandIntoAction,
 } from './legacyMigration';
 import { registerMediaAssetRoutes } from './mediaAssets';
+import { registerOverlayPlaceholderRoutes } from './overlayPlaceholders';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { config, isLoopbackHost } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
@@ -125,6 +126,7 @@ registerAutomationTriggerRoutes(app, getTriggerDispatcher());
 registerCategoryModuleRoutes(app, runtimeState);
 registerStreamCategoryRoutes(app);
 registerStreamStatusRoutes(app);
+registerOverlayPlaceholderRoutes(app);
 registerLlmRoutes(app);
 registerDiscordRoutes(app);
 registerGoLiveRoutes(app);

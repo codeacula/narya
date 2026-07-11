@@ -7,6 +7,7 @@ import { DashboardPage } from './pages/Dashboard';
 import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage, OverlayShoutoutsPage, OverlayClipsPage, OverlayStatusPage, OverlayTextPage, OverlayUnknownPage } from './pages/Overlay';
 import { TabletPage } from './pages/Tablet';
 import { ViewerWindowPage } from './pages/ViewerWindow';
+import { OverlayPlaceholder } from './overlayPlaceholders';
 import { dashboardRouteFromPath, overlayFromPath, type OverlayName } from './routing';
 import { captureDashboardToken } from './auth';
 import { AuthGate } from './ui/authGate';
@@ -53,10 +54,18 @@ function App() {
   // the dashboard fall-through at the bottom: a browser source still pointing at the
   // retired /overlay/alerts used to land there and render the operator's dashboard into
   // a live scene.
-  if (overlay === 'unknown') return <OverlayUnknownPage path={path} />;
+  //
+  // OverlayPlaceholder is attached here, once, rather than inside each page: a new
+  // overlay then cannot be added without its positioning outline, and the outline
+  // covers the unknown page too.
   if (overlay) {
-    const OverlayComponent = OVERLAY_PAGES[overlay];
-    return <OverlayComponent />;
+    const OverlayComponent = overlay === 'unknown' ? null : OVERLAY_PAGES[overlay];
+    return (
+      <>
+        {OverlayComponent ? <OverlayComponent /> : <OverlayUnknownPage path={path} />}
+        <OverlayPlaceholder name={overlay} />
+      </>
+    );
   }
   if (path === '/tablet') return <AuthGate><TabletPage /></AuthGate>;
   if (path === '/viewer') return <AuthGate><ViewerWindowPage /></AuthGate>;

@@ -938,6 +938,31 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   flex: 1;
   min-width: 0;
 }
+/* Overlay bounds toggle. Wraps so the warning sits under the checkbox rather than
+   squeezing the control when it appears. */
+.ctrl-overlay-section { flex-wrap: wrap; align-items: center; }
+.ctrl-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ctrl-toggle input { cursor: pointer; }
+.ctrl-overlay-warning {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 60px;
+  color: var(--warning, #ffc46b);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+}
 .ctrl-scene-button {
   display: flex;
   align-items: center;
