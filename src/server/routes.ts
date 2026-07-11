@@ -1,4 +1,5 @@
 import express, { type Express } from 'express';
+import type { AlertConfigUpdate } from '../shared/api';
 import { getAlertSettings, isAlertEventKind, saveAlertSettings, testAlert } from './alerts';
 import { getTwitchRoomId } from './chat';
 import { appConfig } from './appConfig';
@@ -338,7 +339,11 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     try {
       const kind = request.params.kind;
       if (!isAlertEventKind(kind)) throw new HttpRouteError(400, `Unknown alert kind: ${kind}`);
-      testAlert(kind);
+      // Preview the unsaved form config when the client sends it; fall back to
+      // saved settings for a bodyless request (e.g. a curl smoke test).
+      const body = request.body as AlertConfigUpdate | undefined;
+      const override = body && typeof body === 'object' && Object.keys(body).length > 0 ? body : undefined;
+      testAlert(kind, override);
       response.json({ ok: true });
     } catch (error) {
       sendRouteError(response, error);

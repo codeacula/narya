@@ -5,6 +5,7 @@ import {
   isAlertEventKind,
   renderTemplate,
   saveAlertSettings,
+  testAlert,
 } from './alerts';
 import { db } from './db';
 import { HttpRouteError } from './http';
@@ -93,5 +94,27 @@ describe('alert_settings persistence', () => {
   test('forces the sound slot to audio kind, rejecting a mismatched file', () => {
     expect(() => saveAlertSettings({ sub: { template: 's', sound: { kind: 'audio', src: '/sounds/../../.env', volume: 0.5 } } }))
       .toThrow(HttpRouteError);
+  });
+});
+
+describe('testAlert', () => {
+  beforeEach(() => { db.exec('delete from alert_settings'); });
+
+  test('previewing an override does not persist it', () => {
+    testAlert('sub', { template: 'unsaved preview', durationMs: 9000 });
+    // Nothing was written, so the saved config is still the shipped default.
+    expect(getAlertSettings().sub).toEqual(DEFAULT_ALERT_CONFIG.sub);
+  });
+
+  test('validates an override before broadcasting', () => {
+    expect(() => testAlert('sub', { template: '   ' })).toThrow(HttpRouteError);
+    expect(() => testAlert('sub', { sound: { kind: 'audio', src: '/sounds/../../.env', volume: 0.5 } }))
+      .toThrow(HttpRouteError);
+  });
+
+  test('a bodyless test (no override) previews the saved config', () => {
+    saveAlertSettings({ raid: { enabled: true, template: 'saved raid' } });
+    // Should not throw; uses the persisted config.
+    expect(() => testAlert('raid')).not.toThrow();
   });
 });

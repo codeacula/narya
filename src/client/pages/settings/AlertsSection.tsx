@@ -160,8 +160,15 @@ export function AlertsSection() {
     setTestingKind(kind);
     setMessage(null);
     setError(null);
-    void testAlert(kind)
-      .then(() => setMessage(`Sent a test ${kind} alert — check the /overlay/alerts browser source. (Uses saved settings.)`))
+    // Preview the current form state, so Test works before saving.
+    const config = settings[kind];
+    void testAlert(kind, {
+      template: config.template,
+      durationMs: config.durationMs,
+      sound: config.sound,
+      clip: config.clip,
+    })
+      .then(() => setMessage(`Sent a test ${kind} alert — check the /overlay/alerts browser source.`))
       .catch(err => setError(err instanceof Error ? err.message : 'Test failed'))
       .finally(() => setTestingKind(null));
   };

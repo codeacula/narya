@@ -1,5 +1,6 @@
 import type {
   AlertConfig,
+  AlertConfigUpdate,
   AlertEventKind,
   AlertPlayback,
   AlertSettings,
@@ -204,7 +205,22 @@ export function fireAlert(kind: AlertEventKind, vars: Record<string, string | nu
   broadcastAlert(kind, config, vars);
 }
 
-/** Fire a sample alert regardless of the enabled toggle (Settings preview). */
-export function testAlert(kind: AlertEventKind): void {
-  broadcastAlert(kind, getAlertSettings()[kind], SAMPLE_VARS[kind]);
+/**
+ * Fire a sample alert regardless of the enabled toggle (Settings preview).
+ * An `override` (the unsaved form state) is validated and previewed without being
+ * persisted, so Test reflects what the operator currently sees; absent fields fall
+ * back to the saved config.
+ */
+export function testAlert(kind: AlertEventKind, override?: AlertConfigUpdate): void {
+  const saved = getAlertSettings()[kind];
+  const config: AlertConfig = override
+    ? {
+        enabled: saved.enabled,
+        template: override.template !== undefined ? validateTemplate(override.template) : saved.template,
+        durationMs: override.durationMs !== undefined ? clampDuration(override.durationMs) : saved.durationMs,
+        sound: resolveEffect('audio', override.sound, saved.sound),
+        clip: resolveEffect('video', override.clip, saved.clip),
+      }
+    : saved;
+  broadcastAlert(kind, config, SAMPLE_VARS[kind]);
 }

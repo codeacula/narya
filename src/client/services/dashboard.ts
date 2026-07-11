@@ -1,5 +1,6 @@
 // Dashboard data service - calls backend API for all data.
 import type {
+  AlertConfigUpdate,
   AlertEventKind,
   AlertSettings,
   AlertSettingsUpdate,
@@ -467,8 +468,8 @@ export async function updateAlertSettings(update: AlertSettingsUpdate): Promise<
   return sendJson<AlertSettings>('/api/alerts/settings', 'PUT', update);
 }
 
-export async function testAlert(kind: AlertEventKind): Promise<{ ok: boolean }> {
-  return sendJson<{ ok: boolean }>(`/api/alerts/${kind}/test`, 'POST');
+export async function testAlert(kind: AlertEventKind, config?: AlertConfigUpdate): Promise<{ ok: boolean }> {
+  return sendJson<{ ok: boolean }>(`/api/alerts/${kind}/test`, 'POST', config);
 }
 
 export async function getTtsEnabledRewards(): Promise<string[]> {
