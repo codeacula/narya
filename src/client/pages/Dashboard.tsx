@@ -28,6 +28,9 @@ import { useSocket } from '../realtime';
 import { chatHighlight } from '../../shared/roles';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsPage } from './SettingsPage';
+import { ActionsSettingsPage } from './settings/ActionsPage';
+import { AutomationSettingsPage } from './settings/AutomationPage';
+import { ModulesSettingsPage } from './settings/ModulesPage';
 import { dashboardRouteFromPath, pathForDashboardRoute, pathForViewer, viewerLoginFromPath, type DashboardRoute } from '../routing';
 import { ViewerRewardsPage } from './ViewerRewardsPage';
 import { StreamCategoriesPage } from './StreamCategoriesPage';
@@ -149,7 +152,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const viewersDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const changePage = React.useCallback((nextPage: string) => {
-    const knownRoutes = ['settings', 'rewards', 'categories', 'viewers'] as const;
+    const knownRoutes = ['settings', 'rewards', 'categories', 'viewers', 'actions', 'automation', 'modules'] as const;
     const route: DashboardRoute = (knownRoutes as readonly string[]).includes(nextPage) ? nextPage as DashboardRoute : 'dashboard';
     const path = pathForDashboardRoute(route);
     if (window.location.pathname !== path) window.history.pushState({}, '', path);
@@ -727,11 +730,18 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         <ViewersPage onOpenViewerPage={navigateToViewer} />
       ) : page === 'viewer' ? (
         <ViewerDetailPage ctx={ctx} login={viewerLogin ?? ''} onBack={() => changePage('viewers')} />
+      ) : page === 'actions' ? (
+        <ActionsSettingsPage onBack={() => changePage('settings')} />
+      ) : page === 'automation' ? (
+        <AutomationSettingsPage onBack={() => changePage('settings')} />
+      ) : page === 'modules' ? (
+        <ModulesSettingsPage onBack={() => changePage('settings')} />
       ) : (
         <SettingsPage
           status={status}
           onTwitchLogout={handleTwitchLogout}
           onTwitchBotLogout={handleTwitchBotLogout}
+          onNavigate={changePage}
         />
       )}
 
