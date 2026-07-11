@@ -4,7 +4,7 @@ import './styles.css';
 import './styles/tokens.css';
 import './styles/panel.css';
 import { DashboardPage } from './pages/Dashboard';
-import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage, OverlayShoutoutsPage, OverlayClipsPage, OverlayStatusPage, OverlayAlertsPage } from './pages/Overlay';
+import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage, OverlayShoutoutsPage, OverlayClipsPage, OverlayStatusPage, OverlayAlertsPage, OverlayTextPage } from './pages/Overlay';
 import { TabletPage } from './pages/Tablet';
 import { ViewerWindowPage } from './pages/ViewerWindow';
 import { dashboardRouteFromPath } from './routing';
@@ -22,7 +22,8 @@ function App() {
     || path === '/overlay/shoutouts'
     || path === '/overlay/clips'
     || path === '/overlay/alerts'
-    || path === '/overlay/status';
+    || path === '/overlay/status'
+    || path === '/overlay/text';
 
   React.useEffect(() => {
     document.documentElement.classList.toggle('overlayPage', isOverlay);
@@ -41,6 +42,7 @@ function App() {
   if (path === '/overlay/clips') return <OverlayClipsPage />;
   if (path === '/overlay/alerts') return <OverlayAlertsPage />;
   if (path === '/overlay/status') return <OverlayStatusPage />;
+  if (path === '/overlay/text') return <OverlayTextPage />;
   if (path === '/tablet') return <TabletPage />;
   if (path === '/viewer') return <ViewerWindowPage />;
   const initialPage = dashboardRouteFromPath(path);

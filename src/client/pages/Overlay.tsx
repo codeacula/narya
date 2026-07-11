@@ -3,6 +3,7 @@ import { AlertStage, useAlertQueue } from '../alerts';
 import { ChatPanel } from '../chat';
 import { ClipStage, useMediaQueue } from '../clips';
 import { MusicPanel } from '../music';
+import { OverlayTextStage, useOverlayTextQueue } from '../overlayText';
 import { ShoutoutTicker, useSessionShoutouts } from '../shoutouts';
 import { quackSoundSources, useSoundEvents } from '../sounds';
 import { useStreamStatus } from '../streamStatus';
@@ -66,6 +67,15 @@ export function OverlayStatusPage() {
   return (
     <main className="overlayWidget overlayStatusWidget" aria-label="Stream status overlay">
       {text ? <div className="overlayStatusText">{text}</div> : null}
+    </main>
+  );
+}
+
+export function OverlayTextPage() {
+  const { current, onFinished } = useOverlayTextQueue();
+  return (
+    <main className="overlayWidget overlayTextWidget" aria-label="Action text overlay">
+      <OverlayTextStage item={current} onFinished={onFinished} />
     </main>
   );
 }
