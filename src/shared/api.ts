@@ -957,4 +957,12 @@ export type CategoryModulesResponse = {
   activeGameName: string | null;
   lastSignalSource: CategorySignalSource | null;
   lastReconciledAt: string | null;
+  /**
+   * Why the last authoritative category lookup failed, or null when it succeeded.
+   * Distinct from a module's own `degraded` status: when the lookup fails and NO
+   * module is active there is nowhere per-module to hang the error, and silently
+   * reporting "nothing active" would be indistinguishable from a healthy
+   * off-category stream. The operator must be able to tell those apart.
+   */
+  lookupError: string | null;
 };

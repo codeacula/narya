@@ -362,18 +362,6 @@ export function setRewardGroupEnabled(groupId: string, enabled: boolean): void {
   setCategoryEnabled.run(enabled ? 1 : 0, new Date().toISOString(), groupId);
 }
 
-/**
- * Shim kept only so `twitch/api.ts` compiles unchanged while the integrator moves that
- * call site onto `onCategorySignal` directly; delete it once that swap lands.
- *
- * The dynamic import is load-bearing: `categoryModules` imports the reward primitives
- * above, so a static import here would form an evaluation cycle.
- */
-export async function applyRewardGroupsForStreamCategory(state: RuntimeState, gameId: string): Promise<void> {
-  const { onCategorySignal } = await import('./categoryModules');
-  await onCategorySignal(state, 'stream_info_update', gameId.trim() || null);
-}
-
 export function registerViewerRewardRoutes(app: express.Express, state: RuntimeState) {
   app.get('/api/twitch/rewards', async (_request, response) => {
     try {

@@ -254,6 +254,7 @@ type CoordinatorState = {
   activeGameName: string | null;
   lastSignalSource: CategorySignalSource | null;
   lastReconciledAt: string | null;
+  lookupError: string | null;
 };
 
 const coordinator: CoordinatorState = {
@@ -262,6 +263,7 @@ const coordinator: CoordinatorState = {
   activeGameName: null,
   lastSignalSource: null,
   lastReconciledAt: null,
+  lookupError: null,
 };
 
 // Every signal takes a ticket the moment it arrives. A transition that finds the
@@ -277,6 +279,7 @@ export function resetCategoryModuleCoordinator(): void {
   coordinator.activeGameName = null;
   coordinator.lastSignalSource = null;
   coordinator.lastReconciledAt = null;
+  coordinator.lookupError = null;
   signalGeneration = 0;
   transitionChain = Promise.resolve();
 }
@@ -289,7 +292,17 @@ export function getCategoryModulesResponse(): CategoryModulesResponse {
     activeGameName: coordinator.activeGameName,
     lastSignalSource: coordinator.lastSignalSource,
     lastReconciledAt: coordinator.lastReconciledAt,
+    lookupError: coordinator.lookupError,
   };
+}
+
+/**
+ * The module matching the live Twitch category, or null when none matches. The
+ * trigger dispatcher gates module-scoped triggers on this: null suppresses them
+ * while leaving global triggers armed.
+ */
+export function getActiveModuleId(): string | null {
+  return coordinator.activeModuleId;
 }
 
 function broadcastModules(): void {
@@ -371,13 +384,17 @@ function applyOutcome(
 
   changed = changed
     || coordinator.activeModuleId !== (incoming?.id ?? null)
-    || coordinator.activeGameId !== gameId;
+    || coordinator.activeGameId !== gameId
+    || coordinator.lookupError !== null;
 
   coordinator.activeModuleId = incoming?.id ?? null;
   coordinator.activeGameId = gameId;
   coordinator.activeGameName = gameName;
   coordinator.lastSignalSource = source;
   coordinator.lastReconciledAt = new Date().toISOString();
+  // This signal was authoritative, so whatever the last lookup failure was, it is
+  // no longer the current state of the world.
+  coordinator.lookupError = null;
 
   if (rewardsChanged) broadcast('rewards:updated', { at: coordinator.lastReconciledAt });
   if (changed) broadcastModules();
@@ -387,12 +404,16 @@ function applyOutcome(
 function applyDegraded(source: CategorySignalSource, incoming: ModuleRow | null, detail: string): void {
   const degradedId = incoming?.id ?? coordinator.activeModuleId;
   coordinator.lastSignalSource = source;
+  // Surface the failure at channel level too. When no module is active there is
+  // nothing per-module to hang it on, and "no module active" from a healthy
+  // off-category stream must not look identical to "we could not reach Twitch".
+  const changed = coordinator.lookupError !== detail;
+  coordinator.lookupError = detail;
+  console.error(`Category modules: ${source} failed: ${detail}`);
   if (degradedId) {
-    if (setModuleStatus(degradedId, 'degraded', detail)) broadcastModules();
-  } else {
-    // No module owns the failure — nothing to attach a status to. Contract gap:
-    // CategoryModulesResponse has no channel-level error field.
-    console.error(`Category modules: ${source} failed with no module to attribute it to: ${detail}`);
+    if (setModuleStatus(degradedId, 'degraded', detail) || changed) broadcastModules();
+  } else if (changed) {
+    broadcastModules();
   }
 }
 

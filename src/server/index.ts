@@ -1,7 +1,11 @@
+import { registerActionRoutes } from './actions';
 import { registerAppConfigRoutes, type AppConfigChange } from './appConfig';
 import { getOverlayToken, requireDashboardToken } from './auth';
+import { getActionExecutor, initAutomation } from './automation';
 import { startAutomaticAds } from './automaticAds';
+import { registerCategoryModuleRoutes, reconcileCategoryModules } from './categoryModules';
 import { registerChattersRoutes } from './chatters';
+import { registerMediaAssetRoutes } from './mediaAssets';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { registerChatbotCommandRoutes } from './chatbotCommands';
 import { config, isLoopbackHost } from './config';
@@ -25,6 +29,7 @@ import { registerViewerRoleRoutes } from './viewers';
 
 const runtimeState = new RuntimeState();
 hydrateTwitchAuthState(runtimeState);
+initAutomation(runtimeState);
 
 // Apply a settings change by reconnecting only the services whose config changed,
 // so the operator never has to restart the process after editing Settings.
@@ -83,6 +88,9 @@ registerTwitchAuthRoutes({
 });
 registerTwitchApiRoutes(app, runtimeState);
 registerViewerRewardRoutes(app, runtimeState);
+registerMediaAssetRoutes(app);
+registerActionRoutes(app, getActionExecutor());
+registerCategoryModuleRoutes(app, runtimeState);
 registerStreamCategoryRoutes(app);
 registerStreamStatusRoutes(app);
 registerChatbotCommandRoutes(app);

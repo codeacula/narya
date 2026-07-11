@@ -6,7 +6,7 @@ import { HttpRouteError, readResponseError, sendRouteError } from '../http';
 import type { RuntimeState } from '../runtime';
 import { parseTwitchGameId } from '../streamCategories';
 import { mergeTagSuggestions, normalizeTag, normalizeTags, recordTagHistory, suggestTagHistory } from '../tags';
-import { applyRewardGroupsForStreamCategory } from '../viewerRewards';
+import { onCategorySignal } from '../categoryModules';
 import {
   getTwitchBotAccessToken,
   getTwitchAuthStatus,
@@ -790,8 +790,9 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       // Remember these tags so the type-ahead can suggest them next time.
       recordTagHistory(tags);
 
-      // Swap reward groups to match the new stream category (best-effort — never fails the update).
-      await applyRewardGroupsForStreamCategory(state, gameId);
+      // Swap category modules to match the new stream category (best-effort — never
+      // fails the update). This is one of several signals; see categoryModules.ts.
+      await onCategorySignal(state, 'stream_info_update', gameId || null, categoryName || null);
 
       response.json({ ok: true, title, category: categoryName, categoryId: gameId, tags });
     } catch (error) {

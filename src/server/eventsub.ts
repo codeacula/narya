@@ -6,6 +6,7 @@ import {
 import { fireAlert } from './alerts';
 import { appConfig } from './appConfig';
 import { recordAutomodHold, resolveAutomodHold } from './automod';
+import { onCategorySignal, reconcileCategoryModules } from './categoryModules';
 import { db } from './db';
 import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
@@ -105,11 +106,26 @@ function resubDetail(event: Record<string, unknown>): string {
 
 export async function handleEventSubNotification(state: RuntimeState, type: string, event: Record<string, unknown>) {
   switch (type) {
+    // The category changed on Twitch, whoever changed it. `category_id` is
+    // authoritative here — an empty one means the channel genuinely has no
+    // category, not that we failed to read it, so it is safe to pass through as
+    // null and stand every module down.
+    case 'channel.update': {
+      const gameId = typeof event.category_id === 'string' ? event.category_id.trim() : '';
+      const gameName = typeof event.category_name === 'string' ? event.category_name.trim() : '';
+      await onCategorySignal(state, 'channel_update', gameId || null, gameName || null);
+      break;
+    }
     case 'stream.online': {
       const streamId = typeof event.id === 'string' ? event.id : '';
       const startedAt = typeof event.started_at === 'string' ? event.started_at : new Date().toISOString();
       state.clearTwitchCaches();
-      const tasks: Promise<unknown>[] = [announceTwitchStreamOnline(streamId, startedAt, state)];
+      // stream.online carries no category, so re-read it rather than guess. This
+      // also catches a category changed while Narya was down.
+      const tasks: Promise<unknown>[] = [
+        announceTwitchStreamOnline(streamId, startedAt, state),
+        reconcileCategoryModules(state),
+      ];
       if (streamId && state.streamStartAdStreamId !== streamId) {
         state.streamStartAdStreamId = streamId;
         tasks.push(runTwitchCommercial(state)
@@ -328,6 +344,10 @@ async function subscribeToAllEvents(
     ['stream.offline', '1', { broadcaster_user_id: bid }],
   ];
   const interactionSubs: Array<[string, string, Record<string, string>]> = [
+    // Category changes made outside Narya — the Twitch dashboard, the mobile app,
+    // a co-host. Without this the module coordinator only ever hears about the
+    // edits Narya itself makes, which is most of the point of category modules.
+    ['channel.update', '2', { broadcaster_user_id: bid }],
     ['channel.follow', '2', { broadcaster_user_id: bid, moderator_user_id: bid }],
     ['channel.subscribe', '1', { broadcaster_user_id: bid }],
     ['channel.subscription.gift', '1', { broadcaster_user_id: bid }],
@@ -550,6 +570,10 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
                 console.error('EventSub: failed to reconcile the current Twitch stream:', error);
               }
             }
+            // Any channel.update we missed while disconnected is gone for good —
+            // EventSub does not replay. Re-read the live category on every connect
+            // so a category changed during an outage still lands.
+            await reconcileCategoryModules(state);
             // Don't clear the error when subscriptions are missing: the socket is up,
             // but follows/subs/raids/AutoMod aren't arriving, and the dashboard has to
             // say so rather than showing a healthy service.
