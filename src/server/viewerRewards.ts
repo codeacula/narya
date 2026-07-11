@@ -16,8 +16,10 @@ import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
 import { getTwitchActionCredentials } from './twitch/api';
 
-const REWARD_SCOPE = ['channel:manage:redemptions'] as const;
+export const REWARD_SCOPE = ['channel:manage:redemptions'] as const;
 const REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards';
+
+export type TwitchRewardCredentials = Awaited<ReturnType<typeof getTwitchActionCredentials>>;
 
 type TwitchReward = {
   id: string;
@@ -123,8 +125,8 @@ async function fetchTwitchRewardList(
   return data.data ?? [];
 }
 
-async function fetchRewards(
-  credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
+export async function fetchRewards(
+  credentials: TwitchRewardCredentials,
 ): Promise<ViewerReward[]> {
   const [allRewards, manageableRewards] = await Promise.all([
     fetchTwitchRewardList(credentials, false),
@@ -329,8 +331,10 @@ function normalizeCategoryGames(value: unknown): RewardStreamCategory[] {
 
 // Toggle every manageable reward in a group to `enabled` using a pre-fetched reward list.
 // Callers that already loaded rewards/credentials avoid an extra Twitch round-trip per group.
-async function toggleGroupRewards(
-  credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
+// Rewards already in the target state are filtered out, so re-applying a group that is
+// already correct issues zero Twitch calls — the category coordinator relies on that.
+export async function toggleGroupRewards(
+  credentials: TwitchRewardCredentials,
   rewards: ViewerReward[],
   groupId: string,
   enabled: boolean,
@@ -348,50 +352,26 @@ async function toggleGroupRewards(
   return { updatedCount: writable.length - failedCount, skippedReadOnlyCount, failedCount };
 }
 
-// Enable groups mapped to the given Twitch game and disable groups mapped to a different game.
-// Groups with no game mapping are left untouched. Best-effort: never throws.
+const setCategoryEnabled = db.prepare(`
+  update viewer_reward_categories set enabled = ?, updated_at = ? where id = ?
+`);
+
+// The category coordinator owns which groups are on; it writes the group's local
+// flag through here so the Viewer Rewards page reflects the switch.
+export function setRewardGroupEnabled(groupId: string, enabled: boolean): void {
+  setCategoryEnabled.run(enabled ? 1 : 0, new Date().toISOString(), groupId);
+}
+
+/**
+ * Shim kept only so `twitch/api.ts` compiles unchanged while the integrator moves that
+ * call site onto `onCategorySignal` directly; delete it once that swap lands.
+ *
+ * The dynamic import is load-bearing: `categoryModules` imports the reward primitives
+ * above, so a static import here would form an evaluation cycle.
+ */
 export async function applyRewardGroupsForStreamCategory(state: RuntimeState, gameId: string): Promise<void> {
-  const targetGameId = gameId.trim();
-  if (!targetGameId) return;
-
-  const gamesByCategory = new Map<string, Set<string>>();
-  for (const row of listCategoryGames.all() as Array<{ categoryId: string; id: string; name: string }>) {
-    const set = gamesByCategory.get(row.categoryId) ?? new Set<string>();
-    set.add(row.id);
-    gamesByCategory.set(row.categoryId, set);
-  }
-  if (gamesByCategory.size === 0) return; // No group reacts to stream category.
-
-  let credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>;
-  let rewards: ViewerReward[];
-  try {
-    credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-    rewards = await fetchRewards(credentials);
-  } catch (error) {
-    console.error('Reward auto-switch: could not load rewards from Twitch:', error);
-    return;
-  }
-
-  let changed = false;
-  for (const category of listCategories.all() as CategoryRow[]) {
-    const games = gamesByCategory.get(category.id);
-    if (!games || games.size === 0) continue; // Unmapped group — leave it alone.
-    const shouldEnable = games.has(targetGameId);
-    try {
-      const result = await toggleGroupRewards(credentials, rewards, category.id, shouldEnable);
-      if (result.failedCount > 0) {
-        console.error(`Reward auto-switch: ${result.failedCount} reward(s) in "${category.name}" failed to update.`);
-      }
-      if (result.updatedCount > 0 || (category.enabled === 1) !== shouldEnable) {
-        updateCategory.run(category.name, shouldEnable ? 1 : 0, category.default_background_color ?? null, new Date().toISOString(), category.id);
-        changed = true;
-      }
-    } catch (error) {
-      console.error(`Reward auto-switch: failed for group "${category.name}":`, error);
-    }
-  }
-
-  if (changed) broadcast('rewards:updated', { at: new Date().toISOString() });
+  const { onCategorySignal } = await import('./categoryModules');
+  await onCategorySignal(state, 'stream_info_update', gameId.trim() || null);
 }
 
 export function registerViewerRewardRoutes(app: express.Express, state: RuntimeState) {
