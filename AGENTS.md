@@ -1,68 +1,39 @@
-# Repository Guidelines
+# Agent Instructions
 
-## Project Structure & Module Organization
+## Instruction hierarchy
 
-This is a Bun-powered Vite + React + TypeScript app with a small backend.
+Read and follow `CLAUDE.md` before working in this repository. It is the primary source for shared repository guidance, including architecture, workflow, code review, coding conventions, validation, configuration, and delivery expectations.
 
-- `src/client/` contains the React UI for `/dashboard`, `/tablet`, and `/overlay`.
-- `src/client/styles.css` holds global UI and overlay styling.
-- `src/server/` contains the Bun/Express backend split by responsibility: HTTP entrypoint/routes, config, SQLite, realtime WebSocket broadcast, Twitch chat, emotes, OBS, music, and sounds.
-- `src/server/types/` contains local declarations for packages without complete TypeScript types.
-- `src/shared/` contains TypeScript interfaces shared by the client and server.
-- `data/` stores runtime SQLite files; only `data/.gitkeep` should be committed.
+This file contains only additional instructions for non-Claude coding agents. Apply these instructions after `CLAUDE.md`. Treat them as additive unless they explicitly override a rule in `CLAUDE.md`; when an explicit conflict exists, this file controls agent-specific behavior. System, developer, and direct user instructions remain higher priority than either repository file.
 
-There is no dedicated test directory yet.
+Do not copy shared guidance from `CLAUDE.md` into this file. Update the shared rule at its source so the two documents do not drift.
 
-## Build, Test, and Development Commands
+## Repository discovery
 
-Use Bun for dependency and script execution.
+- Verify paths and behavior against the current worktree; the architecture inventory in `CLAUDE.md` is a navigation aid, not proof of current behavior.
+- Use `rg` and `rg --files` for repository searches when available.
+- Inspect `git status --short` before editing. Preserve unrelated, user-owned changes in a dirty worktree.
+- When reviewing or committing pending work, inspect `git diff --cached` whenever files are staged; a plain `git diff` does not show the staged commit payload.
 
-```sh
-bun install
-bun run dev
-bun run typecheck
-bun run build
-```
+## Editing
 
-- `bun run dev` starts the backend on `4317` and Vite on `5173`.
-- `bun run typecheck` runs `tsc --noEmit`.
-- `bun run build` typechecks and creates the production Vite build in `dist/`.
+- Use patch-based edits for deliberate source and documentation changes. Use formatters only for mechanical rewrites when the repository provides one.
+- Keep edits narrowly scoped to the requested outcome. Do not rewrite or normalize unrelated files.
+- Preserve file encoding and Unicode content, then inspect the resulting diff for unintended changes.
+- Never use destructive Git commands such as `git reset --hard` or `git checkout --` to discard work unless the user explicitly requests that exact operation.
 
-## Coding Style & Naming Conventions
+## Browser validation
 
-Use TypeScript with strict types. Prefer explicit domain types like `ChatMessage` and `StreamGoal` near the code that owns them. Keep React components in PascalCase and hooks in `useCamelCase`. Use camelCase for variables, functions, and JSON API fields.
+- For frontend validation, use the CachyOS system Chromium executable at `/usr/bin/chromium` with Chromium DevTools/CDP.
+- Do not use Playwright or assume Google Chrome is installed.
+- Launch Chromium in a normal visible window, not headless, so the user can observe the checks.
+- Use Chromium DevTools for browser diagnostics and performance tracing.
+- Perform browser validation only when it is relevant under the proportional verification guidance in `CLAUDE.md`.
 
-CSS uses class selectors in camelCase, for example `.chatPanel` and `.overlayFrame`. Keep overlay styles browser-source friendly: transparent page background, fixed-position regions, and no app chrome.
+## Validation and handoff
 
-No formatter or linter is configured yet; match the existing two-space JSON indentation and concise TypeScript style.
-
-## Testing Guidelines
-
-This project intentionally does not have unit tests right now. For changes, run:
-
-```sh
-bun run typecheck
-bun run build
-```
-
-For backend or integration work, also smoke test the relevant endpoints, for example:
-
-```sh
-curl http://localhost:4317/api/health
-curl http://localhost:4317/api/chat/recent
-curl http://localhost:4317/api/music/current
-```
-
-For in-browser validation, use the CachyOS system Chromium executable at `/usr/bin/chromium` with Chromium DevTools/CDP; do not use Playwright or assume Google Chrome is installed. Launch Chromium in a normal visible window, not headless, so the user can observe the checks as they run. Use Chromium DevTools for performance tracing and browser diagnostics.
-
-## Commit & Pull Request Guidelines
-
-Use semantic commit messages, for example `feat: add chat command replies` or `docs: update agent instructions`. Keep commits focused and avoid mixing unrelated UI, backend, and config changes.
-
-As part of tidy-up before handing work back, commit completed changes unless the user explicitly asks not to commit or the work is intentionally left in progress.
-
-Pull requests should include a short summary, verification commands run, and screenshots for visible dashboard/tablet/overlay changes. Mention any required `.env` or OBS/Twitch setup changes.
-
-## Security & Configuration Tips
-
-Do not commit `.env` or SQLite runtime files. Use `.env.example` for documented defaults. OBS credentials should stay local. Chat history can contain moderated content, so treat `data/streamer-tools.sqlite` as private runtime data.
+- Use Bun for dependency installation and repository scripts.
+- Report which checks were run, which passed, and which relevant checks were skipped or blocked.
+- Do not commit `.env`, SQLite runtime files, credentials, tokens, or private chat data.
+- Before committing, inspect the final diff and run `git diff --check` in addition to the relevant validation from `CLAUDE.md`.
+- Keep commits focused and use the semantic commit format documented in `CLAUDE.md`.
