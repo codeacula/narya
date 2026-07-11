@@ -4,10 +4,8 @@ import { withToken } from '../auth';
 import { SettingsRow } from './settings/shared';
 import { ConnectionsSection } from './settings/ConnectionsSection';
 import { GoLiveSection } from './settings/GoLiveSection';
-import { CommandsSection } from './settings/CommandsSection';
 import { ContentSection } from './settings/ContentSection';
 import { TtsSection } from './settings/TtsSection';
-import { AlertsSection } from './settings/AlertsSection';
 import { LlmSection } from './settings/LlmSection';
 
 // A connected socket whose subscriptions Twitch refused still delivers nothing for
@@ -23,10 +21,12 @@ export function SettingsPage({
   status,
   onTwitchLogout,
   onTwitchBotLogout,
+  onNavigate,
 }: {
   status: DashboardStatus;
   onTwitchLogout: () => void;
   onTwitchBotLogout: () => void;
+  onNavigate: (page: string) => void;
 }) {
   const missingTwitchScopes = status.twitchMissingScopes.length > 0
     ? status.twitchMissingScopes.join(', ')
@@ -102,12 +102,32 @@ export function SettingsPage({
           </SettingsRow>
         </div>
 
+        <div className="set-group">
+          <div className="set-group-label">Automation platform</div>
+          <SettingsRow
+            label="Actions"
+            sub="Named, reusable lists of steps: overlay text, media, TTS, chat, LLM, OBS, and Twitch moderation."
+          >
+            <button className="btn-primary" type="button" onClick={() => onNavigate('actions')}>Open</button>
+          </SettingsRow>
+          <SettingsRow
+            label="Automation triggers"
+            sub="What fires an action: rewards, Twitch events, chat phrases, !commands, /commands, manual buttons, and module lifecycle."
+          >
+            <button className="btn-primary" type="button" onClick={() => onNavigate('automation')}>Open</button>
+          </SettingsRow>
+          <SettingsRow
+            label="Category modules"
+            sub="A module owns Twitch categories and reward groups. Switching game swaps which one is active."
+          >
+            <button className="btn-primary" type="button" onClick={() => onNavigate('modules')}>Open</button>
+          </SettingsRow>
+        </div>
+
         <ConnectionsSection eventSubConnected={status.eventSubConnected} />
         <GoLiveSection />
-        <CommandsSection />
         <ContentSection />
         <TtsSection />
-        <AlertsSection />
         <LlmSection />
 
         <p className="set-foot">

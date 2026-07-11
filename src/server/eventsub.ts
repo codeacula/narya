@@ -3,16 +3,15 @@ import {
   EVENTSUB_RECONNECT_DELAY_MS,
   EVENTSUB_STALE_SOCKET_CLOSE_MS,
 } from '../shared/constants';
-import { fireAlert } from './alerts';
 import { appConfig } from './appConfig';
+import { getTriggerDispatcher } from './automation';
 import { recordAutomodHold, resolveAutomodHold } from './automod';
+import { onCategorySignal, reconcileCategoryModules } from './categoryModules';
 import { db } from './db';
 import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
-import { playRewardMedia } from './rewardMedia';
 import type { RuntimeState } from './runtime';
 import { endActiveStreamSession, getCurrentStreamSessionId } from './streamSession';
-import { isTtsRewardEnabled, speakText } from './tts';
 import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials, runTwitchCommercial } from './twitch/api';
 
 const insertStreamEvent = db.prepare(`
@@ -96,6 +95,19 @@ function subMergeKey(event: Record<string, unknown>): string {
   return String(event.user_name ?? '').toLowerCase();
 }
 
+/**
+ * Automation must never take EventSub down with it. A trigger that throws (a bad
+ * template, an OBS scene that no longer exists) is logged and dropped; the stream
+ * event, the alert, and the reward media have already been handled by then.
+ */
+async function dispatchAutomation(run: () => Promise<unknown>): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    console.error('Automation: EventSub dispatch failed:', error);
+  }
+}
+
 function resubDetail(event: Record<string, unknown>): string {
   const months = Number(event.cumulative_months);
   const tier = tierLabel(event.tier as string);
@@ -103,13 +115,36 @@ function resubDetail(event: Record<string, unknown>): string {
   return `resub · ${tier} · ${months} month${months !== 1 ? 's' : ''}`;
 }
 
-export async function handleEventSubNotification(state: RuntimeState, type: string, event: Record<string, unknown>) {
+export async function handleEventSubNotification(
+  state: RuntimeState,
+  type: string,
+  event: Record<string, unknown>,
+  // Named for the wire, not the domain: `eventId` is already taken inside
+  // channel.subscribe for the stream_events row id, and deduping on the wrong
+  // one would silently let a redelivery fire an Action twice.
+  messageId: string | null = null,
+) {
   switch (type) {
+    // The category changed on Twitch, whoever changed it. `category_id` is
+    // authoritative here — an empty one means the channel genuinely has no
+    // category, not that we failed to read it, so it is safe to pass through as
+    // null and stand every module down.
+    case 'channel.update': {
+      const gameId = typeof event.category_id === 'string' ? event.category_id.trim() : '';
+      const gameName = typeof event.category_name === 'string' ? event.category_name.trim() : '';
+      await onCategorySignal(state, 'channel_update', gameId || null, gameName || null);
+      break;
+    }
     case 'stream.online': {
       const streamId = typeof event.id === 'string' ? event.id : '';
       const startedAt = typeof event.started_at === 'string' ? event.started_at : new Date().toISOString();
       state.clearTwitchCaches();
-      const tasks: Promise<unknown>[] = [announceTwitchStreamOnline(streamId, startedAt, state)];
+      // stream.online carries no category, so re-read it rather than guess. This
+      // also catches a category changed while Narya was down.
+      const tasks: Promise<unknown>[] = [
+        announceTwitchStreamOnline(streamId, startedAt, state),
+        reconcileCategoryModules(state),
+      ];
       if (streamId && state.streamStartAdStreamId !== streamId) {
         state.streamStartAdStreamId = streamId;
         tasks.push(runTwitchCommercial(state)
@@ -125,7 +160,9 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       break;
     case 'channel.follow':
       emitStreamEvent('follow', event.user_name as string, 'followed', 'silver', loginOf(event));
-      fireAlert('follow', { user: event.user_name as string });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'follow', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
+      }));
       break;
     case 'channel.subscribe': {
       if (event.is_gift as boolean) break;
@@ -140,7 +177,10 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       // Fires once per sub. If channel.subscription.message arrives after this for a
       // resub, it only updates the stream_events detail (see below) — the alert has
       // already gone out with "new sub" wording. Accepted for v1.
-      fireAlert('sub', { user: event.user_name as string, tier: tierLabel(event.tier as string), months: 1 });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'sub', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
+        tier: tierLabel(event.tier as string), months: 1,
+      }));
       break;
     }
     case 'channel.subscription.message': {
@@ -156,11 +196,10 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       if (pending) break; // A duplicate message notification for the same resub.
       const eventId = emitStreamEvent('sub', event.user_name as string, detail, 'warning', loginOf(event));
       rememberRecentSub(key, eventId, true, now);
-      fireAlert('sub', {
-        user: event.user_name as string,
-        tier: tierLabel(event.tier as string),
-        months: Number(event.cumulative_months) || 1,
-      });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'sub', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
+        tier: tierLabel(event.tier as string), months: Number(event.cumulative_months) || 1,
+      }));
       break;
     }
     case 'channel.subscription.gift': {
@@ -168,13 +207,17 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       emitStreamEvent('gift', gifter,
         `gifted ${event.total} sub${(event.total as number) !== 1 ? 's' : ''} to the channel`, 'warning',
         loginOf(event));
-      fireAlert('gift', { user: gifter, amount: event.total as number });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'gift', eventId: messageId, actor: gifter, login: loginOf(event) ?? null, amount: event.total as number,
+      }));
       break;
     }
     case 'channel.cheer': {
       const cheerer = (event.user_name as string) || 'Anonymous';
       emitStreamEvent('cheer', cheerer, `cheered ${event.bits} bits`, 'info', loginOf(event));
-      fireAlert('cheer', { user: cheerer, amount: event.bits as number });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'cheer', eventId: messageId, actor: cheerer, login: loginOf(event) ?? null, amount: event.bits as number,
+      }));
       break;
     }
     case 'channel.raid':
@@ -182,18 +225,25 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
         event.from_broadcaster_user_name as string,
         `raided with ${event.viewers} viewer${(event.viewers as number) !== 1 ? 's' : ''}`, 'note',
         loginOf(event, 'from_broadcaster_user_login'));
-      fireAlert('raid', { user: event.from_broadcaster_user_name as string, amount: event.viewers as number });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'raid', eventId: messageId, actor: event.from_broadcaster_user_name as string,
+        login: loginOf(event, 'from_broadcaster_user_login') ?? null, amount: event.viewers as number,
+      }));
       break;
     case 'channel.channel_points_custom_reward_redemption.add': {
       const reward = event.reward as { id: string; title: string };
       emitStreamEvent('redeem', event.user_name as string, `redeemed "${reward.title}"`, 'info', loginOf(event));
       const userInput = typeof event.user_input === 'string' ? event.user_input.trim() : '';
-      if (userInput && isTtsRewardEnabled(reward.id)) {
-        void speakText(userInput).catch((err: unknown) => {
-          console.error('TTS: failed to speak redemption text:', err);
-        });
-      }
-      playRewardMedia(reward.id, event.user_name as string);
+      // Media and TTS used to fire here directly. They are Action steps now — running
+      // both paths would play every migrated redeem twice.
+      await dispatchAutomation(() => getTriggerDispatcher().handleRewardRedemption({
+        eventId: messageId,
+        rewardId: reward.id,
+        rewardTitle: reward.title,
+        actor: event.user_name as string,
+        login: loginOf(event) ?? null,
+        userInput,
+      }));
       break;
     }
     case 'channel.ad_break.begin': {
@@ -328,6 +378,10 @@ async function subscribeToAllEvents(
     ['stream.offline', '1', { broadcaster_user_id: bid }],
   ];
   const interactionSubs: Array<[string, string, Record<string, string>]> = [
+    // Category changes made outside Narya — the Twitch dashboard, the mobile app,
+    // a co-host. Without this the module coordinator only ever hears about the
+    // edits Narya itself makes, which is most of the point of category modules.
+    ['channel.update', '2', { broadcaster_user_id: bid }],
     ['channel.follow', '2', { broadcaster_user_id: bid, moderator_user_id: bid }],
     ['channel.subscribe', '1', { broadcaster_user_id: bid }],
     ['channel.subscription.gift', '1', { broadcaster_user_id: bid }],
@@ -499,7 +553,9 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
     if (typeof evt.data !== 'string') return;
 
     type EventSubMsg = {
-      metadata: { message_type: string };
+      // message_id is on the wire and is the automation dedupe key: a redelivered
+      // notification must not invoke an Action twice.
+      metadata: { message_type: string; message_id?: string };
       payload: {
         session?: { id: string; keepalive_timeout_seconds: number; reconnect_url?: string };
         subscription?: { type: string; status?: string };
@@ -550,6 +606,10 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
                 console.error('EventSub: failed to reconcile the current Twitch stream:', error);
               }
             }
+            // Any channel.update we missed while disconnected is gone for good —
+            // EventSub does not replay. Re-read the live category on every connect
+            // so a category changed during an outage still lands.
+            await reconcileCategoryModules(state);
             // Don't clear the error when subscriptions are missing: the socket is up,
             // but follows/subs/raids/AutoMod aren't arriving, and the dashboard has to
             // say so rather than showing a healthy service.
@@ -593,7 +653,7 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
       resetKeepaliveTimer(state);
       const subType = msg.payload.subscription?.type ?? '';
       const event = msg.payload.event ?? {};
-      void handleEventSubNotification(state, subType, event).catch(error => {
+      void handleEventSubNotification(state, subType, event, msg.metadata.message_id ?? null).catch(error => {
         console.error(`EventSub: failed to handle ${subType}:`, error);
       });
 

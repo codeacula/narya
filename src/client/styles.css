@@ -1008,3 +1008,88 @@ nav {
   font-size: 12px;
   color: var(--silver);
 }
+
+/* Action `show_text` steps. Fully transparent when idle, so this is safe as its
+   own full-canvas OBS source positioned independently of the other overlays.
+   The three styles differ only in placement and weight; keep them within the
+   same visual language as .alertText. */
+.overlayTextWidget {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+.overlayTextCard {
+  display: flex;
+  margin: 0;
+  animation: overlayTextIn 380ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.overlayTextBody {
+  padding: 16px 28px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 4px solid var(--overlay-text-accent, #8be9fd);
+  background: rgba(12, 16, 28, 0.72);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color: #f4f1e8;
+  font-family: var(--font-body, system-ui, sans-serif);
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* banner: across the top. */
+.overlayTextCard--banner {
+  align-self: flex-start;
+  margin: 48px auto 0;
+  max-width: 80vw;
+}
+.overlayTextCard--banner .overlayTextBody { font-size: 30px; }
+
+/* toast: small, out of the way, bottom-right. */
+.overlayTextCard--toast {
+  align-self: flex-end;
+  margin: 0 32px 32px auto;
+  max-width: 40vw;
+}
+.overlayTextCard--toast .overlayTextBody { font-size: 20px; padding: 10px 18px; }
+
+/* centered: the loud one. */
+.overlayTextCard--centered {
+  align-self: center;
+  margin: auto;
+  max-width: 80vw;
+}
+.overlayTextCard--centered .overlayTextBody { font-size: 44px; }
+
+/* Tone accents, matching the alert card these replaced so a migrated sub alert
+   still reads gold and a cheer blue. */
+.overlayTextCard--warning .overlayTextBody { --overlay-text-accent: #ffb86c; }
+.overlayTextCard--info    .overlayTextBody { --overlay-text-accent: #8be9fd; }
+.overlayTextCard--note    .overlayTextBody { --overlay-text-accent: #bd93f9; }
+.overlayTextCard--silver  .overlayTextBody { --overlay-text-accent: #d0d4dc; }
+
+@keyframes overlayTextIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlayTextCard { animation: none; }
+}
+
+/* Quick actions: manual automation triggers on the tablet. Reuses .tabletPanel and
+   .tabletButtonGrid; only the last-run tone is new. A disarmed button (its module is
+   not active) falls back to the shared :disabled styling. */
+.quickActionsPanel {
+  grid-column: 1 / -1;
+}
+
+.quickActionTone-ok { border-color: var(--success-border); }
+.quickActionTone-warn { border-color: var(--warning-border); }
+.quickActionTone-error { border-color: var(--danger-border); }

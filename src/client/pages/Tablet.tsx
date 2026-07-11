@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ObsStatus } from '../../shared/api';
 import { AutomodQuickActions } from '../automod';
+import { TabletQuickActions } from '../quickActions';
 import { useClipButtons } from '../clips';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
@@ -197,6 +198,8 @@ export function TabletPage() {
           </div>
           <AutomodQuickActions />
         </section>
+
+        <TabletQuickActions />
 
         <section className="tabletPanel mediaPanel">
           <div className="tabletPanelHeader">

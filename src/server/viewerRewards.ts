@@ -1,6 +1,5 @@
 import type express from 'express';
 import type {
-  RewardMedia,
   RewardStreamCategory,
   ViewerReward,
   ViewerRewardCategory,
@@ -11,13 +10,15 @@ import type {
 import { db } from './db';
 import { HttpRouteError, readResponseError, sendRouteError } from './http';
 import { broadcast } from './realtime';
-import { deleteRewardMedia, getRewardMedia, listRewardMedia, normalizeRewardMedia, playMedia, playRewardMedia, setRewardMedia } from './rewardMedia';
+
 import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
 import { getTwitchActionCredentials } from './twitch/api';
 
-const REWARD_SCOPE = ['channel:manage:redemptions'] as const;
+export const REWARD_SCOPE = ['channel:manage:redemptions'] as const;
 const REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards';
+
+export type TwitchRewardCredentials = Awaited<ReturnType<typeof getTwitchActionCredentials>>;
 
 type TwitchReward = {
   id: string;
@@ -123,8 +124,8 @@ async function fetchTwitchRewardList(
   return data.data ?? [];
 }
 
-async function fetchRewards(
-  credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
+export async function fetchRewards(
+  credentials: TwitchRewardCredentials,
 ): Promise<ViewerReward[]> {
   const [allRewards, manageableRewards] = await Promise.all([
     fetchTwitchRewardList(credentials, false),
@@ -135,7 +136,6 @@ async function fetchRewards(
     (listCategoryMembers.all() as Array<{ rewardId: string; categoryId: string }>)
       .map(member => [member.rewardId, member.categoryId]),
   );
-  const mediaByReward = listRewardMedia();
 
   return allRewards.map(reward => ({
     id: reward.id,
@@ -163,7 +163,6 @@ async function fetchRewards(
       enabled: reward.max_per_user_per_stream_setting?.is_enabled ?? false,
       max: reward.max_per_user_per_stream_setting?.max_per_user_per_stream ?? 1,
     },
-    media: mediaByReward.get(reward.id) ?? null,
   }));
 }
 
@@ -294,16 +293,6 @@ async function sendTwitchRewardUpdate(
   }
 }
 
-/**
- * Validate the media binding before we touch Twitch. `undefined` means "leave it
- * alone", `null` means "clear it". Validating up front keeps a bad filename from
- * leaving a created-but-unbound reward behind on Twitch.
- */
-function parseMediaField(body: { media?: unknown }, keepMissing?: RewardMedia | null): RewardMedia | null | undefined {
-  if (body?.media === undefined) return undefined;
-  if (body.media === null) return null;
-  return normalizeRewardMedia(body.media, { keepMissing });
-}
 
 function saveRewardCategory(rewardId: string, categoryId: string | null) {
   if (categoryId) setRewardCategory.run(rewardId, categoryId, new Date().toISOString());
@@ -329,8 +318,10 @@ function normalizeCategoryGames(value: unknown): RewardStreamCategory[] {
 
 // Toggle every manageable reward in a group to `enabled` using a pre-fetched reward list.
 // Callers that already loaded rewards/credentials avoid an extra Twitch round-trip per group.
-async function toggleGroupRewards(
-  credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
+// Rewards already in the target state are filtered out, so re-applying a group that is
+// already correct issues zero Twitch calls — the category coordinator relies on that.
+export async function toggleGroupRewards(
+  credentials: TwitchRewardCredentials,
   rewards: ViewerReward[],
   groupId: string,
   enabled: boolean,
@@ -348,50 +339,14 @@ async function toggleGroupRewards(
   return { updatedCount: writable.length - failedCount, skippedReadOnlyCount, failedCount };
 }
 
-// Enable groups mapped to the given Twitch game and disable groups mapped to a different game.
-// Groups with no game mapping are left untouched. Best-effort: never throws.
-export async function applyRewardGroupsForStreamCategory(state: RuntimeState, gameId: string): Promise<void> {
-  const targetGameId = gameId.trim();
-  if (!targetGameId) return;
+const setCategoryEnabled = db.prepare(`
+  update viewer_reward_categories set enabled = ?, updated_at = ? where id = ?
+`);
 
-  const gamesByCategory = new Map<string, Set<string>>();
-  for (const row of listCategoryGames.all() as Array<{ categoryId: string; id: string; name: string }>) {
-    const set = gamesByCategory.get(row.categoryId) ?? new Set<string>();
-    set.add(row.id);
-    gamesByCategory.set(row.categoryId, set);
-  }
-  if (gamesByCategory.size === 0) return; // No group reacts to stream category.
-
-  let credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>;
-  let rewards: ViewerReward[];
-  try {
-    credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-    rewards = await fetchRewards(credentials);
-  } catch (error) {
-    console.error('Reward auto-switch: could not load rewards from Twitch:', error);
-    return;
-  }
-
-  let changed = false;
-  for (const category of listCategories.all() as CategoryRow[]) {
-    const games = gamesByCategory.get(category.id);
-    if (!games || games.size === 0) continue; // Unmapped group — leave it alone.
-    const shouldEnable = games.has(targetGameId);
-    try {
-      const result = await toggleGroupRewards(credentials, rewards, category.id, shouldEnable);
-      if (result.failedCount > 0) {
-        console.error(`Reward auto-switch: ${result.failedCount} reward(s) in "${category.name}" failed to update.`);
-      }
-      if (result.updatedCount > 0 || (category.enabled === 1) !== shouldEnable) {
-        updateCategory.run(category.name, shouldEnable ? 1 : 0, category.default_background_color ?? null, new Date().toISOString(), category.id);
-        changed = true;
-      }
-    } catch (error) {
-      console.error(`Reward auto-switch: failed for group "${category.name}":`, error);
-    }
-  }
-
-  if (changed) broadcast('rewards:updated', { at: new Date().toISOString() });
+// The category coordinator owns which groups are on; it writes the group's local
+// flag through here so the Viewer Rewards page reflects the switch.
+export function setRewardGroupEnabled(groupId: string, enabled: boolean): void {
+  setCategoryEnabled.run(enabled ? 1 : 0, new Date().toISOString(), groupId);
 }
 
 export function registerViewerRewardRoutes(app: express.Express, state: RuntimeState) {
@@ -508,7 +463,6 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
   app.post('/api/twitch/rewards', async (request, response) => {
     try {
       const reward = normalizeReward(request.body);
-      const media = parseMediaField(request.body);
       const category = reward.categoryId ? getCategory.get(reward.categoryId) as CategoryRow : null;
       const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
       const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
@@ -527,7 +481,6 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       saveRewardCategory(created.id, reward.categoryId);
       // Twitch mints the reward id, so the binding can only be saved here — the
       // response returns the whole list, not the created reward.
-      if (media !== undefined) setRewardMedia(created.id, media);
       response.status(201).json(await getRewardsResponse(state));
     } catch (error) {
       sendRouteError(response, error);
@@ -541,9 +494,6 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       const current = currentRewards.find(reward => reward.id === request.params.id);
       if (!current) throw new HttpRouteError(404, 'Reward not found.');
 
-      // Media is local, so it stays out of hasTwitchFields below: a reward Twitch
-      // won't let us manage can still have its clip changed.
-      const media = parseMediaField(request.body, getRewardMedia(current.id));
       const categoryId = request.body?.categoryId === undefined
         ? current.categoryId
         : normalizeCategoryId(request.body.categoryId);
@@ -574,30 +524,12 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
         }
       }
       saveRewardCategory(current.id, categoryId);
-      if (media !== undefined) setRewardMedia(current.id, media);
       response.json(await getRewardsResponse(state));
     } catch (error) {
       sendRouteError(response, error);
     }
   });
 
-  // An unsaved binding may be passed in the body so the editor's Test button plays
-  // the file currently selected, not the one last saved. Validated like any other.
-  app.post('/api/twitch/rewards/:id/media/play', (request, response) => {
-    try {
-      const override = parseMediaField(request.body);
-      const playback = override
-        ? playMedia(override)
-        : playRewardMedia(request.params.id);
-      if (!playback) {
-        response.status(404).json({ error: 'This reward has no media bound.' });
-        return;
-      }
-      response.json(playback);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
 
   app.delete('/api/twitch/rewards/:id', async (request, response) => {
     try {
@@ -612,7 +544,6 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
         throw new HttpRouteError(twitchResponse.status === 400 || twitchResponse.status === 401 || twitchResponse.status === 403 || twitchResponse.status === 404 ? twitchResponse.status : 502, message);
       }
       clearRewardCategory.run(request.params.id);
-      deleteRewardMedia(request.params.id);
       response.status(204).send();
     } catch (error) {
       sendRouteError(response, error);

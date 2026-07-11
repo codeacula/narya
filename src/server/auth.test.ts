@@ -7,6 +7,7 @@ import {
   roleForToken,
   webSocketRole,
 } from './auth';
+import { INVALID_DASHBOARD_TOKEN } from '../shared/api';
 import { config, isLoopbackHost } from './config';
 
 const OPERATOR = 'operator-secret-token';
@@ -88,6 +89,28 @@ describe('requireDashboardToken', () => {
     expect(call.nextCalled).toBe(false);
   });
 
+  // Routes 401 for their own reasons ("Twitch login is required."), so a bare 401
+  // cannot tell the client its dashboard token is the thing that is wrong. The code
+  // is what lets the client clear a stale token without nuking a good one.
+  test('tags a rejected dashboard token with a machine-readable code', () => {
+    setToken(OPERATOR);
+    expect(callMiddleware({ path: '/api/health' }).body).toEqual({
+      error: 'Unauthorized',
+      code: INVALID_DASHBOARD_TOKEN,
+    });
+    expect(callMiddleware({ path: '/api/health', token: 'stale-token' }).body).toEqual({
+      error: 'Unauthorized',
+      code: INVALID_DASHBOARD_TOKEN,
+    });
+  });
+
+  test('does not tag an overlay token rejection as a bad dashboard token', () => {
+    setToken(OPERATOR);
+    const call = callMiddleware({ method: 'PUT', path: '/api/config', token: getOverlayToken()! });
+    expect(call.status).toBe(403);
+    expect(call.body).not.toMatchObject({ code: INVALID_DASHBOARD_TOKEN });
+  });
+
   test('lets the operator token through to a destructive route', () => {
     setToken(OPERATOR);
     const call = callMiddleware({ method: 'PUT', path: '/api/config', token: OPERATOR });
@@ -144,7 +167,7 @@ describe('webSocketRole', () => {
 describe('overlay event scope', () => {
   test('overlay connections receive what they render', () => {
     expect(isOverlayEvent('chat:message')).toBe(true);
-    expect(isOverlayEvent('alert:show')).toBe(true);
+    expect(isOverlayEvent('overlay:text')).toBe(true);
     expect(isOverlayEvent('media:play')).toBe(true);
   });
 

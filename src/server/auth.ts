@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import type express from 'express';
+import { INVALID_DASHBOARD_TOKEN } from '../shared/api';
 import { config } from './config';
 
 // Two capabilities share one secret. The operator token (DASHBOARD_TOKEN) is
@@ -42,7 +43,7 @@ const OVERLAY_EVENTS = new Set([
   'sound:play',
   'media:play',
   'tts:speak',
-  'alert:show',
+  'overlay:text',
   'stream:event',
   'stream:event:update',
   'status:updated',
@@ -123,7 +124,10 @@ export function requireDashboardToken(
     response.status(403).json({ error: 'Forbidden: overlay token' });
     return;
   }
-  response.status(401).json({ error: 'Unauthorized' });
+  // The code says "the token you presented is the problem" — a bare 401 is
+  // ambiguous with the routes that 401 over a missing *Twitch* login, and the
+  // client uses that distinction to decide whether to discard its stored token.
+  response.status(401).json({ error: 'Unauthorized', code: INVALID_DASHBOARD_TOKEN });
 }
 
 // The capability a WebSocket connection URL carries, or null to reject it.

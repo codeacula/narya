@@ -6,7 +6,7 @@ import { HttpRouteError, readResponseError, sendRouteError } from '../http';
 import type { RuntimeState } from '../runtime';
 import { parseTwitchGameId } from '../streamCategories';
 import { mergeTagSuggestions, normalizeTag, normalizeTags, recordTagHistory, suggestTagHistory } from '../tags';
-import { applyRewardGroupsForStreamCategory } from '../viewerRewards';
+import { onCategorySignal } from '../categoryModules';
 import {
   getTwitchBotAccessToken,
   getTwitchAuthStatus,
@@ -296,7 +296,7 @@ function normalizeTimeoutSeconds(value: unknown): number {
   return seconds;
 }
 
-async function sendTwitchShoutout(state: RuntimeState, login: string) {
+export async function sendTwitchShoutout(state: RuntimeState, login: string) {
   const credentials = await getTwitchActionCredentials(state, ['moderator:manage:shoutouts']);
   const [moderatorId, targetId] = await Promise.all([
     getAuthenticatedActionUserId(state, credentials),
@@ -321,7 +321,7 @@ async function sendTwitchShoutout(state: RuntimeState, login: string) {
   }
 }
 
-async function sendTwitchWhisper(state: RuntimeState, login: string, message: string) {
+export async function sendTwitchWhisper(state: RuntimeState, login: string, message: string) {
   const trimmedMessage = message.trim();
   if (!trimmedMessage) throw new HttpRouteError(400, 'Whisper message is required.');
   if (trimmedMessage.length > 500) throw new HttpRouteError(400, 'Whisper message must be 500 characters or fewer.');
@@ -351,7 +351,7 @@ async function sendTwitchWhisper(state: RuntimeState, login: string, message: st
   }
 }
 
-async function moderateTwitchUser(
+export async function moderateTwitchUser(
   state: RuntimeState,
   login: string,
   action: 'ban' | 'timeout',
@@ -790,8 +790,9 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       // Remember these tags so the type-ahead can suggest them next time.
       recordTagHistory(tags);
 
-      // Swap reward groups to match the new stream category (best-effort — never fails the update).
-      await applyRewardGroupsForStreamCategory(state, gameId);
+      // Swap category modules to match the new stream category (best-effort — never
+      // fails the update). This is one of several signals; see categoryModules.ts.
+      await onCategorySignal(state, 'stream_info_update', gameId || null, categoryName || null);
 
       response.json({ ok: true, title, category: categoryName, categoryId: gameId, tags });
     } catch (error) {

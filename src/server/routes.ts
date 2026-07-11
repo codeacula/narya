@@ -1,6 +1,4 @@
 import express, { type Express } from 'express';
-import type { AlertConfigUpdate } from '../shared/api';
-import { getAlertSettings, isAlertEventKind, saveAlertSettings, testAlert } from './alerts';
 import { getTwitchRoomId } from './chat';
 import { appConfig } from './appConfig';
 import { getAutomodHold, getAutomodQueue, resolveAutomodHold } from './automod';
@@ -28,12 +26,9 @@ import {
 } from './sounds';
 import { resolveAutomodMessage } from './twitch/api';
 import {
-  getTtsEnabledRewardIds,
   getTtsEngineStatus,
   getTtsSettings,
   getTtsVoices,
-  isTtsRewardEnabled,
-  setTtsRewardEnabled,
   speakText,
   updateTtsSettings,
 } from './tts';
@@ -325,33 +320,6 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     }
   });
 
-  app.get('/api/alerts/settings', (_request, response) => {
-    response.json(getAlertSettings());
-  });
-
-  app.put('/api/alerts/settings', (request, response) => {
-    try {
-      response.json(saveAlertSettings(request.body ?? {}));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.post('/api/alerts/:kind/test', (request, response) => {
-    try {
-      const kind = request.params.kind;
-      if (!isAlertEventKind(kind)) throw new HttpRouteError(400, `Unknown alert kind: ${kind}`);
-      // Preview the unsaved form config when the client sends it; fall back to
-      // saved settings for a bodyless request (e.g. a curl smoke test).
-      const body = request.body as AlertConfigUpdate | undefined;
-      const override = body && typeof body === 'object' && Object.keys(body).length > 0 ? body : undefined;
-      testAlert(kind, override);
-      response.json({ ok: true });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
   app.get('/api/tts/status', async (_request, response) => {
     response.json(await getTtsEngineStatus());
   });
@@ -376,22 +344,4 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     }
   });
 
-  app.get('/api/tts/rewards', (_request, response) => {
-    response.json(getTtsEnabledRewardIds());
-  });
-
-  app.get('/api/tts/reward/:rewardId', (request, response) => {
-    response.json({ enabled: isTtsRewardEnabled(request.params.rewardId) });
-  });
-
-  app.put('/api/tts/reward/:rewardId', (request, response) => {
-    try {
-      const body = request.body as { enabled?: unknown };
-      const enabled = typeof body.enabled === 'boolean' ? body.enabled : false;
-      setTtsRewardEnabled(request.params.rewardId, enabled);
-      response.json({ enabled });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
 }

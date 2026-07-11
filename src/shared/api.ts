@@ -1,3 +1,11 @@
+/**
+ * Error code the auth middleware attaches when it rejects the dashboard token
+ * itself. Routes 401 for their own reasons too ("Twitch login is required."), so
+ * the status alone cannot tell the client which credential is at fault — only a
+ * response carrying this code means "the token you sent is missing or stale".
+ */
+export const INVALID_DASHBOARD_TOKEN = 'invalid_dashboard_token';
+
 export type ChatMessage = {
   id: string;
   channel: string;
@@ -370,56 +378,8 @@ export type MediaPlayback = RewardMedia & {
   actor?: string;
 };
 
-/** Twitch events that can fire an on-stream alert. `sub` covers new subs and resubs. */
+/** Twitch events a `twitch_event` trigger can fire on. `sub` covers new subs and resubs. */
 export type AlertEventKind = 'sub' | 'gift' | 'cheer' | 'raid' | 'follow';
-
-/**
- * Per-event alert configuration edited in Settings → Alerts. `sound` and `clip`
- * are independent effects: an alert can play a sound, a clip, both together, or
- * neither (text only). `sound` is always an audio file, `clip` always a video.
- */
-export type AlertConfig = {
-  enabled: boolean;
-  /** Message template with {user}, {amount}, {tier}, {months} tokens. */
-  template: string;
-  /** How long the text banner stays on screen (ms). */
-  durationMs: number;
-  /** Optional audio effect (kind is always 'audio'). Null = no sound. */
-  sound: RewardMedia | null;
-  /** Optional video effect (kind is always 'video'). Null = no clip. */
-  clip: RewardMedia | null;
-};
-
-export type AlertSettings = {
-  sub: AlertConfig;
-  gift: AlertConfig;
-  cheer: AlertConfig;
-  raid: AlertConfig;
-  follow: AlertConfig;
-  updatedAt: string | null;
-};
-
-/** PUT body: any subset of kinds, each a partial config (absent fields keep current). */
-export type AlertConfigUpdate = Partial<Omit<AlertConfig, 'sound' | 'clip'>> & {
-  sound?: RewardMedia | null;
-  clip?: RewardMedia | null;
-};
-export type AlertSettingsUpdate = Partial<Record<AlertEventKind, AlertConfigUpdate>>;
-
-/** Broadcast payload (alert:show) consumed by the /overlay/alerts browser source. */
-export type AlertPlayback = {
-  id: string;
-  kind: AlertEventKind;
-  /** Rendered template text shown in the banner. */
-  text: string;
-  /** Styling hint, mirrors StreamEvent.tone. */
-  tone: string;
-  /** Audio effect to play alongside the banner, if any. */
-  sound: RewardMedia | null;
-  /** Video effect to play alongside the banner, if any. */
-  clip: RewardMedia | null;
-  durationMs: number;
-};
 
 export type ViewerReward = {
   id: string;
@@ -438,7 +398,6 @@ export type ViewerReward = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
-  media: RewardMedia | null;
 };
 
 export type ViewerRewardsResponse = {
@@ -459,8 +418,6 @@ export type ViewerRewardUpsert = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
-  /** Omit to leave the existing binding alone; null clears it. */
-  media?: RewardMedia | null;
 };
 
 export type ViewerRewardCategoryToggleResult = ViewerRewardsResponse & {
@@ -651,4 +608,338 @@ export type StreamStatus = {
 
 export type StreamStatusUpdate = {
   text: string;
+};
+
+// =============================================================================
+// Automation platform
+//
+// Three layers, deliberately separable:
+//   media_assets      what can be played  (the configured catalog)
+//   actions           what happens        (ordered, reusable steps)
+//   automation_triggers  when it happens  (typed sources → one Action)
+//
+// Category modules scope triggers and own reward groups. A trigger with no
+// module is global and always armed.
+// =============================================================================
+
+/** Where a configured asset's bytes come from. Local srcs must resolve to a file
+ * under public/clips or public/sounds; remote is an explicitly configured http(s)
+ * URL. Arbitrary local paths are never accepted. */
+export type MediaSourceType = 'local' | 'remote';
+
+/**
+ * An operator-configured playable asset. This is the ONLY thing rewards, alerts,
+ * Actions, commands, and tablet controls may reference — raw filesystem entries
+ * (MediaFile) appear solely in the Content settings picker when adding an asset.
+ *
+ * `available` is derived at runtime, not stored: a local asset whose file has
+ * gone missing stays in the catalog (so it can be repaired) but reports
+ * available: false and never emits a playback event.
+ */
+export type MediaAsset = {
+  id: string;
+  label: string;
+  kind: MediaKind;
+  sourceType: MediaSourceType;
+  src: string;
+  volume: number;
+  enabled: boolean;
+  /** False when a local asset's file is no longer on disk. Derived, never stored. */
+  available: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MediaAssetInput = {
+  label: string;
+  kind: MediaKind;
+  sourceType: MediaSourceType;
+  src: string;
+  volume: number;
+  enabled: boolean;
+};
+
+/** PUT accepts partial bodies; absent fields keep their current value. */
+export type MediaAssetUpdate = Partial<MediaAssetInput>;
+
+/** GET /api/media-assets */
+export type MediaAssetsResponse = {
+  assets: MediaAsset[];
+};
+
+/** GET /api/media/discovered — operator-only; the raw scan of public/. */
+export type DiscoveredMediaResponse = {
+  files: MediaFile[];
+  /** srcs already claimed by a configured asset, so the picker can mark them. */
+  configuredSrcs: string[];
+};
+
+// --- Actions -----------------------------------------------------------------
+
+export type ActionStepType =
+  | 'show_text'
+  | 'play_media'
+  | 'tts_speak'
+  | 'send_chat'
+  | 'llm_response'
+  | 'obs_scene'
+  | 'obs_transition'
+  | 'twitch_shoutout'
+  | 'twitch_whisper'
+  | 'twitch_timeout'
+  | 'twitch_ban';
+
+/** How a multi-asset play_media step picks which asset to play. */
+export type MediaSelection = 'first' | 'random';
+
+/** Presentation of an overlay text banner. */
+export type TextStyle = 'banner' | 'toast' | 'centered';
+
+/**
+ * `tone` is an optional accent (mirrors StreamEvent.tone: warning/info/note/silver),
+ * so a migrated sub alert keeps reading gold and a cheer blue. Absent = the default
+ * accent.
+ */
+export type ShowTextPayload = { template: string; durationMs: number; style: TextStyle; tone?: string };
+export type PlayMediaPayload = { assetIds: string[]; selection: MediaSelection; volume?: number };
+export type TtsSpeakPayload = { template: string };
+export type SendChatPayload = { template: string; sender: ChatSender };
+export type LlmResponsePayload = { template: string };
+export type ObsScenePayload = { sceneName: string };
+export type ObsTransitionPayload = Record<string, never>;
+export type TwitchShoutoutPayload = { loginTemplate: string };
+export type TwitchWhisperPayload = { loginTemplate: string; template: string };
+/**
+ * `secondsTemplate` is a template, not a number, so `/timeout bob 300 spam` can
+ * bind the duration from the invocation ("{arg2}") instead of being locked to
+ * whatever the Action stored. A template that renders empty or non-numeric falls
+ * back to `DEFAULT_TIMEOUT_SECONDS` rather than failing the step — a moderation
+ * command must still land when the operator omits the duration.
+ */
+export type TwitchTimeoutPayload = { loginTemplate: string; secondsTemplate: string; reasonTemplate: string };
+
+export const DEFAULT_TIMEOUT_SECONDS = 600;
+/** Twitch's ceiling: 14 days. */
+export const MAX_TIMEOUT_SECONDS = 1_209_600;
+export type TwitchBanPayload = { loginTemplate: string; reasonTemplate: string };
+
+/**
+ * A single step. `delayMs` is relative to the start of the invocation, not to the
+ * previous step: due steps start in stored order WITHOUT waiting for media
+ * playback to finish, so text, video, and TTS can land together. A step that
+ * fails does not abort the ones after it.
+ */
+export type ActionStep =
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'show_text'; payload: ShowTextPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'play_media'; payload: PlayMediaPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'tts_speak'; payload: TtsSpeakPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'send_chat'; payload: SendChatPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'llm_response'; payload: LlmResponsePayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'obs_scene'; payload: ObsScenePayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'obs_transition'; payload: ObsTransitionPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_shoutout'; payload: TwitchShoutoutPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_whisper'; payload: TwitchWhisperPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_timeout'; payload: TwitchTimeoutPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_ban'; payload: TwitchBanPayload };
+
+/** Omit that preserves a discriminated union instead of collapsing it to one object. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** A step as submitted: no id/position (position comes from array order). */
+export type ActionStepInput = DistributiveOmit<ActionStep, 'id' | 'position'>;
+
+export type Action = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  steps: ActionStep[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ActionUpsert = {
+  name: string;
+  description: string;
+  enabled: boolean;
+  steps: ActionStepInput[];
+};
+
+/**
+ * `partial` = at least one step ran and at least one failed. `skipped` = nothing
+ * ran (Action disabled, every step disabled, or every referenced asset
+ * unavailable) — a skipped invocation broadcasts nothing.
+ */
+export type ActionRunStatus = 'succeeded' | 'partial' | 'failed' | 'skipped';
+
+export type ActionStepResult = {
+  stepId: string;
+  type: ActionStepType;
+  status: 'succeeded' | 'failed' | 'skipped';
+  /** Why it failed or was skipped. Empty on success. */
+  detail: string;
+};
+
+export type ActionRunResult = {
+  actionId: string;
+  status: ActionRunStatus;
+  steps: ActionStepResult[];
+  ranAt: string;
+};
+
+/**
+ * Everything a template may interpolate. Absent fields render as an empty string
+ * rather than the literal token, so a follow alert using {months} degrades
+ * quietly instead of printing "{months}".
+ */
+export type TemplateContext = {
+  /** Display name of whoever caused the invocation. */
+  actor?: string;
+  login?: string;
+  message?: string;
+  /** Reward user-input, or everything after a command trigger. */
+  input?: string;
+  args?: string[];
+  // Templates may also use {arg1}, {arg2}… to index `args`, and {rest} for
+  // everything after the first argument — both are derived from `args`, not stored.
+  rewardTitle?: string;
+  amount?: number;
+  tier?: string;
+  months?: number;
+  /** Active Twitch category and module at invocation time. */
+  category?: string;
+  module?: string;
+};
+
+/** Broadcast payload (`overlay:text`) consumed by the /overlay/text browser source. */
+export type OverlayTextPlayback = {
+  id: string;
+  text: string;
+  durationMs: number;
+  style: TextStyle;
+  /** Accent colour hint; mirrors StreamEvent.tone. Absent = default. */
+  tone?: string;
+};
+
+// --- Triggers ----------------------------------------------------------------
+
+export type AutomationTriggerKind =
+  | 'reward'
+  | 'twitch_event'
+  | 'chat_phrase'
+  | 'viewer_command'
+  | 'dashboard_slash'
+  | 'manual'
+  | 'module_activate'
+  | 'module_deactivate';
+
+export type ChatPhraseMatch = 'exact' | 'contains' | 'starts_with';
+
+/** Twitch roles that may fire a trigger. Empty array = everyone. */
+export type TriggerRole = 'broadcaster' | 'mod' | 'vip' | 'sub' | 'viewer';
+
+export type RewardTriggerConfig = { rewardId: string };
+export type TwitchEventTriggerConfig = { eventKind: AlertEventKind };
+export type ChatPhraseTriggerConfig = {
+  phrase: string;
+  match: ChatPhraseMatch;
+  /** Empty = all viewers. */
+  roles: TriggerRole[];
+};
+/** Public `!command` typed by viewers in chat. */
+export type ViewerCommandTriggerConfig = { command: string; aliases: string[]; roles: TriggerRole[] };
+/** Private `/command` typed by the operator in the dashboard. Never sent to Twitch. */
+export type DashboardSlashTriggerConfig = { command: string; aliases: string[] };
+export type ManualTriggerConfig = { label: string };
+export type ModuleLifecycleTriggerConfig = Record<string, never>;
+
+export type AutomationTrigger =
+  | { id: string; kind: 'reward'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: RewardTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'twitch_event'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: TwitchEventTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'chat_phrase'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ChatPhraseTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'viewer_command'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ViewerCommandTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'dashboard_slash'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: DashboardSlashTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'manual'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ManualTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'module_activate'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ModuleLifecycleTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'module_deactivate'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ModuleLifecycleTriggerConfig; createdAt: string; updatedAt: string };
+
+export type AutomationTriggerInput = DistributiveOmit<AutomationTrigger, 'id' | 'createdAt' | 'updatedAt'>;
+
+/** Default cooldowns for a new chat-phrase trigger. Zero disables either limit. */
+export const DEFAULT_GLOBAL_COOLDOWN_MS = 30_000;
+export const DEFAULT_USER_COOLDOWN_MS = 60_000;
+
+/** POST /api/automation/slash — the operator's private dashboard command bar. */
+export type SlashCommandRequest = {
+  /** Raw input including the leading slash. */
+  input: string;
+};
+
+/**
+ * An unknown slash command is rejected here, never forwarded to Twitch chat.
+ * `ok: false` with a message is the normal outcome for a typo.
+ */
+export type SlashCommandResponse = {
+  ok: boolean;
+  message: string;
+  run: ActionRunResult | null;
+};
+
+// --- Category modules --------------------------------------------------------
+
+/**
+ * `degraded` means the last reconciliation could not be completed (Twitch refused
+ * a reward update, or the authoritative category lookup failed). The module keeps
+ * its last known state and exposes a Retry — it never guesses.
+ */
+export type CategoryModuleStatus = 'idle' | 'active' | 'degraded';
+
+export type CategoryModule = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  status: CategoryModuleStatus;
+  /** Human-readable reason when degraded. Empty otherwise. */
+  statusDetail: string;
+  /** Twitch categories that activate this module. A game maps to at most one module. */
+  games: RewardStreamCategory[];
+  /** Reward groups this module owns. Owned groups cannot be toggled by hand. */
+  rewardGroups: StreamCategoryRewardGroup[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CategoryModuleInput = {
+  name: string;
+  enabled: boolean;
+  games: RewardStreamCategory[];
+  rewardGroupIds: string[];
+};
+
+/** What signalled the category change. Drives logging and the degraded message. */
+export type CategorySignalSource =
+  | 'stream_info_update'
+  | 'channel_update'
+  | 'eventsub_connect'
+  | 'stream_online'
+  | 'manual_reconcile';
+
+/** GET /api/category-modules and the `category-modules:updated` WebSocket payload. */
+export type CategoryModulesResponse = {
+  modules: CategoryModule[];
+  /** The module matching the live Twitch category, or null when none matches. */
+  activeModuleId: string | null;
+  /** Live Twitch category, or null when it could not be established. */
+  activeGameId: string | null;
+  activeGameName: string | null;
+  lastSignalSource: CategorySignalSource | null;
+  lastReconciledAt: string | null;
+  /**
+   * Why the last authoritative category lookup failed, or null when it succeeded.
+   * Distinct from a module's own `degraded` status: when the lookup fails and NO
+   * module is active there is nowhere per-module to hang the error, and silently
+   * reporting "nothing active" would be indistinguishable from a healthy
+   * off-category stream. The operator must be able to tell those apart.
+   */
+  lookupError: string | null;
 };

@@ -1,9 +1,20 @@
+import { registerActionRoutes } from './actions';
 import { registerAppConfigRoutes, type AppConfigChange } from './appConfig';
 import { getOverlayToken, requireDashboardToken } from './auth';
+import { getActionExecutor, getTriggerDispatcher, initAutomation } from './automation';
+import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './automationTriggers';
 import { startAutomaticAds } from './automaticAds';
+import { registerCategoryModuleRoutes, reconcileCategoryModules } from './categoryModules';
 import { registerChattersRoutes } from './chatters';
+import {
+  migrateLegacyAlerts,
+  migrateLegacyCategoryModules,
+  migrateLegacyChatbotCommands,
+  migrateLegacyMediaIntoAssets,
+  migrateLegacyRewardBindings,
+} from './legacyMigration';
+import { registerMediaAssetRoutes } from './mediaAssets';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
-import { registerChatbotCommandRoutes } from './chatbotCommands';
 import { config, isLoopbackHost } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
 import { clearDiscordStatusCache, registerDiscordRoutes } from './discord';
@@ -18,6 +29,7 @@ import { RuntimeState } from './runtime';
 import { registerStaticRoutes } from './static';
 import { registerStreamCategoryRoutes } from './streamCategories';
 import { registerStreamStatusRoutes } from './streamStatus';
+import { pruneAutomationRuns } from './triggerDispatcher';
 import { hydrateTwitchAuthState, registerTwitchAuthRoutes } from './twitch/auth';
 import { registerTwitchApiRoutes } from './twitch/api';
 import { registerViewerRewardRoutes } from './viewerRewards';
@@ -25,6 +37,20 @@ import { registerViewerRoleRoutes } from './viewers';
 
 const runtimeState = new RuntimeState();
 hydrateTwitchAuthState(runtimeState);
+// Convert the pre-automation tables before anything serves a request, so the
+// first read of /api/media-assets already reflects the operator's existing media.
+// Guarded by the migration ledger; a second boot is a no-op.
+// Order matters: the chatbot migration binds sound steps to media-asset ids, which
+// only exist once the media migration has run.
+migrateLegacyMediaIntoAssets();
+migrateLegacyChatbotCommands();
+migrateLegacyRewardBindings();
+migrateLegacyAlerts();
+migrateLegacyCategoryModules();
+initAutomation(runtimeState);
+// The four commands the dashboard chat bar used to parse client-side, seeded as
+// ordinary editable Action + trigger rows rather than special-cased code paths.
+seedBuiltInSlashCommands();
 
 // Apply a settings change by reconnecting only the services whose config changed,
 // so the operator never has to restart the process after editing Settings.
@@ -83,9 +109,12 @@ registerTwitchAuthRoutes({
 });
 registerTwitchApiRoutes(app, runtimeState);
 registerViewerRewardRoutes(app, runtimeState);
+registerMediaAssetRoutes(app);
+registerActionRoutes(app, getActionExecutor());
+registerAutomationTriggerRoutes(app, getTriggerDispatcher());
+registerCategoryModuleRoutes(app, runtimeState);
 registerStreamCategoryRoutes(app);
 registerStreamStatusRoutes(app);
-registerChatbotCommandRoutes(app);
 registerLlmRoutes(app);
 registerDiscordRoutes(app);
 registerGoLiveRoutes(app);
@@ -106,4 +135,17 @@ server.listen(config.port, config.host, () => {
   startDashboardHeartbeat(runtimeState);
   startAutomaticAds(runtimeState);
   void connectEventSub(runtimeState);
+
+  // automation_runs is both the invocation log and the dedupe table, so it grows
+  // with every trigger that fires. Prune on boot and daily thereafter; the window
+  // is well clear of the longest cooldown and any EventSub redelivery gap.
+  const pruned = pruneAutomationRuns();
+  if (pruned > 0) console.log(`Automation: pruned ${pruned} expired run record(s).`);
+  setInterval(() => {
+    try {
+      pruneAutomationRuns();
+    } catch (error) {
+      console.error('Automation: could not prune run records:', error);
+    }
+  }, 24 * 60 * 60 * 1000).unref();
 });

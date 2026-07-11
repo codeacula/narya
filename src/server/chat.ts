@@ -2,7 +2,7 @@ import tmi from 'tmi.js';
 import type { ChatMessage } from '../shared/api';
 import { getRoleFromBadges } from '../shared/roles';
 import { appConfig } from './appConfig';
-import { handleChatbotCommandMessage } from './chatbotCommands';
+import { getTriggerDispatcher } from './automation';
 import { db } from './db';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
@@ -190,9 +190,12 @@ twitchClient.on('message', (channel, tags, message, self) => {
     }
   }
 
+  // Drives both viewer !commands and chat-phrase triggers. The dispatcher ignores
+  // Narya's own bot login, deduplicates on the chat message id, and applies each
+  // trigger's cooldowns, so a redelivered message cannot fire an Action twice.
   if (runtimeState) {
-    void handleChatbotCommandMessage(runtimeState, chatMessage).catch((error: unknown) => {
-      console.error('Chatbot command failed:', error);
+    void getTriggerDispatcher().handleChatMessage(chatMessage).catch((error: unknown) => {
+      console.error('Automation: chat dispatch failed:', error);
     });
   }
 });

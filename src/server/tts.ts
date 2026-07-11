@@ -43,10 +43,6 @@ const upsertTtsSettings = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
-const isTtsRewardEnabledRow = db.prepare('select 1 from tts_reward_enabled where reward_id = ?');
-const insertTtsRewardEnabled = db.prepare('insert or ignore into tts_reward_enabled (reward_id) values (?)');
-const deleteTtsRewardEnabled = db.prepare('delete from tts_reward_enabled where reward_id = ?');
-const listTtsRewardEnabled = db.prepare('select reward_id from tts_reward_enabled');
 
 type TtsSettingsRow = {
   enabled: number;
@@ -175,22 +171,8 @@ export async function getTtsVoices(): Promise<TtsVoice[]> {
   }));
 }
 
-export function isTtsRewardEnabled(rewardId: string): boolean {
-  return Boolean(isTtsRewardEnabledRow.get(rewardId));
-}
 
-export function setTtsRewardEnabled(rewardId: string, enabled: boolean): void {
-  if (enabled) {
-    insertTtsRewardEnabled.run(rewardId);
-  } else {
-    deleteTtsRewardEnabled.run(rewardId);
-  }
-}
 
-export function getTtsEnabledRewardIds(): string[] {
-  const rows = listTtsRewardEnabled.all() as Array<{ reward_id: string }>;
-  return rows.map(r => r.reward_id);
-}
 
 async function synthesizeSpeech(text: string, settings: TtsSettings): Promise<Buffer> {
   const response = await postChatterbox('/synthesize', {

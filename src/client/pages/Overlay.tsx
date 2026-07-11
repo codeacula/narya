@@ -1,8 +1,8 @@
 import React from 'react';
-import { AlertStage, useAlertQueue } from '../alerts';
 import { ChatPanel } from '../chat';
 import { ClipStage, useMediaQueue } from '../clips';
 import { MusicPanel } from '../music';
+import { OverlayTextStage, useOverlayTextQueue } from '../overlayText';
 import { ShoutoutTicker, useSessionShoutouts } from '../shoutouts';
 import { quackSoundSources, useSoundEvents } from '../sounds';
 import { useStreamStatus } from '../streamStatus';
@@ -43,19 +43,13 @@ export function OverlayNowPlayingPage() {
 }
 
 export function OverlayClipsPage() {
-  const { current, onFinished } = useMediaQueue();
+  const { current, currentAudio, onFinished } = useMediaQueue();
   return (
     <main className="overlayWidget overlayClipsWidget" aria-label="Redeem clip overlay">
+      {/* Two lanes: only video is visually exclusive, so a sound never waits out a
+          clip. See useMediaQueue. */}
       <ClipStage item={current} onFinished={onFinished} />
-    </main>
-  );
-}
-
-export function OverlayAlertsPage() {
-  const { current, onFinished } = useAlertQueue();
-  return (
-    <main className="overlayWidget overlayAlertsWidget" aria-label="Stream alerts overlay">
-      <AlertStage item={current} onFinished={onFinished} />
+      <ClipStage item={currentAudio} onFinished={onFinished} />
     </main>
   );
 }
@@ -66,6 +60,15 @@ export function OverlayStatusPage() {
   return (
     <main className="overlayWidget overlayStatusWidget" aria-label="Stream status overlay">
       {text ? <div className="overlayStatusText">{text}</div> : null}
+    </main>
+  );
+}
+
+export function OverlayTextPage() {
+  const { current, onFinished } = useOverlayTextQueue();
+  return (
+    <main className="overlayWidget overlayTextWidget" aria-label="Action text overlay">
+      <OverlayTextStage item={current} onFinished={onFinished} />
     </main>
   );
 }

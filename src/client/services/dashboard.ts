@@ -1,17 +1,27 @@
 // Dashboard data service - calls backend API for all data.
 import type {
-  AlertConfigUpdate,
+  Action,
+  ActionRunResult,
+  ActionUpsert,
   AlertEventKind,
-  AlertSettings,
-  AlertSettingsUpdate,
+  AutomationTrigger,
+  AutomationTriggerInput,
+  CategoryModule,
+  CategoryModuleInput,
+  CategoryModulesResponse,
+  TemplateContext,
   Viewer,
   ViewerDetails,
   ChatEntry,
   ChatMessage,
+  MediaAsset,
+  MediaAssetInput,
+  MediaAssetsResponse,
+  MediaAssetUpdate,
+  DiscoveredMediaResponse,
   MediaFile,
   MediaPlayback,
   MusicInfo,
-  RewardMedia,
   StreamEvent,
   SessionShoutout,
   DashboardStatus,
@@ -20,6 +30,7 @@ import type {
   StreamInfoUpdate,
   PrerollResult,
   ChatSendResult,
+  SlashCommandResponse,
   ChatSender,
   ControlConfig,
   ControlResponse,
@@ -61,7 +72,7 @@ import type {
   AppConfigUpdate,
   StreamStatus,
 } from '../../shared/api';
-import { getDashboardToken } from '../auth';
+import { getDashboardToken, isDashboardTokenRejection, reportDashboardTokenRejected } from '../auth';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
 
@@ -79,13 +90,21 @@ async function fetchJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// Every failing API response funnels through here, which is also the only place
+// that can see a rejected dashboard token: the panels each fire their own fetch,
+// so detecting it per-caller would mean detecting it in a dozen places.
 async function readApiError(response: Response): Promise<string> {
+  let body: unknown = null;
   try {
-    const data = await response.json() as { error?: string };
-    return data.error ?? `${response.status} ${response.statusText}`;
+    body = await response.json();
   } catch {
-    return `${response.status} ${response.statusText}`;
+    // Not a JSON error body (a proxy or a crash) — fall through to the status line.
   }
+  if (isDashboardTokenRejection(response.status, body)) {
+    reportDashboardTokenRejected();
+  }
+  const error = (body as { error?: unknown } | null)?.error;
+  return typeof error === 'string' ? error : `${response.status} ${response.statusText}`;
 }
 
 async function sendJson<T>(path: string, method: string, body?: unknown): Promise<T> {
@@ -198,6 +217,15 @@ export async function sendChatMessage(message: string, sender: ChatSender): Prom
   return sendJson('/api/twitch/chat-message', 'POST', { message, sender });
 }
 
+/**
+ * Run a private operator slash command. The server owns the whole vocabulary: it
+ * either executes the command or rejects it, and an unknown one is never forwarded
+ * to Twitch chat. The client must not parse these itself.
+ */
+export async function runSlashCommand(input: string): Promise<SlashCommandResponse> {
+  return sendJson<SlashCommandResponse>('/api/automation/slash', 'POST', { input });
+}
+
 export async function sendViewerShoutout(login: string): Promise<TwitchUserActionResult> {
   return sendJson<TwitchUserActionResult>(`/api/twitch/users/${encodeURIComponent(login)}/shoutout`, 'POST');
 }
@@ -241,15 +269,6 @@ export async function getMediaFiles(): Promise<MediaFile[]> {
   return fetchJson<MediaFile[]>('/api/media');
 }
 
-/** Plays a reward's media on the overlay without spending channel points. */
-/** Pass `media` to preview an unsaved binding; omit it to play the saved one. */
-export async function testRewardMedia(id: string, media?: RewardMedia | null): Promise<MediaPlayback> {
-  return sendJson<MediaPlayback>(
-    `/api/twitch/rewards/${encodeURIComponent(id)}/media/play`,
-    'POST',
-    media ? { media } : {},
-  );
-}
 
 export async function createViewerRewardCategory(name: string): Promise<ViewerRewardCategory> {
   return sendJson<ViewerRewardCategory>('/api/twitch/reward-categories', 'POST', { name });
@@ -460,25 +479,10 @@ export async function testTtsSpeak(text: string): Promise<{ ok: boolean }> {
   return sendJson<{ ok: boolean }>('/api/tts/speak', 'POST', { text });
 }
 
-export async function getAlertSettings(): Promise<AlertSettings> {
-  return fetchJson<AlertSettings>('/api/alerts/settings');
-}
 
-export async function updateAlertSettings(update: AlertSettingsUpdate): Promise<AlertSettings> {
-  return sendJson<AlertSettings>('/api/alerts/settings', 'PUT', update);
-}
 
-export async function testAlert(kind: AlertEventKind, config?: AlertConfigUpdate): Promise<{ ok: boolean }> {
-  return sendJson<{ ok: boolean }>(`/api/alerts/${kind}/test`, 'POST', config);
-}
 
-export async function getTtsEnabledRewards(): Promise<string[]> {
-  return fetchJson<string[]>('/api/tts/rewards');
-}
 
-export async function setTtsRewardEnabled(rewardId: string, enabled: boolean): Promise<{ enabled: boolean }> {
-  return sendJson<{ enabled: boolean }>(`/api/tts/reward/${encodeURIComponent(rewardId)}`, 'PUT', { enabled });
-}
 
 export type HealthResponse = {
   ok: boolean;
@@ -518,4 +522,101 @@ export async function getStreamStatus(): Promise<StreamStatus> {
 
 export async function updateStreamStatus(text: string): Promise<StreamStatus> {
   return sendJson<StreamStatus>('/api/stream-status', 'PUT', { text });
+}
+
+// --- Configured media catalog ------------------------------------------------
+// Everything that plays media references an asset by id. The raw scan
+// (getDiscoveredMedia) is only for the Content settings picker.
+
+export async function getMediaAssets(): Promise<MediaAsset[]> {
+  const response = await fetchJson<MediaAssetsResponse>('/api/media-assets');
+  return response.assets;
+}
+
+export async function createMediaAsset(input: MediaAssetInput): Promise<MediaAsset> {
+  return sendJson<MediaAsset>('/api/media-assets', 'POST', input);
+}
+
+export async function updateMediaAsset(id: string, update: MediaAssetUpdate): Promise<MediaAsset> {
+  return sendJson<MediaAsset>(`/api/media-assets/${encodeURIComponent(id)}`, 'PUT', update);
+}
+
+export async function deleteMediaAsset(id: string): Promise<void> {
+  return sendVoid(`/api/media-assets/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+export async function getDiscoveredMedia(): Promise<DiscoveredMediaResponse> {
+  return fetchJson<DiscoveredMediaResponse>('/api/media/discovered');
+}
+
+// --- Actions -----------------------------------------------------------------
+// An Action is a named, ordered list of steps. Triggers reference one by id, and
+// the operator can run one by hand from Settings → Actions.
+
+export async function getActions(): Promise<Action[]> {
+  return fetchJson<Action[]>('/api/actions');
+}
+
+export async function createAction(action: ActionUpsert): Promise<Action> {
+  return sendJson<Action>('/api/actions', 'POST', action);
+}
+
+export async function updateAction(id: string, action: ActionUpsert): Promise<Action> {
+  return sendJson<Action>(`/api/actions/${encodeURIComponent(id)}`, 'PUT', action);
+}
+
+export async function deleteAction(id: string): Promise<void> {
+  return sendVoid(`/api/actions/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+/** Fires the Action immediately. `context` supplies the tokens its templates interpolate. */
+export async function runAction(id: string, context: TemplateContext = {}): Promise<ActionRunResult> {
+  return sendJson<ActionRunResult>(`/api/actions/${encodeURIComponent(id)}/run`, 'POST', { context });
+}
+
+// --- Automation triggers -----------------------------------------------------
+
+
+export async function getAutomationTriggers(): Promise<AutomationTrigger[]> {
+  return fetchJson<AutomationTrigger[]>('/api/automation/triggers');
+}
+
+export async function createAutomationTrigger(trigger: AutomationTriggerInput): Promise<AutomationTrigger> {
+  return sendJson<AutomationTrigger>('/api/automation/triggers', 'POST', trigger);
+}
+
+export async function updateAutomationTrigger(id: string, trigger: AutomationTriggerInput): Promise<AutomationTrigger> {
+  return sendJson<AutomationTrigger>(`/api/automation/triggers/${encodeURIComponent(id)}`, 'PUT', trigger);
+}
+
+export async function deleteAutomationTrigger(id: string): Promise<void> {
+  return sendVoid(`/api/automation/triggers/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+/** Fires a trigger's Action, bypassing its cooldowns. Backs the manual Quick actions buttons. */
+export async function runAutomationTrigger(id: string): Promise<ActionRunResult> {
+  return sendJson<ActionRunResult>(`/api/automation/triggers/${encodeURIComponent(id)}/run`, 'POST', {});
+}
+
+// --- Category modules --------------------------------------------------------
+
+export async function getCategoryModules(): Promise<CategoryModulesResponse> {
+  return fetchJson<CategoryModulesResponse>('/api/category-modules');
+}
+
+export async function createCategoryModule(module: CategoryModuleInput): Promise<CategoryModule> {
+  return sendJson<CategoryModule>('/api/category-modules', 'POST', module);
+}
+
+export async function updateCategoryModule(id: string, module: CategoryModuleInput): Promise<CategoryModule> {
+  return sendJson<CategoryModule>(`/api/category-modules/${encodeURIComponent(id)}`, 'PUT', module);
+}
+
+export async function deleteCategoryModule(id: string): Promise<void> {
+  return sendVoid(`/api/category-modules/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+/** Re-reads the live Twitch category and re-applies module-owned reward groups. Clears `degraded` when it succeeds. */
+export async function reconcileCategoryModules(): Promise<CategoryModulesResponse> {
+  return sendJson<CategoryModulesResponse>('/api/category-modules/reconcile', 'POST', {});
 }
