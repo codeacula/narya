@@ -1,5 +1,8 @@
 // Dashboard data service - calls backend API for all data.
 import type {
+  AlertEventKind,
+  AlertSettings,
+  AlertSettingsUpdate,
   Viewer,
   ViewerDetails,
   ChatEntry,
@@ -454,6 +457,18 @@ export async function getTtsStatus(): Promise<{ ok: boolean; baseUrl: string; er
 
 export async function testTtsSpeak(text: string): Promise<{ ok: boolean }> {
   return sendJson<{ ok: boolean }>('/api/tts/speak', 'POST', { text });
+}
+
+export async function getAlertSettings(): Promise<AlertSettings> {
+  return fetchJson<AlertSettings>('/api/alerts/settings');
+}
+
+export async function updateAlertSettings(update: AlertSettingsUpdate): Promise<AlertSettings> {
+  return sendJson<AlertSettings>('/api/alerts/settings', 'PUT', update);
+}
+
+export async function testAlert(kind: AlertEventKind): Promise<{ ok: boolean }> {
+  return sendJson<{ ok: boolean }>(`/api/alerts/${kind}/test`, 'POST');
 }
 
 export async function getTtsEnabledRewards(): Promise<string[]> {

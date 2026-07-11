@@ -240,6 +240,17 @@ db.exec(`
     updated_at text not null
   );
 
+  create table if not exists alert_settings (
+    kind text primary key,          -- AlertEventKind: 'sub' | 'gift' | 'cheer' | 'raid' | 'follow'
+    enabled integer not null default 0,
+    template text not null default '',
+    duration_ms integer not null default 6000,
+    media_kind text,                -- null when no media bound
+    media_src text,
+    media_volume real,
+    updated_at text not null default ''
+  );
+
   create table if not exists app_config (
     id text primary key,
     twitch_channel text not null default '',
@@ -310,6 +321,7 @@ const allowedMigrationTables = new Set([
   'tts_settings',
   'tts_reward_enabled',
   'app_config',
+  'alert_settings',
 ]);
 const allowedMigrationColumns = new Set([
   'deleted_at',

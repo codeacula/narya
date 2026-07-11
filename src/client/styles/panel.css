@@ -771,6 +771,28 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   color: var(--fg-3);
   font-size: 12px;
 }
+/* One Twitch event type inside the Alerts section. */
+.alert-kind {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-1);
+  display: grid;
+  gap: 10px;
+}
+.alert-kind-legend { padding: 0; }
+.alert-kind-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-1);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.alert-kind-toggle input { accent-color: var(--gold-500); cursor: pointer; }
 .command-example code {
   color: var(--accent-fg);
   font-family: var(--font-mono);

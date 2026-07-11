@@ -367,6 +367,45 @@ export type MediaPlayback = RewardMedia & {
   actor?: string;
 };
 
+/** Twitch events that can fire an on-stream alert. `sub` covers new subs and resubs. */
+export type AlertEventKind = 'sub' | 'gift' | 'cheer' | 'raid' | 'follow';
+
+/** Per-event alert configuration edited in Settings → Alerts. */
+export type AlertConfig = {
+  enabled: boolean;
+  /** Message template with {user}, {amount}, {tier}, {months} tokens. */
+  template: string;
+  /** How long the text banner stays on screen (ms). */
+  durationMs: number;
+  /** Optional sound or clip; reuses the reward media binding shape. Null = text only. */
+  media: RewardMedia | null;
+};
+
+export type AlertSettings = {
+  sub: AlertConfig;
+  gift: AlertConfig;
+  cheer: AlertConfig;
+  raid: AlertConfig;
+  follow: AlertConfig;
+  updatedAt: string | null;
+};
+
+/** PUT body: any subset of kinds, each a partial config (absent fields keep current). */
+export type AlertConfigUpdate = Partial<Omit<AlertConfig, 'media'>> & { media?: RewardMedia | null };
+export type AlertSettingsUpdate = Partial<Record<AlertEventKind, AlertConfigUpdate>>;
+
+/** Broadcast payload (alert:show) consumed by the /overlay/alerts browser source. */
+export type AlertPlayback = {
+  id: string;
+  kind: AlertEventKind;
+  /** Rendered template text shown in the banner. */
+  text: string;
+  /** Styling hint, mirrors StreamEvent.tone. */
+  tone: string;
+  media: RewardMedia | null;
+  durationMs: number;
+};
+
 export type ViewerReward = {
   id: string;
   title: string;

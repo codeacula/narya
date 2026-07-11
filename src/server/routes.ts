@@ -1,4 +1,5 @@
 import express, { type Express } from 'express';
+import { getAlertSettings, isAlertEventKind, saveAlertSettings, testAlert } from './alerts';
 import { getTwitchRoomId } from './chat';
 import { appConfig } from './appConfig';
 import { getAutomodHold, getAutomodQueue, resolveAutomodHold } from './automod';
@@ -316,6 +317,29 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
         temperature,
         volume,
       }));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.get('/api/alerts/settings', (_request, response) => {
+    response.json(getAlertSettings());
+  });
+
+  app.put('/api/alerts/settings', (request, response) => {
+    try {
+      response.json(saveAlertSettings(request.body ?? {}));
+    } catch (error) {
+      sendRouteError(response, error);
+    }
+  });
+
+  app.post('/api/alerts/:kind/test', (request, response) => {
+    try {
+      const kind = request.params.kind;
+      if (!isAlertEventKind(kind)) throw new HttpRouteError(400, `Unknown alert kind: ${kind}`);
+      testAlert(kind);
+      response.json({ ok: true });
     } catch (error) {
       sendRouteError(response, error);
     }

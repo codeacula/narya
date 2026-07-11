@@ -1,4 +1,5 @@
 import React from 'react';
+import { AlertStage, useAlertQueue } from '../alerts';
 import { ChatPanel } from '../chat';
 import { ClipStage, useMediaQueue } from '../clips';
 import { MusicPanel } from '../music';
@@ -46,6 +47,15 @@ export function OverlayClipsPage() {
   return (
     <main className="overlayWidget overlayClipsWidget" aria-label="Redeem clip overlay">
       <ClipStage item={current} onFinished={onFinished} />
+    </main>
+  );
+}
+
+export function OverlayAlertsPage() {
+  const { current, onFinished } = useAlertQueue();
+  return (
+    <main className="overlayWidget overlayAlertsWidget" aria-label="Stream alerts overlay">
+      <AlertStage item={current} onFinished={onFinished} />
     </main>
   );
 }

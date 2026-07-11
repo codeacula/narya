@@ -7,6 +7,7 @@ import { GoLiveSection } from './settings/GoLiveSection';
 import { CommandsSection } from './settings/CommandsSection';
 import { ContentSection } from './settings/ContentSection';
 import { TtsSection } from './settings/TtsSection';
+import { AlertsSection } from './settings/AlertsSection';
 import { LlmSection } from './settings/LlmSection';
 
 export function SettingsPage({
@@ -95,10 +96,11 @@ export function SettingsPage({
         <CommandsSection />
         <ContentSection />
         <TtsSection />
+        <AlertsSection />
         <LlmSection />
 
         <p className="set-foot">
-          More to come - alerts, hotkeys, OBS scenes.
+          More to come - hotkeys, OBS scenes.
         </p>
       </div>
     </div>

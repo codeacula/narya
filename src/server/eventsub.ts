@@ -3,6 +3,7 @@ import {
   EVENTSUB_RECONNECT_DELAY_MS,
   EVENTSUB_STALE_SOCKET_CLOSE_MS,
 } from '../shared/constants';
+import { fireAlert } from './alerts';
 import { appConfig } from './appConfig';
 import { recordAutomodHold, resolveAutomodHold } from './automod';
 import { db } from './db';
@@ -124,6 +125,7 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       break;
     case 'channel.follow':
       emitStreamEvent('follow', event.user_name as string, 'followed', 'silver', loginOf(event));
+      fireAlert('follow', { user: event.user_name as string });
       break;
     case 'channel.subscribe': {
       if (event.is_gift as boolean) break;
@@ -135,6 +137,10 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       const eventId = emitStreamEvent('sub', event.user_name as string,
         `new sub · ${tierLabel(event.tier as string)}`, 'warning', loginOf(event));
       rememberRecentSub(key, eventId, false, now);
+      // Fires once per sub. If channel.subscription.message arrives after this for a
+      // resub, it only updates the stream_events detail (see below) — the alert has
+      // already gone out with "new sub" wording. Accepted for v1.
+      fireAlert('sub', { user: event.user_name as string, tier: tierLabel(event.tier as string), months: 1 });
       break;
     }
     case 'channel.subscription.message': {
@@ -150,24 +156,33 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       if (pending) break; // A duplicate message notification for the same resub.
       const eventId = emitStreamEvent('sub', event.user_name as string, detail, 'warning', loginOf(event));
       rememberRecentSub(key, eventId, true, now);
+      fireAlert('sub', {
+        user: event.user_name as string,
+        tier: tierLabel(event.tier as string),
+        months: Number(event.cumulative_months) || 1,
+      });
       break;
     }
-    case 'channel.subscription.gift':
-      emitStreamEvent('gift',
-        (event.user_name as string) || 'Anonymous',
+    case 'channel.subscription.gift': {
+      const gifter = (event.user_name as string) || 'Anonymous';
+      emitStreamEvent('gift', gifter,
         `gifted ${event.total} sub${(event.total as number) !== 1 ? 's' : ''} to the channel`, 'warning',
         loginOf(event));
+      fireAlert('gift', { user: gifter, amount: event.total as number });
       break;
-    case 'channel.cheer':
-      emitStreamEvent('cheer',
-        (event.user_name as string) || 'Anonymous',
-        `cheered ${event.bits} bits`, 'info', loginOf(event));
+    }
+    case 'channel.cheer': {
+      const cheerer = (event.user_name as string) || 'Anonymous';
+      emitStreamEvent('cheer', cheerer, `cheered ${event.bits} bits`, 'info', loginOf(event));
+      fireAlert('cheer', { user: cheerer, amount: event.bits as number });
       break;
+    }
     case 'channel.raid':
       emitStreamEvent('raid',
         event.from_broadcaster_user_name as string,
         `raided with ${event.viewers} viewer${(event.viewers as number) !== 1 ? 's' : ''}`, 'note',
         loginOf(event, 'from_broadcaster_user_login'));
+      fireAlert('raid', { user: event.from_broadcaster_user_name as string, amount: event.viewers as number });
       break;
     case 'channel.channel_points_custom_reward_redemption.add': {
       const reward = event.reward as { id: string; title: string };
