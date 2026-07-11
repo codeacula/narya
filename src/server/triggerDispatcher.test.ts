@@ -3,7 +3,7 @@ import type { ActionRunResult, ChatMessage, TemplateContext } from '../shared/ap
 import { createAction } from './actions';
 import { createAutomationTrigger } from './automationTriggers';
 import { db } from './db';
-import { createTriggerDispatcher, type TriggerDispatcherDeps } from './triggerDispatcher';
+import { createTriggerDispatcher, pruneAutomationRuns, type TriggerDispatcherDeps } from './triggerDispatcher';
 
 // A hand-cranked clock: cooldown tests move time forward explicitly instead of sleeping.
 function createClock(start = Date.parse('2026-07-11T12:00:00.000Z')) {
@@ -800,5 +800,26 @@ describe('run log', () => {
     const logged = db.prepare('select status, detail from automation_runs where trigger_id = ?').all(created.id) as { status: string; detail: string }[];
     expect(logged[0]!.status).toBe('failed');
     expect(logged[0]!.detail).toContain('executor exploded');
+  });
+});
+
+describe('pruneAutomationRuns', () => {
+  test('drops runs past the retention window and keeps everything inside it', () => {
+    const now = new Date('2026-07-11T12:00:00.000Z');
+    const insert = (id: string, ranAt: string) => db.prepare(`
+      insert into automation_runs (id, trigger_id, dedupe_key, actor_login, status, detail, ran_at)
+      values (?, 't', ?, null, 'succeeded', '', ?)
+    `).run(id, `k-${id}`, ranAt);
+
+    insert('old', '2026-07-01T12:00:00.000Z');    // 10 days — past the window
+    insert('edge', '2026-07-05T12:00:00.000Z');   // 6 days — inside
+    insert('fresh', '2026-07-11T11:59:00.000Z');
+
+    expect(pruneAutomationRuns(now)).toBe(1);
+
+    const kept = (db.prepare('select id from automation_runs order by id').all() as Array<{ id: string }>).map(row => row.id);
+    // 'edge' must survive: cooldowns are computed from this table, so pruning a row
+    // inside its window would silently re-arm a trigger that should still be cooling.
+    expect(kept).toEqual(['edge', 'fresh']);
   });
 });

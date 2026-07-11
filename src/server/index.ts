@@ -24,6 +24,7 @@ import { RuntimeState } from './runtime';
 import { registerStaticRoutes } from './static';
 import { registerStreamCategoryRoutes } from './streamCategories';
 import { registerStreamStatusRoutes } from './streamStatus';
+import { pruneAutomationRuns } from './triggerDispatcher';
 import { hydrateTwitchAuthState, registerTwitchAuthRoutes } from './twitch/auth';
 import { registerTwitchApiRoutes } from './twitch/api';
 import { registerViewerRewardRoutes } from './viewerRewards';
@@ -128,4 +129,17 @@ server.listen(config.port, config.host, () => {
   startDashboardHeartbeat(runtimeState);
   startAutomaticAds(runtimeState);
   void connectEventSub(runtimeState);
+
+  // automation_runs is both the invocation log and the dedupe table, so it grows
+  // with every trigger that fires. Prune on boot and daily thereafter; the window
+  // is well clear of the longest cooldown and any EventSub redelivery gap.
+  const pruned = pruneAutomationRuns();
+  if (pruned > 0) console.log(`Automation: pruned ${pruned} expired run record(s).`);
+  setInterval(() => {
+    try {
+      pruneAutomationRuns();
+    } catch (error) {
+      console.error('Automation: could not prune run records:', error);
+    }
+  }, 24 * 60 * 60 * 1000).unref();
 });

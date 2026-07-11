@@ -90,6 +90,25 @@ const lastUserRunAt = db.prepare(`
 const PROVISIONAL_STATUS: ActionRunStatus = 'failed';
 const PROVISIONAL_DETAIL = 'Invocation did not complete.';
 
+/**
+ * automation_runs is both the invocation log and the dedupe table, so it grows on
+ * every chat message that matches a trigger — unbounded, it would outgrow the rest
+ * of the database on a busy stream.
+ *
+ * The retention window is what bounds it. It must comfortably exceed both the
+ * longest configurable cooldown (cooldowns are computed from this table, so pruning
+ * a row inside its window would silently re-arm a trigger) and any realistic
+ * EventSub redelivery gap (pruning a dedupe key lets a redelivery fire twice).
+ * Twitch redelivers within minutes; a week is generous for both.
+ */
+const RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const deleteOldRuns = db.prepare('delete from automation_runs where ran_at < ?');
+
+export function pruneAutomationRuns(now: Date = new Date()): number {
+  const cutoff = new Date(now.getTime() - RUN_RETENTION_MS).toISOString();
+  return (deleteOldRuns.run(cutoff) as { changes: number }).changes;
+}
+
 function isUniqueViolation(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const code = (error as { code?: string }).code ?? '';
