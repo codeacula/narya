@@ -145,7 +145,8 @@ function normalizeStepPayload(type: ActionStepType, payload: unknown): ActionSte
         ? value.durationMs
         : MIN_TEXT_DURATION_MS;
       const durationMs = clamp(Math.round(rawDuration), MIN_TEXT_DURATION_MS, MAX_TEXT_DURATION_MS);
-      return { template, durationMs, style: style as TextStyle };
+      const tone = typeof value.tone === 'string' && value.tone.trim() ? value.tone.trim().slice(0, 24) : undefined;
+      return { template, durationMs, style: style as TextStyle, ...(tone ? { tone } : {}) };
     }
 
     case 'play_media': {

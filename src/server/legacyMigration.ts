@@ -177,6 +177,166 @@ export function migrateLegacyChatbotCommands(): void {
   });
 }
 
+/** Names are unique in `actions`, and a migrated name can collide. Suffix rather than fail. */
+function uniqueActionName(base: string): string {
+  const exists = db.prepare('select 1 as present from actions where name = ?');
+  if (!exists.get(base)) return base;
+  for (let n = 2; n < 500; n += 1) {
+    const candidate = `${base} (${n})`;
+    if (!exists.get(candidate)) return candidate;
+  }
+  return `${base} (${crypto.randomUUID().slice(0, 8)})`;
+}
+
+const assetBySrcRow = db.prepare('select id, label from media_assets where src = ?');
+
+/**
+ * Reward media and TTS bindings become one Action per reward plus a `reward` trigger.
+ *
+ * Runs after the media migration, which already turned every reward src into an asset,
+ * so a play_media step can bind the asset id rather than a raw path.
+ *
+ * Cooldowns are zero: the old redemption path had none, and Twitch already enforces
+ * whatever per-reward cooldown the operator configured. Adding one here would silently
+ * swallow a redeem the viewer paid points for.
+ */
+export function migrateLegacyRewardBindings(): void {
+  runOnce('2026-07-actions-from-reward-bindings', () => {
+    const now = new Date().toISOString();
+    const media = db.prepare('select reward_id as rewardId, kind, src, volume from reward_media').all() as Array<{
+      rewardId: string; kind: MediaKind; src: string; volume: number;
+    }>;
+    const ttsRewards = new Set(
+      (db.prepare('select reward_id as rewardId from tts_reward_enabled').all() as Array<{ rewardId: string }>)
+        .map(row => row.rewardId),
+    );
+
+    const rewardIds = new Set<string>([...media.map(row => row.rewardId), ...ttsRewards]);
+
+    for (const rewardId of rewardIds) {
+      const binding = media.find(row => row.rewardId === rewardId) ?? null;
+      const asset = binding ? assetBySrcRow.get(binding.src) as { id: string; label: string } | null : null;
+
+      const steps: Array<{ type: string; payload: unknown }> = [];
+      if (binding && asset) {
+        // Keep the reward's own volume: it overrode the asset's default before, and
+        // the operator tuned it per reward (three of them sit at 1.0, not 0.8).
+        steps.push({
+          type: 'play_media',
+          payload: { assetIds: [asset.id], selection: 'first', volume: binding.volume },
+        });
+      }
+      if (ttsRewards.has(rewardId)) {
+        // The old path spoke the redemption's user input, and only when it was non-empty.
+        // An empty {input} renders empty, which the executor reports as a skipped step.
+        steps.push({ type: 'tts_speak', payload: { template: '{input}' } });
+      }
+      if (steps.length === 0) continue;
+
+      // The reward's Twitch title lives on Twitch, not here, so name from what we have.
+      // The trigger editor resolves the real title for display anyway.
+      const label = asset?.label ?? 'TTS';
+      const actionId = crypto.randomUUID();
+      insertAction.run(
+        actionId,
+        uniqueActionName(`Redeem: ${label}`),
+        'Migrated from a channel-point reward binding.',
+        1, now, now,
+      );
+      steps.forEach((step, index) => {
+        insertActionStep.run(crypto.randomUUID(), actionId, step.type, JSON.stringify(step.payload), 1, index, now, now);
+      });
+      insertTrigger.run(
+        crypto.randomUUID(), 'reward', actionId, 1,
+        JSON.stringify({ rewardId }), now, now,
+      );
+    }
+  });
+}
+
+/** The old alert renderer used {user}; the Action renderer calls that {actor}. */
+function convertAlertTemplate(template: string): string {
+  return template.replaceAll('{user}', '{actor}');
+}
+
+/** Mirrors ALERT_TONES in the alerts module this replaces, so colours survive. */
+const ALERT_TONES: Record<string, string> = {
+  sub: 'warning',
+  gift: 'warning',
+  cheer: 'info',
+  raid: 'note',
+  follow: 'silver',
+};
+
+/**
+ * Each alert becomes an Action (overlay text plus its sound and/or clip) and a
+ * `twitch_event` trigger.
+ *
+ * The sound and clip are separate steps at delay 0, so they start together rather
+ * than one waiting out the other — the alert card played them simultaneously.
+ * `{amount}`, `{tier}`, and `{months}` already exist in TemplateContext, so only
+ * `{user}` needs rewriting.
+ *
+ * Disabled alerts still migrate, as a disabled trigger: the operator's wording and
+ * media survive and can be switched back on, whereas dropping them would lose work.
+ */
+export function migrateLegacyAlerts(): void {
+  runOnce('2026-07-actions-from-alerts', () => {
+    const now = new Date().toISOString();
+    const alerts = db.prepare(`
+      select kind, enabled, template, duration_ms as durationMs,
+             sound_src as soundSrc, sound_volume as soundVolume,
+             clip_src as clipSrc, clip_volume as clipVolume
+      from alert_settings
+    `).all() as Array<{
+      kind: string; enabled: number; template: string; durationMs: number;
+      soundSrc: string | null; soundVolume: number | null;
+      clipSrc: string | null; clipVolume: number | null;
+    }>;
+
+    for (const alert of alerts) {
+      const steps: Array<{ type: string; payload: unknown }> = [];
+      const template = convertAlertTemplate(alert.template ?? '');
+      if (template.trim()) {
+        steps.push({
+          type: 'show_text',
+          payload: {
+            template,
+            durationMs: alert.durationMs,
+            style: 'banner',
+            tone: ALERT_TONES[alert.kind] ?? 'info',
+          },
+        });
+      }
+      for (const [src, volume] of [[alert.soundSrc, alert.soundVolume], [alert.clipSrc, alert.clipVolume]] as const) {
+        if (!src) continue;
+        const asset = assetBySrcRow.get(src) as { id: string } | null;
+        if (!asset) continue;
+        steps.push({
+          type: 'play_media',
+          payload: { assetIds: [asset.id], selection: 'first', volume: volume ?? 0.8 },
+        });
+      }
+      if (steps.length === 0) continue;
+
+      const actionId = crypto.randomUUID();
+      insertAction.run(
+        actionId,
+        uniqueActionName(`Alert: ${alert.kind}`),
+        `Migrated from the ${alert.kind} alert.`,
+        1, now, now,
+      );
+      steps.forEach((step, index) => {
+        insertActionStep.run(crypto.randomUUID(), actionId, step.type, JSON.stringify(step.payload), 1, index, now, now);
+      });
+      insertTrigger.run(
+        crypto.randomUUID(), 'twitch_event', actionId, alert.enabled ? 1 : 0,
+        JSON.stringify({ eventKind: alert.kind }), now, now,
+      );
+    }
+  });
+}
+
 const insertModule = db.prepare(`
   insert into category_modules (id, name, enabled, status, status_detail, created_at, updated_at)
   values (?, ?, 1, 'idle', '', ?, ?)

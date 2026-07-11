@@ -1,6 +1,5 @@
 import type express from 'express';
 import type {
-  RewardMedia,
   RewardStreamCategory,
   ViewerReward,
   ViewerRewardCategory,
@@ -11,7 +10,7 @@ import type {
 import { db } from './db';
 import { HttpRouteError, readResponseError, sendRouteError } from './http';
 import { broadcast } from './realtime';
-import { deleteRewardMedia, getRewardMedia, listRewardMedia, normalizeRewardMedia, playMedia, playRewardMedia, setRewardMedia } from './rewardMedia';
+
 import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
 import { getTwitchActionCredentials } from './twitch/api';
@@ -137,7 +136,6 @@ export async function fetchRewards(
     (listCategoryMembers.all() as Array<{ rewardId: string; categoryId: string }>)
       .map(member => [member.rewardId, member.categoryId]),
   );
-  const mediaByReward = listRewardMedia();
 
   return allRewards.map(reward => ({
     id: reward.id,
@@ -165,7 +163,6 @@ export async function fetchRewards(
       enabled: reward.max_per_user_per_stream_setting?.is_enabled ?? false,
       max: reward.max_per_user_per_stream_setting?.max_per_user_per_stream ?? 1,
     },
-    media: mediaByReward.get(reward.id) ?? null,
   }));
 }
 
@@ -296,16 +293,6 @@ async function sendTwitchRewardUpdate(
   }
 }
 
-/**
- * Validate the media binding before we touch Twitch. `undefined` means "leave it
- * alone", `null` means "clear it". Validating up front keeps a bad filename from
- * leaving a created-but-unbound reward behind on Twitch.
- */
-function parseMediaField(body: { media?: unknown }, keepMissing?: RewardMedia | null): RewardMedia | null | undefined {
-  if (body?.media === undefined) return undefined;
-  if (body.media === null) return null;
-  return normalizeRewardMedia(body.media, { keepMissing });
-}
 
 function saveRewardCategory(rewardId: string, categoryId: string | null) {
   if (categoryId) setRewardCategory.run(rewardId, categoryId, new Date().toISOString());
@@ -476,7 +463,6 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
   app.post('/api/twitch/rewards', async (request, response) => {
     try {
       const reward = normalizeReward(request.body);
-      const media = parseMediaField(request.body);
       const category = reward.categoryId ? getCategory.get(reward.categoryId) as CategoryRow : null;
       const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
       const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
@@ -495,7 +481,6 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       saveRewardCategory(created.id, reward.categoryId);
       // Twitch mints the reward id, so the binding can only be saved here — the
       // response returns the whole list, not the created reward.
-      if (media !== undefined) setRewardMedia(created.id, media);
       response.status(201).json(await getRewardsResponse(state));
     } catch (error) {
       sendRouteError(response, error);
@@ -509,9 +494,6 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       const current = currentRewards.find(reward => reward.id === request.params.id);
       if (!current) throw new HttpRouteError(404, 'Reward not found.');
 
-      // Media is local, so it stays out of hasTwitchFields below: a reward Twitch
-      // won't let us manage can still have its clip changed.
-      const media = parseMediaField(request.body, getRewardMedia(current.id));
       const categoryId = request.body?.categoryId === undefined
         ? current.categoryId
         : normalizeCategoryId(request.body.categoryId);
@@ -542,30 +524,12 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
         }
       }
       saveRewardCategory(current.id, categoryId);
-      if (media !== undefined) setRewardMedia(current.id, media);
       response.json(await getRewardsResponse(state));
     } catch (error) {
       sendRouteError(response, error);
     }
   });
 
-  // An unsaved binding may be passed in the body so the editor's Test button plays
-  // the file currently selected, not the one last saved. Validated like any other.
-  app.post('/api/twitch/rewards/:id/media/play', (request, response) => {
-    try {
-      const override = parseMediaField(request.body);
-      const playback = override
-        ? playMedia(override)
-        : playRewardMedia(request.params.id);
-      if (!playback) {
-        response.status(404).json({ error: 'This reward has no media bound.' });
-        return;
-      }
-      response.json(playback);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
 
   app.delete('/api/twitch/rewards/:id', async (request, response) => {
     try {
@@ -580,7 +544,6 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
         throw new HttpRouteError(twitchResponse.status === 400 || twitchResponse.status === 401 || twitchResponse.status === 403 || twitchResponse.status === 404 ? twitchResponse.status : 502, message);
       }
       clearRewardCategory.run(request.params.id);
-      deleteRewardMedia(request.params.id);
       response.status(204).send();
     } catch (error) {
       sendRouteError(response, error);

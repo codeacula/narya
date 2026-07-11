@@ -6,7 +6,6 @@ import { ConnectionsSection } from './settings/ConnectionsSection';
 import { GoLiveSection } from './settings/GoLiveSection';
 import { ContentSection } from './settings/ContentSection';
 import { TtsSection } from './settings/TtsSection';
-import { AlertsSection } from './settings/AlertsSection';
 import { LlmSection } from './settings/LlmSection';
 
 // A connected socket whose subscriptions Twitch refused still delivers nothing for
@@ -129,7 +128,6 @@ export function SettingsPage({
         <GoLiveSection />
         <ContentSection />
         <TtsSection />
-        <AlertsSection />
         <LlmSection />
 
         <p className="set-foot">

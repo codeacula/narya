@@ -4,7 +4,7 @@ import './styles.css';
 import './styles/tokens.css';
 import './styles/panel.css';
 import { DashboardPage } from './pages/Dashboard';
-import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage, OverlayShoutoutsPage, OverlayClipsPage, OverlayStatusPage, OverlayAlertsPage, OverlayTextPage } from './pages/Overlay';
+import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage, OverlayShoutoutsPage, OverlayClipsPage, OverlayStatusPage, OverlayTextPage } from './pages/Overlay';
 import { TabletPage } from './pages/Tablet';
 import { ViewerWindowPage } from './pages/ViewerWindow';
 import { dashboardRouteFromPath } from './routing';
@@ -27,7 +27,6 @@ const OVERLAY_PAGES: Record<string, React.ComponentType> = {
   '/overlay/sounds': OverlaySoundsPage,
   '/overlay/shoutouts': OverlayShoutoutsPage,
   '/overlay/clips': OverlayClipsPage,
-  '/overlay/alerts': OverlayAlertsPage,
   '/overlay/status': OverlayStatusPage,
   '/overlay/text': OverlayTextPage,
 };

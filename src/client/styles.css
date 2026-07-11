@@ -1067,6 +1067,13 @@ nav {
 }
 .overlayTextCard--centered .overlayTextBody { font-size: 44px; }
 
+/* Tone accents, matching the alert card these replaced so a migrated sub alert
+   still reads gold and a cheer blue. */
+.overlayTextCard--warning .overlayTextBody { --overlay-text-accent: #ffb86c; }
+.overlayTextCard--info    .overlayTextBody { --overlay-text-accent: #8be9fd; }
+.overlayTextCard--note    .overlayTextBody { --overlay-text-accent: #bd93f9; }
+.overlayTextCard--silver  .overlayTextBody { --overlay-text-accent: #d0d4dc; }
+
 @keyframes overlayTextIn {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }

@@ -144,7 +144,7 @@ describe('webSocketRole', () => {
 describe('overlay event scope', () => {
   test('overlay connections receive what they render', () => {
     expect(isOverlayEvent('chat:message')).toBe(true);
-    expect(isOverlayEvent('alert:show')).toBe(true);
+    expect(isOverlayEvent('overlay:text')).toBe(true);
     expect(isOverlayEvent('media:play')).toBe(true);
   });
 

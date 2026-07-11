@@ -1,5 +1,4 @@
 import React from 'react';
-import { AlertStage, useAlertQueue } from '../alerts';
 import { ChatPanel } from '../chat';
 import { ClipStage, useMediaQueue } from '../clips';
 import { MusicPanel } from '../music';
@@ -44,19 +43,13 @@ export function OverlayNowPlayingPage() {
 }
 
 export function OverlayClipsPage() {
-  const { current, onFinished } = useMediaQueue();
+  const { current, currentAudio, onFinished } = useMediaQueue();
   return (
     <main className="overlayWidget overlayClipsWidget" aria-label="Redeem clip overlay">
+      {/* Two lanes: only video is visually exclusive, so a sound never waits out a
+          clip. See useMediaQueue. */}
       <ClipStage item={current} onFinished={onFinished} />
-    </main>
-  );
-}
-
-export function OverlayAlertsPage() {
-  const { current, onFinished } = useAlertQueue();
-  return (
-    <main className="overlayWidget overlayAlertsWidget" aria-label="Stream alerts overlay">
-      <AlertStage item={current} onFinished={onFinished} />
+      <ClipStage item={currentAudio} onFinished={onFinished} />
     </main>
   );
 }

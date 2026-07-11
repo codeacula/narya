@@ -6,7 +6,13 @@ import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './aut
 import { startAutomaticAds } from './automaticAds';
 import { registerCategoryModuleRoutes, reconcileCategoryModules } from './categoryModules';
 import { registerChattersRoutes } from './chatters';
-import { migrateLegacyCategoryModules, migrateLegacyChatbotCommands, migrateLegacyMediaIntoAssets } from './legacyMigration';
+import {
+  migrateLegacyAlerts,
+  migrateLegacyCategoryModules,
+  migrateLegacyChatbotCommands,
+  migrateLegacyMediaIntoAssets,
+  migrateLegacyRewardBindings,
+} from './legacyMigration';
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { config, isLoopbackHost } from './config';
@@ -38,6 +44,8 @@ hydrateTwitchAuthState(runtimeState);
 // only exist once the media migration has run.
 migrateLegacyMediaIntoAssets();
 migrateLegacyChatbotCommands();
+migrateLegacyRewardBindings();
+migrateLegacyAlerts();
 migrateLegacyCategoryModules();
 initAutomation(runtimeState);
 // The four commands the dashboard chat bar used to parse client-side, seeded as

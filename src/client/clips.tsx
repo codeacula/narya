@@ -59,18 +59,40 @@ export function advance(queue: MediaPlayback[], id: string): MediaPlayback[] {
   return queue.slice(1);
 }
 
+/**
+ * Audio and video queue independently, and both drain at once.
+ *
+ * Only video is visually exclusive — two clips cannot share the screen, so they
+ * must serialize. Sound has no such constraint, and one shared queue would make an
+ * alert fanfare wait out whatever clip happened to be playing. Alerts used to have
+ * their own overlay and never queued behind redeems; keeping the two lanes separate
+ * preserves that now that both arrive on `media:play`.
+ *
+ * Each lane is still one-at-a-time, so a redeem storm cannot stack ten sounds on
+ * top of each other.
+ */
 export function useMediaQueue() {
-  const [queue, setQueue] = React.useState<MediaPlayback[]>([]);
+  const [audio, setAudio] = React.useState<MediaPlayback[]>([]);
+  const [video, setVideo] = React.useState<MediaPlayback[]>([]);
 
   useSocket<MediaPlayback>('media:play', React.useCallback((item) => {
-    setQueue(current => enqueue(current, item));
+    const setLane = item.kind === 'audio' ? setAudio : setVideo;
+    setLane(current => enqueue(current, item));
   }, []));
 
+  // The id alone identifies the lane's head, so a completion can be applied to both
+  // without a kind: only the lane actually holding that id advances.
   const onFinished = React.useCallback((id: string) => {
-    setQueue(current => advance(current, id));
+    setAudio(current => advance(current, id));
+    setVideo(current => advance(current, id));
   }, []);
 
-  return { current: queue[0] ?? null, depth: queue.length, onFinished };
+  return {
+    current: video[0] ?? null,
+    currentAudio: audio[0] ?? null,
+    depth: audio.length + video.length,
+    onFinished,
+  };
 }
 
 /**

@@ -370,56 +370,8 @@ export type MediaPlayback = RewardMedia & {
   actor?: string;
 };
 
-/** Twitch events that can fire an on-stream alert. `sub` covers new subs and resubs. */
+/** Twitch events a `twitch_event` trigger can fire on. `sub` covers new subs and resubs. */
 export type AlertEventKind = 'sub' | 'gift' | 'cheer' | 'raid' | 'follow';
-
-/**
- * Per-event alert configuration edited in Settings → Alerts. `sound` and `clip`
- * are independent effects: an alert can play a sound, a clip, both together, or
- * neither (text only). `sound` is always an audio file, `clip` always a video.
- */
-export type AlertConfig = {
-  enabled: boolean;
-  /** Message template with {user}, {amount}, {tier}, {months} tokens. */
-  template: string;
-  /** How long the text banner stays on screen (ms). */
-  durationMs: number;
-  /** Optional audio effect (kind is always 'audio'). Null = no sound. */
-  sound: RewardMedia | null;
-  /** Optional video effect (kind is always 'video'). Null = no clip. */
-  clip: RewardMedia | null;
-};
-
-export type AlertSettings = {
-  sub: AlertConfig;
-  gift: AlertConfig;
-  cheer: AlertConfig;
-  raid: AlertConfig;
-  follow: AlertConfig;
-  updatedAt: string | null;
-};
-
-/** PUT body: any subset of kinds, each a partial config (absent fields keep current). */
-export type AlertConfigUpdate = Partial<Omit<AlertConfig, 'sound' | 'clip'>> & {
-  sound?: RewardMedia | null;
-  clip?: RewardMedia | null;
-};
-export type AlertSettingsUpdate = Partial<Record<AlertEventKind, AlertConfigUpdate>>;
-
-/** Broadcast payload (alert:show) consumed by the /overlay/alerts browser source. */
-export type AlertPlayback = {
-  id: string;
-  kind: AlertEventKind;
-  /** Rendered template text shown in the banner. */
-  text: string;
-  /** Styling hint, mirrors StreamEvent.tone. */
-  tone: string;
-  /** Audio effect to play alongside the banner, if any. */
-  sound: RewardMedia | null;
-  /** Video effect to play alongside the banner, if any. */
-  clip: RewardMedia | null;
-  durationMs: number;
-};
 
 export type ViewerReward = {
   id: string;
@@ -438,7 +390,6 @@ export type ViewerReward = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
-  media: RewardMedia | null;
 };
 
 export type ViewerRewardsResponse = {
@@ -459,8 +410,6 @@ export type ViewerRewardUpsert = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
-  /** Omit to leave the existing binding alone; null clears it. */
-  media?: RewardMedia | null;
 };
 
 export type ViewerRewardCategoryToggleResult = ViewerRewardsResponse & {
@@ -738,7 +687,12 @@ export type MediaSelection = 'first' | 'random';
 /** Presentation of an overlay text banner. */
 export type TextStyle = 'banner' | 'toast' | 'centered';
 
-export type ShowTextPayload = { template: string; durationMs: number; style: TextStyle };
+/**
+ * `tone` is an optional accent (mirrors StreamEvent.tone: warning/info/note/silver),
+ * so a migrated sub alert keeps reading gold and a cheer blue. Absent = the default
+ * accent.
+ */
+export type ShowTextPayload = { template: string; durationMs: number; style: TextStyle; tone?: string };
 export type PlayMediaPayload = { assetIds: string[]; selection: MediaSelection; volume?: number };
 export type TtsSpeakPayload = { template: string };
 export type SendChatPayload = { template: string; sender: ChatSender };
@@ -855,6 +809,8 @@ export type OverlayTextPlayback = {
   text: string;
   durationMs: number;
   style: TextStyle;
+  /** Accent colour hint; mirrors StreamEvent.tone. Absent = default. */
+  tone?: string;
 };
 
 // --- Triggers ----------------------------------------------------------------

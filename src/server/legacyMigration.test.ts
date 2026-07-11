@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { db } from './db';
-import { migrateLegacyCategoryModules, migrateLegacyChatbotCommands, migrateLegacyMediaIntoAssets } from './legacyMigration';
+import {
+  migrateLegacyAlerts,
+  migrateLegacyCategoryModules,
+  migrateLegacyChatbotCommands,
+  migrateLegacyMediaIntoAssets,
+  migrateLegacyRewardBindings,
+} from './legacyMigration';
 
 type AssetRow = { id: string; label: string; kind: string; sourceType: string; src: string; volume: number; enabled: number };
 
@@ -22,6 +28,7 @@ beforeEach(() => {
     'viewer_reward_category_games', 'viewer_reward_categories',
     'automation_triggers', 'action_steps', 'actions',
     'chatbot_command_actions', 'chatbot_commands',
+    'tts_reward_enabled',
   ]) {
     db.exec(`delete from ${table}`);
   }
@@ -256,5 +263,135 @@ describe('migrateLegacyChatbotCommands', () => {
 
     const triggers = db.prepare("select count(*) as count from automation_triggers").get() as { count: number };
     expect(triggers.count).toBe(1);
+  });
+});
+
+function triggersOfKind(kind: string) {
+  return (db.prepare('select action_id as actionId, kind, enabled, config_json as configJson from automation_triggers where kind = ?')
+    .all(kind) as Array<{ actionId: string; kind: string; enabled: number; configJson: string }>);
+}
+
+describe('migrateLegacyRewardBindings', () => {
+  test('a reward with media becomes a play_media action bound to the asset, keeping its volume', () => {
+    db.prepare('insert into clip_buttons (id, label, filename) values (?, ?, ?)').run('c1', 'Dinosaur', '/clips/dinosaur.mp4');
+    db.prepare('insert into reward_media (reward_id, kind, src, volume, updated_at) values (?, ?, ?, ?, ?)')
+      .run('reward-1', 'video', '/clips/dinosaur.mp4', 1, '');
+
+    migrateLegacyMediaIntoAssets();
+    migrateLegacyRewardBindings();
+
+    const triggers = triggersOfKind('reward');
+    expect(triggers).toHaveLength(1);
+    expect(JSON.parse(triggers[0]!.configJson)).toEqual({ rewardId: 'reward-1' });
+    const steps = stepsOf(triggers[0]!.actionId);
+    expect(steps[0]!.type).toBe('play_media');
+    // The reward's own volume overrode the asset default before; dropping it would
+    // quietly re-tune every migrated redeem.
+    expect(JSON.parse(steps[0]!.payloadJson)).toEqual({ assetIds: ['c1'], selection: 'first', volume: 1 });
+  });
+
+  test('a TTS-enabled reward becomes a tts_speak step fed by the redemption input', () => {
+    db.prepare('insert into tts_reward_enabled (reward_id) values (?)').run('reward-tts');
+
+    migrateLegacyRewardBindings();
+
+    const steps = stepsOf(triggersOfKind('reward')[0]!.actionId);
+    expect(steps[0]!.type).toBe('tts_speak');
+    expect(JSON.parse(steps[0]!.payloadJson)).toEqual({ template: '{input}' });
+  });
+
+  test('a reward with both media and TTS gets both steps in one action', () => {
+    db.prepare('insert into sound_buttons (id, label, filename) values (?, ?, ?)').run('s1', 'Airhorn', '/sounds/airhorn.mp3');
+    db.prepare('insert into reward_media (reward_id, kind, src, volume, updated_at) values (?, ?, ?, ?, ?)')
+      .run('r', 'audio', '/sounds/airhorn.mp3', 0.8, '');
+    db.prepare('insert into tts_reward_enabled (reward_id) values (?)').run('r');
+
+    migrateLegacyMediaIntoAssets();
+    migrateLegacyRewardBindings();
+
+    expect(triggersOfKind('reward')).toHaveLength(1);
+    expect(stepsOf(triggersOfKind('reward')[0]!.actionId).map(s => s.type)).toEqual(['play_media', 'tts_speak']);
+  });
+
+  test('is idempotent: a second run does not create a second trigger that would double-play the redeem', () => {
+    db.prepare('insert into clip_buttons (id, label, filename) values (?, ?, ?)').run('c1', 'Dino', '/clips/dinosaur.mp4');
+    db.prepare('insert into reward_media (reward_id, kind, src, volume, updated_at) values (?, ?, ?, ?, ?)')
+      .run('reward-1', 'video', '/clips/dinosaur.mp4', 1, '');
+
+    migrateLegacyMediaIntoAssets();
+    migrateLegacyRewardBindings();
+    migrateLegacyRewardBindings();
+
+    expect(triggersOfKind('reward')).toHaveLength(1);
+  });
+});
+
+function addAlert(kind: string, enabled: number, template: string, soundSrc: string | null, clipSrc: string | null): void {
+  db.prepare(`
+    insert into alert_settings (kind, enabled, template, duration_ms, sound_src, sound_volume, clip_src, clip_volume, updated_at)
+    values (?, ?, ?, 6000, ?, 0.8, ?, 0.8, '')
+  `).run(kind, enabled, template, soundSrc, clipSrc);
+}
+
+describe('migrateLegacyAlerts', () => {
+  test('an alert becomes text plus its sound, with {user} rewritten and its tone preserved', () => {
+    db.prepare('insert into sound_buttons (id, label, filename) values (?, ?, ?)').run('s1', 'Fanfare', '/sounds/fanfaire.mp3');
+    addAlert('sub', 1, '{user} just subscribed! ({tier})', '/sounds/fanfaire.mp3', null);
+
+    migrateLegacyMediaIntoAssets();
+    migrateLegacyAlerts();
+
+    const triggers = triggersOfKind('twitch_event');
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0]!.enabled).toBe(1);
+    expect(JSON.parse(triggers[0]!.configJson)).toEqual({ eventKind: 'sub' });
+
+    const steps = stepsOf(triggers[0]!.actionId);
+    expect(steps.map(s => s.type)).toEqual(['show_text', 'play_media']);
+    expect(JSON.parse(steps[0]!.payloadJson)).toEqual({
+      // {tier} already exists in TemplateContext; only {user} needed rewriting.
+      template: '{actor} just subscribed! ({tier})',
+      durationMs: 6000,
+      style: 'banner',
+      // Without the tone the migrated sub alert would lose its gold accent.
+      tone: 'warning',
+    });
+    expect(JSON.parse(steps[1]!.payloadJson)).toEqual({ assetIds: ['s1'], selection: 'first', volume: 0.8 });
+  });
+
+  test('sound and clip become separate steps at delay 0, so they still start together', () => {
+    db.prepare('insert into sound_buttons (id, label, filename) values (?, ?, ?)').run('s1', 'S', '/sounds/a.mp3');
+    db.prepare('insert into clip_buttons (id, label, filename) values (?, ?, ?)').run('c1', 'C', '/clips/b.mp4');
+    addAlert('raid', 1, '{user} raided!', '/sounds/a.mp3', '/clips/b.mp4');
+
+    migrateLegacyMediaIntoAssets();
+    migrateLegacyAlerts();
+
+    const steps = db.prepare(`
+      select step_type as type, delay_ms as delayMs from action_steps where action_id = ? order by position
+    `).all(triggersOfKind('twitch_event')[0]!.actionId) as Array<{ type: string; delayMs: number }>;
+    expect(steps.map(s => s.type)).toEqual(['show_text', 'play_media', 'play_media']);
+    expect(steps.every(s => s.delayMs === 0)).toBe(true);
+  });
+
+  test('a disabled alert migrates as a disabled trigger rather than being dropped', () => {
+    addAlert('follow', 0, '{user} followed!', null, null);
+
+    migrateLegacyAlerts();
+
+    const triggers = triggersOfKind('twitch_event');
+    expect(triggers).toHaveLength(1);
+    // Keeping it disabled preserves the operator's wording so it can be switched
+    // back on; dropping it would silently lose their work.
+    expect(triggers[0]!.enabled).toBe(0);
+  });
+
+  test('is idempotent: a second run does not double-fire the alert', () => {
+    addAlert('cheer', 1, '{user} cheered {amount}!', null, null);
+
+    migrateLegacyAlerts();
+    migrateLegacyAlerts();
+
+    expect(triggersOfKind('twitch_event')).toHaveLength(1);
   });
 });

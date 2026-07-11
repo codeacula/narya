@@ -3,7 +3,6 @@ import {
   EVENTSUB_RECONNECT_DELAY_MS,
   EVENTSUB_STALE_SOCKET_CLOSE_MS,
 } from '../shared/constants';
-import { fireAlert } from './alerts';
 import { appConfig } from './appConfig';
 import { getTriggerDispatcher } from './automation';
 import { recordAutomodHold, resolveAutomodHold } from './automod';
@@ -11,10 +10,8 @@ import { onCategorySignal, reconcileCategoryModules } from './categoryModules';
 import { db } from './db';
 import { announceTwitchStreamOnline } from './goLive';
 import { broadcast } from './realtime';
-import { playRewardMedia } from './rewardMedia';
 import type { RuntimeState } from './runtime';
 import { endActiveStreamSession, getCurrentStreamSessionId } from './streamSession';
-import { isTtsRewardEnabled, speakText } from './tts';
 import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials, runTwitchCommercial } from './twitch/api';
 
 const insertStreamEvent = db.prepare(`
@@ -163,7 +160,6 @@ export async function handleEventSubNotification(
       break;
     case 'channel.follow':
       emitStreamEvent('follow', event.user_name as string, 'followed', 'silver', loginOf(event));
-      fireAlert('follow', { user: event.user_name as string });
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'follow', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
       }));
@@ -181,7 +177,6 @@ export async function handleEventSubNotification(
       // Fires once per sub. If channel.subscription.message arrives after this for a
       // resub, it only updates the stream_events detail (see below) — the alert has
       // already gone out with "new sub" wording. Accepted for v1.
-      fireAlert('sub', { user: event.user_name as string, tier: tierLabel(event.tier as string), months: 1 });
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'sub', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
         tier: tierLabel(event.tier as string), months: 1,
@@ -201,11 +196,6 @@ export async function handleEventSubNotification(
       if (pending) break; // A duplicate message notification for the same resub.
       const eventId = emitStreamEvent('sub', event.user_name as string, detail, 'warning', loginOf(event));
       rememberRecentSub(key, eventId, true, now);
-      fireAlert('sub', {
-        user: event.user_name as string,
-        tier: tierLabel(event.tier as string),
-        months: Number(event.cumulative_months) || 1,
-      });
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'sub', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
         tier: tierLabel(event.tier as string), months: Number(event.cumulative_months) || 1,
@@ -217,7 +207,6 @@ export async function handleEventSubNotification(
       emitStreamEvent('gift', gifter,
         `gifted ${event.total} sub${(event.total as number) !== 1 ? 's' : ''} to the channel`, 'warning',
         loginOf(event));
-      fireAlert('gift', { user: gifter, amount: event.total as number });
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'gift', eventId: messageId, actor: gifter, login: loginOf(event) ?? null, amount: event.total as number,
       }));
@@ -226,7 +215,6 @@ export async function handleEventSubNotification(
     case 'channel.cheer': {
       const cheerer = (event.user_name as string) || 'Anonymous';
       emitStreamEvent('cheer', cheerer, `cheered ${event.bits} bits`, 'info', loginOf(event));
-      fireAlert('cheer', { user: cheerer, amount: event.bits as number });
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'cheer', eventId: messageId, actor: cheerer, login: loginOf(event) ?? null, amount: event.bits as number,
       }));
@@ -237,7 +225,6 @@ export async function handleEventSubNotification(
         event.from_broadcaster_user_name as string,
         `raided with ${event.viewers} viewer${(event.viewers as number) !== 1 ? 's' : ''}`, 'note',
         loginOf(event, 'from_broadcaster_user_login'));
-      fireAlert('raid', { user: event.from_broadcaster_user_name as string, amount: event.viewers as number });
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'raid', eventId: messageId, actor: event.from_broadcaster_user_name as string,
         login: loginOf(event, 'from_broadcaster_user_login') ?? null, amount: event.viewers as number,
@@ -247,12 +234,8 @@ export async function handleEventSubNotification(
       const reward = event.reward as { id: string; title: string };
       emitStreamEvent('redeem', event.user_name as string, `redeemed "${reward.title}"`, 'info', loginOf(event));
       const userInput = typeof event.user_input === 'string' ? event.user_input.trim() : '';
-      if (userInput && isTtsRewardEnabled(reward.id)) {
-        void speakText(userInput).catch((err: unknown) => {
-          console.error('TTS: failed to speak redemption text:', err);
-        });
-      }
-      playRewardMedia(reward.id, event.user_name as string);
+      // Media and TTS used to fire here directly. They are Action steps now — running
+      // both paths would play every migrated redeem twice.
       await dispatchAutomation(() => getTriggerDispatcher().handleRewardRedemption({
         eventId: messageId,
         rewardId: reward.id,

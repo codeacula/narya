@@ -3,10 +3,7 @@ import type {
   Action,
   ActionRunResult,
   ActionUpsert,
-  AlertConfigUpdate,
   AlertEventKind,
-  AlertSettings,
-  AlertSettingsUpdate,
   AutomationTrigger,
   AutomationTriggerInput,
   CategoryModule,
@@ -25,7 +22,6 @@ import type {
   MediaFile,
   MediaPlayback,
   MusicInfo,
-  RewardMedia,
   StreamEvent,
   SessionShoutout,
   DashboardStatus,
@@ -265,15 +261,6 @@ export async function getMediaFiles(): Promise<MediaFile[]> {
   return fetchJson<MediaFile[]>('/api/media');
 }
 
-/** Plays a reward's media on the overlay without spending channel points. */
-/** Pass `media` to preview an unsaved binding; omit it to play the saved one. */
-export async function testRewardMedia(id: string, media?: RewardMedia | null): Promise<MediaPlayback> {
-  return sendJson<MediaPlayback>(
-    `/api/twitch/rewards/${encodeURIComponent(id)}/media/play`,
-    'POST',
-    media ? { media } : {},
-  );
-}
 
 export async function createViewerRewardCategory(name: string): Promise<ViewerRewardCategory> {
   return sendJson<ViewerRewardCategory>('/api/twitch/reward-categories', 'POST', { name });
@@ -484,25 +471,10 @@ export async function testTtsSpeak(text: string): Promise<{ ok: boolean }> {
   return sendJson<{ ok: boolean }>('/api/tts/speak', 'POST', { text });
 }
 
-export async function getAlertSettings(): Promise<AlertSettings> {
-  return fetchJson<AlertSettings>('/api/alerts/settings');
-}
 
-export async function updateAlertSettings(update: AlertSettingsUpdate): Promise<AlertSettings> {
-  return sendJson<AlertSettings>('/api/alerts/settings', 'PUT', update);
-}
 
-export async function testAlert(kind: AlertEventKind, config?: AlertConfigUpdate): Promise<{ ok: boolean }> {
-  return sendJson<{ ok: boolean }>(`/api/alerts/${kind}/test`, 'POST', config);
-}
 
-export async function getTtsEnabledRewards(): Promise<string[]> {
-  return fetchJson<string[]>('/api/tts/rewards');
-}
 
-export async function setTtsRewardEnabled(rewardId: string, enabled: boolean): Promise<{ enabled: boolean }> {
-  return sendJson<{ enabled: boolean }>(`/api/tts/reward/${encodeURIComponent(rewardId)}`, 'PUT', { enabled });
-}
 
 export type HealthResponse = {
   ok: boolean;

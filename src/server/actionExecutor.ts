@@ -157,6 +157,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
           text,
           durationMs: step.payload.durationMs,
           style: step.payload.style,
+          ...(step.payload.tone ? { tone: step.payload.tone } : {}),
         };
         emit('overlay:text', playback);
         return SUCCEEDED;
