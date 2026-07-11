@@ -53,6 +53,8 @@ curl http://localhost:4317/api/chat/recent
 curl http://localhost:4317/api/music/current
 ```
 
+For in-browser validation, use the CachyOS system Chromium executable at `/usr/bin/chromium` with Chromium DevTools/CDP; do not use Playwright or assume Google Chrome is installed. Launch Chromium in a normal visible window, not headless, so the user can observe the checks as they run. Use Chromium DevTools for performance tracing and browser diagnostics.
+
 ## Commit & Pull Request Guidelines
 
 Use semantic commit messages, for example `feat: add chat command replies` or `docs: update agent instructions`. Keep commits focused and avoid mixing unrelated UI, backend, and config changes.
