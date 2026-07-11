@@ -80,3 +80,51 @@ export function migrateLegacyMediaIntoAssets(): void {
     }
   });
 }
+
+const insertModule = db.prepare(`
+  insert into category_modules (id, name, enabled, status, status_detail, created_at, updated_at)
+  values (?, ?, 1, 'idle', '', ?, ?)
+`);
+const insertModuleGame = db.prepare(`
+  insert or ignore into category_module_games (game_id, module_id, game_name, created_at) values (?, ?, ?, ?)
+`);
+const insertModuleGroup = db.prepare(`
+  insert or ignore into category_module_reward_groups (module_id, group_id, created_at) values (?, ?, ?)
+`);
+
+/**
+ * One generated module per Twitch game that already had reward groups mapped to it,
+ * owning every group mapped to that game. This reproduces what
+ * `applyRewardGroupsForStreamCategory` used to do, so the cutover is behaviour-preserving.
+ *
+ * The load-bearing detail is what is NOT migrated: a reward group with no game mapping
+ * stays unowned by any module. The old auto-switch left unmapped groups alone, and a
+ * module that owned one would start disabling it on every category change — silently
+ * turning off an always-on group the operator never asked a module to manage.
+ *
+ * A group mapped to several games ends up owned by several generated modules. That is
+ * allowed; only a *game* is restricted to one module, which the schema enforces.
+ */
+export function migrateLegacyCategoryModules(): void {
+  runOnce('2026-07-category-modules-from-reward-groups', () => {
+    const now = new Date().toISOString();
+    const mappings = db.prepare(`
+      select game_id as gameId, game_name as gameName, category_id as groupId
+      from viewer_reward_category_games
+    `).all() as Array<{ gameId: string; gameName: string; groupId: string }>;
+
+    const groupsByGame = new Map<string, { gameName: string; groupIds: string[] }>();
+    for (const row of mappings) {
+      const entry = groupsByGame.get(row.gameId) ?? { gameName: row.gameName, groupIds: [] };
+      entry.groupIds.push(row.groupId);
+      groupsByGame.set(row.gameId, entry);
+    }
+
+    for (const [gameId, { gameName, groupIds }] of groupsByGame) {
+      const moduleId = crypto.randomUUID();
+      insertModule.run(moduleId, gameName, now, now);
+      insertModuleGame.run(gameId, moduleId, gameName, now);
+      for (const groupId of groupIds) insertModuleGroup.run(moduleId, groupId, now);
+    }
+  });
+}
