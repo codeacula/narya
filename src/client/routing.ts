@@ -1,13 +1,25 @@
 export type DashboardRoute =
   | 'dashboard'
-  | 'settings'
-  | 'rewards'
-  | 'categories'
   | 'viewers'
   | 'viewer'
+  | SettingsRoute;
+
+/**
+ * The sections of the settings area. Each one is a rail entry in `SettingsShell` and
+ * its own URL, so a section is linkable and the browser's back button works between
+ * them. `settings` is the landing section (Connections) and owns the bare /settings.
+ */
+export type SettingsRoute =
+  | 'settings'
+  | 'golive'
+  | 'categories'
+  | 'rewards'
   | 'actions'
   | 'automation'
-  | 'modules';
+  | 'modules'
+  | 'content'
+  | 'speech'
+  | 'ai';
 
 /** The browser-source widgets. `main.tsx` maps each to a component. */
 export type OverlayName =
@@ -60,18 +72,43 @@ export function overlayFromPath(pathname: string): OverlayName | 'unknown' | nul
   return null;
 }
 
+/**
+ * One table for both directions, so a route's path and its parse can't drift apart.
+ * `viewer` is absent: its path carries a login segment (see `pathForViewer`).
+ */
+const PATH_BY_ROUTE: Record<Exclude<DashboardRoute, 'viewer'>, string> = {
+  dashboard: '/dashboard',
+  viewers: '/viewers',
+  settings: '/settings',
+  golive: '/settings/go-live',
+  categories: '/settings/categories',
+  rewards: '/settings/rewards',
+  actions: '/settings/actions',
+  automation: '/settings/automation',
+  modules: '/settings/modules',
+  content: '/settings/content',
+  speech: '/settings/speech',
+  ai: '/settings/ai',
+};
+
+const ROUTE_BY_PATH = new Map<string, DashboardRoute>(
+  Object.entries(PATH_BY_ROUTE).map(([route, path]) => [path, route as DashboardRoute]),
+);
+
+const SETTINGS_ROUTES: ReadonlySet<string> = new Set<SettingsRoute>([
+  'settings', 'golive', 'categories', 'rewards', 'actions', 'automation', 'modules', 'content', 'speech', 'ai',
+]);
+
+/** Whether a route lives inside the settings shell — which is what lights the top nav's settings link. */
+export function isSettingsRoute(route: DashboardRoute): route is SettingsRoute {
+  return SETTINGS_ROUTES.has(route);
+}
+
 export function dashboardRouteFromPath(pathname: string): DashboardRoute {
   const path = normalizePath(pathname);
-  if (path === '/settings/rewards') return 'rewards';
-  if (path === '/settings/categories') return 'categories';
-  if (path === '/settings/actions') return 'actions';
-  if (path === '/settings/automation') return 'automation';
-  if (path === '/settings/modules') return 'modules';
-  if (path === '/viewers') return 'viewers';
   // A single-viewer detail page: /viewers/<login>
   if (path.startsWith('/viewers/') && path.slice('/viewers/'.length).length > 0) return 'viewer';
-  if (path === '/settings') return 'settings';
-  return 'dashboard';
+  return ROUTE_BY_PATH.get(path) ?? 'dashboard';
 }
 
 // The viewer login embedded in a /viewers/<login> path, or null for any other route.
@@ -87,13 +124,12 @@ export function pathForViewer(login: string): string {
 }
 
 export function pathForDashboardRoute(route: DashboardRoute): string {
-  if (route === 'settings') return '/settings';
-  if (route === 'rewards') return '/settings/rewards';
-  if (route === 'categories') return '/settings/categories';
-  if (route === 'actions') return '/settings/actions';
-  if (route === 'automation') return '/settings/automation';
-  if (route === 'modules') return '/settings/modules';
-  if (route === 'viewers') return '/viewers';
-  if (route === 'viewer') return '/viewers';
-  return '/dashboard';
+  // A bare 'viewer' has no login to route to; the list is the honest destination.
+  if (route === 'viewer') return PATH_BY_ROUTE.viewers;
+  return PATH_BY_ROUTE[route];
+}
+
+/** Narrow an arbitrary string (a nav click) to a route, falling back to the dashboard. */
+export function dashboardRouteFromName(name: string): DashboardRoute {
+  return name in PATH_BY_ROUTE || name === 'viewer' ? name as DashboardRoute : 'dashboard';
 }

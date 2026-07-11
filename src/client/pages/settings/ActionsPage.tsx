@@ -19,6 +19,7 @@ import {
   runAction,
   updateAction,
 } from '../../services/dashboard';
+import { SettingsHeader } from './shared';
 import {
   MAX_ASSETS_PER_STEP,
   MAX_STEPS,
@@ -548,7 +549,7 @@ function RunResult({ result }: { result: ActionRunResult }) {
 
 // --- Page ---------------------------------------------------------------------
 
-export function ActionsSettingsPage({ onBack }: { onBack: () => void }) {
+export function ActionsSettingsPage() {
   const [actions, setActions] = useState<Action[]>([]);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [scenes, setScenes] = useState<string[]>([]);
@@ -658,23 +659,11 @@ export function ActionsSettingsPage({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <div className="settings-page">
-      <div className="settings-inner">
-        <div className="rewards-header">
-          <div>
-            <div className="settings-eyebrow">settings</div>
-            <h2 className="settings-title">Actions</h2>
-            <p className="set-intro">
-              An action is a named, reusable list of steps. Triggers run one; you can also run one by hand to test it.
-              Each step's delay is measured from the start of the run, not from the previous step — so text, media,
-              and speech can land together.
-            </p>
-          </div>
-          <div className="command-row-actions">
-            <button className="modbtn" type="button" onClick={onBack}>Back</button>
-            <button className="btn-primary" type="button" disabled={busy} onClick={startCreate}>New action</button>
-          </div>
-        </div>
+    <>
+        <SettingsHeader
+          section="actions"
+          actions={<button className="btn-primary" type="button" disabled={busy} onClick={startCreate}>New action</button>}
+        />
 
         {(message || error) && (
           <div className={'command-settings-status' + (error ? ' error' : '')}>{error ?? message}</div>
@@ -819,7 +808,6 @@ export function ActionsSettingsPage({ onBack }: { onBack: () => void }) {
             </form>
           </div>
         )}
-      </div>
-    </div>
+    </>
   );
 }

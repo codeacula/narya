@@ -19,6 +19,7 @@ import {
 } from '../../services/dashboard';
 import { useSocket } from '../../realtime';
 import { useDebouncedSuggestions } from '../../suggestions';
+import { SettingsHeader } from './shared';
 
 const EMPTY_RESPONSE: CategoryModulesResponse = {
   modules: [],
@@ -148,7 +149,7 @@ function StatusBadge({ module, active }: { module: CategoryModule; active: boole
   );
 }
 
-export function ModulesSettingsPage({ onBack }: { onBack: () => void }) {
+export function ModulesSettingsPage() {
   const [state, setState] = useState<CategoryModulesResponse>(EMPTY_RESPONSE);
   const [groups, setGroups] = useState<ViewerRewardCategory[]>([]);
   const [draft, setDraft] = useState<CategoryModuleInput | null>(null);
@@ -293,22 +294,11 @@ export function ModulesSettingsPage({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <div className="settings-page">
-      <div className="settings-inner">
-        <div className="rewards-header">
-          <div>
-            <div className="settings-eyebrow">settings</div>
-            <h2 className="settings-title">Category modules</h2>
-            <p className="set-intro">
-              A module owns Twitch categories and channel-point reward groups. Switching game deactivates one module
-              and activates another, turning its reward groups on and the outgoing module's off.
-            </p>
-          </div>
-          <div className="command-row-actions">
-            <button className="modbtn" type="button" onClick={onBack}>Back</button>
-            <button className="btn-primary" type="button" disabled={busy} onClick={startCreate}>New module</button>
-          </div>
-        </div>
+    <>
+        <SettingsHeader
+          section="modules"
+          actions={<button className="btn-primary" type="button" disabled={busy} onClick={startCreate}>New module</button>}
+        />
 
         {(message || error) && (
           <div className={'command-settings-status' + (error ? ' error' : '')}>{error ?? message}</div>
@@ -485,7 +475,6 @@ export function ModulesSettingsPage({ onBack }: { onBack: () => void }) {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </>
   );
 }

@@ -12,6 +12,7 @@ import {
 import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { Icon } from '../ui/icons';
+import { SettingsHeader } from './settings/shared';
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -211,7 +212,7 @@ function AddCategoryControl({
   );
 }
 
-export function StreamCategoriesPage({ onBack }: { onBack: () => void }) {
+export function StreamCategoriesPage() {
   const [categories, setCategories] = React.useState<SavedStreamCategory[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
@@ -241,21 +242,16 @@ export function StreamCategoriesPage({ onBack }: { onBack: () => void }) {
   const hiddenCount = categories.filter(cat => cat.hidden).length;
 
   return (
-    <div className="settings-page cats-page">
-      <div className="settings-inner">
-        <header className="cats-head">
-          <div>
-            <div className="settings-eyebrow">settings</div>
-            <h2 className="cats-title">Stream categories</h2>
+    <div className="cats-page">
+        <SettingsHeader
+          section="categories"
+          meta={
             <p className="cats-count">
               <b>{categories.length}</b> saved
               {hiddenCount > 0 ? <><span className="cats-count-dot" /><b>{hiddenCount}</b> hidden</> : null}
             </p>
-          </div>
-          <button className="modbtn" type="button" onClick={onBack}>Back to settings</button>
-        </header>
-
-        <p className="cats-intro">Tags you set on a category replace your stream tags automatically when you switch to it in Stream Info. Linked reward groups flip on with it too.</p>
+          }
+        />
 
         <AddCategoryControl
           busy={busy}
@@ -304,7 +300,6 @@ export function StreamCategoriesPage({ onBack }: { onBack: () => void }) {
             </div>
           </>
         )}
-      </div>
     </div>
   );
 }

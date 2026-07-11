@@ -22,6 +22,7 @@ import {
   runAutomationTrigger,
   updateAutomationTrigger,
 } from '../../services/dashboard';
+import { SettingsHeader } from './shared';
 import {
   CHAT_PHRASE_MATCHES,
   CHAT_PHRASE_MATCH_LABELS,
@@ -442,7 +443,7 @@ function TriggerEditor({
   );
 }
 
-export function AutomationSettingsPage({ onBack }: { onBack: () => void }) {
+export function AutomationSettingsPage() {
   const [triggers, setTriggers] = useState<AutomationTrigger[]>([]);
   const [actions, setActions] = useState<Action[]>([]);
   const [modules, setModules] = useState<CategoryModule[]>([]);
@@ -568,19 +569,8 @@ export function AutomationSettingsPage({ onBack }: { onBack: () => void }) {
   }, [triggers]);
 
   return (
-    <div className="settings-page">
-      <div className="settings-inner">
-        <div className="rewards-header">
-          <div>
-            <div className="settings-eyebrow">settings</div>
-            <h2 className="settings-title">Automation</h2>
-            <p className="set-intro">
-              A trigger is a source that fires one action. A trigger with no module is <b>global</b> — always armed.
-              A module-scoped one only fires while its module is the active one.
-            </p>
-          </div>
-          <button className="modbtn" type="button" onClick={onBack}>Back</button>
-        </div>
+    <>
+        <SettingsHeader section="automation" />
 
         {(message || error) && (
           <div className={'command-settings-status' + (error ? ' error' : '')}>{error ?? message}</div>
@@ -697,7 +687,6 @@ export function AutomationSettingsPage({ onBack }: { onBack: () => void }) {
             </div>
           );
         })}
-      </div>
-    </div>
+    </>
   );
 }

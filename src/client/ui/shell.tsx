@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Icon } from './icons';
+import { isSettingsRoute, type DashboardRoute } from '../routing';
 
 type DragPos = { x: number; y: number; w: number; h: number };
 type DragMemo = { sx: number; sy: number; ox: number; oy: number };
@@ -45,7 +46,7 @@ export function NavBar({
   channel,
   alert,
 }: {
-  page: string;
+  page: DashboardRoute;
   setPage: (p: string) => void;
   tweaksOpen: boolean;
   onTweaksToggle: () => void;
@@ -53,6 +54,9 @@ export function NavBar({
   alert?: React.ReactNode;
 }) {
   const channelName = channel.trim();
+  // Every settings section lives behind this one link now — the rail inside the settings
+  // shell navigates between them, so the top nav stays four fixed destinations.
+  const settingsActive = isSettingsRoute(page);
 
   return (
     <div className="navbar">
@@ -72,25 +76,13 @@ export function NavBar({
           dashboard
         </button>
         <button
-          className={'navlink' + (page === 'rewards' ? ' active' : '')}
-          onClick={() => setPage('rewards')}
-        >
-          viewer rewards
-        </button>
-        <button
-          className={'navlink' + (page === 'categories' ? ' active' : '')}
-          onClick={() => setPage('categories')}
-        >
-          categories
-        </button>
-        <button
-          className={'navlink' + (page === 'viewers' ? ' active' : '')}
+          className={'navlink' + (page === 'viewers' || page === 'viewer' ? ' active' : '')}
           onClick={() => setPage('viewers')}
         >
           viewers
         </button>
         <button
-          className={'navlink' + (page === 'settings' ? ' active' : '')}
+          className={'navlink' + (settingsActive ? ' active' : '')}
           onClick={() => setPage('settings')}
         >
           settings
@@ -107,9 +99,6 @@ export function NavBar({
         onClick={onTweaksToggle}
       >
         <Icon name="grid" size={15} />
-      </button>
-      <button className="nav-icon" title="Settings" onClick={() => setPage('settings')}>
-        <Icon name="settings" size={15} />
       </button>
       <div className="nav-avatar">{channelName ? channelName[0].toUpperCase() : '?'}</div>
     </div>

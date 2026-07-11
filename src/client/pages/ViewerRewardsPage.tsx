@@ -17,6 +17,7 @@ import {
 import { useSocket } from '../realtime';
 import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
+import { SettingsHeader } from './settings/shared';
 
 const EMPTY_REWARD: ViewerRewardUpsert = {
   title: '',
@@ -564,7 +565,7 @@ function CategoryGamesEditor({
   );
 }
 
-export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
+export function ViewerRewardsPage() {
   const [data, setData] = useState<ViewerRewardsResponse>({ categories: [], rewards: [] });
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -899,16 +900,11 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <div className="settings-page rewards-page">
-      <div className="settings-inner rewards-inner">
-        <div className="rewards-header">
-          <div>
-            <div className="settings-eyebrow">settings</div>
-            <h2 className="settings-title">Viewer rewards</h2>
-            <p className="set-intro">Create and organize Twitch Channel Points rewards. Toggle a category to switch its manageable rewards on or off together.</p>
-          </div>
-          <button className="btn-primary" type="button" disabled={loading || Boolean(busyId)} onClick={() => startCreate()}>New reward</button>
-        </div>
+    <div className="rewards-page">
+        <SettingsHeader
+          section="rewards"
+          actions={<button className="btn-primary" type="button" disabled={loading || Boolean(busyId)} onClick={() => startCreate()}>New reward</button>}
+        />
 
         {error ? <div className="set-status error">{error}</div> : null}
         {message ? <div className="set-status">{message}</div> : null}
@@ -962,7 +958,6 @@ export function ViewerRewardsPage({ onBack }: { onBack: () => void }) {
         )}
 
         <p className="reward-api-note">Twitch only lets an app edit or delete rewards created by that same app. Rewards created in Twitch are still listed and can be categorized here, but remain read-only.</p>
-      </div>
     </div>
   );
 }

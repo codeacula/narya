@@ -27,13 +27,16 @@ import { useSessionShoutouts } from '../shoutouts';
 import { useSocket } from '../realtime';
 import { chatHighlight } from '../../shared/roles';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
-import { SettingsPage } from './SettingsPage';
-import { ActionsSettingsPage } from './settings/ActionsPage';
-import { AutomationSettingsPage } from './settings/AutomationPage';
-import { ModulesSettingsPage } from './settings/ModulesPage';
-import { dashboardRouteFromPath, pathForDashboardRoute, pathForViewer, viewerLoginFromPath, type DashboardRoute } from '../routing';
-import { ViewerRewardsPage } from './ViewerRewardsPage';
-import { StreamCategoriesPage } from './StreamCategoriesPage';
+import { SettingsShell } from './settings/SettingsShell';
+import {
+  dashboardRouteFromName,
+  dashboardRouteFromPath,
+  isSettingsRoute,
+  pathForDashboardRoute,
+  pathForViewer,
+  viewerLoginFromPath,
+  type DashboardRoute,
+} from '../routing';
 import { ViewersPage } from './ViewersPage';
 import { ViewerDetailPage } from './ViewerDetailPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
@@ -153,8 +156,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const viewersDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const changePage = React.useCallback((nextPage: string) => {
-    const knownRoutes = ['settings', 'rewards', 'categories', 'viewers', 'actions', 'automation', 'modules'] as const;
-    const route: DashboardRoute = (knownRoutes as readonly string[]).includes(nextPage) ? nextPage as DashboardRoute : 'dashboard';
+    const route = dashboardRouteFromName(nextPage);
     const path = pathForDashboardRoute(route);
     if (window.location.pathname !== path) window.history.pushState({}, '', path);
     setPage(route);
@@ -724,27 +726,20 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         eventSubError={status.eventSubError}
         onReconnectEventSub={handleReconnectEventSub}
       />
-      {page === 'dashboard' ? dashboardLayout : page === 'rewards' ? (
-        <ViewerRewardsPage onBack={() => changePage('settings')} />
-      ) : page === 'categories' ? (
-        <StreamCategoriesPage onBack={() => changePage('settings')} />
-      ) : page === 'viewers' ? (
+      {page === 'viewers' ? (
         <ViewersPage onOpenViewerPage={navigateToViewer} />
       ) : page === 'viewer' ? (
         <ViewerDetailPage ctx={ctx} login={viewerLogin ?? ''} onBack={() => changePage('viewers')} />
-      ) : page === 'actions' ? (
-        <ActionsSettingsPage onBack={() => changePage('settings')} />
-      ) : page === 'automation' ? (
-        <AutomationSettingsPage onBack={() => changePage('settings')} />
-      ) : page === 'modules' ? (
-        <ModulesSettingsPage onBack={() => changePage('settings')} />
-      ) : (
-        <SettingsPage
+      ) : isSettingsRoute(page) ? (
+        <SettingsShell
+          route={page}
           status={status}
+          onNavigate={changePage}
           onTwitchLogout={handleTwitchLogout}
           onTwitchBotLogout={handleTwitchBotLogout}
-          onNavigate={changePage}
         />
+      ) : (
+        dashboardLayout
       )}
 
       <div className="popout-layer">

@@ -1,5 +1,11 @@
 import { expect, test } from 'bun:test';
-import { dashboardRouteFromPath, overlayFromPath } from './routing';
+import {
+  dashboardRouteFromName,
+  dashboardRouteFromPath,
+  isSettingsRoute,
+  overlayFromPath,
+  pathForDashboardRoute,
+} from './routing';
 
 test('resolves each overlay browser source to its widget', () => {
   expect(overlayFromPath('/overlay')).toBe('frame');
@@ -36,4 +42,42 @@ test('trailing slashes and non-overlay paths are unaffected', () => {
 test('dashboard routing still resolves real pages', () => {
   expect(dashboardRouteFromPath('/settings')).toBe('settings');
   expect(dashboardRouteFromPath('/')).toBe('dashboard');
+});
+
+// Every settings section is its own URL, so the rail is linkable and the back button
+// walks between sections rather than out of settings entirely.
+test('each settings section resolves from its path and back to it', () => {
+  const sections = [
+    ['/settings', 'settings'],
+    ['/settings/go-live', 'golive'],
+    ['/settings/categories', 'categories'],
+    ['/settings/rewards', 'rewards'],
+    ['/settings/actions', 'actions'],
+    ['/settings/automation', 'automation'],
+    ['/settings/modules', 'modules'],
+    ['/settings/content', 'content'],
+    ['/settings/speech', 'speech'],
+    ['/settings/ai', 'ai'],
+  ] as const;
+  for (const [path, route] of sections) {
+    expect(dashboardRouteFromPath(path)).toBe(route);
+    expect(pathForDashboardRoute(route)).toBe(path);
+    expect(isSettingsRoute(route)).toBe(true);
+  }
+});
+
+// The top nav's settings link lights for any section, so it can't go dark while the
+// operator is standing in one of them.
+test('only settings sections count as settings routes', () => {
+  expect(isSettingsRoute('dashboard')).toBe(false);
+  expect(isSettingsRoute('viewers')).toBe(false);
+  expect(isSettingsRoute('viewer')).toBe(false);
+});
+
+// A nav click hands over a bare string. An unknown one lands on the dashboard rather
+// than pushing a URL that resolves to nothing.
+test('an unknown route name falls back to the dashboard', () => {
+  expect(dashboardRouteFromName('speech')).toBe('speech');
+  expect(dashboardRouteFromName('nope')).toBe('dashboard');
+  expect(dashboardRouteFromPath('/settings/nope')).toBe('dashboard');
 });
