@@ -1075,3 +1075,14 @@ nav {
 @media (prefers-reduced-motion: reduce) {
   .overlayTextCard { animation: none; }
 }
+
+/* Quick actions: manual automation triggers on the tablet. Reuses .tabletPanel and
+   .tabletButtonGrid; only the last-run tone is new. A disarmed button (its module is
+   not active) falls back to the shared :disabled styling. */
+.quickActionsPanel {
+  grid-column: 1 / -1;
+}
+
+.quickActionTone-ok { border-color: var(--success-border); }
+.quickActionTone-warn { border-color: var(--warning-border); }
+.quickActionTone-error { border-color: var(--danger-border); }

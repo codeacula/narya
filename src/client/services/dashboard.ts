@@ -1,9 +1,18 @@
 // Dashboard data service - calls backend API for all data.
 import type {
+  Action,
+  ActionRunResult,
+  ActionUpsert,
   AlertConfigUpdate,
   AlertEventKind,
   AlertSettings,
   AlertSettingsUpdate,
+  AutomationTrigger,
+  AutomationTriggerInput,
+  CategoryModule,
+  CategoryModuleInput,
+  CategoryModulesResponse,
+  TemplateContext,
   Viewer,
   ViewerDetails,
   ChatEntry,
@@ -558,4 +567,86 @@ export async function deleteMediaAsset(id: string): Promise<void> {
 
 export async function getDiscoveredMedia(): Promise<DiscoveredMediaResponse> {
   return fetchJson<DiscoveredMediaResponse>('/api/media/discovered');
+}
+
+// --- Actions -----------------------------------------------------------------
+// An Action is a named, ordered list of steps. Triggers reference one by id, and
+// the operator can run one by hand from Settings → Actions.
+
+export async function getActions(): Promise<Action[]> {
+  return fetchJson<Action[]>('/api/actions');
+}
+
+export async function createAction(action: ActionUpsert): Promise<Action> {
+  return sendJson<Action>('/api/actions', 'POST', action);
+}
+
+export async function updateAction(id: string, action: ActionUpsert): Promise<Action> {
+  return sendJson<Action>(`/api/actions/${encodeURIComponent(id)}`, 'PUT', action);
+}
+
+export async function deleteAction(id: string): Promise<void> {
+  return sendVoid(`/api/actions/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+/** Fires the Action immediately. `context` supplies the tokens its templates interpolate. */
+export async function runAction(id: string, context: TemplateContext = {}): Promise<ActionRunResult> {
+  return sendJson<ActionRunResult>(`/api/actions/${encodeURIComponent(id)}/run`, 'POST', { context });
+}
+
+// --- Automation triggers -----------------------------------------------------
+
+/**
+ * The trigger list endpoint is the one contract in this feature that shipped
+ * without a named response type in shared/api.ts, so accept either a bare array
+ * (what /api/actions does) or a { triggers } envelope (what the module and media
+ * endpoints do) rather than betting on one and breaking on the other.
+ */
+function unwrapTriggers(payload: AutomationTrigger[] | { triggers?: AutomationTrigger[] }): AutomationTrigger[] {
+  if (Array.isArray(payload)) return payload;
+  return payload.triggers ?? [];
+}
+
+export async function getAutomationTriggers(): Promise<AutomationTrigger[]> {
+  return unwrapTriggers(await fetchJson<AutomationTrigger[] | { triggers?: AutomationTrigger[] }>('/api/automation/triggers'));
+}
+
+export async function createAutomationTrigger(trigger: AutomationTriggerInput): Promise<AutomationTrigger> {
+  return sendJson<AutomationTrigger>('/api/automation/triggers', 'POST', trigger);
+}
+
+export async function updateAutomationTrigger(id: string, trigger: AutomationTriggerInput): Promise<AutomationTrigger> {
+  return sendJson<AutomationTrigger>(`/api/automation/triggers/${encodeURIComponent(id)}`, 'PUT', trigger);
+}
+
+export async function deleteAutomationTrigger(id: string): Promise<void> {
+  return sendVoid(`/api/automation/triggers/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+/** Fires a trigger's Action, bypassing its cooldowns. Backs the manual Quick actions buttons. */
+export async function runAutomationTrigger(id: string): Promise<ActionRunResult> {
+  return sendJson<ActionRunResult>(`/api/automation/triggers/${encodeURIComponent(id)}/run`, 'POST', {});
+}
+
+// --- Category modules --------------------------------------------------------
+
+export async function getCategoryModules(): Promise<CategoryModulesResponse> {
+  return fetchJson<CategoryModulesResponse>('/api/category-modules');
+}
+
+export async function createCategoryModule(module: CategoryModuleInput): Promise<CategoryModule> {
+  return sendJson<CategoryModule>('/api/category-modules', 'POST', module);
+}
+
+export async function updateCategoryModule(id: string, module: CategoryModuleInput): Promise<CategoryModule> {
+  return sendJson<CategoryModule>(`/api/category-modules/${encodeURIComponent(id)}`, 'PUT', module);
+}
+
+export async function deleteCategoryModule(id: string): Promise<void> {
+  return sendVoid(`/api/category-modules/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+/** Re-reads the live Twitch category and re-applies module-owned reward groups. Clears `degraded` when it succeeds. */
+export async function reconcileCategoryModules(): Promise<CategoryModulesResponse> {
+  return sendJson<CategoryModulesResponse>('/api/category-modules/reconcile', 'POST', {});
 }
