@@ -370,15 +370,21 @@ export type MediaPlayback = RewardMedia & {
 /** Twitch events that can fire an on-stream alert. `sub` covers new subs and resubs. */
 export type AlertEventKind = 'sub' | 'gift' | 'cheer' | 'raid' | 'follow';
 
-/** Per-event alert configuration edited in Settings → Alerts. */
+/**
+ * Per-event alert configuration edited in Settings → Alerts. `sound` and `clip`
+ * are independent effects: an alert can play a sound, a clip, both together, or
+ * neither (text only). `sound` is always an audio file, `clip` always a video.
+ */
 export type AlertConfig = {
   enabled: boolean;
   /** Message template with {user}, {amount}, {tier}, {months} tokens. */
   template: string;
   /** How long the text banner stays on screen (ms). */
   durationMs: number;
-  /** Optional sound or clip; reuses the reward media binding shape. Null = text only. */
-  media: RewardMedia | null;
+  /** Optional audio effect (kind is always 'audio'). Null = no sound. */
+  sound: RewardMedia | null;
+  /** Optional video effect (kind is always 'video'). Null = no clip. */
+  clip: RewardMedia | null;
 };
 
 export type AlertSettings = {
@@ -391,7 +397,10 @@ export type AlertSettings = {
 };
 
 /** PUT body: any subset of kinds, each a partial config (absent fields keep current). */
-export type AlertConfigUpdate = Partial<Omit<AlertConfig, 'media'>> & { media?: RewardMedia | null };
+export type AlertConfigUpdate = Partial<Omit<AlertConfig, 'sound' | 'clip'>> & {
+  sound?: RewardMedia | null;
+  clip?: RewardMedia | null;
+};
 export type AlertSettingsUpdate = Partial<Record<AlertEventKind, AlertConfigUpdate>>;
 
 /** Broadcast payload (alert:show) consumed by the /overlay/alerts browser source. */
@@ -402,7 +411,10 @@ export type AlertPlayback = {
   text: string;
   /** Styling hint, mirrors StreamEvent.tone. */
   tone: string;
-  media: RewardMedia | null;
+  /** Audio effect to play alongside the banner, if any. */
+  sound: RewardMedia | null;
+  /** Video effect to play alongside the banner, if any. */
+  clip: RewardMedia | null;
   durationMs: number;
 };
 

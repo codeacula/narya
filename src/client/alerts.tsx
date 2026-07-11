@@ -40,67 +40,80 @@ export function useAlertQueue() {
 }
 
 /**
- * Shows one alert at a time: a text banner plus optional sound or clip. The alert
- * stays until BOTH its text duration has elapsed and any media has finished, so a
- * short clip never cuts the banner off early and a long clip isn't clipped. Renders
- * nothing when idle so the browser source stays fully transparent.
+ * Shows one alert at a time: a text banner plus an optional sound and/or clip,
+ * which play together. The alert stays until its text duration has elapsed AND
+ * every attached effect has finished, so a short clip never cuts the banner off
+ * early and a long clip isn't clipped. Renders nothing when idle so the browser
+ * source stays fully transparent.
  *
  * Autoplay: OBS browser sources run with --autoplay-policy=no-user-gesture-required,
  * so audible playback starts on its own. A plain browser tab may reject play() until
- * the page is clicked; we treat that as media-done rather than wedge the queue.
+ * the page is clicked; we treat that as effect-done rather than wedge the queue.
  */
 export function AlertStage({ item, onFinished }: { item: AlertPlayback | null; onFinished: (id: string) => void }) {
-  const mediaRef = React.useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
+  const soundRef = React.useRef<HTMLAudioElement | null>(null);
+  const clipRef = React.useRef<HTMLVideoElement | null>(null);
 
   React.useEffect(() => {
     if (!item) return;
     let finished = false;
     let timerDone = false;
-    let mediaDone = !item.media; // no media → nothing to wait for
+    let soundDone = !item.sound; // no effect → nothing to wait for
+    let clipDone = !item.clip;
     const finish = () => {
       if (finished) return;
       finished = true;
       onFinished(item.id);
     };
     const maybeFinish = () => {
-      if (timerDone && mediaDone) finish();
+      if (timerDone && soundDone && clipDone) finish();
     };
+    const cleanups: Array<() => void> = [];
     const timer = window.setTimeout(() => { timerDone = true; maybeFinish(); }, item.durationMs);
+    cleanups.push(() => window.clearTimeout(timer));
 
-    const element = mediaRef.current;
-    if (item.media && element) {
-      const onMediaDone = () => { mediaDone = true; maybeFinish(); };
-      element.volume = Math.max(0, Math.min(1, item.media.volume));
+    // Start one effect element and mark it done on ended/error/play-rejection.
+    const startEffect = (
+      element: HTMLMediaElement | null,
+      media: { src: string; volume: number } | null,
+      markDone: () => void,
+    ) => {
+      if (!media || !element) return;
+      const onDone = () => { markDone(); maybeFinish(); };
+      element.volume = Math.max(0, Math.min(1, media.volume));
       element.currentTime = 0;
-      element.addEventListener('ended', onMediaDone);
-      element.addEventListener('error', onMediaDone);
+      element.addEventListener('ended', onDone);
+      element.addEventListener('error', onDone);
       void element.play().catch((error: unknown) => {
-        console.error(`Alerts: could not play ${item.media?.src}:`, error);
-        onMediaDone();
+        console.error(`Alerts: could not play ${media.src}:`, error);
+        onDone();
       });
-      return () => {
-        window.clearTimeout(timer);
-        element.removeEventListener('ended', onMediaDone);
-        element.removeEventListener('error', onMediaDone);
-      };
-    }
-    return () => window.clearTimeout(timer);
+      cleanups.push(() => {
+        element.removeEventListener('ended', onDone);
+        element.removeEventListener('error', onDone);
+      });
+    };
+
+    startEffect(soundRef.current, item.sound, () => { soundDone = true; });
+    startEffect(clipRef.current, item.clip, () => { clipDone = true; });
+
+    return () => { cleanups.forEach(fn => fn()); };
   }, [item, onFinished]);
 
   if (!item) return null;
 
   return (
     <div className={`alertCard alertCard--${item.tone}`} key={item.id}>
-      {item.media?.kind === 'video' && (
+      {item.clip && (
         <video
-          ref={el => { mediaRef.current = el; }}
+          ref={el => { clipRef.current = el; }}
           className="alertVideo"
-          src={item.media.src}
+          src={item.clip.src}
           playsInline
         />
       )}
-      {item.media?.kind === 'audio' && (
-        <audio ref={el => { mediaRef.current = el; }} src={item.media.src} />
+      {item.sound && (
+        <audio ref={el => { soundRef.current = el; }} src={item.sound.src} />
       )}
       <div className="alertText">{item.text}</div>
     </div>

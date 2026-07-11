@@ -25,7 +25,7 @@ const ALERT_KIND_META: Array<{ kind: AlertEventKind; label: string; vars: string
   { kind: 'follow', label: 'Follows', vars: '{user}' },
 ];
 
-const EMPTY_CONFIG: AlertConfig = { enabled: false, template: '', durationMs: 6000, media: null };
+const EMPTY_CONFIG: AlertConfig = { enabled: false, template: '', durationMs: 6000, sound: null, clip: null };
 
 function emptySettings(): AlertSettings {
   return {
@@ -38,83 +38,62 @@ function emptySettings(): AlertSettings {
   };
 }
 
-/** Sound/clip picker lifted from the reward editor: kind → filtered file → volume. */
-function AlertMediaPicker({
-  media,
+/**
+ * One effect slot (sound or clip). The kind is fixed, so the picker is just a
+ * file select filtered to that kind plus a volume — a sound and a clip are two
+ * independent slots so an alert can play both together.
+ */
+function AlertEffectPicker({
+  label,
+  kind,
+  effect,
   mediaFiles,
   busy,
   onChange,
 }: {
-  media: RewardMedia | null;
+  label: string;
+  kind: MediaKind;
+  effect: RewardMedia | null;
   mediaFiles: MediaFile[];
   busy: boolean;
-  onChange: (media: RewardMedia | null) => void;
+  onChange: (effect: RewardMedia | null) => void;
 }) {
-  const mediaKind = media?.kind ?? 'none';
-  const filesForKind = mediaFiles.filter(file => file.kind === mediaKind);
-  const boundFileMissing = Boolean(media) && !mediaFiles.some(file => file.src === media?.src);
-
-  // Switching kind picks the first file of that kind, so the binding's src never
-  // mismatches its kind (the server would reject it).
-  const applyMediaKind = (kind: 'none' | MediaKind) => {
-    if (kind === 'none') {
-      onChange(null);
-      return;
-    }
-    const first = mediaFiles.find(file => file.kind === kind);
-    if (!first) return;
-    onChange({ kind, src: first.src, volume: media?.volume ?? DEFAULT_MEDIA_VOLUME });
-  };
+  const files = mediaFiles.filter(file => file.kind === kind);
+  const boundFileMissing = Boolean(effect) && !mediaFiles.some(file => file.src === effect?.src);
 
   return (
-    <>
-      <div className="llm-settings-grid">
+    <div className="llm-settings-grid">
+      <label className="field">
+        <span>{label}</span>
+        <select
+          disabled={busy || (files.length === 0 && !effect)}
+          value={effect?.src ?? ''}
+          onChange={event => {
+            const src = event.target.value;
+            if (!src) { onChange(null); return; }
+            onChange({ kind, src, volume: effect?.volume ?? DEFAULT_MEDIA_VOLUME });
+          }}
+        >
+          <option value="">None</option>
+          {boundFileMissing && effect && <option value={effect.src}>{effect.src} (missing)</option>}
+          {files.map(file => <option key={file.src} value={file.src}>{file.label}</option>)}
+        </select>
+      </label>
+      {effect && (
         <label className="field">
-          <span>Sound / clip</span>
-          <select
+          <span>{label} volume — {Math.round(effect.volume * 100)}%</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
             disabled={busy}
-            value={mediaKind}
-            onChange={event => applyMediaKind(event.target.value as 'none' | MediaKind)}
-          >
-            <option value="none">Nothing</option>
-            <option value="video" disabled={!mediaFiles.some(f => f.kind === 'video')}>Video clip</option>
-            <option value="audio" disabled={!mediaFiles.some(f => f.kind === 'audio')}>Sound</option>
-          </select>
+            value={effect.volume}
+            onChange={event => onChange({ ...effect, volume: Number(event.target.value) })}
+          />
         </label>
-        {media && (
-          <>
-            <label className="field">
-              <span>File</span>
-              <select
-                disabled={busy}
-                value={media.src}
-                onChange={event => onChange({ ...media, src: event.target.value })}
-              >
-                {boundFileMissing && <option value={media.src}>{media.src} (missing)</option>}
-                {filesForKind.map(file => <option key={file.src} value={file.src}>{file.label}</option>)}
-              </select>
-            </label>
-            <label className="field">
-              <span>Volume — {Math.round(media.volume * 100)}%</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                disabled={busy}
-                value={media.volume}
-                onChange={event => onChange({ ...media, volume: Number(event.target.value) })}
-              />
-            </label>
-          </>
-        )}
-      </div>
-      {boundFileMissing && media && (
-        <div className="set-sub">
-          <code>{media.src}</code> is no longer in <code>public/</code>, so this alert plays no media. Pick another file or restore it.
-        </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -164,7 +143,8 @@ export function AlertsSection() {
         enabled: config.enabled,
         template: config.template,
         durationMs: config.durationMs,
-        media: config.media,
+        sound: config.sound,
+        clip: config.clip,
       };
     }
     void updateAlertSettings(update)
@@ -193,8 +173,10 @@ export function AlertsSection() {
       <form className="command-settings-form" onSubmit={handleSubmit}>
         <div className="command-example">
           On-stream alerts for Twitch events, shown on the dedicated <code>/overlay/alerts</code> browser
-          source — add it as its own OBS source so you can position it independently. Each type can play an
-          optional sound or clip from <code>public/sounds</code> / <code>public/clips</code>.
+          source — add it as its own OBS source so you can position it independently. Each type can play a
+          sound and a clip together from <code>public/sounds</code> / <code>public/clips</code>.
+          {' '}Audio plays automatically in OBS; a plain browser tab won't play sound until you click the
+          page once (browser autoplay policy).
         </div>
 
         {ALERT_KIND_META.map(({ kind, label, vars }) => {
@@ -239,11 +221,21 @@ export function AlertsSection() {
 
               <div className="set-sub">Variables: <code>{vars}</code></div>
 
-              <AlertMediaPicker
-                media={config.media}
+              <AlertEffectPicker
+                label="Sound"
+                kind="audio"
+                effect={config.sound}
                 mediaFiles={mediaFiles}
                 busy={busy}
-                onChange={media => updateKind(kind, { media })}
+                onChange={sound => updateKind(kind, { sound })}
+              />
+              <AlertEffectPicker
+                label="Clip"
+                kind="video"
+                effect={config.clip}
+                mediaFiles={mediaFiles}
+                busy={busy}
+                onChange={clip => updateKind(kind, { clip })}
               />
 
               <div className="command-settings-actions">

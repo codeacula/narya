@@ -34,11 +34,11 @@ const ALERT_TONES: Record<AlertEventKind, string> = {
 
 /** Shipped defaults; a kind with no saved row falls back to these (disabled). */
 export const DEFAULT_ALERT_CONFIG: Record<AlertEventKind, AlertConfig> = {
-  sub: { enabled: false, template: '{user} just subscribed! ({tier})', durationMs: DEFAULT_DURATION_MS, media: null },
-  gift: { enabled: false, template: '{user} gifted {amount} subs!', durationMs: DEFAULT_DURATION_MS, media: null },
-  cheer: { enabled: false, template: '{user} cheered {amount} bits!', durationMs: DEFAULT_DURATION_MS, media: null },
-  raid: { enabled: false, template: '{user} raided with {amount} viewers!', durationMs: DEFAULT_DURATION_MS, media: null },
-  follow: { enabled: false, template: '{user} just followed!', durationMs: DEFAULT_DURATION_MS, media: null },
+  sub: { enabled: false, template: '{user} just subscribed! ({tier})', durationMs: DEFAULT_DURATION_MS, sound: null, clip: null },
+  gift: { enabled: false, template: '{user} gifted {amount} subs!', durationMs: DEFAULT_DURATION_MS, sound: null, clip: null },
+  cheer: { enabled: false, template: '{user} cheered {amount} bits!', durationMs: DEFAULT_DURATION_MS, sound: null, clip: null },
+  raid: { enabled: false, template: '{user} raided with {amount} viewers!', durationMs: DEFAULT_DURATION_MS, sound: null, clip: null },
+  follow: { enabled: false, template: '{user} just followed!', durationMs: DEFAULT_DURATION_MS, sound: null, clip: null },
 };
 
 /** Sample substitutions for the "Test" button so the operator can position the overlay. */
@@ -55,9 +55,10 @@ type AlertRow = {
   enabled: number;
   template: string;
   durationMs: number;
-  mediaKind: string | null;
-  mediaSrc: string | null;
-  mediaVolume: number | null;
+  soundSrc: string | null;
+  soundVolume: number | null;
+  clipSrc: string | null;
+  clipVolume: number | null;
   updatedAt: string;
 };
 
@@ -67,23 +68,25 @@ const selectAllAlertRows = db.prepare(`
     enabled,
     template,
     duration_ms as durationMs,
-    media_kind as mediaKind,
-    media_src as mediaSrc,
-    media_volume as mediaVolume,
+    sound_src as soundSrc,
+    sound_volume as soundVolume,
+    clip_src as clipSrc,
+    clip_volume as clipVolume,
     updated_at as updatedAt
   from alert_settings
 `);
 
 const upsertAlertRow = db.prepare(`
-  insert into alert_settings (kind, enabled, template, duration_ms, media_kind, media_src, media_volume, updated_at)
-  values (?, ?, ?, ?, ?, ?, ?, ?)
+  insert into alert_settings (kind, enabled, template, duration_ms, sound_src, sound_volume, clip_src, clip_volume, updated_at)
+  values (?, ?, ?, ?, ?, ?, ?, ?, ?)
   on conflict(kind) do update set
     enabled = excluded.enabled,
     template = excluded.template,
     duration_ms = excluded.duration_ms,
-    media_kind = excluded.media_kind,
-    media_src = excluded.media_src,
-    media_volume = excluded.media_volume,
+    sound_src = excluded.sound_src,
+    sound_volume = excluded.sound_volume,
+    clip_src = excluded.clip_src,
+    clip_volume = excluded.clip_volume,
     updated_at = excluded.updated_at
 `);
 
@@ -91,10 +94,9 @@ export function isAlertEventKind(value: unknown): value is AlertEventKind {
   return typeof value === 'string' && (ALERT_KINDS as readonly string[]).includes(value);
 }
 
-function rowMedia(row: AlertRow): RewardMedia | null {
-  if (!row.mediaSrc) return null;
-  const kind: MediaKind = row.mediaKind === 'video' ? 'video' : 'audio';
-  return { kind, src: row.mediaSrc, volume: typeof row.mediaVolume === 'number' ? row.mediaVolume : 0.8 };
+function effect(kind: MediaKind, src: string | null, volume: number | null): RewardMedia | null {
+  if (!src) return null;
+  return { kind, src, volume: typeof volume === 'number' ? volume : 0.8 };
 }
 
 function rowToConfig(row: AlertRow): AlertConfig {
@@ -102,7 +104,8 @@ function rowToConfig(row: AlertRow): AlertConfig {
     enabled: row.enabled === 1,
     template: row.template || DEFAULT_ALERT_CONFIG[row.kind].template,
     durationMs: row.durationMs,
-    media: rowMedia(row),
+    sound: effect('audio', row.soundSrc, row.soundVolume),
+    clip: effect('video', row.clipSrc, row.clipVolume),
   };
 }
 
@@ -134,6 +137,21 @@ function clampDuration(value: unknown): number {
   return Math.round(Math.max(MIN_DURATION_MS, Math.min(MAX_DURATION_MS, durationMs)));
 }
 
+/**
+ * Resolve one effect slot. Absent → keep; null → clear; object → validate against
+ * the served catalog and require the expected kind (sound=audio, clip=video),
+ * allowing the current binding through even if its file was deleted (keepMissing).
+ */
+function resolveEffect(
+  expected: MediaKind,
+  next: RewardMedia | null | undefined,
+  prev: RewardMedia | null,
+): RewardMedia | null {
+  if (next === undefined) return prev;
+  if (next === null) return null;
+  return normalizeRewardMedia({ ...next, kind: expected }, { keepMissing: prev });
+}
+
 export function saveAlertSettings(update: AlertSettingsUpdate): AlertSettings {
   const current = getAlertSettings();
   const now = new Date().toISOString();
@@ -144,21 +162,17 @@ export function saveAlertSettings(update: AlertSettingsUpdate): AlertSettings {
     const enabled = typeof patch.enabled === 'boolean' ? patch.enabled : prev.enabled;
     const template = patch.template !== undefined ? validateTemplate(patch.template) : prev.template;
     const durationMs = patch.durationMs !== undefined ? clampDuration(patch.durationMs) : prev.durationMs;
-    // media absent → keep; null → clear; object → validate against the served catalog,
-    // allowing the current binding through even if its file was deleted (keepMissing).
-    const media = patch.media === undefined
-      ? prev.media
-      : patch.media === null
-        ? null
-        : normalizeRewardMedia(patch.media, { keepMissing: prev.media });
+    const sound = resolveEffect('audio', patch.sound, prev.sound);
+    const clip = resolveEffect('video', patch.clip, prev.clip);
     upsertAlertRow.run(
       kind,
       enabled ? 1 : 0,
       template,
       durationMs,
-      media?.kind ?? null,
-      media?.src ?? null,
-      media?.volume ?? null,
+      sound?.src ?? null,
+      sound?.volume ?? null,
+      clip?.src ?? null,
+      clip?.volume ?? null,
       now,
     );
   }
@@ -176,7 +190,8 @@ function broadcastAlert(kind: AlertEventKind, config: AlertConfig, vars: Record<
     kind,
     text: renderTemplate(config.template, vars),
     tone: ALERT_TONES[kind],
-    media: config.media,
+    sound: config.sound,
+    clip: config.clip,
     durationMs: config.durationMs,
   };
   broadcast('alert:show', payload);

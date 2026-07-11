@@ -49,18 +49,18 @@ describe('alert_settings persistence', () => {
   });
 
   test('round-trips an enabled config and stamps updatedAt', () => {
-    saveAlertSettings({ sub: { enabled: true, template: '{user} subbed!', durationMs: 8000, media: null } });
+    saveAlertSettings({ sub: { enabled: true, template: '{user} subbed!', durationMs: 8000, sound: null, clip: null } });
     const settings = getAlertSettings();
-    expect(settings.sub).toEqual({ enabled: true, template: '{user} subbed!', durationMs: 8000, media: null });
+    expect(settings.sub).toEqual({ enabled: true, template: '{user} subbed!', durationMs: 8000, sound: null, clip: null });
     expect(settings.updatedAt).not.toBeNull();
     // Untouched kinds still read as defaults.
     expect(settings.raid).toEqual(DEFAULT_ALERT_CONFIG.raid);
   });
 
   test('absent fields keep the stored value', () => {
-    saveAlertSettings({ cheer: { enabled: true, template: 'A', durationMs: 5000, media: null } });
+    saveAlertSettings({ cheer: { enabled: true, template: 'A', durationMs: 5000, sound: null, clip: null } });
     saveAlertSettings({ cheer: { template: 'B' } });
-    expect(getAlertSettings().cheer).toEqual({ enabled: true, template: 'B', durationMs: 5000, media: null });
+    expect(getAlertSettings().cheer).toEqual({ enabled: true, template: 'B', durationMs: 5000, sound: null, clip: null });
   });
 
   test('clamps duration into the allowed range', () => {
@@ -74,16 +74,24 @@ describe('alert_settings persistence', () => {
     expect(() => saveAlertSettings({ sub: { template: '   ' } })).toThrow(HttpRouteError);
   });
 
-  test('validates a media binding and clears it with null', () => {
+  test('validates a sound binding and clears it with null', () => {
     if (!KNOWN_AUDIO) return; // no media in a clean checkout
-    saveAlertSettings({ gift: { template: 'g', media: { kind: 'audio', src: KNOWN_AUDIO, volume: 0.5 } } });
-    expect(getAlertSettings().gift.media).toEqual({ kind: 'audio', src: KNOWN_AUDIO, volume: 0.5 });
-    saveAlertSettings({ gift: { media: null } });
-    expect(getAlertSettings().gift.media).toBeNull();
+    saveAlertSettings({ gift: { template: 'g', sound: { kind: 'audio', src: KNOWN_AUDIO, volume: 0.5 } } });
+    expect(getAlertSettings().gift.sound).toEqual({ kind: 'audio', src: KNOWN_AUDIO, volume: 0.5 });
+    saveAlertSettings({ gift: { sound: null } });
+    expect(getAlertSettings().gift.sound).toBeNull();
   });
 
-  test('rejects a media file that is not in the catalog', () => {
-    expect(() => saveAlertSettings({ sub: { template: 's', media: { kind: 'audio', src: '/sounds/../../.env', volume: 0.5 } } }))
+  test('keeps sound and clip independent so both can play together', () => {
+    if (!KNOWN_AUDIO) return;
+    saveAlertSettings({ raid: { template: 'r', sound: { kind: 'audio', src: KNOWN_AUDIO, volume: 0.5 } } });
+    // Updating the clip slot must not disturb the stored sound.
+    saveAlertSettings({ raid: { durationMs: 4000 } });
+    expect(getAlertSettings().raid.sound).toEqual({ kind: 'audio', src: KNOWN_AUDIO, volume: 0.5 });
+  });
+
+  test('forces the sound slot to audio kind, rejecting a mismatched file', () => {
+    expect(() => saveAlertSettings({ sub: { template: 's', sound: { kind: 'audio', src: '/sounds/../../.env', volume: 0.5 } } }))
       .toThrow(HttpRouteError);
   });
 });

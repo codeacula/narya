@@ -245,9 +245,10 @@ db.exec(`
     enabled integer not null default 0,
     template text not null default '',
     duration_ms integer not null default 6000,
-    media_kind text,                -- null when no media bound
-    media_src text,
-    media_volume real,
+    sound_src text,                 -- optional audio effect (null = none)
+    sound_volume real,
+    clip_src text,                  -- optional video effect (null = none)
+    clip_volume real,
     updated_at text not null default ''
   );
 
@@ -343,6 +344,10 @@ const allowedMigrationColumns = new Set([
   'discord_announce_error',
   'session_id',
   'actor_login',
+  'sound_src',
+  'sound_volume',
+  'clip_src',
+  'clip_volume',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
@@ -364,6 +369,10 @@ const allowedMigrationDefinitions: Record<string, string> = {
   discord_announce_error: 'text',
   session_id: 'text',
   actor_login: 'text',
+  sound_src: 'text',
+  sound_volume: 'real',
+  clip_src: 'text',
+  clip_volume: 'real',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -408,6 +417,14 @@ db.exec('create index if not exists idx_stream_events_session on stream_events(s
 // `actor` is a display name, which for a localized name doesn't lowercase to the
 // login. Rows predating this column stay null and fall back to the old guess.
 addColumnIfMissing('stream_events', 'actor_login', 'text');
+
+// Alerts gained independent sound + clip effects (replacing a single media slot).
+// Tables created under the earlier schema get the new columns; the old media_*
+// columns, if present, are left in place and ignored.
+addColumnIfMissing('alert_settings', 'sound_src', 'text');
+addColumnIfMissing('alert_settings', 'sound_volume', 'real');
+addColumnIfMissing('alert_settings', 'clip_src', 'text');
+addColumnIfMissing('alert_settings', 'clip_volume', 'real');
 
 // tmi logins are already lowercase, but historically some rows were stored with
 // mixed case. Normalize them once so username queries can use plain equality and

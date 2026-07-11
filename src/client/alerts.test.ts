@@ -3,7 +3,7 @@ import type { AlertPlayback } from '../shared/api';
 import { advanceAlert, enqueueAlert, MAX_ALERT_QUEUE } from './alerts';
 
 function item(id: string): AlertPlayback {
-  return { id, kind: 'sub', text: `alert ${id}`, tone: 'warning', media: null, durationMs: 6000 };
+  return { id, kind: 'sub', text: `alert ${id}`, tone: 'warning', sound: null, clip: null, durationMs: 6000 };
 }
 
 /** Runs `body` with console.warn swallowed, returning what it would have printed. */
