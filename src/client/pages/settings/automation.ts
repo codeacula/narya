@@ -426,7 +426,12 @@ export function validateTrigger(trigger: AutomationTriggerInput): string | null 
   }
 }
 
-/** Command names are stored bare — the ! or / is presentation. */
+/**
+ * The bare name the editor works in. Commands are **stored with their prefix**
+ * (`!quack`, `/shoutout`) — that is the literal word the dispatcher compares against
+ * chat — and the server adds it on write. The editor strips it so the field holds a name
+ * and the hint can render the prefix itself.
+ */
 export function normalizeCommandName(value: string): string {
   return value.trim().replace(/^[!/]+/, '').toLowerCase();
 }
@@ -439,4 +444,27 @@ export function parseAliases(value: string): string[] {
     if (alias) seen.add(alias);
   }
   return [...seen];
+}
+
+/**
+ * A stored trigger, as the editor's draft.
+ *
+ * Command triggers need the prefix stripped: the field strips `!` as you type and the
+ * hint renders the `!` itself, so loading the stored `!quack` raw showed "Viewers type
+ * !!quack" and the field rewrote itself to `quack` on the first keystroke. The server
+ * re-adds the prefix on save, so a bare name is what round-trips.
+ */
+export function triggerToInput(trigger: AutomationTrigger): AutomationTriggerInput {
+  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...input } = trigger;
+  if (input.kind === 'viewer_command' || input.kind === 'dashboard_slash') {
+    return {
+      ...input,
+      config: {
+        ...input.config,
+        command: normalizeCommandName(input.config.command),
+        aliases: input.config.aliases.map(normalizeCommandName),
+      },
+    } as AutomationTriggerInput;
+  }
+  return input as AutomationTriggerInput;
 }

@@ -26,6 +26,7 @@ import {
   summarizeRunResult,
   supportsCooldowns,
   triggerScopeLabel,
+  triggerToInput,
   unplayableAssetIds,
   validateAction,
   validateStep,
@@ -576,5 +577,66 @@ describe('describeTriggerConfig command rendering', () => {
     expect(describeTriggerConfig(viewer, {})).toContain('!lurk');
     expect(describeTriggerConfig(viewer, {})).not.toContain('!!');
     expect(describeTriggerConfig(slash, {})).toBe('/shoutout (/so)');
+  });
+});
+
+describe('triggerToInput', () => {
+  test('strips the stored prefix so the editor holds a bare command name', () => {
+    // The server stores the word the dispatcher matches against chat — "!quack", not
+    // "quack". The editor strips ! as you type and its hint renders the ! itself, so
+    // loading the stored value raw showed "Viewers type !!quack" and the field rewrote
+    // itself on the first keystroke.
+    const viewer = {
+      id: 't1', kind: 'viewer_command', actionId: 'a', moduleId: null, enabled: true,
+      globalCooldownMs: 0, userCooldownMs: 0,
+      config: { command: '!quack', aliases: ['!duck'], roles: [] },
+      createdAt: '', updatedAt: '',
+    } as AutomationTrigger;
+
+    const input = triggerToInput(viewer);
+    expect(input.kind).toBe('viewer_command');
+    if (input.kind !== 'viewer_command') throw new Error('wrong kind');
+    expect(input.config.command).toBe('quack');
+    expect(input.config.aliases).toEqual(['duck']);
+  });
+
+  test('strips the slash prefix from a dashboard command and its aliases', () => {
+    const slash = {
+      id: 't2', kind: 'dashboard_slash', actionId: 'a', moduleId: null, enabled: true,
+      globalCooldownMs: 0, userCooldownMs: 0,
+      config: { command: '/shoutout', aliases: ['/so'] },
+      createdAt: '', updatedAt: '',
+    } as AutomationTrigger;
+
+    const input = triggerToInput(slash);
+    if (input.kind !== 'dashboard_slash') throw new Error('wrong kind');
+    expect(input.config.command).toBe('shoutout');
+    expect(input.config.aliases).toEqual(['so']);
+  });
+
+  test('leaves a non-command trigger config untouched', () => {
+    const phrase = {
+      id: 't3', kind: 'chat_phrase', actionId: 'a', moduleId: null, enabled: true,
+      globalCooldownMs: 0, userCooldownMs: 0,
+      config: { phrase: '!!! hype !!!', match: 'contains', roles: [] },
+      createdAt: '', updatedAt: '',
+    } as AutomationTrigger;
+
+    const input = triggerToInput(phrase);
+    if (input.kind !== 'chat_phrase') throw new Error('wrong kind');
+    expect(input.config.phrase).toBe('!!! hype !!!');
+  });
+
+  test('drops the server-owned id and timestamps', () => {
+    const trigger = {
+      id: 't4', kind: 'manual', actionId: 'a', moduleId: null, enabled: true,
+      globalCooldownMs: 0, userCooldownMs: 0,
+      config: { label: 'Hype train' },
+      createdAt: '2026-07-11T00:00:00.000Z', updatedAt: '2026-07-11T00:00:00.000Z',
+    } as AutomationTrigger;
+
+    expect(triggerToInput(trigger)).not.toHaveProperty('id');
+    expect(triggerToInput(trigger)).not.toHaveProperty('createdAt');
+    expect(triggerToInput(trigger)).not.toHaveProperty('updatedAt');
   });
 });
