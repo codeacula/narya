@@ -43,6 +43,7 @@ const OVERLAY_EVENTS = new Set([
   'media:play',
   'tts:speak',
   'alert:show',
+  'overlay:text',
   'stream:event',
   'stream:event:update',
   'status:updated',
