@@ -99,8 +99,8 @@ export const CHAT_PHRASE_MATCH_LABELS: Record<ChatPhraseMatch, string> = {
   starts_with: 'Starts with',
 };
 
-/** Lifecycle triggers fire from their module, so a module is required, not optional. */
-export function requiresModule(kind: AutomationTriggerKind): boolean {
+/** Lifecycle kinds, whose null module means "every module" rather than "global". */
+export function isLifecycleKind(kind: AutomationTriggerKind): boolean {
   return kind === 'module_activate' || kind === 'module_deactivate';
 }
 
@@ -153,7 +153,7 @@ export function newStep(type: ActionStepType): ActionStepInput {
     case 'twitch_whisper':
       return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', template: '' } };
     case 'twitch_timeout':
-      return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', seconds: 60, reasonTemplate: '' } };
+      return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', secondsTemplate: '600', reasonTemplate: '' } };
     case 'twitch_ban':
       return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', reasonTemplate: '' } };
   }
@@ -224,7 +224,7 @@ export function describeStep(step: ActionStepInput, assets: MediaAsset[] = []): 
     case 'twitch_whisper':
       return `${step.payload.loginTemplate}: ${step.payload.template || '(empty)'}`;
     case 'twitch_timeout':
-      return `${step.payload.loginTemplate} for ${step.payload.seconds}s`;
+      return `${step.payload.loginTemplate} for ${step.payload.secondsTemplate}s`;
     case 'twitch_ban':
       return step.payload.loginTemplate;
   }
@@ -269,7 +269,9 @@ export function describeTriggerConfig(trigger: AutomationTrigger, rewardTitles: 
  * A module-scoped one only fires while its module is the active one.
  */
 export function triggerScopeLabel(trigger: AutomationTrigger, modules: CategoryModule[]): string {
-  if (!trigger.moduleId) return 'Global';
+  // On a lifecycle trigger a null module means "fires for every module", which is not
+  // the same claim as a global chat trigger being armed regardless of category.
+  if (!trigger.moduleId) return isLifecycleKind(trigger.kind) ? 'Every module' : 'Global';
   return modules.find(module => module.id === trigger.moduleId)?.name ?? 'Unknown module';
 }
 
@@ -354,12 +356,20 @@ export function validateStep(step: ActionStepInput, index: number): string | nul
       if (templateMissing(step.payload.loginTemplate)) return `${where}: needs a target login.`;
       if (templateMissing(step.payload.template)) return `${where}: needs a message.`;
       return null;
-    case 'twitch_timeout':
+    case 'twitch_timeout': {
       if (templateMissing(step.payload.loginTemplate)) return `${where}: needs a target login.`;
-      if (step.payload.seconds < 1 || step.payload.seconds > MAX_TIMEOUT_SECONDS) {
-        return `${where}: duration must be between 1 second and 14 days.`;
+      const duration = step.payload.secondsTemplate.trim();
+      if (!duration) return `${where}: needs a duration.`;
+      // A templated duration ("{arg2}") can only be range-checked once it renders, in
+      // the executor. Only a literal is checkable here.
+      if (!duration.includes('{')) {
+        const literal = Number(duration);
+        if (!Number.isFinite(literal) || literal < 1 || literal > MAX_TIMEOUT_SECONDS) {
+          return `${where}: duration must be between 1 second and 14 days.`;
+        }
       }
       return null;
+    }
     case 'twitch_ban':
       if (templateMissing(step.payload.loginTemplate)) return `${where}: needs a target login.`;
       return null;
@@ -385,9 +395,6 @@ export function validateAction(action: ActionUpsert): string | null {
 /** The first problem that would make the server reject this trigger, or null. */
 export function validateTrigger(trigger: AutomationTriggerInput): string | null {
   if (!trigger.actionId) return 'Pick the action this trigger runs.';
-  if (requiresModule(trigger.kind) && !trigger.moduleId) {
-    return 'Lifecycle triggers fire from a module, so one must be selected.';
-  }
   if (trigger.globalCooldownMs < 0 || trigger.userCooldownMs < 0) {
     return 'Cooldowns cannot be negative. Use 0 to disable one.';
   }

@@ -357,16 +357,17 @@ function StepPayloadFields({
           <label className="field">
             <span>Seconds</span>
             <input
-              type="number"
-              min={1}
-              max={1209600}
-              value={step.payload.seconds}
+              type="text"
+              value={step.payload.secondsTemplate}
               disabled={disabled}
+              placeholder="600 or {arg2}"
               onChange={event => onChange({
                 ...step,
-                payload: { ...step.payload, seconds: Math.round(Number(event.target.value)) },
+                payload: { ...step.payload, secondsTemplate: event.target.value },
               })}
             />
+            {/* Text, not number: the duration may be bound from the invocation
+                ("/timeout bob 300 spam" → {arg2}) rather than fixed on the Action. */}
           </label>
           <label className="field">
             <span>Reason (optional)</span>

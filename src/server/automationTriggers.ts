@@ -221,6 +221,9 @@ export function normalizeAutomationTriggerInput(body: unknown): AutomationTrigge
 
   const moduleId = typeof value.moduleId === 'string' && value.moduleId.trim() ? value.moduleId.trim() : null;
   if (moduleId && !moduleExists.get(moduleId)) throw new HttpRouteError(400, 'Module not found.');
+  // A null module on a lifecycle trigger is NOT a misconfiguration: it means "every
+  // module", so one Action can announce any switch. See handleModuleLifecycle, which
+  // scopes on the trigger's own moduleId rather than on what is currently live.
 
   return {
     kind,

@@ -4,7 +4,6 @@ import { withToken } from '../auth';
 import { SettingsRow } from './settings/shared';
 import { ConnectionsSection } from './settings/ConnectionsSection';
 import { GoLiveSection } from './settings/GoLiveSection';
-import { CommandsSection } from './settings/CommandsSection';
 import { ContentSection } from './settings/ContentSection';
 import { TtsSection } from './settings/TtsSection';
 import { AlertsSection } from './settings/AlertsSection';
@@ -128,7 +127,6 @@ export function SettingsPage({
 
         <ConnectionsSection eventSubConnected={status.eventSubConnected} />
         <GoLiveSection />
-        <CommandsSection />
         <ContentSection />
         <TtsSection />
         <AlertsSection />

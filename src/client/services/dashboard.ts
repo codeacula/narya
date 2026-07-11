@@ -596,19 +596,9 @@ export async function runAction(id: string, context: TemplateContext = {}): Prom
 
 // --- Automation triggers -----------------------------------------------------
 
-/**
- * The trigger list endpoint is the one contract in this feature that shipped
- * without a named response type in shared/api.ts, so accept either a bare array
- * (what /api/actions does) or a { triggers } envelope (what the module and media
- * endpoints do) rather than betting on one and breaking on the other.
- */
-function unwrapTriggers(payload: AutomationTrigger[] | { triggers?: AutomationTrigger[] }): AutomationTrigger[] {
-  if (Array.isArray(payload)) return payload;
-  return payload.triggers ?? [];
-}
 
 export async function getAutomationTriggers(): Promise<AutomationTrigger[]> {
-  return unwrapTriggers(await fetchJson<AutomationTrigger[] | { triggers?: AutomationTrigger[] }>('/api/automation/triggers'));
+  return fetchJson<AutomationTrigger[]>('/api/automation/triggers');
 }
 
 export async function createAutomationTrigger(trigger: AutomationTriggerInput): Promise<AutomationTrigger> {

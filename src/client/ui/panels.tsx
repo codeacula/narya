@@ -10,6 +10,7 @@ import {
 } from '../services/dashboard';
 import type { Viewer, ChatEntry, StreamEvent, SessionShoutout, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter } from '../../shared/api';
 import { renderContent, useEmotes } from '../chat';
+import { QuickActionsPanel } from '../quickActions';
 import { DEFAULT_ATTENTION_TAG, type AttentionItem, type AttentionSettings } from '../attention';
 import { kindChip, kindTone } from '../eventKinds';
 import { sceneLabel, switchableScenes } from '../scenes';
@@ -1297,5 +1298,10 @@ export const MODULES: Record<string, ModuleEntry> = {
     dot: true,
     count: ctx => ctx.events.length,
     render: ctx => <EventFeed ctx={ctx} />,
+  },
+  quickActions: {
+    title: 'quick actions',
+    dot: false,
+    render: () => <QuickActionsPanel />,
   },
 };

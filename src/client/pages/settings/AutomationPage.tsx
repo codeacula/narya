@@ -34,7 +34,7 @@ import {
   isGlobalTrigger,
   normalizeCommandName,
   parseAliases,
-  requiresModule,
+  isLifecycleKind,
   runResultTone,
   summarizeRunResult,
   supportsCooldowns,
@@ -359,7 +359,7 @@ function TriggerEditor({
   onClose: () => void;
 }) {
   const problem = validateTrigger(draft);
-  const moduleRequired = requiresModule(draft.kind);
+  const lifecycle = isLifecycleKind(draft.kind);
 
   return (
     <form
@@ -398,16 +398,18 @@ function TriggerEditor({
             disabled={saving}
             onChange={event => onChange({ ...draft, moduleId: event.target.value || null })}
           >
-            {/* A lifecycle trigger has no module-less meaning, so it gets no Global option. */}
-            {!moduleRequired && <option value="">Global — always armed</option>}
-            {moduleRequired && <option value="">Select a module…</option>}
+            {/* On a lifecycle trigger, no module means "every module" — one Action can
+                announce any switch. On the other kinds it means "always armed". */}
+            <option value="">{lifecycle ? 'Every module' : 'Global — always armed'}</option>
             {modules.map(module => (
               <option key={module.id} value={module.id}>{module.name}</option>
             ))}
           </select>
           <small className="action-hint">
-            {moduleRequired
-              ? 'Lifecycle triggers fire from a module, so one is required.'
+            {lifecycle
+              ? draft.moduleId
+                ? 'Fires only when this module switches.'
+                : 'Fires whenever any module switches.'
               : draft.moduleId
                 ? 'Only fires while this module is the active one.'
                 : 'Armed whatever category you are streaming.'}

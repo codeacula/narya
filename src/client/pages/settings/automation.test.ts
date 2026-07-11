@@ -21,7 +21,7 @@ import {
   normalizeCommandName,
   parseAliases,
   removeStep,
-  requiresModule,
+  isLifecycleKind,
   runResultTone,
   summarizeRunResult,
   supportsCooldowns,
@@ -307,7 +307,7 @@ describe('validateStep', () => {
       type: 'twitch_timeout',
       enabled: true,
       delayMs: 0,
-      payload: { loginTemplate: '{login}', seconds: 1_209_601, reasonTemplate: '' },
+      payload: { loginTemplate: '{login}', secondsTemplate: '1209601', reasonTemplate: '' },
     };
     expect(validateStep(step, 0)).toContain('14 days');
   });
@@ -356,7 +356,7 @@ describe('validateTrigger', () => {
   });
 
   // A lifecycle trigger with no module could never fire.
-  test('a module lifecycle trigger without a module is rejected', () => {
+  test('a module lifecycle trigger with no module is accepted: it means every module', () => {
     const trigger: AutomationTriggerInput = {
       kind: 'module_activate',
       actionId: 'action-1',
@@ -366,7 +366,10 @@ describe('validateTrigger', () => {
       userCooldownMs: 0,
       config: {},
     };
-    expect(validateTrigger(trigger)).toContain('must be selected');
+    // handleModuleLifecycle scopes on the trigger's own moduleId, so null fires for
+    // every module — one Action can announce any switch. Rejecting it would forbid a
+    // configuration the dispatcher explicitly supports.
+    expect(validateTrigger(trigger)).toBeNull();
   });
 
   test('a chat phrase trigger with no phrase is rejected', () => {
@@ -383,12 +386,12 @@ describe('validateTrigger', () => {
   });
 });
 
-describe('requiresModule / supportsCooldowns', () => {
+describe('isLifecycleKind / supportsCooldowns', () => {
   test('only lifecycle triggers require a module', () => {
-    expect(requiresModule('module_activate')).toBe(true);
-    expect(requiresModule('module_deactivate')).toBe(true);
-    expect(requiresModule('manual')).toBe(false);
-    expect(requiresModule('reward')).toBe(false);
+    expect(isLifecycleKind('module_activate')).toBe(true);
+    expect(isLifecycleKind('module_deactivate')).toBe(true);
+    expect(isLifecycleKind('manual')).toBe(false);
+    expect(isLifecycleKind('reward')).toBe(false);
   });
 
   // A manual button is operator-only, and lifecycle triggers fire from a category

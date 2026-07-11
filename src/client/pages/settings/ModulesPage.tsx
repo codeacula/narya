@@ -26,6 +26,7 @@ const EMPTY_RESPONSE: CategoryModulesResponse = {
   activeGameId: null,
   activeGameName: null,
   lastSignalSource: null,
+  lookupError: null,
   lastReconciledAt: null,
 };
 
@@ -336,6 +337,16 @@ export function ModulesSettingsPage({ onBack }: { onBack: () => void }) {
                 {reconciling ? 'Reconciling...' : 'Reconcile now'}
               </button>
             </div>
+
+            {/* A failed category lookup with no module active has nowhere per-module to
+                report itself, and "no module active" from a healthy off-category stream
+                must not look identical to "we could not reach Twitch". */}
+            {state.lookupError && (
+              <div className="command-settings-status error">
+                Could not establish the live Twitch category, so no reward state was changed:{' '}
+                {state.lookupError} Modules stay as they were until a Reconcile succeeds.
+              </div>
+            )}
 
             {degraded.length > 0 && (
               <div className="command-settings-status error">
