@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,11 +15,43 @@ const defaultDbPath = process.env.NODE_ENV === 'test'
   ? ':memory:'
   : path.join(dataDir, 'streamer-tools.sqlite');
 const dbPath = process.env.STREAMER_TOOLS_DB ?? defaultDbPath;
-if (dbPath !== ':memory:') mkdirSync(dataDir, { recursive: true });
+// The database holds Twitch access/refresh tokens, the Twitch and Discord client
+// secrets, the OBS password, and the LLM API key. SQLite honours the umask, which
+// on most desktops means 0644 — readable by every other account on the box. Own
+// the modes explicitly instead, and re-apply them on every boot so installs that
+// predate this get migrated.
+if (dbPath === defaultDbPath && dbPath !== ':memory:') {
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  restrictMode(dataDir, 0o700);
+}
+
+function restrictMode(target: string, mode: number): void {
+  try {
+    if (existsSync(target)) chmodSync(target, mode);
+  } catch (error) {
+    // Non-POSIX filesystems (and Windows) can reject chmod. Don't take the app
+    // down over it, but don't let it pass silently either.
+    console.warn(`Database: could not restrict permissions on ${target}:`, error);
+  }
+}
+
+// SQLite creates the -wal/-shm sidecars with the main file's mode, so tightening
+// all three here also covers the ones it recreates on later boots.
+function restrictDatabaseFiles(): void {
+  if (dbPath === ':memory:') return;
+  for (const suffix of ['', '-wal', '-shm']) {
+    restrictMode(`${dbPath}${suffix}`, 0o600);
+  }
+}
 
 export const db = new Database(dbPath);
 
 db.exec('pragma journal_mode = WAL');
+// The schema declares `on delete cascade` in four places, but SQLite ignores
+// every one of them unless foreign keys are enabled per-connection (the default
+// is off). Without this, deleting a parent silently orphans its children.
+db.exec('pragma foreign_keys = ON');
+restrictDatabaseFiles();
 db.exec(`
   create table if not exists chat_messages (
     id text primary key,
@@ -342,6 +374,8 @@ const allowedMigrationColumns = new Set([
   'temperature',
   'chatterbox_base_url',
   'discord_announce_error',
+  'discord_announce_attempts',
+  'discord_announce_terminal',
   'session_id',
   'actor_login',
   'sound_src',
@@ -367,6 +401,8 @@ const allowedMigrationDefinitions: Record<string, string> = {
   temperature: 'real not null default 0.8',
   chatterbox_base_url: "text not null default 'http://127.0.0.1:8008'",
   discord_announce_error: 'text',
+  discord_announce_attempts: 'integer not null default 0',
+  discord_announce_terminal: 'integer not null default 0',
   session_id: 'text',
   actor_login: 'text',
   sound_src: 'text',
@@ -411,6 +447,12 @@ addColumnIfMissing('tts_settings', 'cfg_weight', 'real not null default 0.5');
 addColumnIfMissing('tts_settings', 'temperature', 'real not null default 0.8');
 addColumnIfMissing('app_config', 'chatterbox_base_url', "text not null default 'http://127.0.0.1:8008'");
 addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');
+// A failed go-live announcement used to be suppressed forever. Track how many
+// attempts a session has burned, and whether the failure was terminal (bad token,
+// missing permission, unknown channel) or merely transient (rate limit, network),
+// so a transient one can still be retried. See announceTwitchStreamOnline.
+addColumnIfMissing('stream_sessions', 'discord_announce_attempts', 'integer not null default 0');
+addColumnIfMissing('stream_sessions', 'discord_announce_terminal', 'integer not null default 0');
 // Events recorded before this column existed stay null and read as "an earlier stream".
 addColumnIfMissing('stream_events', 'session_id', 'text');
 db.exec('create index if not exists idx_stream_events_session on stream_events(session_id)');
@@ -460,4 +502,22 @@ if (chattersEmpty && hasChatMessages) {
     from chat_messages
     group by username
   `);
+}
+
+// Turning `pragma foreign_keys` on doesn't retroactively remove rows that were
+// orphaned while it was off (deleting a category used to leave its game mappings
+// behind). Sweep them once so the declared cascades describe the data that's
+// actually there, and so nothing trips the constraint later.
+for (const [childTable, childKey, parentTable] of [
+  ['chatbot_command_actions', 'command_id', 'chatbot_commands'],
+  ['stream_session_chatters', 'session_id', 'stream_sessions'],
+  ['viewer_reward_category_members', 'category_id', 'viewer_reward_categories'],
+  ['viewer_reward_category_games', 'category_id', 'viewer_reward_categories'],
+] as const) {
+  const orphans = db
+    .prepare(`delete from ${childTable} where ${childKey} not in (select id from ${parentTable})`)
+    .run() as { changes: number };
+  if (orphans.changes > 0) {
+    console.log(`Database: removed ${orphans.changes} orphaned ${childTable} row(s) left by the disabled foreign keys.`);
+  }
 }

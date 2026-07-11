@@ -63,7 +63,6 @@ const updateCategory = db.prepare(`
   set name = ?, enabled = ?, default_background_color = ?, updated_at = ?
   where id = ?
 `);
-const deleteCategoryMembers = db.prepare(`delete from viewer_reward_category_members where category_id = ?`);
 const deleteCategory = db.prepare(`delete from viewer_reward_categories where id = ?`);
 const listCategoryMembers = db.prepare(`
   select reward_id as rewardId, category_id as categoryId
@@ -472,10 +471,10 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
   app.delete('/api/twitch/reward-categories/:id', (request, response) => {
     try {
       if (!getCategory.get(request.params.id)) throw new HttpRouteError(404, 'Reward category not found.');
-      db.transaction((id: string) => {
-        deleteCategoryMembers.run(id);
-        deleteCategory.run(id);
-      })(request.params.id);
+      // Members and game mappings both cascade (see db.ts). Deleting members by
+      // hand here used to leave the game mappings orphaned, because the cascade
+      // the schema declared was never enabled.
+      deleteCategory.run(request.params.id);
       response.status(204).send();
     } catch (error) {
       sendRouteError(response, error);
