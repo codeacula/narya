@@ -72,7 +72,7 @@ import type {
   AppConfigUpdate,
   StreamStatus,
 } from '../../shared/api';
-import { getDashboardToken } from '../auth';
+import { getDashboardToken, isDashboardTokenRejection, reportDashboardTokenRejected } from '../auth';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
 
@@ -90,13 +90,21 @@ async function fetchJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// Every failing API response funnels through here, which is also the only place
+// that can see a rejected dashboard token: the panels each fire their own fetch,
+// so detecting it per-caller would mean detecting it in a dozen places.
 async function readApiError(response: Response): Promise<string> {
+  let body: unknown = null;
   try {
-    const data = await response.json() as { error?: string };
-    return data.error ?? `${response.status} ${response.statusText}`;
+    body = await response.json();
   } catch {
-    return `${response.status} ${response.statusText}`;
+    // Not a JSON error body (a proxy or a crash) — fall through to the status line.
   }
+  if (isDashboardTokenRejection(response.status, body)) {
+    reportDashboardTokenRejected();
+  }
+  const error = (body as { error?: unknown } | null)?.error;
+  return typeof error === 'string' ? error : `${response.status} ${response.statusText}`;
 }
 
 async function sendJson<T>(path: string, method: string, body?: unknown): Promise<T> {

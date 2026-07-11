@@ -2826,3 +2826,59 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   .action-step-delay { width: 100%; }
   .action-step-head .command-row-actions { margin-left: 0; }
 }
+
+/* Recovery screen shown when the server rejects this browser's dashboard token. */
+.auth-gate {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+.auth-gate-card {
+  display: grid;
+  gap: 12px;
+  width: min(440px, 100%);
+  padding: 24px;
+  border: 1px solid var(--navy-700);
+  border-radius: var(--radius-2);
+  background: var(--navy-900);
+}
+.auth-gate-title {
+  color: var(--fg-1);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.auth-gate-body {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.auth-gate-body code {
+  color: var(--gold-400);
+  font-size: 12px;
+}
+.auth-gate-input {
+  padding: 9px 12px;
+  border: 1px solid var(--navy-700);
+  border-radius: var(--radius-2);
+  background: var(--navy-950);
+  color: var(--fg-1);
+  font-family: inherit;
+  font-size: 13px;
+}
+.auth-gate-input:focus {
+  outline: none;
+  border-color: var(--arcane-400);
+}
+.auth-gate .btn-primary {
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.auth-gate .btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

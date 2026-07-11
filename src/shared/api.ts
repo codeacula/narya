@@ -1,3 +1,11 @@
+/**
+ * Error code the auth middleware attaches when it rejects the dashboard token
+ * itself. Routes 401 for their own reasons too ("Twitch login is required."), so
+ * the status alone cannot tell the client which credential is at fault — only a
+ * response carrying this code means "the token you sent is missing or stale".
+ */
+export const INVALID_DASHBOARD_TOKEN = 'invalid_dashboard_token';
+
 export type ChatMessage = {
   id: string;
   channel: string;

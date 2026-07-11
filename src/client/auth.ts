@@ -7,6 +7,8 @@
 // overwrite the operator's token (or vice versa) and break whichever page loaded
 // second. Keying by page role keeps the two capabilities from colliding.
 
+import { INVALID_DASHBOARD_TOKEN } from '../shared/api';
+
 const OPERATOR_TOKEN_KEY = 'dashboardToken';
 const OVERLAY_TOKEN_KEY = 'overlayToken';
 
@@ -46,4 +48,56 @@ export function withToken(url: string): string {
   if (!token) return url;
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
+
+// Store a token the operator pasted into the recovery screen (see ui/authGate.tsx).
+export function setDashboardToken(token: string): void {
+  try {
+    localStorage.setItem(tokenKey(), token);
+  } catch {
+    // localStorage may be unavailable; the caller reloads either way.
+  }
+}
+
+export function clearDashboardToken(): void {
+  try {
+    localStorage.removeItem(tokenKey());
+  } catch {
+    // Nothing to do — a token we cannot remove is one we could not have read.
+  }
+}
+
+/**
+ * True only when the auth middleware rejected the token we sent. Routes 401 over
+ * their own missing credentials ("Twitch login is required."), and acting on those
+ * would discard a perfectly good operator token — so match on the server's code,
+ * never on the status alone.
+ */
+export function isDashboardTokenRejection(status: number, body: unknown): boolean {
+  if (status !== 401) return false;
+  if (!body || typeof body !== 'object') return false;
+  return (body as { code?: unknown }).code === INVALID_DASHBOARD_TOKEN;
+}
+
+// The dashboard's stored token is stale or missing. Discard it — keeping it only
+// makes the next load fail the same way — and let the UI put up the recovery
+// screen. Latched, because every panel's initial fetch fails at once and the
+// screen must not depend on which one lost the race.
+const rejectionListeners = new Set<() => void>();
+let tokenRejected = false;
+
+export function reportDashboardTokenRejected(): void {
+  clearDashboardToken();
+  if (tokenRejected) return;
+  tokenRejected = true;
+  for (const listener of rejectionListeners) listener();
+}
+
+export function isDashboardTokenRejected(): boolean {
+  return tokenRejected;
+}
+
+export function onDashboardTokenRejected(listener: () => void): () => void {
+  rejectionListeners.add(listener);
+  return () => rejectionListeners.delete(listener);
 }

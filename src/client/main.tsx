@@ -9,6 +9,7 @@ import { TabletPage } from './pages/Tablet';
 import { ViewerWindowPage } from './pages/ViewerWindow';
 import { dashboardRouteFromPath } from './routing';
 import { captureDashboardToken } from './auth';
+import { AuthGate } from './ui/authGate';
 import { ToastProvider } from './ui/notifications';
 import { ServiceStatusToasts } from './ui/serviceStatus';
 
@@ -45,15 +46,19 @@ function App() {
     };
   }, [isOverlay]);
 
+  // Overlays are deliberately outside the gate: an OBS browser source has no one
+  // to type a token at, and must stay transparent rather than render app chrome.
   if (OverlayComponent) return <OverlayComponent />;
-  if (path === '/tablet') return <TabletPage />;
-  if (path === '/viewer') return <ViewerWindowPage />;
+  if (path === '/tablet') return <AuthGate><TabletPage /></AuthGate>;
+  if (path === '/viewer') return <AuthGate><ViewerWindowPage /></AuthGate>;
   const initialPage = dashboardRouteFromPath(path);
   return (
-    <ToastProvider>
-      <ServiceStatusToasts />
-      <DashboardPage initialPage={initialPage} />
-    </ToastProvider>
+    <AuthGate>
+      <ToastProvider>
+        <ServiceStatusToasts />
+        <DashboardPage initialPage={initialPage} />
+      </ToastProvider>
+    </AuthGate>
   );
 }
 
