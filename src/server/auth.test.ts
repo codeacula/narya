@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type express from 'express';
 import {
   getOverlayToken,
@@ -15,7 +15,11 @@ function setToken(token: string) {
   config.dashboardToken = token;
 }
 
-afterEach(() => {
+// config.dashboardToken is read from the environment at import, and `bun test`
+// loads .env — so an operator who has a token configured would otherwise see these
+// tests fail. Establish the no-token baseline before each test rather than assuming
+// a clean environment; tests that need a token call setToken().
+beforeEach(() => {
   config.dashboardToken = '';
 });
 
