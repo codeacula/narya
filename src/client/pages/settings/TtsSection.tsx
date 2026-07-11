@@ -2,10 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { TtsSettings, TtsVoice } from '../../../shared/api';
 import { TTS_TONE_PRESETS } from '../../../shared/tts';
 import {
+  getAppConfig,
   getTtsSettings,
   getTtsStatus,
   getTtsVoices,
   testTtsSpeak,
+  updateAppConfig,
   updateTtsSettings,
 } from '../../services/dashboard';
 
@@ -14,6 +16,101 @@ type TtsStatus = {
   baseUrl: string;
   error?: string;
 };
+
+const DEFAULT_CHATTERBOX_URL = 'http://127.0.0.1:8008';
+
+/**
+ * Where Chatterbox lives, and whether we can reach it. This is `app_config`, not TTS
+ * settings — it saves through PUT /api/config like the rest of Connections did — but it
+ * belongs next to the voice it serves: the URL, the reachability check, and the voice
+ * list it supplies are one thing to the operator, and splitting them across two settings
+ * pages meant a broken voice list gave no hint that the address was wrong.
+ */
+function ChatterboxService({
+  status,
+  onSaved,
+}: {
+  status: TtsStatus | null;
+  /** Re-runs the reachability check and reloads the voice list from the new address. */
+  onSaved: () => void;
+}) {
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_CHATTERBOX_URL);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getAppConfig()
+      .then(config => { if (!cancelled) setBaseUrl(config.chatterboxBaseUrl); })
+      .catch(caught => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : 'Could not load the Chatterbox URL');
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    // Only chatterboxBaseUrl is sent: every other key is left undefined, and the server
+    // keeps its stored value for those. Sending the whole config from here would let a
+    // stale form overwrite settings this page doesn't show.
+    void updateAppConfig({ chatterboxBaseUrl: baseUrl })
+      .then(config => {
+        setBaseUrl(config.chatterboxBaseUrl);
+        setMessage('Saved — rechecking the service.');
+        onSaved();
+      })
+      .catch(caught => setError(caught instanceof Error ? caught.message : 'Could not save the Chatterbox URL'))
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <div className="set-group">
+      <div className="set-group-label">Chatterbox service</div>
+
+      <form className="command-settings-form" onSubmit={handleSubmit}>
+        {status && (
+          <div className={'settings-alert ' + (status.ok ? 'settings-alert--info' : 'settings-alert--warn')}>
+            <span className="settings-alert-icon">{status.ok ? 'i' : '!'}</span>
+            <span>
+              Chatterbox {status.ok ? 'connected' : 'unavailable'}
+              {status.baseUrl ? ` at ${status.baseUrl}` : ''}
+              {!status.ok && status.error ? `: ${status.error}` : ''}
+            </span>
+          </div>
+        )}
+
+        <label className="field">
+          <span>Chatterbox URL</span>
+          <input
+            value={baseUrl}
+            disabled={loading || saving}
+            placeholder={DEFAULT_CHATTERBOX_URL}
+            onChange={event => setBaseUrl(event.target.value)}
+          />
+          <small>The Chatterbox server that renders every voice line. It supplies the voice profiles below.</small>
+        </label>
+
+        {(message || error) && (
+          <div className={'command-settings-status' + (error ? ' error' : '')}>
+            {error ?? message}
+          </div>
+        )}
+
+        <div className="command-settings-actions">
+          <button className="modbtn gold" type="submit" disabled={loading || saving}>
+            {saving ? 'Saving...' : 'Save service'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 export function TtsSection() {
   const [ttsSettings, setTtsSettings] = useState<TtsSettings>({
@@ -63,6 +160,17 @@ export function TtsSection() {
         if (!cancelled) setTtsLoading(false);
       });
     return () => { cancelled = true; };
+  }, []);
+
+  // Re-probe Chatterbox and reload its voice list — the address may have just changed.
+  const refreshService = React.useCallback(() => {
+    void Promise.all([
+      getTtsVoices().catch(() => [] as TtsVoice[]),
+      getTtsStatus().catch(error => ({ ok: false, baseUrl: '', error: error instanceof Error ? error.message : 'Could not reach Chatterbox' })),
+    ]).then(([voices, status]) => {
+      setTtsVoices(voices);
+      setTtsStatus(status);
+    });
   }, []);
 
   const saveTtsSettings = (settings: TtsSettings, successMessage: string) => {
@@ -117,6 +225,9 @@ export function TtsSection() {
   };
 
   return (
+    <>
+    <ChatterboxService status={ttsStatus} onSaved={refreshService} />
+
     <div className="set-group">
       <div className="set-group-label set-group-label--toggle">
         <span>Text-to-Speech</span>
@@ -140,17 +251,6 @@ export function TtsSection() {
 
       {ttsSettings.enabled && (
       <form className="command-settings-form" onSubmit={handleTtsSubmit}>
-        {ttsStatus && (
-          <div className={'settings-alert ' + (ttsStatus.ok ? 'settings-alert--info' : 'settings-alert--warn')}>
-            <span className="settings-alert-icon">{ttsStatus.ok ? 'i' : '!'}</span>
-            <span>
-              Chatterbox service {ttsStatus.ok ? 'connected' : 'unavailable'}
-              {ttsStatus.baseUrl ? ` at ${ttsStatus.baseUrl}` : ''}
-              {!ttsStatus.ok && ttsStatus.error ? `: ${ttsStatus.error}` : ''}
-            </span>
-          </div>
-        )}
-
         <label className="field">
           <span>Voice profile</span>
           <select
@@ -290,5 +390,6 @@ export function TtsSection() {
       </form>
       )}
     </div>
+    </>
   );
 }

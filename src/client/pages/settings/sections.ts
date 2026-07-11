@@ -29,7 +29,7 @@ export const SETTINGS_SECTIONS: ReadonlyArray<SettingsSection> = [
     group: 'channel',
     label: 'Connections',
     title: 'Connections',
-    blurb: 'Sign in to Twitch, then point Narya at OBS, Discord, and the speech server. Saving reconnects only the service you changed — no restart.',
+    blurb: 'Sign in to Twitch, then point Narya at OBS and Discord. Saving reconnects only the service you changed — no restart.',
   },
   {
     id: 'golive',
@@ -85,7 +85,7 @@ export const SETTINGS_SECTIONS: ReadonlyArray<SettingsSection> = [
     group: 'studio',
     label: 'Speech',
     title: 'Speech',
-    blurb: 'The Chatterbox voice behind !tts and every speak step. Test it here before a viewer does.',
+    blurb: 'Where Chatterbox lives, and the voice behind !tts and every speak step. Test it here before a viewer does.',
   },
   {
     id: 'ai',

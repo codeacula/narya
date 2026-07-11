@@ -18,7 +18,6 @@ type AppConfigForm = {
   discordBotToken: string;
   discordBotTokenConfigured: boolean;
   clearDiscordBotToken: boolean;
-  chatterboxBaseUrl: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   soundVolume: number;
@@ -40,7 +39,6 @@ function appConfigToForm(config: AppConfig): AppConfigForm {
     discordBotToken: '',
     discordBotTokenConfigured: config.discordBotTokenConfigured,
     clearDiscordBotToken: false,
-    chatterboxBaseUrl: config.chatterboxBaseUrl,
     musicPollIntervalMs: config.musicPollIntervalMs,
     musicPlayerctlPlayer: config.musicPlayerctlPlayer,
     soundVolume: config.soundVolume,
@@ -62,7 +60,6 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   discordBotToken: '',
   discordBotTokenConfigured: false,
   clearDiscordBotToken: false,
-  chatterboxBaseUrl: 'http://127.0.0.1:8008',
   musicPollIntervalMs: 2000,
   musicPlayerctlPlayer: '',
   soundVolume: 0.2,
@@ -112,7 +109,6 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
       discordClientId: appConfigForm.discordClientId,
       discordBotToken: appConfigForm.discordBotToken || undefined,
       clearDiscordBotToken: appConfigForm.clearDiscordBotToken,
-      chatterboxBaseUrl: appConfigForm.chatterboxBaseUrl,
       musicPollIntervalMs: appConfigForm.musicPollIntervalMs,
       musicPlayerctlPlayer: appConfigForm.musicPlayerctlPlayer,
       soundVolume: appConfigForm.soundVolume,
@@ -289,16 +285,6 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
             )}
           </div>
         </div>
-
-        <label className="field">
-          <span>Chatterbox URL</span>
-          <input
-            value={appConfigForm.chatterboxBaseUrl}
-            disabled={appConfigLoading || appConfigSaving}
-            placeholder="http://127.0.0.1:8008"
-            onChange={event => setAppConfigForm(current => ({ ...current, chatterboxBaseUrl: event.target.value }))}
-          />
-        </label>
 
         <div className="llm-settings-grid">
           <label className="field">
