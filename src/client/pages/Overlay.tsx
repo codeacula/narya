@@ -82,6 +82,28 @@ export function OverlayShoutoutsPage() {
   );
 }
 
+/**
+ * An OBS browser source pointing at an overlay path that does not exist.
+ *
+ * It says so rather than rendering blank: a silent transparent page looks exactly like
+ * a working overlay that has nothing to show yet, so a typo'd or retired URL would sit
+ * dead in a scene collection indefinitely. The same reasoning as a media asset that
+ * lands disabled — visibly broken and repairable beats quietly doing nothing.
+ *
+ * What it must never do is fall through to the dashboard, which is the bug this
+ * replaces: chat, controls, and viewer data rendered into a live scene.
+ */
+export function OverlayUnknownPage({ path }: { path: string }) {
+  return (
+    <main className="overlayWidget overlayUnknownWidget" aria-label="Unknown overlay">
+      <div className="overlayUnknownNotice">
+        <strong>Narya: no overlay at {path}</strong>
+        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, or /status.</span>
+      </div>
+    </main>
+  );
+}
+
 export function OverlayPage() {
   return (
     <main className="overlayFrame">
