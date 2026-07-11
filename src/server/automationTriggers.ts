@@ -350,9 +350,9 @@ type SeedCommand = {
  * The four commands the dashboard chat bar used to parse by hand. They are seeded as
  * ordinary Action + trigger rows so the operator can edit or delete them like any other.
  *
- * `{login}` is the command's target and `{args}` the free text after it — see the
- * dashboard_slash context in triggerDispatcher.ts. Cooldowns are zero: an operator
- * timing out two spammers in a row must not be rate limited by their own tool.
+ * `{arg1}` is the target, `{rest}` everything after it, `{rest2}` everything after the
+ * second argument. Cooldowns are zero: an operator timing out two spammers in a row
+ * must not be rate limited by their own tool.
  */
 const SEED_COMMANDS: SeedCommand[] = [
   {
@@ -360,45 +360,46 @@ const SEED_COMMANDS: SeedCommand[] = [
     description: 'Shout out a viewer from the dashboard chat bar.',
     command: '/shoutout',
     aliases: ['/so'],
-    step: { type: 'twitch_shoutout', enabled: true, delayMs: 0, payload: { loginTemplate: '{login}' } },
+    step: { type: 'twitch_shoutout', enabled: true, delayMs: 0, payload: { loginTemplate: '{arg1}' } },
   },
   {
     name: 'Whisper',
-    description: 'Whisper a viewer from the dashboard chat bar.',
+    description: 'Whisper a viewer. Usage: /whisper <user> <message>',
     command: '/whisper',
     aliases: ['/w'],
     step: {
       type: 'twitch_whisper',
       enabled: true,
       delayMs: 0,
-      payload: { loginTemplate: '{login}', template: '{args}' },
+      payload: { loginTemplate: '{arg1}', template: '{rest}' },
     },
   },
   {
     name: 'Timeout',
-    description: 'Time a viewer out for ten minutes.',
+    description: 'Time a viewer out. Usage: /timeout <user> <seconds> [reason]',
     command: '/timeout',
     aliases: [],
-    // The retired client parser defaulted to 600s and accepted an override argument.
-    // TwitchTimeoutPayload.seconds is a fixed number, not a template, so the duration
-    // is editable on the Action but not per invocation.
+    // The retired client parser guessed: if the second token was numeric it was the
+    // duration, otherwise the whole remainder was the reason. Templates cannot express
+    // that conditional, so the duration is now positional. A non-numeric or missing
+    // {arg2} still lands the timeout at DEFAULT_TIMEOUT_SECONDS rather than failing.
     step: {
       type: 'twitch_timeout',
       enabled: true,
       delayMs: 0,
-      payload: { loginTemplate: '{login}', seconds: 600, reasonTemplate: '{args}' },
+      payload: { loginTemplate: '{arg1}', secondsTemplate: '{arg2}', reasonTemplate: '{rest2}' },
     },
   },
   {
     name: 'Ban',
-    description: 'Ban a viewer from the dashboard chat bar.',
+    description: 'Ban a viewer. Usage: /ban <user> [reason]',
     command: '/ban',
     aliases: [],
     step: {
       type: 'twitch_ban',
       enabled: true,
       delayMs: 0,
-      payload: { loginTemplate: '{login}', reasonTemplate: '{args}' },
+      payload: { loginTemplate: '{arg1}', reasonTemplate: '{rest}' },
     },
   },
 ];

@@ -1,7 +1,10 @@
 import type { ActionExecutor } from './actionExecutor';
 import { createActionExecutor } from './actionExecutor';
+import { getCategoryModulesResponse } from './categoryModules';
 import { resolveMediaAssetForPlayback } from './mediaAssets';
 import type { RuntimeState } from './runtime';
+import type { TriggerDispatcher } from './triggerDispatcher';
+import { createTriggerDispatcher } from './triggerDispatcher';
 
 /**
  * Composition root for the automation platform.
@@ -17,11 +20,19 @@ import type { RuntimeState } from './runtime';
  * testable without a database full of files.
  */
 let executor: ActionExecutor | null = null;
+let dispatcher: TriggerDispatcher | null = null;
 
 export function initAutomation(state: RuntimeState): void {
   executor = createActionExecutor({
     resolveMedia: resolveMediaAssetForPlayback,
     state,
+  });
+  dispatcher = createTriggerDispatcher({
+    runAction: (actionId, context) => executor!.runAction(actionId, context),
+    getActiveModuleId: () => getCategoryModulesResponse().activeModuleId,
+    // Loop prevention: without this, a send_chat step whose text matches its own
+    // chat_phrase trigger would re-fire itself forever.
+    getBotLogin: () => state.twitchBotLogin,
   });
 }
 
@@ -32,4 +43,8 @@ function requireInit<T>(value: T | null, name: string): T {
 
 export function getActionExecutor(): ActionExecutor {
   return requireInit(executor, 'the action executor');
+}
+
+export function getTriggerDispatcher(): TriggerDispatcher {
+  return requireInit(dispatcher, 'the trigger dispatcher');
 }

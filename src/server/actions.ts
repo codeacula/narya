@@ -10,6 +10,7 @@ import type {
   TemplateContext,
   TextStyle,
 } from '../shared/api';
+import { MAX_TIMEOUT_SECONDS } from '../shared/api';
 import type { ActionExecutor } from './actionExecutor';
 import { db } from './db';
 import { HttpRouteError, sendRouteError } from './http';
@@ -21,7 +22,6 @@ const MAX_TEMPLATE_LENGTH = 500;
 const MAX_DELAY_MS = 600_000;
 const MIN_TEXT_DURATION_MS = 1000;
 const MAX_TEXT_DURATION_MS = 60_000;
-const MAX_TIMEOUT_SECONDS = 1_209_600; // Twitch's ceiling: 14 days.
 const MAX_ASSETS_PER_STEP = 25;
 
 const STEP_TYPES = new Set<ActionStepType>([
@@ -206,13 +206,18 @@ function normalizeStepPayload(type: ActionStepType, payload: unknown): ActionSte
 
     case 'twitch_timeout': {
       const loginTemplate = requireLoginTemplate(value.loginTemplate, 'Timeout');
-      const rawSeconds = typeof value.seconds === 'number' ? value.seconds : Number(value.seconds);
-      if (!Number.isFinite(rawSeconds)) throw new HttpRouteError(400, 'Timeout duration must be a number.');
-      const seconds = Math.round(rawSeconds);
-      if (seconds < 1 || seconds > MAX_TIMEOUT_SECONDS) {
-        throw new HttpRouteError(400, 'Timeout duration must be between 1 second and 14 days.');
+      // A template, so `/timeout bob 300 spam` can bind the duration per invocation.
+      // A literal duration ("600") still validates here; anything templated can only
+      // be range-checked at render time, in the executor.
+      const secondsTemplate = typeof value.secondsTemplate === 'string' ? value.secondsTemplate.trim() : '';
+      if (!secondsTemplate) throw new HttpRouteError(400, 'Timeout steps need a duration.');
+      if (!/\{/.test(secondsTemplate)) {
+        const literal = Number(secondsTemplate);
+        if (!Number.isFinite(literal) || literal < 1 || literal > MAX_TIMEOUT_SECONDS) {
+          throw new HttpRouteError(400, 'Timeout duration must be between 1 second and 14 days.');
+        }
       }
-      return { loginTemplate, seconds, reasonTemplate: optionalTemplate(value.reasonTemplate) };
+      return { loginTemplate, secondsTemplate, reasonTemplate: optionalTemplate(value.reasonTemplate) };
     }
 
     case 'twitch_ban':

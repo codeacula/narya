@@ -73,3 +73,23 @@ describe('renderActionTemplate', () => {
     expect(renderActionTemplate('{message}', { message: '{actor}', actor: 'Sorlus' })).toBe('{actor}');
   });
 });
+
+describe('rest tokens', () => {
+  const context = { args: ['bob', '300', 'spamming', 'links'] };
+
+  test('{rest} is everything after the first argument, so a target is not re-included', () => {
+    expect(renderActionTemplate('{rest}', context)).toBe('300 spamming links');
+  });
+
+  test('{rest2} skips the duration too, which is what a timeout reason needs', () => {
+    expect(renderActionTemplate('{rest2}', context)).toBe('spamming links');
+  });
+
+  test('{args} still includes everything', () => {
+    expect(renderActionTemplate('{args}', context)).toBe('bob 300 spamming links');
+  });
+
+  test('a rest token past the end renders empty, not the literal token', () => {
+    expect(renderActionTemplate('{rest9}', context)).toBe('');
+  });
+});

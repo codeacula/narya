@@ -5,6 +5,7 @@ import {
 } from '../shared/constants';
 import { fireAlert } from './alerts';
 import { appConfig } from './appConfig';
+import { getTriggerDispatcher } from './automation';
 import { recordAutomodHold, resolveAutomodHold } from './automod';
 import { onCategorySignal, reconcileCategoryModules } from './categoryModules';
 import { db } from './db';
@@ -97,6 +98,19 @@ function subMergeKey(event: Record<string, unknown>): string {
   return String(event.user_name ?? '').toLowerCase();
 }
 
+/**
+ * Automation must never take EventSub down with it. A trigger that throws (a bad
+ * template, an OBS scene that no longer exists) is logged and dropped; the stream
+ * event, the alert, and the reward media have already been handled by then.
+ */
+async function dispatchAutomation(run: () => Promise<unknown>): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    console.error('Automation: EventSub dispatch failed:', error);
+  }
+}
+
 function resubDetail(event: Record<string, unknown>): string {
   const months = Number(event.cumulative_months);
   const tier = tierLabel(event.tier as string);
@@ -104,7 +118,15 @@ function resubDetail(event: Record<string, unknown>): string {
   return `resub · ${tier} · ${months} month${months !== 1 ? 's' : ''}`;
 }
 
-export async function handleEventSubNotification(state: RuntimeState, type: string, event: Record<string, unknown>) {
+export async function handleEventSubNotification(
+  state: RuntimeState,
+  type: string,
+  event: Record<string, unknown>,
+  // Named for the wire, not the domain: `eventId` is already taken inside
+  // channel.subscribe for the stream_events row id, and deduping on the wrong
+  // one would silently let a redelivery fire an Action twice.
+  messageId: string | null = null,
+) {
   switch (type) {
     // The category changed on Twitch, whoever changed it. `category_id` is
     // authoritative here — an empty one means the channel genuinely has no
@@ -142,6 +164,9 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
     case 'channel.follow':
       emitStreamEvent('follow', event.user_name as string, 'followed', 'silver', loginOf(event));
       fireAlert('follow', { user: event.user_name as string });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'follow', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
+      }));
       break;
     case 'channel.subscribe': {
       if (event.is_gift as boolean) break;
@@ -157,6 +182,10 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
       // resub, it only updates the stream_events detail (see below) — the alert has
       // already gone out with "new sub" wording. Accepted for v1.
       fireAlert('sub', { user: event.user_name as string, tier: tierLabel(event.tier as string), months: 1 });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'sub', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
+        tier: tierLabel(event.tier as string), months: 1,
+      }));
       break;
     }
     case 'channel.subscription.message': {
@@ -177,6 +206,10 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
         tier: tierLabel(event.tier as string),
         months: Number(event.cumulative_months) || 1,
       });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'sub', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
+        tier: tierLabel(event.tier as string), months: Number(event.cumulative_months) || 1,
+      }));
       break;
     }
     case 'channel.subscription.gift': {
@@ -185,12 +218,18 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
         `gifted ${event.total} sub${(event.total as number) !== 1 ? 's' : ''} to the channel`, 'warning',
         loginOf(event));
       fireAlert('gift', { user: gifter, amount: event.total as number });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'gift', eventId: messageId, actor: gifter, login: loginOf(event) ?? null, amount: event.total as number,
+      }));
       break;
     }
     case 'channel.cheer': {
       const cheerer = (event.user_name as string) || 'Anonymous';
       emitStreamEvent('cheer', cheerer, `cheered ${event.bits} bits`, 'info', loginOf(event));
       fireAlert('cheer', { user: cheerer, amount: event.bits as number });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'cheer', eventId: messageId, actor: cheerer, login: loginOf(event) ?? null, amount: event.bits as number,
+      }));
       break;
     }
     case 'channel.raid':
@@ -199,6 +238,10 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
         `raided with ${event.viewers} viewer${(event.viewers as number) !== 1 ? 's' : ''}`, 'note',
         loginOf(event, 'from_broadcaster_user_login'));
       fireAlert('raid', { user: event.from_broadcaster_user_name as string, amount: event.viewers as number });
+      await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
+        kind: 'raid', eventId: messageId, actor: event.from_broadcaster_user_name as string,
+        login: loginOf(event, 'from_broadcaster_user_login') ?? null, amount: event.viewers as number,
+      }));
       break;
     case 'channel.channel_points_custom_reward_redemption.add': {
       const reward = event.reward as { id: string; title: string };
@@ -210,6 +253,14 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
         });
       }
       playRewardMedia(reward.id, event.user_name as string);
+      await dispatchAutomation(() => getTriggerDispatcher().handleRewardRedemption({
+        eventId: messageId,
+        rewardId: reward.id,
+        rewardTitle: reward.title,
+        actor: event.user_name as string,
+        login: loginOf(event) ?? null,
+        userInput,
+      }));
       break;
     }
     case 'channel.ad_break.begin': {
@@ -519,7 +570,9 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
     if (typeof evt.data !== 'string') return;
 
     type EventSubMsg = {
-      metadata: { message_type: string };
+      // message_id is on the wire and is the automation dedupe key: a redelivered
+      // notification must not invoke an Action twice.
+      metadata: { message_type: string; message_id?: string };
       payload: {
         session?: { id: string; keepalive_timeout_seconds: number; reconnect_url?: string };
         subscription?: { type: string; status?: string };
@@ -617,7 +670,7 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
       resetKeepaliveTimer(state);
       const subType = msg.payload.subscription?.type ?? '';
       const event = msg.payload.event ?? {};
-      void handleEventSubNotification(state, subType, event).catch(error => {
+      void handleEventSubNotification(state, subType, event, msg.metadata.message_id ?? null).catch(error => {
         console.error(`EventSub: failed to handle ${subType}:`, error);
       });
 

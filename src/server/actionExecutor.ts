@@ -11,6 +11,7 @@ import type {
   RewardMedia,
   TemplateContext,
 } from '../shared/api';
+import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from '../shared/api';
 import { getActionById } from './actions';
 import { renderActionTemplate } from './actionTemplates';
 import { askPonderLlm } from './llm';
@@ -116,6 +117,21 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     now = () => new Date(),
   } = deps;
 
+  /**
+   * A timeout duration bound from the invocation (`{arg2}` in `/timeout bob 300 spam`)
+   * may render empty, non-numeric, or out of range — chat and the command bar are both
+   * free-form. Fall back to the default rather than failing the step: a moderation
+   * command that lands with the wrong duration beats one that does not land at all.
+   */
+  function renderTimeoutSeconds(template: string, context: TemplateContext): number {
+    const rendered = renderActionTemplate(template, context).trim();
+    const seconds = Math.round(Number(rendered));
+    if (!Number.isFinite(seconds) || seconds < 1 || seconds > MAX_TIMEOUT_SECONDS) {
+      return DEFAULT_TIMEOUT_SECONDS;
+    }
+    return seconds;
+  }
+
   function pickAsset(assetIds: string[], selection: 'first' | 'random'): MediaAsset | null {
     const available = assetIds
       .map(id => resolveMedia(id))
@@ -204,7 +220,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
       case 'twitch_timeout': {
         const login = normalizeLogin(render(step.payload.loginTemplate));
         if (!login) return skipped('The timeout target rendered empty.');
-        await timeoutUser(state, login, step.payload.seconds, render(step.payload.reasonTemplate));
+        await timeoutUser(state, login, renderTimeoutSeconds(step.payload.secondsTemplate, context), render(step.payload.reasonTemplate));
         return SUCCEEDED;
       }
 

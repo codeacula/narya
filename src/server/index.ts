@@ -1,11 +1,12 @@
 import { registerActionRoutes } from './actions';
 import { registerAppConfigRoutes, type AppConfigChange } from './appConfig';
 import { getOverlayToken, requireDashboardToken } from './auth';
-import { getActionExecutor, initAutomation } from './automation';
+import { getActionExecutor, getTriggerDispatcher, initAutomation } from './automation';
+import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './automationTriggers';
 import { startAutomaticAds } from './automaticAds';
 import { registerCategoryModuleRoutes, reconcileCategoryModules } from './categoryModules';
 import { registerChattersRoutes } from './chatters';
-import { migrateLegacyCategoryModules, migrateLegacyMediaIntoAssets } from './legacyMigration';
+import { migrateLegacyCategoryModules, migrateLegacyChatbotCommands, migrateLegacyMediaIntoAssets } from './legacyMigration';
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { registerChatbotCommandRoutes } from './chatbotCommands';
@@ -33,9 +34,15 @@ hydrateTwitchAuthState(runtimeState);
 // Convert the pre-automation tables before anything serves a request, so the
 // first read of /api/media-assets already reflects the operator's existing media.
 // Guarded by the migration ledger; a second boot is a no-op.
+// Order matters: the chatbot migration binds sound steps to media-asset ids, which
+// only exist once the media migration has run.
 migrateLegacyMediaIntoAssets();
+migrateLegacyChatbotCommands();
 migrateLegacyCategoryModules();
 initAutomation(runtimeState);
+// The four commands the dashboard chat bar used to parse client-side, seeded as
+// ordinary editable Action + trigger rows rather than special-cased code paths.
+seedBuiltInSlashCommands();
 
 // Apply a settings change by reconnecting only the services whose config changed,
 // so the operator never has to restart the process after editing Settings.
@@ -96,6 +103,7 @@ registerTwitchApiRoutes(app, runtimeState);
 registerViewerRewardRoutes(app, runtimeState);
 registerMediaAssetRoutes(app);
 registerActionRoutes(app, getActionExecutor());
+registerAutomationTriggerRoutes(app, getTriggerDispatcher());
 registerCategoryModuleRoutes(app, runtimeState);
 registerStreamCategoryRoutes(app);
 registerStreamStatusRoutes(app);

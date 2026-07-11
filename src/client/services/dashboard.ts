@@ -25,6 +25,7 @@ import type {
   StreamInfoUpdate,
   PrerollResult,
   ChatSendResult,
+  SlashCommandResponse,
   ChatSender,
   ControlConfig,
   ControlResponse,
@@ -201,6 +202,15 @@ export async function runPrerollAds(): Promise<PrerollResult> {
 
 export async function sendChatMessage(message: string, sender: ChatSender): Promise<ChatSendResult> {
   return sendJson('/api/twitch/chat-message', 'POST', { message, sender });
+}
+
+/**
+ * Run a private operator slash command. The server owns the whole vocabulary: it
+ * either executes the command or rejects it, and an unknown one is never forwarded
+ * to Twitch chat. The client must not parse these itself.
+ */
+export async function runSlashCommand(input: string): Promise<SlashCommandResponse> {
+  return sendJson<SlashCommandResponse>('/api/automation/slash', 'POST', { input });
 }
 
 export async function sendViewerShoutout(login: string): Promise<TwitchUserActionResult> {

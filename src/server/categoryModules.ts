@@ -387,6 +387,8 @@ function applyOutcome(
     || coordinator.activeGameId !== gameId
     || coordinator.lookupError !== null;
 
+  const previousId = coordinator.activeModuleId;
+  const nextId = incoming?.id ?? null;
   coordinator.activeModuleId = incoming?.id ?? null;
   coordinator.activeGameId = gameId;
   coordinator.activeGameName = gameName;
@@ -398,6 +400,32 @@ function applyOutcome(
 
   if (rewardsChanged) broadcast('rewards:updated', { at: coordinator.lastReconciledAt });
   if (changed) broadcastModules();
+
+  // Lifecycle Actions run only when the active module actually changes — a repeated
+  // signal for the same category (a reconnect, a title-only channel.update) must not
+  // re-fire them. Deactivate before activate, so a module standing down can clean up
+  // before its replacement sets things.
+  if (previousId !== nextId) {
+    if (previousId) void fireModuleLifecycle('deactivate', previousId);
+    if (nextId) void fireModuleLifecycle('activate', nextId);
+  }
+}
+
+/**
+ * Module activate/deactivate triggers. Imported lazily: the automation composition
+ * root depends on this module (for getActiveModuleId), so a static import here would
+ * close an evaluation cycle.
+ */
+async function fireModuleLifecycle(phase: 'activate' | 'deactivate', moduleId: string): Promise<void> {
+  try {
+    const { getTriggerDispatcher } = await import('./automation');
+    const row = getModuleRow.get(moduleId) as ModuleRow | null;
+    await getTriggerDispatcher().handleModuleLifecycle(phase, moduleId, row?.name);
+  } catch (error) {
+    // A failing lifecycle Action must not wedge the coordinator: the reward groups
+    // have already been switched by this point, which is the part that matters.
+    console.error(`Category modules: ${phase} Action for module ${moduleId} failed:`, error);
+  }
 }
 
 /** Twitch could not be read or would not comply: keep the last known state, surface a retry. */

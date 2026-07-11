@@ -151,11 +151,11 @@ describe('normalizeActionUpsert', () => {
 
     test('twitch_timeout rejects a duration outside the Twitch limits', () => {
       expect(() => normalizeActionUpsert(upsert([
-        step({ type: 'twitch_timeout', payload: { loginTemplate: '{login}', seconds: 0, reasonTemplate: '' } } as never),
+        step({ type: 'twitch_timeout', payload: { loginTemplate: '{login}', secondsTemplate: '0', reasonTemplate: '' } } as never),
       ]))).toThrow('Timeout duration');
 
       expect(() => normalizeActionUpsert(upsert([
-        step({ type: 'twitch_timeout', payload: { loginTemplate: '{login}', seconds: 1_209_601, reasonTemplate: '' } } as never),
+        step({ type: 'twitch_timeout', payload: { loginTemplate: '{login}', secondsTemplate: '1209601', reasonTemplate: '' } } as never),
       ]))).toThrow('Timeout duration');
     });
 

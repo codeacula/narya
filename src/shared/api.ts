@@ -747,7 +747,18 @@ export type ObsScenePayload = { sceneName: string };
 export type ObsTransitionPayload = Record<string, never>;
 export type TwitchShoutoutPayload = { loginTemplate: string };
 export type TwitchWhisperPayload = { loginTemplate: string; template: string };
-export type TwitchTimeoutPayload = { loginTemplate: string; seconds: number; reasonTemplate: string };
+/**
+ * `secondsTemplate` is a template, not a number, so `/timeout bob 300 spam` can
+ * bind the duration from the invocation ("{arg2}") instead of being locked to
+ * whatever the Action stored. A template that renders empty or non-numeric falls
+ * back to `DEFAULT_TIMEOUT_SECONDS` rather than failing the step — a moderation
+ * command must still land when the operator omits the duration.
+ */
+export type TwitchTimeoutPayload = { loginTemplate: string; secondsTemplate: string; reasonTemplate: string };
+
+export const DEFAULT_TIMEOUT_SECONDS = 600;
+/** Twitch's ceiling: 14 days. */
+export const MAX_TIMEOUT_SECONDS = 1_209_600;
 export type TwitchBanPayload = { loginTemplate: string; reasonTemplate: string };
 
 /**
@@ -827,6 +838,8 @@ export type TemplateContext = {
   /** Reward user-input, or everything after a command trigger. */
   input?: string;
   args?: string[];
+  // Templates may also use {arg1}, {arg2}… to index `args`, and {rest} for
+  // everything after the first argument — both are derived from `args`, not stored.
   rewardTitle?: string;
   amount?: number;
   tier?: string;

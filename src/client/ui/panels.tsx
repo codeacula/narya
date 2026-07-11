@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from './icons';
 import {
   banViewer,
+  runSlashCommand,
   sendChatMessage,
   sendViewerShoutout,
   sendViewerWhisper,
@@ -298,43 +299,6 @@ function Chat({ ctx }: { ctx: PanelCtx }) {
   );
 }
 
-function parseSlashCommand(raw: string): { action: () => Promise<unknown>; label: string } | null {
-  const text = raw.trim();
-  if (!text.startsWith('/')) return null;
-  const [cmd, ...rest] = text.slice(1).split(/\s+/);
-  const command = (cmd ?? '').toLowerCase();
-
-  if (command === 'shoutout' || command === 'so') {
-    const login = rest[0] ?? '';
-    if (!login) return null;
-    return { action: () => sendViewerShoutout(login.replace(/^@/, '')), label: 'Shoutout' };
-  }
-
-  if (command === 'whisper' || command === 'w') {
-    const login = rest[0] ?? '';
-    const msg = rest.slice(1).join(' ');
-    if (!login || !msg) return null;
-    return { action: () => sendViewerWhisper(login.replace(/^@/, ''), msg), label: 'Whisper' };
-  }
-
-  if (command === 'timeout') {
-    const login = rest[0] ?? '';
-    if (!login) return null;
-    const seconds = rest[1] && /^\d+$/.test(rest[1]) ? Number(rest[1]) : 600;
-    const reason = (rest[1] && /^\d+$/.test(rest[1]) ? rest.slice(2) : rest.slice(1)).join(' ');
-    return { action: () => timeoutViewer(login.replace(/^@/, ''), seconds, reason), label: 'Timeout' };
-  }
-
-  if (command === 'ban') {
-    const login = rest[0] ?? '';
-    if (!login) return null;
-    const reason = rest.slice(1).join(' ');
-    return { action: () => banViewer(login.replace(/^@/, ''), reason), label: 'Ban' };
-  }
-
-  return null;
-}
-
 export function ChatInput({ channel }: { channel: string }) {
   const [text, setText] = React.useState('');
   const [sender, setSender] = React.useState<ChatSender>('user');
@@ -346,10 +310,23 @@ export function ChatInput({ channel }: { channel: string }) {
     event.preventDefault();
     if (!message || sending) return;
 
-    const slashCmd = parseSlashCommand(message);
     setSending(true);
     setError(null);
-    const task = slashCmd ? slashCmd.action() : sendChatMessage(message, sender);
+
+    // Anything starting with "/" is an operator command and is resolved entirely by
+    // the server, which owns the vocabulary (they are editable trigger rows, not
+    // hard-coded here). It is never forwarded to Twitch: the parser this replaced
+    // returned null for an unknown or malformed command and fell through to
+    // sendChatMessage, so a typo like "/soutout bob" was published to chat.
+    const task: Promise<unknown> = message.startsWith('/')
+      ? runSlashCommand(message).then(result => {
+        // A rejected command (unknown, cooling down, missing an argument) resolves
+        // 200 with ok:false — surface it in the input, not as a thrown request.
+        if (!result.ok) throw new Error(result.message);
+        return result;
+      })
+      : sendChatMessage(message, sender);
+
     void task
       .then(() => setText(''))
       .catch(err => {

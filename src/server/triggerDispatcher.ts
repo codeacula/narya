@@ -364,14 +364,19 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       return { ok: false, message: `${word} belongs to a module that is not active.`, run: null };
     }
 
-    const target = stripAt(tokens[1] ?? '');
-    const rest = tokens.slice(2);
+    // Standard command context, identical in shape to viewer_command: `args` is
+    // every argument after the command word, so {arg1} is the target and {rest}
+    // is the remainder. `actor`/`login` are the target rather than the operator —
+    // every seeded slash command acts *on* a viewer, and a per-user cooldown keyed
+    // on the operator would be meaningless.
+    const args = tokens.slice(1).map(stripAt);
+    const target = args[0] ?? '';
     const context: TemplateContext = {
       actor: target,
       login: target.toLowerCase(),
       message: text,
       input: text.slice(word.length).trim(),
-      args: rest,
+      args,
     };
 
     const summary = await invoke(trigger, context, { actorLogin: target.toLowerCase() || null });

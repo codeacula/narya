@@ -81,6 +81,102 @@ export function migrateLegacyMediaIntoAssets(): void {
   });
 }
 
+const insertAction = db.prepare(`
+  insert into actions (id, name, description, enabled, created_at, updated_at) values (?, ?, ?, ?, ?, ?)
+`);
+const insertActionStep = db.prepare(`
+  insert into action_steps (id, action_id, step_type, payload_json, delay_ms, enabled, position, created_at, updated_at)
+  values (?, ?, ?, ?, 0, ?, ?, ?, ?)
+`);
+const insertTrigger = db.prepare(`
+  insert into automation_triggers
+    (id, kind, action_id, module_id, enabled, config_json, global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
+  values (?, ?, ?, null, ?, ?, 0, 0, ?, ?)
+`);
+
+/**
+ * The old chat_reply renderer only understood {username}. The Action renderer calls
+ * the same thing {actor}, so rewrite it — otherwise every migrated reply would print
+ * the literal "{username}" (an unknown token is deliberately left intact).
+ */
+function convertLegacyTemplate(template: string): string {
+  return template.replaceAll('{username}', '{actor}');
+}
+
+type LegacyActionRow = { actionType: string; payloadJson: string; enabled: number; position: number };
+
+function legacyStepPayload(row: LegacyActionRow): { type: string; payload: unknown } | null {
+  let payload: { template?: string; soundId?: string; sceneName?: string };
+  try {
+    payload = JSON.parse(row.payloadJson) as typeof payload;
+  } catch {
+    payload = {};
+  }
+
+  switch (row.actionType) {
+    case 'chat_reply':
+      if (!payload.template) return null;
+      return { type: 'send_chat', payload: { template: convertLegacyTemplate(payload.template), sender: 'bot' } };
+    case 'llm_response':
+      // The old !ponder path fed everything after the trigger word to the LLM.
+      return { type: 'llm_response', payload: { template: '{input}' } };
+    case 'sound_play':
+      if (!payload.soundId) return null;
+      // Sound-button ids survive as media-asset ids (see migrateLegacyMediaIntoAssets),
+      // so an existing binding keeps resolving without being re-pointed by hand.
+      return { type: 'play_media', payload: { assetIds: [payload.soundId], selection: 'first' } };
+    case 'obs_scene':
+      if (!payload.sceneName) return null;
+      return { type: 'obs_scene', payload: { sceneName: payload.sceneName } };
+    case 'obs_transition':
+      return { type: 'obs_transition', payload: {} };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Each chatbot command becomes one Action plus one `viewer_command` trigger, so it is
+ * editable in the same place as everything else instead of living in its own table.
+ *
+ * Cooldowns are zero, matching the old handler, which had none — introducing one here
+ * would silently start swallowing a viewer's second `!lurk`.
+ */
+export function migrateLegacyChatbotCommands(): void {
+  runOnce('2026-07-actions-from-chatbot-commands', () => {
+    const now = new Date().toISOString();
+    const commands = db.prepare('select id, trigger, enabled from chatbot_commands').all() as Array<{
+      id: string; trigger: string; enabled: number;
+    }>;
+
+    for (const command of commands) {
+      const legacySteps = db.prepare(`
+        select action_type as actionType, payload_json as payloadJson, enabled, position
+        from chatbot_command_actions where command_id = ? order by position asc
+      `).all(command.id) as LegacyActionRow[];
+
+      const steps = legacySteps
+        .map(row => ({ row, converted: legacyStepPayload(row) }))
+        .filter((entry): entry is { row: LegacyActionRow; converted: { type: string; payload: unknown } } => entry.converted !== null);
+      if (steps.length === 0) continue;
+
+      const actionId = crypto.randomUUID();
+      insertAction.run(actionId, command.trigger, `Migrated from the ${command.trigger} chat command.`, 1, now, now);
+      steps.forEach((entry, index) => {
+        insertActionStep.run(
+          crypto.randomUUID(), actionId, entry.converted.type, JSON.stringify(entry.converted.payload),
+          entry.row.enabled ? 1 : 0, index, now, now,
+        );
+      });
+
+      insertTrigger.run(
+        crypto.randomUUID(), 'viewer_command', actionId, command.enabled ? 1 : 0,
+        JSON.stringify({ command: command.trigger, aliases: [], roles: [] }), now, now,
+      );
+    }
+  });
+}
+
 const insertModule = db.prepare(`
   insert into category_modules (id, name, enabled, status, status_detail, created_at, updated_at)
   values (?, ?, 1, 'idle', '', ?, ?)

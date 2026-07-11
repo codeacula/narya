@@ -489,7 +489,7 @@ describe('step dispatch', () => {
       step({ id: 'c', type: 'obs_transition', payload: {} } as never),
       step({ id: 'd', type: 'twitch_shoutout', payload: { loginTemplate: '{login}' } } as never),
       step({ id: 'e', type: 'twitch_whisper', payload: { loginTemplate: '{login}', template: 'psst {actor}' } } as never),
-      step({ id: 'f', type: 'twitch_timeout', payload: { loginTemplate: '{login}', seconds: 60, reasonTemplate: 'spam' } } as never),
+      step({ id: 'f', type: 'twitch_timeout', payload: { loginTemplate: '{login}', secondsTemplate: '60', reasonTemplate: 'spam' } } as never),
       step({ id: 'g', type: 'twitch_ban', payload: { loginTemplate: '{login}', reasonTemplate: 'bot' } } as never),
     ]), {});
     const result = await run(h, { actor: 'Sorlus', login: 'sorlus' });
@@ -523,5 +523,33 @@ describe('step dispatch', () => {
     expect(h.calls.shoutouts).toEqual([]);
     expect(result.status).toBe('skipped');
     expect(result.steps[0]!.status).toBe('skipped');
+  });
+});
+
+describe('templated timeout duration', () => {
+  const timeoutStep = step({
+    id: 't',
+    type: 'twitch_timeout',
+    payload: { loginTemplate: '{arg1}', secondsTemplate: '{arg2}', reasonTemplate: '{rest2}' },
+  } as never);
+
+  test('binds the duration from the invocation, so /timeout bob 300 spam really times out for 300s', async () => {
+    const h = harness(action([timeoutStep]));
+    await run(h, { args: ['bob', '300', 'spamming', 'links'] });
+    expect(h.calls.timeouts).toEqual([{ login: 'bob', seconds: 300, reason: 'spamming links' }]);
+  });
+
+  test('a missing or non-numeric duration still lands the timeout at the default, rather than failing', async () => {
+    const h = harness(action([timeoutStep]));
+    // A moderation command that lands with the wrong duration beats one that does not land.
+    const result = await run(h, { args: ['bob'] });
+    expect(h.calls.timeouts).toEqual([{ login: 'bob', seconds: 600, reason: '' }]);
+    expect(result.status).toBe('succeeded');
+  });
+
+  test('an out-of-range duration falls back rather than letting Twitch reject the call', async () => {
+    const h = harness(action([timeoutStep]));
+    await run(h, { args: ['bob', '99999999'] });
+    expect(h.calls.timeouts[0]!.seconds).toBe(600);
   });
 });

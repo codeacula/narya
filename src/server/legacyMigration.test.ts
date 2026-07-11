@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { db } from './db';
-import { migrateLegacyCategoryModules, migrateLegacyMediaIntoAssets } from './legacyMigration';
+import { migrateLegacyCategoryModules, migrateLegacyChatbotCommands, migrateLegacyMediaIntoAssets } from './legacyMigration';
 
 type AssetRow = { id: string; label: string; kind: string; sourceType: string; src: string; volume: number; enabled: number };
 
@@ -20,6 +20,8 @@ beforeEach(() => {
     'media_assets', 'sound_buttons', 'clip_buttons', 'reward_media', 'alert_settings',
     'category_module_reward_groups', 'category_module_games', 'category_modules',
     'viewer_reward_category_games', 'viewer_reward_categories',
+    'automation_triggers', 'action_steps', 'actions',
+    'chatbot_command_actions', 'chatbot_commands',
   ]) {
     db.exec(`delete from ${table}`);
   }
@@ -169,5 +171,90 @@ describe('migrateLegacyCategoryModules', () => {
     migrateLegacyCategoryModules();
 
     expect(moduleRows()).toEqual(first);
+  });
+});
+
+function addCommand(id: string, trigger: string, actions: Array<{ type: string; payload: unknown }>): void {
+  db.prepare('insert into chatbot_commands (id, trigger, enabled, created_at, updated_at) values (?, ?, 1, ?, ?)')
+    .run(id, trigger, '', '');
+  actions.forEach((action, index) => {
+    db.prepare(`
+      insert into chatbot_command_actions (id, command_id, action_type, payload_json, enabled, position, created_at, updated_at)
+      values (?, ?, ?, ?, 1, ?, '', '')
+    `).run(crypto.randomUUID(), id, action.type, JSON.stringify(action.payload), index);
+  });
+}
+
+function triggerFor(command: string) {
+  const rows = db.prepare('select action_id as actionId, kind, enabled, config_json as configJson from automation_triggers').all() as
+    Array<{ actionId: string; kind: string; enabled: number; configJson: string }>;
+  return rows.find(row => (JSON.parse(row.configJson) as { command?: string }).command === command);
+}
+
+function stepsOf(actionId: string) {
+  return db.prepare('select step_type as type, payload_json as payloadJson from action_steps where action_id = ? order by position')
+    .all(actionId) as Array<{ type: string; payloadJson: string }>;
+}
+
+describe('migrateLegacyChatbotCommands', () => {
+  test('a chat reply becomes a send_chat step, with {username} rewritten to {actor}', () => {
+    addCommand('c1', '!lurk', [{ type: 'chat_reply', payload: { template: 'thanks for lurking, {username}' } }]);
+
+    migrateLegacyChatbotCommands();
+
+    const trigger = triggerFor('!lurk');
+    expect(trigger?.kind).toBe('viewer_command');
+    const steps = stepsOf(trigger!.actionId);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]!.type).toBe('send_chat');
+    // The old renderer only knew {username}. Leaving it would print the literal token,
+    // because the Action renderer deliberately preserves unknown tokens.
+    expect(JSON.parse(steps[0]!.payloadJson)).toEqual({ template: 'thanks for lurking, {actor}', sender: 'bot' });
+  });
+
+  test('a sound step binds to the media asset that kept the sound button id', () => {
+    db.prepare('insert into sound_buttons (id, label, filename) values (?, ?, ?)')
+      .run('sound-42', 'Airhorn', '/sounds/airhorn.mp3');
+    addCommand('c2', '!airhorn', [{ type: 'sound_play', payload: { soundId: 'sound-42' } }]);
+
+    migrateLegacyMediaIntoAssets();
+    migrateLegacyChatbotCommands();
+
+    const steps = stepsOf(triggerFor('!airhorn')!.actionId);
+    expect(steps[0]!.type).toBe('play_media');
+    expect(JSON.parse(steps[0]!.payloadJson)).toEqual({ assetIds: ['sound-42'], selection: 'first' });
+  });
+
+  test('!ponder becomes an llm_response step fed by the text after the trigger word', () => {
+    addCommand('ponder-llm-command', '!ponder', [{ type: 'llm_response', payload: {} }]);
+
+    migrateLegacyChatbotCommands();
+
+    const steps = stepsOf(triggerFor('!ponder')!.actionId);
+    expect(steps[0]!.type).toBe('llm_response');
+    expect(JSON.parse(steps[0]!.payloadJson)).toEqual({ template: '{input}' });
+  });
+
+  test('preserves step order across a multi-step command', () => {
+    addCommand('c3', '!hype', [
+      { type: 'chat_reply', payload: { template: 'HYPE' } },
+      { type: 'obs_scene', payload: { sceneName: 'Hype Cam' } },
+      { type: 'obs_transition', payload: {} },
+    ]);
+
+    migrateLegacyChatbotCommands();
+
+    expect(stepsOf(triggerFor('!hype')!.actionId).map(step => step.type))
+      .toEqual(['send_chat', 'obs_scene', 'obs_transition']);
+  });
+
+  test('is idempotent: a second run does not duplicate the command', () => {
+    addCommand('c4', '!discord', [{ type: 'chat_reply', payload: { template: 'discord.gg/x' } }]);
+
+    migrateLegacyChatbotCommands();
+    migrateLegacyChatbotCommands();
+
+    const triggers = db.prepare("select count(*) as count from automation_triggers").get() as { count: number };
+    expect(triggers.count).toBe(1);
   });
 });

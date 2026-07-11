@@ -652,7 +652,7 @@ describe('slash commands', () => {
     expect(runner.calls).toHaveLength(1);
   });
 
-  test('the free text after the target lands in {args}', async () => {
+  test('args holds every argument, so {arg1} is the target and {rest} the free text', async () => {
     slashTrigger('/whisper', ['/w']);
     const { dispatcher, runner } = setup();
 
@@ -660,7 +660,9 @@ describe('slash commands', () => {
 
     const context = runner.calls[0]!.context;
     expect(context.login).toBe('friend');
-    expect(context.args).toEqual(['thanks', 'for', 'the', 'raid']);
+    // Same context shape as viewer_command: args starts at the first argument, not
+    // after the target. {rest} is what drops the target.
+    expect(context.args).toEqual(['friend', 'thanks', 'for', 'the', 'raid']);
     expect(context.input).toBe('friend thanks for the raid');
   });
 

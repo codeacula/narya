@@ -255,7 +255,7 @@ describe('seedBuiltInSlashCommands', () => {
     }
   });
 
-  test('the seeded timeout defaults to 600 seconds, matching the retired client parser', () => {
+  test('the seeded timeout binds its duration from the invocation, not a stored constant', () => {
     seedBuiltInSlashCommands();
 
     const triggers = listEnabledTriggersOfKind('dashboard_slash');
@@ -266,7 +266,13 @@ describe('seedBuiltInSlashCommands', () => {
       .all(timeout!.actionId) as { stepType: string; payloadJson: string }[];
     expect(steps).toHaveLength(1);
     expect(steps[0]!.stepType).toBe('twitch_timeout');
-    expect(JSON.parse(steps[0]!.payloadJson).seconds).toBe(600);
+    // `/timeout bob 300 spam` must actually time bob out for 300s. A stored number
+    // would silently ignore the operator's duration and swallow it into the reason.
+    expect(JSON.parse(steps[0]!.payloadJson)).toMatchObject({
+      loginTemplate: '{arg1}',
+      secondsTemplate: '{arg2}',
+      reasonTemplate: '{rest2}',
+    });
   });
 
   test('is idempotent — a second call seeds nothing new', () => {

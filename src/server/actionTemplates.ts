@@ -4,6 +4,11 @@ import type { TemplateContext } from '../shared/api';
 // are handled separately because their names are open-ended.
 const TOKEN_PATTERN = /\{([A-Za-z][A-Za-z0-9]*)\}/g;
 const ARG_TOKEN_PATTERN = /^arg([1-9][0-9]*)$/;
+// {rest} / {restN}: every argument from position N onward, joined. {rest} is {rest1}.
+// This is what makes "target and remainder" commands expressible — `/whisper bob hi
+// there` binds {arg1} as the target and {rest1} as the message, where {args} would
+// wrongly re-include the target.
+const REST_TOKEN_PATTERN = /^rest([1-9][0-9]*)?$/;
 
 function scalar(value: string | number | undefined): string | undefined {
   if (value === undefined) return undefined;
@@ -27,9 +32,18 @@ function resolveToken(token: string, context: TemplateContext): string | undefin
   }
 
   const argMatch = ARG_TOKEN_PATTERN.exec(token);
-  if (!argMatch) return undefined;
-  // Known-shaped but out of range still renders empty rather than the literal token.
-  return context.args?.[Number(argMatch[1]) - 1] ?? '';
+  if (argMatch) {
+    // Known-shaped but out of range still renders empty rather than the literal token.
+    return context.args?.[Number(argMatch[1]) - 1] ?? '';
+  }
+
+  const restMatch = REST_TOKEN_PATTERN.exec(token);
+  if (restMatch) {
+    const from = Number(restMatch[1] ?? '1');
+    return context.args ? context.args.slice(from).join(' ') : undefined;
+  }
+
+  return undefined;
 }
 
 /**
@@ -58,6 +72,7 @@ function isKnownToken(token: string): boolean {
     case 'message':
     case 'input':
     case 'args':
+    case 'rest':
     case 'rewardTitle':
     case 'amount':
     case 'tier':
@@ -66,6 +81,6 @@ function isKnownToken(token: string): boolean {
     case 'module':
       return true;
     default:
-      return ARG_TOKEN_PATTERN.test(token);
+      return ARG_TOKEN_PATTERN.test(token) || REST_TOKEN_PATTERN.test(token);
   }
 }
