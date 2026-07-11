@@ -60,6 +60,10 @@ export class RuntimeState {
   eventSubKeepaliveMs = EVENTSUB_DEFAULT_KEEPALIVE_MS;
   eventSubKeepaliveTimer: ReturnType<typeof setTimeout> | null = null;
   eventSubError: string | null = null;
+  // Required subscription types Twitch refused on this session. Non-empty means the
+  // socket is up but the features behind those types (follows, subs, raids, AutoMod)
+  // are silently dead — the dashboard reports that as degraded rather than connected.
+  eventSubFailedSubscriptions: string[] = [];
   adBreakEndsAt: string | null = null;
   streamStartAdStreamId: string | null = null;
   twitchStreamStatusCache: { expiresAtMs: number; status: StreamActivityStatus } | null = null;
@@ -91,5 +95,6 @@ export class RuntimeState {
   clearEventSubSocket() {
     this.eventSubWs = null;
     this.eventSubConnected = false;
+    this.eventSubFailedSubscriptions = [];
   }
 }

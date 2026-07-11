@@ -270,9 +270,11 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
           return;
         }
         const result = await resolveAutomodMessage(state, id, action);
+        // 'gone' is a guess — Twitch no longer knows the hold, so we assume it aged
+        // out. A later automod.message.update carrying the real verdict replaces it.
         const hold = result.outcome === 'gone'
           ? resolveAutomodHold(id, 'expired', null)
-          : resolveAutomodHold(id, resolution, result.moderatorLogin);
+          : resolveAutomodHold(id, resolution, result.moderatorLogin, { authoritative: true });
         response.json(hold ?? existing);
       } catch (error) {
         sendRouteError(response, error);

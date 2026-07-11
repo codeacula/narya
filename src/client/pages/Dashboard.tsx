@@ -63,6 +63,7 @@ const EMPTY_STATUS: DashboardStatus = {
   obsConnected: false,
   eventSubConnected: false,
   eventSubError: null,
+  eventSubFailedSubscriptions: [],
   twitchAuthenticated: false,
   twitchAuthSource: null,
   twitchTokenExpiresAt: null,

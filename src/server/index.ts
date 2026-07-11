@@ -1,10 +1,10 @@
 import { registerAppConfigRoutes, type AppConfigChange } from './appConfig';
-import { requireDashboardToken } from './auth';
+import { getOverlayToken, requireDashboardToken } from './auth';
 import { startAutomaticAds } from './automaticAds';
 import { registerChattersRoutes } from './chatters';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { registerChatbotCommandRoutes } from './chatbotCommands';
-import { config } from './config';
+import { config, isLoopbackHost } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
 import { clearDiscordStatusCache, registerDiscordRoutes } from './discord';
 import { connectEventSub, disconnectEventSub, registerEventSubRoutes } from './eventsub';
@@ -49,8 +49,26 @@ function reconcileServices(changes: Set<AppConfigChange>) {
   }
 }
 
-// Guard every /api/* route with the shared token (no-op when unset).
+// Auth is fail-closed on anything reachable off-box: an unauthenticated API here
+// can ban viewers, drive OBS, rewrite Twitch rewards, and replace credentials, so
+// serving it beyond loopback without a token is refused rather than warned about.
+if (!config.dashboardToken && !isLoopbackHost(config.host)) {
+  console.error(
+    `Refusing to start: HOST=${config.host} exposes the API beyond loopback but DASHBOARD_TOKEN is not set.\n` +
+    'Set DASHBOARD_TOKEN in .env (any long random string, e.g. `openssl rand -hex 32`), or drop HOST to bind loopback only.',
+  );
+  process.exit(1);
+}
+
+// Guard every /api/* route: operator token = full control, overlay token = the
+// read-only allowlist in auth.ts. Unauthenticated only on a loopback-bound server.
 app.use('/api', requireDashboardToken);
+
+// The URL an OBS browser source should use. Operator-only (the middleware above
+// blocks overlay tokens from reaching it), so an overlay can't read it back.
+app.get('/api/auth/overlay-token', (_request, response) => {
+  response.json({ token: getOverlayToken() });
+});
 
 registerCoreRoutes(app, runtimeState);
 registerAppConfigRoutes(app, ({ config: nextConfig, changes }) => {
@@ -77,10 +95,10 @@ registerEventSubRoutes(app, runtimeState);
 registerDashboardRoutes(app, runtimeState);
 registerStaticRoutes(app);
 
-server.listen(config.port, () => {
-  console.log(`Streamer Tools backend listening on http://localhost:${config.port}`);
+server.listen(config.port, config.host, () => {
+  console.log(`Streamer Tools backend listening on http://${config.host}:${config.port}`);
   if (!config.dashboardToken) {
-    console.warn('⚠️  DASHBOARD_TOKEN is not set — the API and WebSocket are unauthenticated. Set it in .env to require a token.');
+    console.log('Auth is disabled (no DASHBOARD_TOKEN); the server is bound to loopback only.');
   }
   connectTwitchChat(runtimeState);
   void connectObs();

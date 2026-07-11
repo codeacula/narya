@@ -193,6 +193,9 @@ export type DashboardStatus = {
   obsConnected: boolean;
   eventSubConnected: boolean;
   eventSubError: string | null;
+  // Required EventSub subscriptions Twitch refused. Connected + non-empty = degraded:
+  // the socket is up, but the events behind these types never arrive.
+  eventSubFailedSubscriptions: string[];
   twitchAuthenticated: boolean;
   twitchAuthSource: 'oauth' | 'env' | null;
   twitchTokenExpiresAt: string | null;

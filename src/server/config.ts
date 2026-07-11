@@ -1,11 +1,23 @@
 // Boot/infrastructure config only. Everything else (Twitch/OBS/Discord
 // credentials, channel, music + quack settings) is configured from the Settings UI
 // and persisted in the database — see src/server/appConfig.ts.
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+
+export function isLoopbackHost(host: string): boolean {
+  return LOOPBACK_HOSTS.has(host);
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 4317),
   chatterboxBaseUrl: (process.env.CHATTERBOX_BASE_URL ?? 'http://127.0.0.1:8008').replace(/\/+$/, ''),
-  // Shared dashboard token. When set, all /api/* routes (and the WS) require it;
-  // when empty, auth is disabled (backwards compatible) with a startup warning.
+  // Loopback by default: an unauthenticated API that can ban viewers, drive OBS,
+  // and rewrite credentials must not be reachable from the LAN. Set HOST=0.0.0.0
+  // to serve the tablet/overlays to other devices — that requires DASHBOARD_TOKEN
+  // (enforced at startup in index.ts).
+  host: process.env.HOST?.trim() || '127.0.0.1',
+  // Operator token: full control over every /api/* route and the WebSocket. The
+  // read-only overlay token is derived from it (see auth.ts). Only optional when
+  // the server is bound to loopback.
   dashboardToken: process.env.DASHBOARD_TOKEN?.trim() ?? '',
   // Static asset paths bundled with the app, not user-configurable.
   quackSounds: [

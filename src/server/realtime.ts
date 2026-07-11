@@ -1,22 +1,25 @@
 import { createServer } from 'node:http';
 import express from 'express';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
-import { isWebSocketTokenValid } from './auth';
+import { isOverlayEvent, webSocketRole, type AuthRole } from './auth';
 
 export const app = express();
 app.use(express.json());
 
 export const server = createServer(app);
 
-const sockets = new Set<WsSocket>();
+// Role per connection, so an overlay browser source only receives the events it
+// renders — never whispers, AutoMod holds, or operator status.
+const sockets = new Map<WsSocket, AuthRole>();
 const wss = new WebSocketServer({ server, path: '/socket' });
 
 wss.on('connection', (socket, request) => {
-  if (!isWebSocketTokenValid(request.url)) {
+  const role = webSocketRole(request.url);
+  if (!role) {
     socket.close(1008, 'unauthorized');
     return;
   }
-  sockets.add(socket);
+  sockets.set(socket, role);
   socket.on('close', () => sockets.delete(socket));
 });
 
@@ -26,8 +29,9 @@ export function getSocketCount(): number {
 
 export function broadcast(event: string, payload: unknown) {
   const message = JSON.stringify({ event, payload });
-  for (const socket of sockets) {
+  for (const [socket, role] of sockets) {
     if (socket.readyState !== socket.OPEN) continue;
+    if (role === 'overlay' && !isOverlayEvent(event)) continue;
     socket.send(message, (error) => {
       if (error) console.error(`Realtime: failed to send ${event}:`, error);
     });

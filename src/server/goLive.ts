@@ -9,6 +9,7 @@ import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import {
   attachDiscordAnnouncementToSession,
+  clearSessionAnnounceError,
   getOrStartStreamSession,
   recordSessionAnnounceError,
 } from './streamSession';
@@ -135,6 +136,26 @@ function renderDiscordMessage(template: string, vars: { title: string; category:
 
 const twitchAnnouncementTasks = new Map<string, Promise<void>>();
 
+// Total attempts allowed per stream, across restarts and EventSub reconnects. High
+// enough to ride out a rate limit or a Discord blip, low enough that a persistent
+// failure can't turn into the retry storm that tripped the rate limit originally.
+const MAX_ANNOUNCE_ATTEMPTS = 5;
+// Backoff between the in-process retries of a single attempt run.
+const ANNOUNCE_RETRY_DELAYS_MS = [5_000, 20_000, 60_000];
+
+// Failures the operator has to fix: a bad bot token, a missing permission, a channel
+// that doesn't exist, a message Discord won't accept. Retrying those forever just
+// burns rate limit. Everything else — 429, Discord 5xx, a dropped connection (which
+// arrives as a raw fetch TypeError, not an HttpRouteError) — is worth retrying.
+export function isTerminalDiscordFailure(error: unknown): boolean {
+  if (!(error instanceof HttpRouteError)) return false;
+  return error.status === 400 || error.status === 401 || error.status === 403 || error.status === 404;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function announceTwitchStreamOnline(streamId: string, startedAt: string, state: RuntimeState): Promise<void> {
   const normalizedStreamId = streamId.trim();
   if (!normalizedStreamId) throw new Error('Twitch stream ID is required for a live announcement.');
@@ -144,9 +165,12 @@ export async function announceTwitchStreamOnline(streamId: string, startedAt: st
 
   const task = (async () => {
     const session = getOrStartStreamSession(`twitch:${normalizedStreamId}`, startedAt);
-    // Already announced, or already attempted-and-failed for this stream: don't re-hit Discord
-    // on every EventSub reconnect/app restart (that retry storm is what tripped rate limits).
-    if (session.discordMessageId || session.discordAnnounceError) return;
+    if (session.discordMessageId) return;
+    // A terminal failure needs the operator, not another request. A transient one
+    // (rate limit, network) is retried — but only up to a cap, so a reconnect loop
+    // can't turn into a request storm.
+    if (session.discordAnnounceTerminal) return;
+    if (session.discordAnnounceAttempts >= MAX_ANNOUNCE_ATTEMPTS) return;
 
     const settings = getGoLiveSettings();
     if (!settings.discordChannelId) {
@@ -165,23 +189,36 @@ export async function announceTwitchStreamOnline(streamId: string, startedAt: st
       }
     }
 
-    try {
-      const message = await sendDiscordMessage(
-        settings.discordChannelId,
-        renderDiscordMessage(settings.discordMessage, { title, category }),
-      );
-      attachDiscordAnnouncementToSession(session.id, message.channelId, message.id);
-      console.log(`Discord: announced Twitch stream ${normalizedStreamId} in channel ${message.channelId}`);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'Discord announcement failed.';
-      // Persist the failure so the reconcile-on-connect path stops re-attempting it, and
-      // surface it to the operator instead of leaving it as a console-only error.
-      recordSessionAnnounceError(session.id, reason);
-      broadcast('discord:announce-failed', {
-        reason,
-        channelName: settings.discordChannelName,
-      } satisfies DiscordAnnounceFailedPayload);
-      throw error;
+    const content = renderDiscordMessage(settings.discordMessage, { title, category });
+    let attemptsUsed = session.discordAnnounceAttempts;
+
+    for (let retry = 0; ; retry++) {
+      try {
+        const message = await sendDiscordMessage(settings.discordChannelId, content);
+        attachDiscordAnnouncementToSession(session.id, message.channelId, message.id);
+        clearSessionAnnounceError(session.id);
+        console.log(`Discord: announced Twitch stream ${normalizedStreamId} in channel ${message.channelId}`);
+        return;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Discord announcement failed.';
+        const terminal = isTerminalDiscordFailure(error);
+        recordSessionAnnounceError(session.id, reason, terminal);
+        attemptsUsed++;
+
+        const exhausted = attemptsUsed >= MAX_ANNOUNCE_ATTEMPTS || retry >= ANNOUNCE_RETRY_DELAYS_MS.length;
+        if (terminal || exhausted) {
+          // Surface it to the operator instead of leaving it as a console-only error.
+          broadcast('discord:announce-failed', {
+            reason,
+            channelName: settings.discordChannelName,
+          } satisfies DiscordAnnounceFailedPayload);
+          throw error;
+        }
+
+        const delay = ANNOUNCE_RETRY_DELAYS_MS[retry];
+        console.warn(`Discord: announcement attempt ${attemptsUsed} failed (${reason}); retrying in ${delay / 1000}s.`);
+        await sleep(delay);
+      }
     }
   })();
 

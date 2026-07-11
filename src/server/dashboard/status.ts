@@ -337,6 +337,7 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
     obsConnected: isObsConnected(),
     eventSubConnected: state.eventSubConnected,
     eventSubError: state.eventSubError,
+    eventSubFailedSubscriptions: state.eventSubFailedSubscriptions,
     ...getTwitchAuthStatus(state),
     ...streamStatus,
     ...obsHealthStats,

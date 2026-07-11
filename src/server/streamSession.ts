@@ -8,6 +8,10 @@ export type StreamSession = {
   discordMessageId: string | null;
   discordChannelId: string | null;
   discordAnnounceError: string | null;
+  // How many announcement attempts this session has burned, and whether the last
+  // failure was terminal (operator has to fix something) rather than transient.
+  discordAnnounceAttempts: number;
+  discordAnnounceTerminal: number;
 };
 
 const getActiveSessionRow = db.prepare(`
@@ -18,7 +22,9 @@ const getActiveSessionRow = db.prepare(`
     source,
     discord_message_id as discordMessageId,
     discord_channel_id as discordChannelId,
-    discord_announce_error as discordAnnounceError
+    discord_announce_error as discordAnnounceError,
+    discord_announce_attempts as discordAnnounceAttempts,
+    discord_announce_terminal as discordAnnounceTerminal
   from stream_sessions
   where ended_at is null
   order by started_at desc
@@ -33,7 +39,9 @@ const getSessionBySourceRow = db.prepare(`
     source,
     discord_message_id as discordMessageId,
     discord_channel_id as discordChannelId,
-    discord_announce_error as discordAnnounceError
+    discord_announce_error as discordAnnounceError,
+    discord_announce_attempts as discordAnnounceAttempts,
+    discord_announce_terminal as discordAnnounceTerminal
   from stream_sessions
   where source = ?
   limit 1
@@ -58,7 +66,17 @@ const updateStreamSessionDiscord = db.prepare(`
 
 const updateStreamSessionAnnounceError = db.prepare(`
   update stream_sessions
-  set discord_announce_error = ?
+  set discord_announce_error = ?,
+      discord_announce_terminal = ?,
+      discord_announce_attempts = discord_announce_attempts + 1
+  where id = ?
+`);
+
+const clearStreamSessionAnnounceError = db.prepare(`
+  update stream_sessions
+  set discord_announce_error = null,
+      discord_announce_terminal = 0,
+      discord_announce_attempts = 0
   where id = ?
 `);
 
@@ -117,8 +135,15 @@ export function attachDiscordAnnouncementToSession(sessionId: string, channelId:
   updateStreamSessionDiscord.run(messageId, channelId, sessionId);
 }
 
-export function recordSessionAnnounceError(sessionId: string, reason: string) {
-  updateStreamSessionAnnounceError.run(reason, sessionId);
+// `terminal` marks a failure the operator has to act on (bad bot token, missing
+// permission, unknown channel). A non-terminal failure just burns an attempt, so a
+// later reconnect can try again instead of the stream never being announced.
+export function recordSessionAnnounceError(sessionId: string, reason: string, terminal: boolean) {
+  updateStreamSessionAnnounceError.run(reason, terminal ? 1 : 0, sessionId);
+}
+
+export function clearSessionAnnounceError(sessionId: string) {
+  clearStreamSessionAnnounceError.run(sessionId);
 }
 
 export function hasSeenChatterBefore(login: string): boolean {

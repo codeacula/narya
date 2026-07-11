@@ -263,10 +263,12 @@ export async function handleEventSubNotification(state: RuntimeState, type: stri
         console.warn(`EventSub: unrecognized automod.message.update status "${event.status}", treating as expired`);
         resolution = 'expired';
       }
+      // Twitch's own verdict: it outranks any `expired` we recorded provisionally.
       resolveAutomodHold(
         messageId,
         resolution,
         (event.moderator_user_name as string) ?? null,
+        { authoritative: true },
       );
       break;
     }
@@ -304,7 +306,23 @@ async function createEventSubSubscription(
   }
 }
 
-async function subscribeToAllEvents(clientId: string, userToken: string, sessionId: string, bid: string): Promise<boolean> {
+// A connected socket with no working subscriptions is not a healthy service, so
+// report what actually got established instead of a single boolean.
+export type EventSubHealth = {
+  // The stream.online/offline pair. Without these, go-live announcements and
+  // session tracking are dead, so a failure here forces a reconnect.
+  lifecycleOk: boolean;
+  // Required types Twitch refused (lifecycle + interaction). Non-empty while
+  // connected = degraded: the socket is up but those features are silently gone.
+  failed: string[];
+};
+
+async function subscribeToAllEvents(
+  clientId: string,
+  userToken: string,
+  sessionId: string,
+  bid: string,
+): Promise<EventSubHealth> {
   const lifecycleSubs: Array<[string, string, Record<string, string>]> = [
     ['stream.online', '1', { broadcaster_user_id: bid }],
     ['stream.offline', '1', { broadcaster_user_id: bid }],
@@ -326,31 +344,46 @@ async function subscribeToAllEvents(clientId: string, userToken: string, session
     ['user.whisper.message', '1', { user_id: bid }],
   ];
 
-  let lifecycleSuccessCount = 0;
-  for (const [type, version, condition] of lifecycleSubs) {
-    const ok = await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
-    if (ok) lifecycleSuccessCount++;
+  const required = [...lifecycleSubs, ...interactionSubs];
+  const failed: Array<[string, string, Record<string, string>]> = [];
+
+  for (const sub of required) {
+    const ok = await createEventSubSubscription(clientId, userToken, sessionId, ...sub);
+    if (!ok) failed.push(sub);
   }
 
-  let successCount = 0;
-  for (const [type, version, condition] of interactionSubs) {
-    const ok = await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
-    if (ok) successCount++;
+  // One bounded retry pass: a Twitch 5xx or a dropped request shouldn't cost the
+  // operator their follow alerts for the whole session. A scope/permission refusal
+  // will fail again here and stay in `failed`, where it becomes visible status
+  // rather than an endless reconnect loop.
+  const stillFailed: string[] = [];
+  if (failed.length > 0) {
+    console.warn(`EventSub: ${failed.length} subscription(s) failed; retrying once...`);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    for (const sub of failed) {
+      const ok = await createEventSubSubscription(clientId, userToken, sessionId, ...sub);
+      if (!ok) stillFailed.push(sub[0]);
+    }
   }
+
+  // Best-effort extras: these depend on scopes an operator may deliberately not have
+  // granted, so a failure here isn't reported as service degradation.
   for (const [type, version, condition] of optionalSubs) {
     await createEventSubSubscription(clientId, userToken, sessionId, type, version, condition);
   }
 
-  if (lifecycleSuccessCount !== lifecycleSubs.length) {
+  const lifecycleOk = !lifecycleSubs.some(([type]) => stillFailed.includes(type));
+  if (!lifecycleOk) {
     console.error('EventSub: Twitch stream lifecycle subscriptions failed; live announcements are unavailable');
-    return false;
-  }
-  if (successCount === 0) {
-    console.warn('EventSub: interaction subscriptions failed — re-authorize Twitch or check token scopes');
+  } else if (stillFailed.length > 0) {
+    console.warn(
+      `EventSub: degraded — ${stillFailed.join(', ')} unavailable. Re-authorize Twitch or check token scopes.`,
+    );
+  } else {
+    console.log(`EventSub: all ${required.length} required subscriptions active`);
   }
 
-  console.log(`EventSub: ${lifecycleSuccessCount}/${lifecycleSubs.length} lifecycle and ${successCount}/${interactionSubs.length} interaction subscriptions active`);
-  return true;
+  return { lifecycleOk, failed: stillFailed };
 }
 
 export function clearKeepaliveTimer(state: RuntimeState) {
@@ -499,10 +532,11 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
           }
           if (generation !== state.eventSubConnectGeneration) return;
           if (state.broadcasterId) {
-            const ok = await subscribeToAllEvents(creds.clientId, creds.userToken, session.id, state.broadcasterId);
+            const health = await subscribeToAllEvents(creds.clientId, creds.userToken, session.id, state.broadcasterId);
             if (generation !== state.eventSubConnectGeneration) return;
-            if (!ok) {
+            if (!health.lifecycleOk) {
               state.eventSubError = 'subscription_failed';
+              state.eventSubFailedSubscriptions = health.failed;
               clearKeepaliveTimer(state);
               try { ws.close(); } catch { /* ignore */ }
               scheduleReconnect(state);
@@ -516,7 +550,11 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
                 console.error('EventSub: failed to reconcile the current Twitch stream:', error);
               }
             }
-            state.eventSubError = null;
+            // Don't clear the error when subscriptions are missing: the socket is up,
+            // but follows/subs/raids/AutoMod aren't arriving, and the dashboard has to
+            // say so rather than showing a healthy service.
+            state.eventSubFailedSubscriptions = health.failed;
+            state.eventSubError = health.failed.length > 0 ? 'subscriptions_degraded' : null;
           } else {
             console.error(`EventSub: could not resolve broadcaster ID for "${appConfig.twitchChannel}"`);
             state.eventSubError = 'broadcaster_unresolved';

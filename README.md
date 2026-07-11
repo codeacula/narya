@@ -29,7 +29,36 @@ bun run dev
 ```
 
 The Vite app runs on port `5173`; the backend API and WebSocket server run on port `4317`.
-Open `http://localhost:5173/tablet` on the desktop, or `http://<desktop-lan-ip>:5173/tablet` from a tablet on the same network.
+Both bind to loopback by default, so `http://localhost:5173/tablet` works on the desktop with no further setup.
+
+## Access from other devices (tablet, phone)
+
+The API can ban viewers, drive OBS, rewrite Twitch rewards, and read your credentials, so it is never served
+off-box unauthenticated. To reach it from a tablet on the same network:
+
+1. Set a token in `.env`: `DASHBOARD_TOKEN=$(openssl rand -hex 32)`.
+2. Set `HOST=0.0.0.0` in `.env`.
+3. Open `http://<desktop-lan-ip>:5173/tablet?token=<DASHBOARD_TOKEN>` once. The token is saved to the
+   device's localStorage and stripped from the URL.
+
+Setting `HOST` without `DASHBOARD_TOKEN` refuses to start rather than exposing an unauthenticated control plane.
+
+### Overlay (OBS browser source) URLs
+
+An OBS browser source URL is a long-lived credential that sits in your scene collection, so overlays get their
+own **read-only** token instead of the operator's. It grants the handful of GETs the overlays read and a
+WebSocket that only carries what they render — never whispers, AutoMod holds, or credential writes.
+
+Fetch it with the dashboard running:
+
+```sh
+curl -s -H "x-dashboard-token: $DASHBOARD_TOKEN" http://localhost:4317/api/auth/overlay-token
+```
+
+Then point OBS at `http://localhost:5173/overlay?token=<overlay-token>` (same for `/overlay/clips`,
+`/overlay/sounds`). The overlay token is derived from `DASHBOARD_TOKEN`, so rotating the operator token
+rotates it too. Existing browser sources carrying the operator token keep working — update them to the
+overlay token to drop the privileges they don't need.
 
 ## OBS Controls
 
