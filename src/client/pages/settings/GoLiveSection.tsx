@@ -296,7 +296,7 @@ export function GoLiveSection() {
                 Under <b>OAuth2 → Redirects</b>, add the redirect URI that matches your setup:
                 <ul className="discord-help-uris">
                   <li><b>Local dev (Vite):</b> <code>http://localhost:5173/api/auth/discord/callback</code></li>
-                  <li><b>Docker / production:</b> <code>http://localhost:4317/api/auth/discord/callback</code></li>
+                  <li><b>Production (served by backend):</b> <code>http://localhost:4317/api/auth/discord/callback</code></li>
                 </ul>
                 Set <code>DISCORD_REDIRECT_URI</code> in your <code>.env</code> to match (deploy-specific).
               </li>
