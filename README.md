@@ -2,6 +2,21 @@
 
 Local stream tooling for codeacula.
 
+## Requirements
+
+This project runs on **[Bun](https://bun.sh)** (1.2 or newer). Bun is not just the package
+manager here — it is the runtime, so `npm`/`node` will not run it as-is:
+
+- The backend's SQLite layer imports Bun's built-in `bun:sqlite` (`src/server/db.ts`), which
+  has no Node import equivalent.
+- The server and its file watcher execute TypeScript directly (`bun src/server/index.ts`); the
+  backend has no separate compile step.
+- The test suite is Bun's built-in runner — every `*.test.ts` imports from `bun:test`.
+
+Porting to npm would mean swapping `bun:sqlite` for a Node SQLite driver, replacing `bun:test`
+across the test suite, and adding a TypeScript loader for the server. That is a port, not a
+config change, so install Bun and use it for everything below.
+
 ## Routes
 
 - `http://localhost:5173/` or `/dashboard` - side-monitor dashboard
@@ -22,6 +37,8 @@ by default. Narya loads its registered voices from `GET /voices` and sends speec
 requests to `POST /synthesize`; voice registration is managed by Chatterbox.
 
 ## Local Dev
+
+Install Bun first (`curl -fsSL https://bun.sh/install | bash`), then:
 
 ```sh
 bun install
@@ -66,39 +83,7 @@ Enable OBS WebSocket on port `4455`, then set the OBS WebSocket URL and password
 
 OBS is the source of truth for which scenes exist, so the dashboard and `/tablet` show no scene buttons while it is disconnected. Which scenes become buttons is decided by the **OBS scene prefix** in Settings (default `Scene - `): only scenes starting with it get a button, and the prefix is stripped from the label, so `Scene - Starting` reads as `Starting`. An optional numeric prefix after it (`Scene - 01 - Starting`) lets you force the button order from within OBS. Leave the prefix empty to switch between every scene.
 
-## Docker
-
-```sh
-docker compose up --build -d
-```
-
-The container runs the development servers with the repository mounted at `/app`:
-
-- Open the dashboard at `http://localhost:5173/dashboard`.
-- Vite applies React and CSS changes with HMR.
-- Bun restarts the backend when files under `src/server` change.
-- The backend and direct API access remain available on `http://localhost:4317`.
-- SQLite data remains persisted in `./data/streamer-tools.sqlite`.
-
-Follow the development logs with:
-
-```sh
-docker compose logs -f
-```
-
-The container keeps its own `node_modules` volume instead of using host dependencies. After changing `package.json` or `bun.lock`, restart the service so its startup install refreshes that volume:
-
-```sh
-docker compose restart
-```
-
-Re-run `docker compose up --build -d` when changing the Dockerfile or Bun image. Stop the service with `docker compose stop` if it should remain stopped after the next engine restart, or remove it with `docker compose down`.
-
-Compose uses `restart: unless-stopped`, so the service returns automatically after the container engine starts. Docker Engine or Docker Desktop must itself be enabled at boot or login. When `docker` is provided by rootless Podman, enable Podman's restart service as well:
-
-```sh
-systemctl --user enable --now podman-restart.service
-```
+## Chat storage
 
 Chat is stored in two layers:
 
@@ -121,15 +106,13 @@ VITE_BACKEND_ORIGIN=http://localhost:4317
 VITE_BACKEND_WS_ORIGIN=http://localhost:4317
 ```
 
-`TWITCH_REDIRECT_URI` and `DISCORD_REDIRECT_URI` are also read from the environment, but only as overrides — they default to `http://localhost:5173/api/auth/{twitch,discord}/callback`, which is correct for both Docker and direct local development. They cannot be derived, because they must match what is registered in your Twitch/Discord developer console character for character.
+`TWITCH_REDIRECT_URI` and `DISCORD_REDIRECT_URI` are also read from the environment, but only as overrides — they default to `http://localhost:5173/api/auth/{twitch,discord}/callback`, which is correct for local development. They cannot be derived, because they must match what is registered in your Twitch/Discord developer console character for character.
 
 There is no `.env` seeding. `TWITCH_CLIENT_ID`, `OBS_SCENES`, `QUACK_VOLUME` and friends used to be read once on first boot to populate the database and then ignored forever; they have been removed, because a variable consulted once and never again reads like live configuration and is not.
 
 Twitch setup: put the client ID and secret into Settings, register the redirect URI in your Twitch app, then use Settings to log in the broadcaster account and the separate bot account. OAuth is the only way in — the old `TWITCH_USER_TOKEN` / `TWITCH_BOT_USER_TOKEN` environment fallbacks are gone, as a pasted token carried no refresh token and no expiry, so it silently rotted while still reporting itself as authenticated. Broadcaster credentials are used for EventSub, stream info, ads, moderation, shoutouts, and whispers; bot credentials for dashboard chat sends and chat command replies.
 
-For Docker, set the OBS URL to `ws://host.docker.internal:4455` in Settings so the container can reach OBS on the host, and set music polling to `0` — containers do not normally have access to the host desktop media session.
-
-Set the Chatterbox URL in Settings: `http://127.0.0.1:8008` for local Bun development, `http://host.docker.internal:8008` for Docker. Start Chatterbox with `--host 0.0.0.0 --port 8008` when using Narya in Docker; a service bound only to `127.0.0.1` is not reachable from the container.
+Set the Chatterbox URL in Settings to `http://127.0.0.1:8008` for local development.
 
 ## License
 
