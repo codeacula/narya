@@ -70,6 +70,7 @@ import type {
   AppConfig,
   AppConfigUpdate,
   OverlayPlaceholders,
+  MediaMuteState,
   StreamStatus,
 } from '../../shared/api';
 import { getDashboardToken, isDashboardTokenRejection, reportDashboardTokenRejected } from '../auth';
@@ -528,6 +529,15 @@ export async function getOverlayPlaceholders(): Promise<OverlayPlaceholders> {
 
 export async function updateOverlayPlaceholders(enabled: boolean): Promise<OverlayPlaceholders> {
   return sendJson<OverlayPlaceholders>('/api/overlay/placeholders', 'PUT', { enabled });
+}
+
+// Master media mute (Stream Controls). Operator-only; never on the overlay allowlist.
+export async function getMediaMute(): Promise<MediaMuteState> {
+  return fetchJson<MediaMuteState>('/api/automation/media-mute');
+}
+
+export async function setMediaMute(muted: boolean): Promise<MediaMuteState> {
+  return sendJson<MediaMuteState>('/api/automation/media-mute', 'PUT', { muted });
 }
 
 // --- Configured media catalog ------------------------------------------------
