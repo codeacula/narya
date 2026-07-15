@@ -623,6 +623,11 @@ export type OverlayPlaceholders = {
   enabled: boolean;
 };
 
+/** `media:mute` WebSocket payload and the GET/PUT /api/automation/media-mute body. */
+export type MediaMuteState = {
+  muted: boolean;
+};
+
 // Freeform stream status line. Doubles as the GET /api/stream-status response
 // and the `status:updated` WebSocket payload.
 export type StreamStatus = {

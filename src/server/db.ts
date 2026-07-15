@@ -342,6 +342,14 @@ db.exec(`
     updated_at text not null
   );
 
+  -- Single-row master switch: while muted = 1, the executor skips any Action whose
+  -- quick_disable flag is set. Persisted (survives restart) unlike the in-memory
+  -- overlay-placeholder flag, because a mid-stream restart must not silently un-mute.
+  create table if not exists media_mute (
+    id integer primary key check (id = 1),
+    muted integer not null default 0
+  );
+
   create table if not exists action_steps (
     id text primary key,
     action_id text not null,
