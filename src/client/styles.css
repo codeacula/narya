@@ -756,6 +756,26 @@ nav {
   overflow: hidden;
 }
 
+/* The chat is the dashboard's own component, which ships compact controls in
+   panel.css. The tablet's large touch-button chrome (.tabletShell button) is more
+   specific and would otherwise inflate the "latest" pill, so restate the compact
+   pill here for anything inside the chat toolbar. */
+.tabletChatPanel .chat-bar button {
+  min-height: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.tabletChatPanel .chat-bar button:hover:not(:disabled) {
+  border-color: var(--border-2);
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .tabletPanelHeader {
   display: flex;
   align-items: center;
