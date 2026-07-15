@@ -1276,6 +1276,31 @@ function OverlayPlaceholderToggle() {
 
 const ROLE_SORT_ORDER: Record<string, number> = { broadcaster: 0, mod: 1, vip: 2, sub: 3 };
 
+/** A person who recently sent a chat message, stamped with when, for {@link mergeRecentChatters}. */
+export type RecentChatter = { chatter: Chatter; at: number };
+
+/**
+ * Folds people who just chatted into Twitch's presence list. Twitch's `chat/chatters`
+ * endpoint lags brand-new arrivals, but a chat message is proof someone is here, so
+ * recent senders show immediately. When Twitch does list them its row wins (it carries
+ * the real user id); senders quiet longer than `ttlMs` age out so leavers don't linger.
+ */
+export function mergeRecentChatters(
+  present: Chatter[],
+  recent: RecentChatter[],
+  now: number,
+  ttlMs: number,
+): Chatter[] {
+  const byLogin = new Map<string, Chatter>();
+  for (const chatter of present) byLogin.set(chatter.userLogin.toLowerCase(), chatter);
+  for (const { chatter, at } of recent) {
+    if (now - at > ttlMs) continue;
+    const login = chatter.userLogin.toLowerCase();
+    if (!byLogin.has(login)) byLogin.set(login, chatter);
+  }
+  return [...byLogin.values()];
+}
+
 function chatterSortKey(chatter: Chatter, viewers: Record<string, Viewer>): number {
   const viewer = viewers[chatter.userLogin.toLowerCase()];
   if (!viewer) return 4;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { belongsToCurrentSession, sessionBoundaryIndex } from './panels';
+import type { Chatter } from '../../shared/api';
+import { belongsToCurrentSession, mergeRecentChatters, sessionBoundaryIndex } from './panels';
 
 describe('belongsToCurrentSession', () => {
   test('a row from the live session is current', () => {
@@ -60,6 +61,53 @@ describe('sessionBoundaryIndex, chat', () => {
 
   test('off-stream there is no boundary', () => {
     expect(sessionBoundaryIndex([{ sessionId: 'old' }], null, opts)).toBe(-1);
+  });
+});
+
+// The "viewers" tab shows Twitch's presence list, which lags brand-new arrivals.
+// mergeRecentChatters folds in people who just chatted so they show immediately.
+describe('mergeRecentChatters', () => {
+  const chatter = (login: string, id = login): Chatter => ({ userId: id, userLogin: login, userName: login });
+  const recent = (login: string, at: number) => ({ chatter: chatter('chat:' + login, 'chat:' + login), at });
+  const NOW = 1_000_000;
+  const TTL = 5 * 60_000;
+
+  test('a fresh chatter absent from Twitch presence is folded in', () => {
+    const merged = mergeRecentChatters([chatter('alice')], [recent('bob', NOW)], NOW, TTL);
+    expect(merged.map(c => c.userLogin).sort()).toEqual(['alice', 'chat:bob']);
+  });
+
+  test('a chatter Twitch already lists is not duplicated, and Twitch\'s row wins', () => {
+    // Same login in both; the presence row (real userId) must be the one kept.
+    const merged = mergeRecentChatters(
+      [chatter('bob', '12345')],
+      [{ chatter: chatter('bob', 'chat:bob'), at: NOW }],
+      NOW,
+      TTL,
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].userId).toBe('12345');
+  });
+
+  test('login match is case-insensitive so a cased display login does not double a row', () => {
+    const merged = mergeRecentChatters(
+      [chatter('Bob', '12345')],
+      [{ chatter: chatter('bob', 'chat:bob'), at: NOW }],
+      NOW,
+      TTL,
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].userId).toBe('12345');
+  });
+
+  test('a chat sender older than the TTL has aged out and is dropped', () => {
+    const merged = mergeRecentChatters([chatter('alice')], [recent('bob', NOW - TTL - 1)], NOW, TTL);
+    expect(merged.map(c => c.userLogin)).toEqual(['alice']);
+  });
+
+  test('an empty presence list still surfaces recent chatters', () => {
+    const merged = mergeRecentChatters([], [recent('bob', NOW)], NOW, TTL);
+    expect(merged.map(c => c.userLogin)).toEqual(['chat:bob']);
   });
 });
 

@@ -13,6 +13,13 @@ export const THANK_WORTHY_EVENT_KINDS = ['follow', 'sub', 'gift', 'cheer', 'raid
 
 export const DASHBOARD_FULL_REFRESH_MS = 30_000;
 export const DASHBOARD_STATUS_REFRESH_MS = 5_000;
+
+// The viewers roster refetches on chat, but only after a brief quiet window so a
+// burst of messages coalesces into one lightweight (DB-only) roster refresh.
+export const VIEWERS_ROSTER_CHAT_REFRESH_MS = 1_500;
+// How long someone who just chatted stays folded into the cockpit "viewers" tab
+// before Twitch's presence list must confirm them — covers Twitch's arrival lag.
+export const CHAT_PRESENCE_TTL_MS = 5 * 60_000;
 export const DASHBOARD_HEARTBEAT_MS = 5_000;
 export const DASHBOARD_RECENT_VIEWER_MESSAGE_LIMIT = 500;
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
-import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx } from '../ui/panels';
+import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx, mergeRecentChatters, type RecentChatter } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
 import { useAttention, useAttentionSettings } from '../attention';
 import { playTone } from '../sounds';
@@ -26,7 +26,7 @@ import {
 import { useSessionShoutouts } from '../shoutouts';
 import { useSocket } from '../realtime';
 import { chatHighlight } from '../../shared/roles';
-import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
+import { CHAT_PRESENCE_TTL_MS, DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsShell } from './settings/SettingsShell';
 import {
   dashboardRouteFromName,
@@ -137,9 +137,18 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [obsStatus, setObsStatus] = useState<ObsStatus>(EMPTY_OBS_STATUS);
   const [sceneSwitching, setSceneSwitching] = useState(false);
   const [chatters, setChatters] = useState<Chatter[]>([]);
+  // People who just chatted, folded into the "viewers" tab so they show at once
+  // instead of waiting on Twitch's laggy presence poll. See mergeRecentChatters.
+  const [recentChatters, setRecentChatters] = useState<RecentChatter[]>([]);
   const [chattersError, setChattersError] = useState<string | null>(null);
   const automodQueue = useAutomodQueue();
   const [rightTab, setRightTab] = useState<RightTab>('chatters');
+  // Twitch presence + anyone who has chatted recently, so the tab reflects new
+  // talkers at once. Recomputed on each poll/chat so aged-out senders fall away.
+  const liveChatters = React.useMemo(
+    () => mergeRecentChatters(chatters, recentChatters, Date.now(), CHAT_PRESENCE_TTL_MS),
+    [chatters, recentChatters],
+  );
   // False until the first REST refresh lands, so the attention feed can tell the
   // backlog apart from activity that arrived while you were watching.
   const [seeded, setSeeded] = useState(false);
@@ -287,6 +296,16 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     // Cap live-append so long streams don't grow render cost forever.
     // loadOlderChat prepends older pages, so only the live tail is capped here.
     setChat(current => current.some(entry => entry.id === nextEntry.id) ? current : [...current, nextEntry].slice(-400));
+
+    // Fold this sender into the "viewers" tab right away — a message proves they're
+    // here even before Twitch's presence poll lists them — and drop anyone whose last
+    // message has aged past the TTL so people who left don't linger.
+    setRecentChatters(current => {
+      const cutoff = now - CHAT_PRESENCE_TTL_MS;
+      const kept = current.filter(entry => entry.at >= cutoff && entry.chatter.userLogin.toLowerCase() !== login);
+      const chatter = { userId: 'chat:' + login, userLogin: message.username, userName: message.displayName || message.username };
+      return [...kept, { chatter, at: now }];
+    });
 
     // Status arrives via the dashboard:status WS heartbeat, so no per-message
     // status refetch. Only refetch viewers immediately for a login we don't yet
@@ -568,7 +587,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
   function renderRightTab(tab: RightTab) {
     if (tab === 'chatters') {
-      return <ChattersPanel chatters={chatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />;
+      return <ChattersPanel chatters={liveChatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />;
     }
     if (tab === 'activity') return MODULES.events.render(ctx);
     if (tab === 'shoutouts') {

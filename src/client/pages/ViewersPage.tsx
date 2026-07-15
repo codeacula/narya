@@ -1,6 +1,8 @@
 import React from 'react';
 import type { Chatter, ViewerRosterEntry } from '../../shared/api';
+import { DASHBOARD_FULL_REFRESH_MS, VIEWERS_ROSTER_CHAT_REFRESH_MS } from '../../shared/constants';
 import type { PanelCtx } from '../ui/panels';
+import { useSocket } from '../realtime';
 import { ViewerDetailPane } from './ViewerDetailPage';
 import {
   getChatters,
@@ -167,6 +169,44 @@ export function ViewersPage({
   }, []);
 
   React.useEffect(() => { void refresh().finally(() => setLoading(false)); }, [refresh]);
+
+  // Keep the roster fresh while the tab is open. The backend writes a new chatter
+  // to the DB on their first message, but this page used to fetch only once on
+  // mount — so someone who arrived while you watched never appeared until a manual
+  // Refresh. Pull the roster (a cheap DB read) shortly after chat activity, and run
+  // the full refresh — which also hits Twitch for VIPs/mods/live presence — on a
+  // slower interval so an active chat can't hammer the Twitch API.
+  const syncRoster = React.useCallback(async () => {
+    try {
+      setRoster(await getViewerRoster());
+    } catch {
+      // A dropped background refresh is harmless; the interval or next message retries.
+    }
+  }, []);
+
+  const rosterRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onChatMessage = React.useCallback(() => {
+    // Coalesce a burst of messages into one refresh: the first schedules it, the
+    // rest ride along until it fires.
+    if (rosterRefreshTimer.current) return;
+    rosterRefreshTimer.current = setTimeout(() => {
+      rosterRefreshTimer.current = null;
+      void syncRoster();
+    }, VIEWERS_ROSTER_CHAT_REFRESH_MS);
+  }, [syncRoster]);
+
+  useSocket('chat:message', onChatMessage);
+
+  React.useEffect(() => {
+    const poll = setInterval(() => { void refresh(); }, DASHBOARD_FULL_REFRESH_MS);
+    return () => {
+      clearInterval(poll);
+      if (rosterRefreshTimer.current) {
+        clearTimeout(rosterRefreshTimer.current);
+        rosterRefreshTimer.current = null;
+      }
+    };
+  }, [refresh]);
 
   const people = React.useMemo(() => {
     const vipSet = new Set(vips.map(v => v.userLogin.toLowerCase()));
