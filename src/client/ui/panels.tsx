@@ -182,6 +182,8 @@ export function Chat({ ctx }: { ctx: PanelCtx }) {
   const lastIdRef = React.useRef(ctx.chat[ctx.chat.length - 1]?.id ?? '');
   const loadingRef = React.useRef(false);
   const exhaustedRef = React.useRef(false);
+  // Tears down an in-flight "stick to bottom" hold (see scrollToBottom).
+  const stickReleaseRef = React.useRef<null | (() => void)>(null);
   const [atBottom, setAtBottom] = React.useState(true);
   const [newCount, setNewCount] = React.useState(0);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
@@ -253,11 +255,57 @@ export function Chat({ ctx }: { ctx: PanelCtx }) {
   }, [ctx.chat, chatSearch]);
 
   const scrollToBottom = React.useCallback(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
     atBottomRef.current = true;
     setAtBottom(true);
     setNewCount(0);
+
+    const el = listRef.current;
+    if (!el) return;
+
+    // A touch fling keeps scrolling on the compositor after the finger lifts, and the
+    // "latest" tap lands on the toolbar — not this list — so nothing cancels it. A
+    // single scrollTop assignment loses to that momentum and drifts back off the
+    // bottom. Rather than try to cancel the fling, re-pin to the bottom each frame so
+    // the momentum can't move us, until it settles (a few still frames) or a safety
+    // cap. Any real scroll gesture on the list releases the hold immediately.
+    stickReleaseRef.current?.();
+
+    const startedAt = performance.now();
+    let stableFrames = 0;
+    let raf = 0;
+
+    const release = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      el.removeEventListener('wheel', release);
+      el.removeEventListener('touchstart', release);
+      el.removeEventListener('pointerdown', release);
+      stickReleaseRef.current = null;
+    };
+    stickReleaseRef.current = release;
+
+    const step = () => {
+      const list = listRef.current;
+      if (!list) { release(); return; }
+      const drifted = list.scrollHeight - list.scrollTop - list.clientHeight > 1;
+      list.scrollTop = list.scrollHeight;
+      stableFrames = drifted ? 0 : stableFrames + 1;
+      if (stableFrames < 4 && performance.now() - startedAt < 1500) {
+        raf = requestAnimationFrame(step);
+      } else {
+        release();
+      }
+    };
+
+    el.addEventListener('wheel', release, { passive: true });
+    el.addEventListener('touchstart', release, { passive: true });
+    el.addEventListener('pointerdown', release, { passive: true });
+    raf = requestAnimationFrame(step);
   }, []);
+
+  // Release any in-flight "stick to bottom" hold when the chat unmounts (e.g. the
+  // tablet toggling to the chatters view).
+  React.useEffect(() => () => stickReleaseRef.current?.(), []);
 
   // Chat is oldest-first, so the boundary is the first message of this stream.
   const currentSessionStart = React.useMemo(
