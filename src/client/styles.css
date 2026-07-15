@@ -776,6 +776,44 @@ nav {
   background: rgba(255, 255, 255, 0.03);
 }
 
+/* Segmented toggle in the chat header: chat feed vs. live chatters list. Compact
+   and scoped under .tabletShell so it out-specifies the large control-button chrome
+   (the active button must win over that chrome's :hover too). */
+.tabletChatToggle {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-pill);
+  background: var(--bg-void);
+}
+
+.tabletShell .tabletChatToggle button {
+  min-height: 0;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tabletShell .tabletChatToggle button.active {
+  background: var(--gold-500);
+  color: var(--navy-950);
+}
+
+/* The chatters list normally scrolls inside .panel-body; give it the same bounded
+   scroll here so it fills the chat body instead of overflowing the panel. */
+.tabletChatBody .chatter-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .tabletPanelHeader {
   display: flex;
   align-items: center;
