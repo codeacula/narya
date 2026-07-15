@@ -31,6 +31,16 @@ export function playAttentionChime() {
   setTimeout(() => playTone(1319, 160, 0.18), 195);
 }
 
+/**
+ * Two-note "held for review" alert for the AutoMod queue. Deliberately lower and
+ * more insistent than the attention chime so a held message reads as needs-a-decision
+ * rather than nice-to-know, and distinct from the mention/whisper cues.
+ */
+export function playAutomodAlert() {
+  playTone(587, 120, 0.26);
+  setTimeout(() => playTone(880, 170, 0.24), 130);
+}
+
 export function useSoundButtons() {
   const [soundButtons, setSoundButtons] = React.useState<SoundButton[]>([]);
 

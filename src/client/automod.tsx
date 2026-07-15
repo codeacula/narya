@@ -1,12 +1,16 @@
 import React from 'react';
 import type { AutomodHold } from '../shared/api';
 import { useSocket, useSocketReconnect } from './realtime';
+import { playAutomodAlert } from './sounds';
 import { allowAutomodHold, denyAutomodHold, getAutomodQueue } from './services/dashboard';
 
 // Mirrors the server-side pending cap so the two agree on how many holds a
 // spam wave can accumulate before the oldest overflow is dropped.
 const PENDING_LIMIT = 200;
 const RESOLVED_LIMIT = 20;
+// A spam wave can deliver many holds in a burst; the alert fires at most once per
+// window so it reads as "something needs review" rather than machine-gunning.
+const ALERT_THROTTLE_MS = 1500;
 
 export type AutomodQueueController = {
   pending: AutomodHold[];
@@ -23,6 +27,8 @@ export function useAutomodQueue(): AutomodQueueController {
   // Ids we've already seen resolved — used so a slow initial snapshot can't
   // re-add a hold that a socket event (or our own action) already cleared.
   const resolvedIds = React.useRef<Set<string>>(new Set());
+  // When the audible alert last fired, to throttle a burst of holds.
+  const lastAlertAt = React.useRef(0);
 
   const applyResolved = React.useCallback((hold: AutomodHold) => {
     resolvedIds.current.add(hold.id);
@@ -60,6 +66,14 @@ export function useAutomodQueue(): AutomodQueueController {
     React.useCallback((hold) => {
       if (resolvedIds.current.has(hold.id)) return;
       setPending(current => (current.some(h => h.id === hold.id) ? current : [...current, hold].slice(0, PENDING_LIMIT)));
+      // Audible cue so a held message isn't missed while the operator is looking
+      // elsewhere. Fires only on live holds (the initial REST snapshot doesn't
+      // route through here), and is throttled so a burst doesn't overlap.
+      const now = Date.now();
+      if (now - lastAlertAt.current >= ALERT_THROTTLE_MS) {
+        lastAlertAt.current = now;
+        playAutomodAlert();
+      }
     }, []),
   );
 

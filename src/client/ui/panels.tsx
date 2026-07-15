@@ -173,7 +173,10 @@ function addProfileTag(tags: string[], value: string): string[] {
 
 /* ---------------- Chat ---------------- */
 
-function Chat({ ctx }: { ctx: PanelCtx }) {
+// Exported so the tablet can render the identical chat surface (read-only there —
+// it omits the ChatInput footer). Keep it prop-driven via PanelCtx so the two
+// surfaces can't drift apart.
+export function Chat({ ctx }: { ctx: PanelCtx }) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const atBottomRef = React.useRef(true);
   const lastIdRef = React.useRef(ctx.chat[ctx.chat.length - 1]?.id ?? '');

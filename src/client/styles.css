@@ -712,11 +712,21 @@ nav {
   background: rgba(255, 184, 108, 0.1);
 }
 
+/* Two columns for the whole surface: a wide left rail of controls (OBS scenes,
+   quick actions, soundboard) and a narrower right rail (AutoMod queue over the
+   read-only chat). Each column is its own vertical stack. */
 .tabletControlGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
   gap: 16px;
   align-items: start;
+}
+
+.tabletColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
 .tabletPanel {
@@ -729,10 +739,21 @@ nav {
   padding: 18px;
 }
 
-/* OBS and the AutoMod queue share the top row; the soundboard gets its own
-   full-width band beneath them so its buttons have room to breathe. */
-.mediaPanel {
-  grid-column: 1 / -1;
+/* The chat reuses the dashboard's Chat component (panel.css classes), which expects
+   a bounded flex parent so its message list scrolls internally instead of growing the
+   whole page. A fixed viewport-relative height keeps the right rail from running away
+   while the AutoMod queue above it stays fully visible. */
+.tabletChatPanel {
+  display: flex;
+  flex-direction: column;
+}
+
+.tabletChatBody {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: clamp(320px, 55vh, 640px);
+  overflow: hidden;
 }
 
 .tabletPanelHeader {
