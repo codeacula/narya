@@ -36,7 +36,7 @@ import {
   validateAction,
 } from './automation';
 
-const EMPTY_DRAFT: ActionUpsert = { name: '', description: '', enabled: true, steps: [] };
+const EMPTY_DRAFT: ActionUpsert = { name: '', description: '', enabled: true, quickDisable: false, steps: [] };
 
 function errorText(caught: unknown, fallback: string): string {
   return caught instanceof Error ? caught.message : fallback;
@@ -697,6 +697,7 @@ export function ActionsSettingsPage() {
                       </span>
                       <div className="media-asset-tags">
                         {!action.enabled && <span className="media-asset-tag media-asset-tag--off">disabled</span>}
+                        {action.quickDisable && <span className="media-asset-tag">quick-disable</span>}
                         {action.description && <span className="media-asset-tag">{action.description}</span>}
                       </div>
                     </div>
@@ -781,6 +782,18 @@ export function ActionsSettingsPage() {
                   />
                   <span>Enabled</span>
                 </label>
+                <label className="command-enabled">
+                  <input
+                    type="checkbox"
+                    checked={draft.quickDisable}
+                    disabled={busy}
+                    onChange={event => setDraft(current => (current ? { ...current, quickDisable: event.target.checked } : current))}
+                  />
+                  <span>Quick Disable</span>
+                </label>
+                <small className="action-hint">
+                  Quick Disable lets the "Mute sound/video commands" button in Stream Controls silence this action.
+                </small>
               </div>
 
               <div className="action-steps">
