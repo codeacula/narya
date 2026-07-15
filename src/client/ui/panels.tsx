@@ -18,6 +18,7 @@ import { DEFAULT_ATTENTION_TAG, type AttentionItem, type AttentionSettings } fro
 import { kindChip, kindTone } from '../eventKinds';
 import { sceneLabel, switchableScenes } from '../scenes';
 import { loadStoredJson, saveStoredJson } from '../storage';
+import { useMediaMute } from '../mediaMute';
 
 /* ---------------- types ---------------- */
 
@@ -1266,6 +1267,7 @@ export function ControlsPanel({
         </div>
       )}
       <OverlayPlaceholderToggle />
+      <MediaMuteToggle />
     </div>
   );
 }
@@ -1317,6 +1319,36 @@ function OverlayPlaceholderToggle() {
       {enabled && (
         <p className="ctrl-overlay-warning" role="status">
           Outlines are visible in every overlay source — turn this off before going live.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The master "mute sound/video commands" switch. While engaged, the server skips
+ * every Action flagged Quick Disable — spammed sound/video commands go quiet at
+ * once, while unflagged redemptions keep working. Persisted, so a restart keeps it
+ * lit until the operator turns it off.
+ */
+function MediaMuteToggle() {
+  const { muted, busy, toggle } = useMediaMute();
+
+  return (
+    <div className="ctrl-section ctrl-mute-section">
+      <span className="ctrl-label">commands</span>
+      <label className={'ctrl-toggle' + (muted ? ' is-muted' : '')}>
+        <input
+          type="checkbox"
+          checked={muted}
+          disabled={busy}
+          onChange={event => toggle(event.target.checked)}
+        />
+        <span>Mute sound/video commands</span>
+      </label>
+      {muted && (
+        <p className="ctrl-overlay-warning" role="status">
+          Quick-Disable actions are silenced. Redemptions on unflagged actions still play.
         </p>
       )}
     </div>

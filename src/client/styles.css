@@ -999,6 +999,25 @@ nav {
   color: var(--fg-arcane);
 }
 
+/* Sits in the Media panel header rather than the button grid, so it keeps the
+   tablet's default border but takes a compact header size instead of a full
+   touch-target tile. The engaged state reuses the same danger trio as
+   .tabletError so a lit mute reads the same as any other alarm on this surface. */
+.tabletMuteButton {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-2);
+  font-size: 13px;
+}
+
+.tabletMuteButton.active {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-weight: 700;
+}
+
 @keyframes chatIn {
   from { opacity: 0; transform: translateX(28px); }
   to   { opacity: 1; transform: translateX(0); }

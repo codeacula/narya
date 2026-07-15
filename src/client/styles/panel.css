@@ -1347,6 +1347,8 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 /* Overlay bounds toggle. Wraps so the warning sits under the checkbox rather than
    squeezing the control when it appears. */
 .ctrl-overlay-section { flex-wrap: wrap; align-items: center; }
+/* Media mute shares the overlay toggle's wrap-and-warning layout. */
+.ctrl-mute-section { flex-wrap: wrap; align-items: center; }
 .ctrl-toggle {
   display: flex;
   align-items: center;
@@ -1359,6 +1361,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   cursor: pointer;
 }
 .ctrl-toggle input { cursor: pointer; }
+.ctrl-toggle.is-muted span { color: var(--danger-fg); font-weight: 600; }
 .ctrl-overlay-warning {
   flex-basis: 100%;
   margin: 0;
