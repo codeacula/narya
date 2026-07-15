@@ -50,6 +50,8 @@ export type ActionExecutorDeps = {
   randomIndex?: (length: number) => number;
   newId?: () => string;
   now?: () => Date;
+  /** The master media mute. When true, a quickDisable Action is skipped silently. */
+  isMuted?: () => boolean;
 };
 
 export type ActionExecutor = {
@@ -115,6 +117,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     randomIndex = (length: number) => Math.floor(Math.random() * length),
     newId = () => crypto.randomUUID(),
     now = () => new Date(),
+    isMuted = () => false,
   } = deps;
 
   /**
@@ -277,6 +280,14 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
 
     // A missing or disabled Action broadcasts nothing at all.
     if (!action || !action.enabled) {
+      return { actionId, status: 'skipped', steps: [], ranAt };
+    }
+
+    // Master media mute: an opted-in Action is skipped silently while muted. This is
+    // the single choke point, so every source — command, reward, manual, module —
+    // honors it uniformly, and a skipped run broadcasts nothing (no media:play, no
+    // overlay:text), so overlays stay quiet with no new play path.
+    if (action.quickDisable && isMuted()) {
       return { actionId, status: 'skipped', steps: [], ranAt };
     }
 

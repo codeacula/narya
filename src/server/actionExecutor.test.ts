@@ -67,6 +67,7 @@ function action(steps: ActionStep[], overrides: Partial<Action> = {}): Action {
     name: 'Test action',
     description: '',
     enabled: true,
+    quickDisable: false,
     steps: steps.map((s, index) => ({ ...s, id: s.id === 'step-1' ? `step-${index + 1}` : s.id, position: index })),
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -551,5 +552,45 @@ describe('templated timeout duration', () => {
     const h = harness(action([timeoutStep]));
     await run(h, { args: ['bob', '99999999'] });
     expect(h.calls.timeouts[0]!.seconds).toBe(600);
+  });
+});
+
+describe('master media mute', () => {
+  test('skips a quick-disable action while muted and broadcasts nothing', async () => {
+    const target = action(
+      [step({ type: 'send_chat', payload: { template: 'hi', sender: 'bot' } } as never)],
+      { quickDisable: true },
+    );
+    const h = harness(target, { isMuted: () => true });
+    const result = await run(h);
+
+    expect(result.status).toBe('skipped');
+    expect(result.steps).toEqual([]);
+    expect(h.calls.broadcasts).toEqual([]);
+    expect(h.calls.chats).toEqual([]);
+  });
+
+  test('runs a quick-disable action when not muted', async () => {
+    const target = action(
+      [step({ type: 'send_chat', payload: { template: 'hi', sender: 'bot' } } as never)],
+      { quickDisable: true },
+    );
+    const h = harness(target, { isMuted: () => false });
+    const result = await run(h);
+
+    expect(result.status).toBe('succeeded');
+    expect(h.calls.chats).toEqual([{ message: 'hi', sender: 'bot' }]);
+  });
+
+  test('runs an unflagged action even while muted', async () => {
+    const target = action(
+      [step({ type: 'send_chat', payload: { template: 'hi', sender: 'bot' } } as never)],
+      { quickDisable: false },
+    );
+    const h = harness(target, { isMuted: () => true });
+    const result = await run(h);
+
+    expect(result.status).toBe('succeeded');
+    expect(h.calls.chats).toEqual([{ message: 'hi', sender: 'bot' }]);
   });
 });
