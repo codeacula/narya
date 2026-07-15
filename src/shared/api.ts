@@ -782,6 +782,8 @@ export type Action = {
   name: string;
   description: string;
   enabled: boolean;
+  /** When true, the master media mute (Stream Controls) silences this Action. */
+  quickDisable: boolean;
   steps: ActionStep[];
   createdAt: string;
   updatedAt: string;
@@ -791,6 +793,7 @@ export type ActionUpsert = {
   name: string;
   description: string;
   enabled: boolean;
+  quickDisable: boolean;
   steps: ActionStepInput[];
 };
 

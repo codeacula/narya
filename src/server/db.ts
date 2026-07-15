@@ -505,6 +505,7 @@ const allowedMigrationTables = new Set([
   'tts_reward_enabled',
   'app_config',
   'alert_settings',
+  'actions',
 ]);
 const allowedMigrationColumns = new Set([
   'deleted_at',
@@ -534,6 +535,7 @@ const allowedMigrationColumns = new Set([
   'clip_volume',
   'obs_scene_prefix',
   'sound_button_volume',
+  'quick_disable',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   deleted_at: 'text',
@@ -568,6 +570,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // Supersedes app_config.quack_volume, which named the built-in !quack command
   // rather than what it actually controls: the default sound-button volume.
   sound_button_volume: 'real not null default 0.2',
+  quick_disable: 'integer not null default 0',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -610,6 +613,7 @@ addColumnIfMissing('app_config', 'chatterbox_base_url', "text not null default '
 // the live scene list that went stale the moment a scene was renamed in OBS.
 addColumnIfMissing('app_config', 'obs_scene_prefix', "text not null default 'Scene - '");
 addColumnIfMissing('app_config', 'sound_button_volume', 'real not null default 0.2');
+addColumnIfMissing('actions', 'quick_disable', 'integer not null default 0');
 addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');
 // A failed go-live announcement used to be suppressed forever. Track how many
 // attempts a session has burned, and whether the failure was terminal (bad token,
