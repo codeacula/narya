@@ -5,8 +5,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Core.AppConfig;
 using Narya.Twitch.EventSub;
+using Narya.Twitch.Helix;
 using Narya.Twitch.Oauth;
 using Narya.Twitch.Tokens;
+
+using TwitchLib.Api;
 
 namespace Narya.Twitch;
 
@@ -39,6 +42,36 @@ public static class ServiceCollectionExtensions
     // TimeProvider (e.g. for testing) is not overridden.
     services.TryAddSingleton(TimeProvider.System);
     _ = services.AddSingleton<ITwitchCredentials, TwitchCredentials>();
+
+    // The single TwitchAPI instance every Helix call shares. Secret is deliberately left
+    // unset (setting it would enable TwitchLib's own app-token auto-minting) and
+    // SkipAutoServerTokenGeneration/SkipDynamicScopeValidation are set once, here, since they
+    // never change. ClientId is intentionally NOT set here — it may be empty at process
+    // startup (the operator configures it later, in Settings) and IAppConfigStore.GetAsync is
+    // async, so it can't be read inside this synchronous factory anyway. TwitchLibHelixApi
+    // refreshes Settings.ClientId from AppConfig on every call instead. Settings.AccessToken
+    // is never set — every call passes a fresh per-call token instead (twitchlib-spec.md §2).
+    _ = services.AddSingleton(_ =>
+    {
+      var api = new TwitchAPI();
+      api.Settings.SkipAutoServerTokenGeneration = true;
+      api.Settings.SkipDynamicScopeValidation = true;
+      return api;
+    });
+    _ = services.AddSingleton<IHelixApi, TwitchLibHelixApi>();
+
+    _ = services.AddSingleton(sp => new HelixClient(
+      sp.GetRequiredService<IHelixApi>(),
+      sp.GetRequiredService<ITwitchCredentials>(),
+      sp.GetRequiredService<IAppConfigStore>(),
+      sp.GetRequiredService<TimeProvider>()));
+    _ = services.AddSingleton<IHelixClient>(sp => sp.GetRequiredService<HelixClient>());
+
+    // Closes the IBroadcasterIdResolver gap TwitchCredentials (Task 2) left open: registered
+    // via BroadcasterIdResolverAdapter rather than the HelixClient singleton directly — see
+    // that class's doc comment for why a direct registration deadlocks the container instead
+    // of failing fast.
+    _ = services.AddSingleton<IBroadcasterIdResolver, BroadcasterIdResolverAdapter>();
 
     // TryAdd: Phase 2 Task 5 swaps this line for the real TwitchEventSubWebSocket transport
     // (AddSingleton/Replace) — TryAdd here means a host that registers its own
