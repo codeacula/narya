@@ -39,6 +39,19 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, IOptions<Nary
   private readonly RequestDelegate _next = next;
   private readonly NaryaAuthOptions _options = options.Value;
 
+  /// <summary>
+  /// Derived once at construction (this middleware is built once per app, not
+  /// per request — same lifetime assumption the plain _options field above
+  /// already relies on) rather than on every non-operator request. The
+  /// dashboard token cannot change at runtime in this host (Settings PUT
+  /// lands in a later phase and, per legacy precedent, reconnects rather
+  /// than mutating IOptions in place), so re-deriving an HMAC per request
+  /// bought nothing but hot-path cost.
+  /// </summary>
+  private readonly string? _overlayToken = string.IsNullOrEmpty(options.Value.DashboardToken)
+    ? null
+    : OverlayToken.Derive(options.Value.DashboardToken);
+
   public async Task InvokeAsync(HttpContext context)
   {
     var dashboardToken = _options.DashboardToken;
@@ -110,21 +123,13 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, IOptions<Nary
     return string.IsNullOrEmpty(queryToken) ? null : queryToken;
   }
 
-  private static string? ResolveRole(string? provided, string dashboardToken)
+  private string? ResolveRole(string? provided, string dashboardToken) => provided switch
   {
-    if (provided is null)
-    {
-      return null;
-    }
-
-    if (TokensMatch(provided, dashboardToken))
-    {
-      return OperatorRole;
-    }
-
-    var overlay = OverlayToken.Derive(dashboardToken);
-    return TokensMatch(provided, overlay) ? OverlayRole : null;
-  }
+    null => null,
+    _ when TokensMatch(provided, dashboardToken) => OperatorRole,
+    _ when _overlayToken is not null && TokensMatch(provided, _overlayToken) => OverlayRole,
+    _ => null,
+  };
 
   private static bool TokensMatch(string provided, string expected)
   {
@@ -141,9 +146,11 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, IOptions<Nary
   private static bool IsLoopback(HttpContext context)
   {
     var remoteIp = context.Connection.RemoteIpAddress;
-    // A null remote address means an in-process/test connection rather than a
-    // real network peer, so treat it as loopback.
-    return remoteIp is null || IPAddress.IsLoopback(remoteIp);
+    // Fail CLOSED: a null remote address (e.g. Kestrel over a Unix domain
+    // socket behind a reverse proxy — a common deployment) must NOT be
+    // treated as loopback. Only a genuine, verified loopback address grants
+    // operator access when no token is configured.
+    return remoteIp is not null && IPAddress.IsLoopback(remoteIp);
   }
 
   private static Task WriteUnauthorized(HttpContext context)
