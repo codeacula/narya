@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Narya.Application\Narya.Application.csproj" />
+    <ProjectReference Include="..\Narya.Database\Narya.Database.csproj" />
+    <ProjectReference Include="..\Narya.Cache\Narya.Cache.csproj" />
+    <ProjectReference Include="..\Narya.Core\Narya.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
