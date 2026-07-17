@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 
 using FluentResults;
 
@@ -70,7 +71,20 @@ public sealed class TwitchOAuthClient(HttpClient httpClient, IAppConfigStore app
     };
 
     using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-    var body = await response.Content.ReadFromJsonAsync<TwitchTokenResponse>(cancellationToken).ConfigureAwait(false);
+
+    TwitchTokenResponse? body;
+    try
+    {
+      body = await response.Content.ReadFromJsonAsync<TwitchTokenResponse>(cancellationToken).ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is JsonException or NotSupportedException)
+    {
+      // Twitch's token endpoint occasionally returns a non-JSON body during an outage (e.g. a
+      // Cloudflare 502/503 HTML error page) — the status code is safe to surface, the body is
+      // not, since it is neither ours nor guaranteed secret-free.
+      return Result.Fail<TwitchTokenResponse>(
+        $"Twitch token endpoint returned a non-JSON response (HTTP {(int)response.StatusCode}).");
+    }
 
     if (body is null)
     {

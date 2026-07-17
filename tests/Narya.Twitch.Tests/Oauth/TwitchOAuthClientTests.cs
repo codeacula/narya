@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 
 using FluentResults;
 
@@ -169,5 +170,29 @@ public sealed class TwitchOAuthClientTests
     var result = await client.RefreshAsync("some-refresh", CancellationToken.None);
 
     Assert.True(result.IsFailed);
+  }
+
+  /// <summary>
+  /// Twitch's token endpoint can return a non-JSON body during an outage — e.g. a Cloudflare
+  /// 502/503 HTML error page — which must fail gracefully via <see cref="Result"/> rather than
+  /// throw <see cref="System.Text.Json.JsonException"/>/<see cref="NotSupportedException"/> out
+  /// of <c>ReadFromJsonAsync</c>. The error message must surface the status code but never the
+  /// HTML body.
+  /// </summary>
+  [Fact]
+  public async Task FailsGracefullyOnNonJsonResponse()
+  {
+    const string htmlBody = "<html><body>Bad Gateway</body></html>";
+    var (client, _, _) = Build((_, _) => new HttpResponseMessage(HttpStatusCode.BadGateway)
+    {
+      Content = new StringContent(htmlBody, Encoding.UTF8, "text/html"),
+    });
+
+    var result = await client.RefreshAsync("some-refresh", CancellationToken.None);
+
+    Assert.True(result.IsFailed);
+    Assert.Contains(result.Errors, e => e.Message.Contains("502", StringComparison.Ordinal));
+    Assert.DoesNotContain(result.Errors, e => e.Message.Contains(htmlBody, StringComparison.Ordinal));
+    Assert.DoesNotContain(result.Errors, e => e.Message.Contains("Bad Gateway", StringComparison.Ordinal));
   }
 }

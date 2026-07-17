@@ -88,6 +88,35 @@ public sealed class TwitchCredentialsTests
       Arg.Any<CancellationToken>());
   }
 
+  /// <summary>
+  /// A failed refresh must leave the stored token alone (legacy behavior: never delete on
+  /// refresh failure) and must not retry on its own — the caller gets one attempt per call and
+  /// simply has no usable token this time around.
+  /// </summary>
+  [Fact]
+  public async Task DoesNotDeleteOrRetryWhenRefreshFails()
+  {
+    var f = Build();
+    var stored = new TwitchToken
+    {
+      AccessToken = "old-access",
+      RefreshToken = "old-refresh",
+      Scopes = Scopes.Broadcaster,
+      TokenType = "bearer",
+      ExpiresAt = Now + TimeSpan.FromSeconds(30), // inside the 60s buffer
+    };
+    _ = f.TokenStore.GetAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>())
+      .Returns(Result.Ok<TwitchToken?>(stored));
+    _ = f.OAuthClient.RefreshAsync("old-refresh", Arg.Any<CancellationToken>())
+      .Returns(Result.Fail<TwitchTokenResponse>("Twitch token endpoint returned a non-JSON response (HTTP 502)."));
+
+    var result = await f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, CancellationToken.None);
+
+    Assert.True(result.IsFailed);
+    _ = await f.TokenStore.DidNotReceive().DeleteAsync(Arg.Any<TwitchProvider>(), Arg.Any<CancellationToken>());
+    _ = await f.OAuthClient.Received(1).RefreshAsync("old-refresh", Arg.Any<CancellationToken>());
+  }
+
   [Fact]
   public async Task DoesNotRefreshAFreshToken()
   {
