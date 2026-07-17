@@ -10,11 +10,15 @@ data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
 
-# Operator-supplied clip media — served from public/, restored by hand
-public/clips/
+# Live DB lives at repo root even if a symlink into it is later created at
+# legacy/data (see legacy README) for `cd legacy && bun run dev`.
+legacy/data/
 
-# Operator-supplied sound media — served from public/, restored by hand
-public/sounds/
+# Operator-supplied clip media — served from legacy/public/, restored by hand
+legacy/public/clips/
+
+# Operator-supplied sound media — served from legacy/public/, restored by hand
+legacy/public/sounds/
 
 .DS_Store
 
