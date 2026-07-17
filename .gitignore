@@ -9,6 +9,11 @@ obj/
 *.user
 .vs/
 
+# Vue client build output — `src/Client`'s `vite build` empties and repopulates
+# this on every build (see src/Client/vite.config.ts build.outDir); it is never
+# source, only ever generated.
+src/Narya.Api/wwwroot/
+
 .env
 .env.local
 
