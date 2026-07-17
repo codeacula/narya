@@ -3,6 +3,7 @@ using Narya.Api.Realtime;
 using Narya.Application;
 using Narya.Cache;
 using Narya.Database;
+using Narya.Twitch;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +26,11 @@ if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
   var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException("Missing ConnectionStrings:Redis configuration.");
   _ = builder.Services.AddNaryaCache(redisConnectionString);
+
+  // Twitch registers ITwitchTokenStore and contributes its event types +
+  // DbTwitchToken snapshot to the same Marten store via services.ConfigureMarten,
+  // so it must be inside the infrastructure guard alongside AddNaryaDatabase.
+  _ = builder.Services.AddNaryaTwitch();
 
   _ = builder.Services.AddSignalR();
   _ = builder.Services.AddHostedService<RealtimeBroadcastService>();
