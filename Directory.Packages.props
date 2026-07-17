@@ -12,6 +12,8 @@
     <PackageVersion Include="StackExchange.Redis" Version="2.10.14" />
     <PackageVersion Include="FluentResults" Version="4.0.0" />
     <PackageVersion Include="TwitchLib.Api" Version="3.10.2" />
+    <PackageVersion Include="TwitchLib.EventSub.Websockets" Version="0.8.0" />
+    <PackageVersion Include="TwitchLib.EventSub.Core" Version="3.0.0" />
     <PackageVersion Include="FluentValidation" Version="12.0.0" />
     <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="12.0.0" />
     <PackageVersion Include="Roslynator.Analyzers" Version="4.15.0" />
@@ -26,5 +28,6 @@
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.10" />
   </ItemGroup>
 </Project>

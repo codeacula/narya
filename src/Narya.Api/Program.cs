@@ -32,6 +32,12 @@ if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
   // so it must be inside the infrastructure guard alongside AddNaryaDatabase.
   _ = builder.Services.AddNaryaTwitch();
 
+  // The live EventSub websocket + its hosted service are a separate opt-in from
+  // AddNaryaTwitch (see that method's and AddNaryaTwitchEventSub's doc comments) — kept
+  // inside this same guard so a WebApplicationFactory test (SkipInfrastructure=true) never
+  // opens a real socket to Twitch.
+  _ = builder.Services.AddNaryaTwitchEventSub();
+
   _ = builder.Services.AddSignalR();
   _ = builder.Services.AddHostedService<RealtimeBroadcastService>();
 }

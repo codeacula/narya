@@ -10,6 +10,8 @@ using Narya.Twitch.Oauth;
 using Narya.Twitch.Tokens;
 
 using TwitchLib.Api;
+using TwitchLib.EventSub.Websockets;
+using TwitchLib.EventSub.Websockets.Extensions;
 
 namespace Narya.Twitch;
 
@@ -73,10 +75,47 @@ public static class ServiceCollectionExtensions
     // of failing fast.
     _ = services.AddSingleton<IBroadcasterIdResolver, BroadcasterIdResolverAdapter>();
 
-    // TryAdd: Phase 2 Task 5 swaps this line for the real TwitchEventSubWebSocket transport
-    // (AddSingleton/Replace) — TryAdd here means a host that registers its own
+    // TryAdd: AddNaryaTwitchEventSub (below) Replaces this with the real transport for a
+    // host that opts in — TryAdd here means a host that registers its own
     // ITwitchEventSource first (e.g. a test) is never overridden by this default.
     services.TryAddSingleton<ITwitchEventSource, NoopTwitchEventSource>();
+
+    return services;
+  }
+
+  /// <summary>
+  /// Adds the real Twitch EventSub websocket transport: TwitchLib's
+  /// <c>EventSubWebsocketClient</c> singleton, the <see cref="TwitchEventSubService"/>
+  /// hosted service that connects it at boot and owns its reconnect/re-subscribe behavior, and
+  /// <see cref="TwitchEventSource"/> in place of <see cref="NoopTwitchEventSource"/>.
+  ///
+  /// Deliberately NOT folded into <see cref="AddNaryaTwitch"/> itself: <c>AddNaryaTwitch</c>
+  /// is called directly — with no host, no <c>IHost.StartAsync</c>, nothing that would ever
+  /// actually run a hosted service — by unit tests exercising the rest of this DI graph (see
+  /// <c>ServiceCollectionExtensionsTests</c>) and would be by a future Narya.Agent host that
+  /// has no business opening a Twitch socket of its own. A hosted-service registration sitting
+  /// unused in that container is harmless by itself, but registering the real
+  /// <see cref="ITwitchEventSource"/> there too would mean any such caller silently stops
+  /// getting <see cref="NoopTwitchEventSource"/>'s safe do-nothing behavior. Keeping this a
+  /// separate, explicitly-opted-into method means the only thing that ever calls it is
+  /// <c>Narya.Api.Program</c>, inside the same <c>Narya:SkipInfrastructure</c> guard that
+  /// already wraps <see cref="AddNaryaTwitch"/> — so a WebApplicationFactory test that sets
+  /// that flag never reaches this method, and never opens a real socket, without needing any
+  /// EventSub-specific guard of its own.
+  ///
+  /// Must be called after <see cref="AddNaryaTwitch"/> (it depends on
+  /// <see cref="ITwitchCredentials"/> and <see cref="Helix.IHelixClient"/>, and replaces that
+  /// call's <see cref="NoopTwitchEventSource"/> registration).
+  /// </summary>
+  public static IServiceCollection AddNaryaTwitchEventSub(this IServiceCollection services)
+  {
+    _ = services.AddTwitchLibEventSubWebsockets();
+
+    // Replace, not TryAdd: this call's entire purpose is to swap out the
+    // NoopTwitchEventSource AddNaryaTwitch registered.
+    _ = services.Replace(ServiceDescriptor.Singleton<ITwitchEventSource, TwitchEventSource>());
+
+    _ = services.AddHostedService<TwitchEventSubService>();
 
     return services;
   }
