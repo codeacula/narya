@@ -54,7 +54,8 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, DashboardToke
         return;
       }
 
-      await WriteForbidden(context).ConfigureAwait(false);
+      await WriteForbidden(context, "Forbidden: no dashboard token configured and caller is not loopback")
+        .ConfigureAwait(false);
       return;
     }
 
@@ -77,7 +78,7 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, DashboardToke
         return;
       }
 
-      await WriteForbidden(context).ConfigureAwait(false);
+      await WriteForbidden(context, "Forbidden: overlay token").ConfigureAwait(false);
       return;
     }
 
@@ -125,9 +126,15 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, DashboardToke
     return context.Response.WriteAsJsonAsync(new { error = "Unauthorized", code = "INVALID_DASHBOARD_TOKEN" });
   }
 
-  private static Task WriteForbidden(HttpContext context)
+  /// <summary>
+  /// <paramref name="reason"/> is caller-supplied rather than a fixed string: the two call
+  /// sites are different failures (no token configured and a non-loopback caller; an
+  /// overlay token reaching a path outside its allowlist) and a fixed "overlay token"
+  /// message previously claimed an overlay token was involved even for the no-token case.
+  /// </summary>
+  private static Task WriteForbidden(HttpContext context, string reason)
   {
     context.Response.StatusCode = StatusCodes.Status403Forbidden;
-    return context.Response.WriteAsJsonAsync(new { error = "Forbidden: overlay token" });
+    return context.Response.WriteAsJsonAsync(new { error = reason });
   }
 }

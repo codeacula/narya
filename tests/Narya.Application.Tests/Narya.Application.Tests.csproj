@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Narya.Application\Narya.Application.csproj" />
+    <ProjectReference Include="..\..\src\Narya.Cache\Narya.Cache.csproj" />
   </ItemGroup>
 
 </Project>

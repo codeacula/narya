@@ -1,8 +1,10 @@
 using FluentValidation;
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Application.Behaviors;
+using Narya.Core.Realtime;
 
 namespace Narya.Application;
 
@@ -27,6 +29,17 @@ public static class ServiceCollectionExtensions
     // typeof(RealtimeBridgeHandler<>)) registration here would double that to two
     // handlers, and MediatR invokes every registered handler for a Publish — silently
     // double-publishing every realtime event to Redis.
+
+    // TryAddSingleton, not AddSingleton: RealtimeBridgeHandler<T> hard-depends on
+    // IRealtimePublisher, so any host that composes AddNaryaApplication without also
+    // composing Narya.Cache's AddNaryaCache (a future Narya.Agent host; a WebApplicationFactory
+    // test host under Narya:SkipInfrastructure) would otherwise crash the first time it
+    // publishes a realtime notification. TryAdd is a no-op when AddNaryaCache already
+    // registered the real RealtimePublisher (whether AddNaryaCache ran before or after this
+    // call — see RealtimePublisherCompositionTests), so a host with both always resolves the
+    // real publisher, never this default.
+    services.TryAddSingleton<IRealtimePublisher, NullRealtimePublisher>();
+
     return services;
   }
 }

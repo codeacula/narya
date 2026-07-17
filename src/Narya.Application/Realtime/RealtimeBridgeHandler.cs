@@ -1,5 +1,7 @@
 using MediatR;
 
+using Microsoft.Extensions.Logging;
+
 using Narya.Core.Realtime;
 
 namespace Narya.Application.Realtime;
@@ -20,9 +22,38 @@ namespace Narya.Application.Realtime;
 /// per notification and MediatR invokes every one of them on <c>Publish</c> — silently
 /// double-publishing every realtime event to Redis.
 /// </summary>
-public sealed class RealtimeBridgeHandler<T>(IRealtimePublisher publisher) : INotificationHandler<T>
+public sealed partial class RealtimeBridgeHandler<T>(IRealtimePublisher publisher, ILogger<RealtimeBridgeHandler<T>> logger)
+  : INotificationHandler<T>
   where T : IRealtimeNotification, INotification
 {
-  public Task Handle(T notification, CancellationToken cancellationToken) =>
-    publisher.PublishAsync(notification.EventName, notification.Payload, cancellationToken);
+  /// <summary>
+  /// Deliberate, scoped exception to the no-blanket-catch rule: by the time this handler
+  /// runs, the notification's originating command has already committed (see
+  /// <c>UpdateAppConfigCommandHandler</c>, which publishes only after
+  /// <c>store.UpdateAsync</c> succeeds), so realtime delivery here is best-effort BY
+  /// DESIGN — a Redis outage must not turn an already-succeeded write into a 500 the
+  /// operator is tempted to retry, which would duplicate the write. A transport failure
+  /// is logged and swallowed; genuine cancellation still propagates.
+  /// </summary>
+  public async Task Handle(T notification, CancellationToken cancellationToken)
+  {
+    try
+    {
+      await publisher.PublishAsync(notification.EventName, notification.Payload, cancellationToken)
+        .ConfigureAwait(false);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+      throw;
+    }
+    catch (Exception ex)
+    {
+      LogPublishFailed(logger, notification.EventName, ex);
+    }
+  }
+
+  [LoggerMessage(
+    Level = LogLevel.Warning,
+    Message = "Failed to publish realtime event {EventName}; the originating operation already committed")]
+  private static partial void LogPublishFailed(ILogger logger, string eventName, Exception exception);
 }

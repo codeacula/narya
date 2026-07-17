@@ -40,18 +40,33 @@ public sealed record DbAppConfig
   };
 
   public Guid Id { get; init; }
-  public string TwitchChannel { get; init; } = "";
-  public string TwitchClientId { get; init; } = "";
-  public string TwitchClientSecret { get; init; } = "";
-  public string ObsUrl { get; init; } = "";
-  public string ObsPassword { get; init; } = "";
-  public string ObsScenePrefix { get; init; } = "";
-  public string DiscordClientId { get; init; } = "";
-  public string DiscordBotToken { get; init; } = "";
-  public string ChatterboxBaseUrl { get; init; } = "";
-  public int MusicPollIntervalMs { get; init; }
-  public string MusicPlayerctlPlayer { get; init; } = "";
-  public double SoundVolume { get; init; }
+
+  /// <summary>
+  /// Every initializer from here down is the DOMAIN default, not a bare literal —
+  /// deliberately, even though <see cref="Default"/> already sets each of these
+  /// explicitly via its object initializer, which normally makes a property initializer
+  /// dead for anyone constructing through <see cref="Default"/>. These initializers are
+  /// what a Marten snapshot predating a LATER-added field deserializes to:
+  /// <see cref="Apply"/>/<see cref="Create"/> only ever set fields this record already
+  /// knows about, so a field added in a future phase has no historical event data to
+  /// derive from, and System.Text.Json (Marten's snapshot deserializer) falls back to the
+  /// property's own initializer for any property missing from an old JSON document. A
+  /// bare <c>= 0</c>/<c>= ""</c> there would silently reintroduce the CLR default (e.g. a
+  /// 0ms poll interval — a hot loop) for every existing install instead of the domain
+  /// default.
+  /// </summary>
+  public string TwitchChannel { get; init; } = DomainDefaults.TwitchChannel;
+  public string TwitchClientId { get; init; } = DomainDefaults.TwitchClientId;
+  public string TwitchClientSecret { get; init; } = DomainDefaults.TwitchClientSecret;
+  public string ObsUrl { get; init; } = DomainDefaults.ObsUrl;
+  public string ObsPassword { get; init; } = DomainDefaults.ObsPassword;
+  public string ObsScenePrefix { get; init; } = DomainDefaults.ObsScenePrefix;
+  public string DiscordClientId { get; init; } = DomainDefaults.DiscordClientId;
+  public string DiscordBotToken { get; init; } = DomainDefaults.DiscordBotToken;
+  public string ChatterboxBaseUrl { get; init; } = DomainDefaults.ChatterboxBaseUrl;
+  public int MusicPollIntervalMs { get; init; } = DomainDefaults.MusicPollIntervalMs;
+  public string MusicPlayerctlPlayer { get; init; } = DomainDefaults.MusicPlayerctlPlayer;
+  public double SoundVolume { get; init; } = DomainDefaults.SoundVolume;
   public DateTimeOffset? UpdatedAt { get; init; }
 
   public static DbAppConfig Create(IEvent<AppConfigUpdatedEvent> ev) => Apply(ev, Default);

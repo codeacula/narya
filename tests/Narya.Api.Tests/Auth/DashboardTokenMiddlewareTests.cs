@@ -5,8 +5,11 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+
+using NSubstitute;
+
+using Narya.Core.AppConfig;
 
 namespace Narya.Api.Tests.Auth;
 
@@ -24,12 +27,23 @@ public sealed class DashboardTokenMiddlewareTests
     new WebApplicationFactory<Program>()
       .WithWebHostBuilder(b =>
       {
-        _ = b.ConfigureAppConfiguration((_, cfg) =>
-          cfg.AddInMemoryCollection(new Dictionary<string, string?>
-          {
-            ["Narya:DashboardToken"] = configuredToken,
-            ["Narya:SkipInfrastructure"] = "true", // Program.cs guard: no Marten/Redis in these tests
-          }));
+        // UseSetting (not ConfigureAppConfiguration+AddInMemoryCollection) — Program.cs
+        // reads Narya:SkipInfrastructure in top-level code via
+        // builder.Configuration.GetValue<bool>(...), which runs BEFORE
+        // WebApplicationFactory applies ConfigureAppConfiguration sources. UseSetting is
+        // visible at that read; AddInMemoryCollection is not, so the guard silently never
+        // engaged and these tests exercised a live Marten/Redis connection.
+        _ = b.UseSetting("Narya:DashboardToken", configuredToken);
+        _ = b.UseSetting("Narya:SkipInfrastructure", "true"); // Program.cs guard: no Marten/Redis in these tests
+
+        // Under SkipInfrastructure, AddNaryaDatabase (the only source of IAppConfigStore)
+        // never runs. Nothing in this class exercises /api/config, but the host still has
+        // to build: ASP.NET's default Development-environment DI validation
+        // (ValidateOnBuild) eagerly constructs every registered handler, including the
+        // /api/config MediatR handlers that take a constructor dependency on
+        // IAppConfigStore. An unconfigured substitute is enough to satisfy that — its
+        // methods are never invoked by any test in this class.
+        _ = b.ConfigureTestServices(services => services.AddSingleton(Substitute.For<IAppConfigStore>()));
 
         if (injectRemoteIp)
         {

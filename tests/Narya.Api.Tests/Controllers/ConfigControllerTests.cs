@@ -6,7 +6,6 @@ using FluentResults;
 
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 using NSubstitute;
@@ -36,12 +35,12 @@ public sealed class ConfigControllerTests
     var client = new WebApplicationFactory<Program>()
       .WithWebHostBuilder(b =>
       {
-        _ = b.ConfigureAppConfiguration((_, cfg) =>
-          cfg.AddInMemoryCollection(new Dictionary<string, string?>
-          {
-            ["Narya:DashboardToken"] = OperatorToken,
-            ["Narya:SkipInfrastructure"] = "true",
-          }));
+        // UseSetting (not ConfigureAppConfiguration+AddInMemoryCollection) — see the
+        // comment in DashboardTokenMiddlewareTests.BuildClient for why: Program.cs reads
+        // Narya:SkipInfrastructure in top-level code before ConfigureAppConfiguration
+        // sources are visible, but UseSetting is visible at that read.
+        _ = b.UseSetting("Narya:DashboardToken", OperatorToken);
+        _ = b.UseSetting("Narya:SkipInfrastructure", "true");
 
         _ = b.ConfigureTestServices(services => services.AddSingleton(store));
       })
