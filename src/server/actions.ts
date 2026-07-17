@@ -46,6 +46,7 @@ type ActionRow = {
   name: string;
   description: string;
   enabled: number;
+  quickDisable: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -60,13 +61,13 @@ type StepRow = {
 };
 
 const listActionRows = db.prepare(`
-  select id, name, description, enabled, created_at as createdAt, updated_at as updatedAt
+  select id, name, description, enabled, quick_disable as quickDisable, created_at as createdAt, updated_at as updatedAt
   from actions
   order by name collate nocase
 `);
 
 const getActionRow = db.prepare(`
-  select id, name, description, enabled, created_at as createdAt, updated_at as updatedAt
+  select id, name, description, enabled, quick_disable as quickDisable, created_at as createdAt, updated_at as updatedAt
   from actions
   where id = ?
 `);
@@ -85,13 +86,13 @@ const listStepRows = db.prepare(`
 `);
 
 const insertActionRow = db.prepare(`
-  insert into actions (id, name, description, enabled, created_at, updated_at)
-  values (?, ?, ?, ?, ?, ?)
+  insert into actions (id, name, description, enabled, quick_disable, created_at, updated_at)
+  values (?, ?, ?, ?, ?, ?, ?)
 `);
 
 const updateActionRow = db.prepare(`
   update actions
-  set name = ?, description = ?, enabled = ?, updated_at = ?
+  set name = ?, description = ?, enabled = ?, quick_disable = ?, updated_at = ?
   where id = ?
 `);
 
@@ -277,6 +278,7 @@ export function normalizeActionUpsert(body: unknown): ActionUpsert {
     name,
     description,
     enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
+    quickDisable: typeof value.quickDisable === 'boolean' ? value.quickDisable : false,
     steps: normalizeSteps(value.steps),
   };
 }
@@ -301,14 +303,14 @@ function saveSteps(actionId: string, steps: ActionStepInput[], now: string) {
 const createActionRecord = db.transaction((settings: ActionUpsert) => {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
-  insertActionRow.run(id, settings.name, settings.description, settings.enabled ? 1 : 0, now, now);
+  insertActionRow.run(id, settings.name, settings.description, settings.enabled ? 1 : 0, settings.quickDisable ? 1 : 0, now, now);
   saveSteps(id, settings.steps, now);
   return id;
 });
 
 const updateActionRecord = db.transaction((id: string, settings: ActionUpsert) => {
   const now = new Date().toISOString();
-  updateActionRow.run(settings.name, settings.description, settings.enabled ? 1 : 0, now, id);
+  updateActionRow.run(settings.name, settings.description, settings.enabled ? 1 : 0, settings.quickDisable ? 1 : 0, now, id);
   saveSteps(id, settings.steps, now);
 });
 
@@ -342,6 +344,7 @@ function rowToAction(row: ActionRow): Action {
     name: row.name,
     description: row.description,
     enabled: row.enabled === 1,
+    quickDisable: row.quickDisable === 1,
     steps: (listStepRows.all(row.id) as StepRow[]).map(rowToStep),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

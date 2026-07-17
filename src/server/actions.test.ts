@@ -266,3 +266,20 @@ describe('actions persistence', () => {
     expect(getActionById(created.id)!.steps[0]!.enabled).toBe(false);
   });
 });
+
+describe('quickDisable persistence', () => {
+  test('defaults to false and round-trips through create/read', () => {
+    const created = createAction(upsert());
+    expect(created.quickDisable).toBe(false);
+    expect(getActionById(created.id)!.quickDisable).toBe(false);
+  });
+
+  test('persists quickDisable = true and can be toggled back off', () => {
+    const created = createAction(upsert([step()], { name: 'Fart', quickDisable: true }));
+    expect(created.quickDisable).toBe(true);
+
+    const updated = updateAction(created.id, upsert([step()], { name: 'Fart', quickDisable: false }));
+    expect(updated.quickDisable).toBe(false);
+    expect(getActionById(created.id)!.quickDisable).toBe(false);
+  });
+});

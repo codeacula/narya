@@ -623,6 +623,11 @@ export type OverlayPlaceholders = {
   enabled: boolean;
 };
 
+/** `media:mute` WebSocket payload and the GET/PUT /api/automation/media-mute body. */
+export type MediaMuteState = {
+  muted: boolean;
+};
+
 // Freeform stream status line. Doubles as the GET /api/stream-status response
 // and the `status:updated` WebSocket payload.
 export type StreamStatus = {
@@ -777,6 +782,8 @@ export type Action = {
   name: string;
   description: string;
   enabled: boolean;
+  /** When true, the master media mute (Stream Controls) silences this Action. */
+  quickDisable: boolean;
   steps: ActionStep[];
   createdAt: string;
   updatedAt: string;
@@ -786,6 +793,7 @@ export type ActionUpsert = {
   name: string;
   description: string;
   enabled: boolean;
+  quickDisable: boolean;
   steps: ActionStepInput[];
 };
 

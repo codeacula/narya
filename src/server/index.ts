@@ -15,6 +15,7 @@ import {
   migrateQuackCommandIntoAction,
 } from './legacyMigration';
 import { registerMediaAssetRoutes } from './mediaAssets';
+import { registerMediaMuteRoutes } from './mediaMute';
 import { registerOverlayPlaceholderRoutes } from './overlayPlaceholders';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { config, isLoopbackHost } from './config';
@@ -127,6 +128,7 @@ registerCategoryModuleRoutes(app, runtimeState);
 registerStreamCategoryRoutes(app);
 registerStreamStatusRoutes(app);
 registerOverlayPlaceholderRoutes(app);
+registerMediaMuteRoutes(app);
 registerLlmRoutes(app);
 registerDiscordRoutes(app);
 registerGoLiveRoutes(app);

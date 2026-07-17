@@ -170,6 +170,7 @@ export function actionToUpsert(action: Action): ActionUpsert {
     name: action.name,
     description: action.description,
     enabled: action.enabled,
+    quickDisable: action.quickDisable,
     steps: action.steps.map(stepToInput),
   };
 }

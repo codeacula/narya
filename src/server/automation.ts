@@ -2,6 +2,7 @@ import type { ActionExecutor } from './actionExecutor';
 import { createActionExecutor } from './actionExecutor';
 import { getCategoryModulesResponse } from './categoryModules';
 import { resolveMediaAssetForPlayback } from './mediaAssets';
+import { getMediaMuted } from './mediaMute';
 import type { RuntimeState } from './runtime';
 import type { TriggerDispatcher } from './triggerDispatcher';
 import { createTriggerDispatcher } from './triggerDispatcher';
@@ -26,6 +27,7 @@ export function initAutomation(state: RuntimeState): void {
   executor = createActionExecutor({
     resolveMedia: resolveMediaAssetForPlayback,
     state,
+    isMuted: () => getMediaMuted(),
   });
   dispatcher = createTriggerDispatcher({
     runAction: (actionId, context) => executor!.runAction(actionId, context),

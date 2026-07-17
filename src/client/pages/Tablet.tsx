@@ -4,6 +4,7 @@ import { AutomodQuickActions } from '../automod';
 import { TabletChatPanel } from '../tabletChat';
 import { TabletQuickActions } from '../quickActions';
 import { useClipButtons } from '../clips';
+import { useMediaMute } from '../mediaMute';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
 import { sceneLabel, switchableScenes } from '../scenes';
@@ -65,6 +66,7 @@ export function TabletPage() {
   const { obsStatus, setObsStatus, error: statusError } = useObsStatus();
   const soundButtons = useSoundButtons();
   const clipButtons = useClipButtons();
+  const media = useMediaMute();
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [commandError, setCommandError] = React.useState<string | null>(null);
 
@@ -200,6 +202,15 @@ export function TabletPage() {
                 <p className="eyebrow">Soundboard</p>
                 <h2>Media</h2>
               </div>
+              <button
+                type="button"
+                className={'tabletMuteButton' + (media.muted ? ' active' : '')}
+                aria-pressed={media.muted}
+                disabled={media.busy}
+                onClick={event => { blurIfPointer(event); media.toggle(!media.muted); }}
+              >
+                {media.muted ? '🔇 Commands muted' : '🔊 Mute commands'}
+              </button>
             </div>
 
             <div className="mediaGroup">

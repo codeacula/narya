@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type {
+  Action,
   ActionRunResult,
   ActionStepInput,
   ActionUpsert,
@@ -143,6 +144,7 @@ describe('actionToUpsert', () => {
       name: 'Hype',
       description: '',
       enabled: true,
+      quickDisable: false,
       steps: [
         { id: 's1', position: 0, enabled: true, delayMs: 0, type: 'obs_transition', payload: {} },
         { id: 's2', position: 1, enabled: false, delayMs: 500, type: 'tts_speak', payload: { template: 'hi' } },
@@ -155,6 +157,20 @@ describe('actionToUpsert', () => {
       { enabled: true, delayMs: 0, type: 'obs_transition', payload: {} },
       { enabled: false, delayMs: 500, type: 'tts_speak', payload: { template: 'hi' } },
     ]);
+  });
+
+  test('actionToUpsert carries quickDisable through', () => {
+    const action: Action = {
+      id: 'a1',
+      name: 'Fart',
+      description: '',
+      enabled: true,
+      quickDisable: true,
+      steps: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    expect(actionToUpsert(action).quickDisable).toBe(true);
   });
 });
 
@@ -262,7 +278,13 @@ describe('unplayableAssetIds', () => {
 });
 
 describe('validateAction', () => {
-  const base: ActionUpsert = { name: 'Hype', description: '', enabled: true, steps: [newStep('obs_transition')] };
+  const base: ActionUpsert = {
+    name: 'Hype',
+    description: '',
+    enabled: true,
+    quickDisable: false,
+    steps: [newStep('obs_transition')],
+  };
 
   test('accepts a well-formed action', () => {
     expect(validateAction(base)).toBeNull();
