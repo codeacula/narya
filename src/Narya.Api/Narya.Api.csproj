@@ -5,6 +5,7 @@
     <ProjectReference Include="..\Narya.Database\Narya.Database.csproj" />
     <ProjectReference Include="..\Narya.Cache\Narya.Cache.csproj" />
     <ProjectReference Include="..\Narya.Core\Narya.Core.csproj" />
+    <ProjectReference Include="..\Narya.Twitch\Narya.Twitch.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

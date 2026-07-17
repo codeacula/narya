@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Narya.Core\Narya.Core.csproj" />
+    <ProjectReference Include="..\Narya.Domain\Narya.Domain.csproj" />
+    <ProjectReference Include="..\Narya.Database\Narya.Database.csproj" />
+    <ProjectReference Include="..\Narya.Cache\Narya.Cache.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentResults" />
+    <PackageReference Include="Marten" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
