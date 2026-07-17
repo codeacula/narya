@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Core.AppConfig;
+using Narya.Twitch.EventSub;
 using Narya.Twitch.Oauth;
 using Narya.Twitch.Tokens;
 
@@ -38,6 +39,11 @@ public static class ServiceCollectionExtensions
     // TimeProvider (e.g. for testing) is not overridden.
     services.TryAddSingleton(TimeProvider.System);
     _ = services.AddSingleton<ITwitchCredentials, TwitchCredentials>();
+
+    // TryAdd: Phase 2 Task 5 swaps this line for the real TwitchEventSubWebSocket transport
+    // (AddSingleton/Replace) — TryAdd here means a host that registers its own
+    // ITwitchEventSource first (e.g. a test) is never overridden by this default.
+    services.TryAddSingleton<ITwitchEventSource, NoopTwitchEventSource>();
 
     return services;
   }

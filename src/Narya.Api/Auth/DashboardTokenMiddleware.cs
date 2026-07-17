@@ -37,11 +37,32 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, DashboardToke
     "/api/health",
   };
 
+  /// <summary>
+  /// Paths that skip the dashboard-token check entirely, regardless of method or role —
+  /// unlike <see cref="OverlayPaths"/>, which still requires a valid overlay token. The only
+  /// member is the Twitch OAuth callback: Twitch redirects the operator's browser back here
+  /// with no way to attach a dashboard token, so the request is authenticated instead by the
+  /// short-lived, httpOnly <c>narya_twitch_oauth_state</c> cookie the authorize step set
+  /// (mirrors legacy's <c>OAUTH_EXEMPT_PATHS</c> in <c>legacy/src/server/auth.ts</c>). Keep
+  /// this set to exactly the routes that are self-authenticating some other way — anything
+  /// else added here bypasses the dashboard token altogether.
+  /// </summary>
+  public static readonly HashSet<string> ExemptPaths = new(StringComparer.Ordinal)
+  {
+    "/api/auth/twitch/callback",
+  };
+
   private readonly RequestDelegate _next = next;
   private readonly DashboardTokenAuthenticator _authenticator = authenticator;
 
   public async Task InvokeAsync(HttpContext context)
   {
+    if (ExemptPaths.Contains(context.Request.Path.Value ?? string.Empty))
+    {
+      await _next(context).ConfigureAwait(false);
+      return;
+    }
+
     if (!_authenticator.HasDashboardToken)
     {
       // No token configured: the deployment is assumed loopback-only (the
