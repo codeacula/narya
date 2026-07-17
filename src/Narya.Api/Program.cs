@@ -1,23 +1,33 @@
 using Narya.Api.Auth;
+using Narya.Api.Realtime;
 using Narya.Application;
+using Narya.Cache;
 using Narya.Database;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<NaryaAuthOptions>(builder.Configuration.GetSection("Narya"));
+builder.Services.AddSingleton<DashboardTokenAuthenticator>();
 builder.Services.AddControllers();
 
 builder.Services.AddNaryaApplication();
 
 // WebApplicationFactory-based tests set Narya:SkipInfrastructure=true so they can
-// exercise the auth middleware and controllers without a live Postgres/Redis.
+// exercise the auth middleware and controllers without a live Postgres/Redis. The hub
+// and its Redis-backed broadcast service are infrastructure too — those tests substitute
+// IMediator/IAppConfigStore directly and must not need a live Redis to start up.
 if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
 {
   var connectionString = builder.Configuration.GetConnectionString("Narya")
     ?? throw new InvalidOperationException("Missing ConnectionStrings:Narya configuration.");
   _ = builder.Services.AddNaryaDatabase(connectionString);
 
-  // Redis cache registration (AddNaryaCache) lands in Task 10 alongside SignalR.
+  var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
+    ?? throw new InvalidOperationException("Missing ConnectionStrings:Redis configuration.");
+  _ = builder.Services.AddNaryaCache(redisConnectionString);
+
+  _ = builder.Services.AddSignalR();
+  _ = builder.Services.AddHostedService<RealtimeBroadcastService>();
 }
 
 var app = builder.Build();
@@ -35,10 +45,18 @@ app.UseWhen(
 
 app.MapControllers();
 
+// Mirrors the AddSignalR/AddHostedService guard above: under SkipInfrastructure there is
+// no live Redis for RealtimeBroadcastService to subscribe through, and AddSignalR was
+// never called, so mapping the hub here would fail to resolve its services.
+if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
+{
+  _ = app.MapHub<RealtimeHub>("/hubs/realtime");
+}
+
 // SPA fallback: anything not matched by a controller or a static file serves
 // index.html, EXCEPT /api (should 404, not silently return HTML — a caller
-// that hit this point missed every controller route) and /hubs (SignalR lands
-// here in a later phase and must not be swallowed by the SPA fallback either).
+// that hit this point missed every controller route) and /hubs (the SignalR hub
+// mapped above must not be swallowed by the SPA fallback either).
 app.MapFallback(async context =>
 {
   if (context.Request.Path.StartsWithSegments("/api") || context.Request.Path.StartsWithSegments("/hubs"))

@@ -1,8 +1,4 @@
 using System.Net;
-using System.Security.Cryptography;
-using System.Text;
-
-using Microsoft.Extensions.Options;
 
 namespace Narya.Api.Auth;
 
@@ -15,12 +11,17 @@ namespace Narya.Api.Auth;
 /// allowlist: an OBS browser source URL is a long-lived, plainly visible
 /// credential, so it must not be able to reach anything beyond what an overlay
 /// needs to render itself.
+///
+/// Token→role resolution itself lives in <see cref="DashboardTokenAuthenticator"/>
+/// (shared with <see cref="Narya.Api.Realtime.RealtimeHub"/>) — this class owns only the
+/// HTTP-specific concerns: extracting the token from the request, the loopback fallback
+/// when no token is configured, the overlay path allowlist, and the response shapes.
 /// </summary>
-public sealed class DashboardTokenMiddleware(RequestDelegate next, IOptions<NaryaAuthOptions> options)
+public sealed class DashboardTokenMiddleware(RequestDelegate next, DashboardTokenAuthenticator authenticator)
 {
   public const string RoleItemKey = "narya:role";
-  public const string OperatorRole = "operator";
-  public const string OverlayRole = "overlay";
+  public const string OperatorRole = DashboardTokenAuthenticator.OperatorRole;
+  public const string OverlayRole = DashboardTokenAuthenticator.OverlayRole;
 
   /// <summary>
   /// Everything an overlay browser source is allowed to GET. Phase 1 ships only
@@ -37,26 +38,11 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, IOptions<Nary
   };
 
   private readonly RequestDelegate _next = next;
-  private readonly NaryaAuthOptions _options = options.Value;
-
-  /// <summary>
-  /// Derived once at construction (this middleware is built once per app, not
-  /// per request — same lifetime assumption the plain _options field above
-  /// already relies on) rather than on every non-operator request. The
-  /// dashboard token cannot change at runtime in this host (Settings PUT
-  /// lands in a later phase and, per legacy precedent, reconnects rather
-  /// than mutating IOptions in place), so re-deriving an HMAC per request
-  /// bought nothing but hot-path cost.
-  /// </summary>
-  private readonly string? _overlayToken = string.IsNullOrEmpty(options.Value.DashboardToken)
-    ? null
-    : OverlayToken.Derive(options.Value.DashboardToken);
+  private readonly DashboardTokenAuthenticator _authenticator = authenticator;
 
   public async Task InvokeAsync(HttpContext context)
   {
-    var dashboardToken = _options.DashboardToken;
-
-    if (string.IsNullOrEmpty(dashboardToken))
+    if (!_authenticator.HasDashboardToken)
     {
       // No token configured: the deployment is assumed loopback-only (the
       // legacy server refuses to bind non-loopback with no token at startup;
@@ -73,7 +59,7 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, IOptions<Nary
     }
 
     var provided = ExtractToken(context.Request);
-    var role = ResolveRole(provided, dashboardToken);
+    var role = _authenticator.ResolveRole(provided);
 
     if (role == OperatorRole)
     {
@@ -121,26 +107,6 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, IOptions<Nary
 
     var queryToken = request.Query["token"].ToString();
     return string.IsNullOrEmpty(queryToken) ? null : queryToken;
-  }
-
-  private string? ResolveRole(string? provided, string dashboardToken) => provided switch
-  {
-    null => null,
-    _ when TokensMatch(provided, dashboardToken) => OperatorRole,
-    _ when _overlayToken is not null && TokensMatch(provided, _overlayToken) => OverlayRole,
-    _ => null,
-  };
-
-  private static bool TokensMatch(string provided, string expected)
-  {
-    var providedBytes = Encoding.UTF8.GetBytes(provided);
-    var expectedBytes = Encoding.UTF8.GetBytes(expected);
-
-    // FixedTimeEquals requires equal-length spans; a length mismatch is safe to
-    // short-circuit on (still constant-time within a given expected length, same
-    // trade-off the legacy timingSafeEqual wrapper makes).
-    return providedBytes.Length == expectedBytes.Length
-      && CryptographicOperations.FixedTimeEquals(providedBytes, expectedBytes);
   }
 
   private static bool IsLoopback(HttpContext context)
