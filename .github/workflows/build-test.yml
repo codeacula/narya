@@ -1,0 +1,62 @@
+name: Build & Test
+
+# Runs on PRs targeting main and on pushes to the in-progress rewrite branch,
+# so this branch's own commits get CI coverage before it merges.
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - refactor/to-csharp-and-vue
+
+jobs:
+  dotnet:
+    name: .NET build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore Narya.sln
+
+      - name: Build
+        run: dotnet build Narya.sln --no-restore --configuration Release
+
+      # NOTE: the test suite includes Testcontainers-backed integration tests
+      # (Postgres + Redis), which require a working Docker daemon on the
+      # runner. GitHub's ubuntu-latest image has Docker preinstalled and
+      # working out of the box. If this workflow is run on a self-hosted
+      # Gitea/Forgejo Actions runner instead, that runner must have Docker
+      # available (and reachable via the default socket) or the
+      # Database/Cache integration tests will fail.
+      - name: Test
+        run: dotnet test Narya.sln --no-build --configuration Release
+
+  client:
+    name: Vue client build & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Client
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run test
+
+      - name: Build
+        run: bun run build
