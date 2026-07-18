@@ -141,6 +141,88 @@ public sealed class ChatStore(IDocumentStore store) : IChatStore
     return [.. docs.OrderBy(e => e.OccurredAt).Select(ToChatEvent)];
   }
 
+  public async Task<int> MarkMessageDeletedAsync(
+    string messageId,
+    DateTimeOffset deletedAt,
+    string deletedReason,
+    Guid moderationEventId,
+    CancellationToken cancellationToken)
+  {
+    await using var session = store.LightweightSession();
+    var existing = await session.LoadAsync<ChatMessageDocument>(messageId, cancellationToken);
+    if (existing is null)
+    {
+      return 0;
+    }
+
+    session.Store(existing with
+    {
+      DeletedAt = deletedAt,
+      DeletedReason = deletedReason,
+      ModerationEventId = moderationEventId.ToString(),
+    });
+    await session.SaveChangesAsync(cancellationToken);
+
+    return 1;
+  }
+
+  public async Task<int> MarkUserMessagesDeletedAsync(
+    string channel,
+    string username,
+    DateTimeOffset deletedAt,
+    string deletedReason,
+    Guid moderationEventId,
+    CancellationToken cancellationToken)
+  {
+    var loginKey = username.ToLowerInvariant();
+
+    await using var session = store.LightweightSession();
+    var undeleted = await session.Query<ChatMessageDocument>()
+      .Where(m => m.Channel == channel && m.Username == loginKey && m.DeletedAt == null)
+      .ToListAsync(cancellationToken);
+
+    foreach (var doc in undeleted)
+    {
+      session.Store(doc with
+      {
+        DeletedAt = deletedAt,
+        DeletedReason = deletedReason,
+        ModerationEventId = moderationEventId.ToString(),
+      });
+    }
+
+    await session.SaveChangesAsync(cancellationToken);
+
+    return undeleted.Count;
+  }
+
+  public async Task<int> MarkChannelMessagesDeletedAsync(
+    string channel,
+    DateTimeOffset deletedAt,
+    string deletedReason,
+    Guid moderationEventId,
+    CancellationToken cancellationToken)
+  {
+    await using var session = store.LightweightSession();
+    var undeleted = await session.Query<ChatMessageDocument>()
+      .Where(m => m.Channel == channel && m.DeletedAt == null)
+      .ToListAsync(cancellationToken);
+
+    foreach (var doc in undeleted)
+    {
+      session.Store(doc with
+      {
+        DeletedAt = deletedAt,
+        DeletedReason = deletedReason,
+        ModerationEventId = moderationEventId.ToString(),
+      });
+    }
+
+    await session.SaveChangesAsync(cancellationToken);
+
+    return undeleted.Count;
+  }
+
   private static string? SerializeBadges(IReadOnlyDictionary<string, string>? badges) =>
     badges is null ? null : JsonSerializer.Serialize(badges);
 
@@ -170,7 +252,9 @@ public sealed class ChatStore(IDocumentStore store) : IChatStore
       IsFirstTimer: doc.IsFirstEver,
       IsFirstThisSession: doc.IsFirstInSession,
       IsFirstEver: doc.IsFirstEver,
-      SessionId: null);
+      SessionId: null,
+      DeletedAt: doc.DeletedAt,
+      DeletedReason: doc.DeletedReason);
   }
 
   private static ChatEvent ToChatEvent(ChatEventDocument doc)

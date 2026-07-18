@@ -22,11 +22,12 @@ public sealed class ChatStoreTests(PostgresFixture fixture)
   private static ChatMessage BuildMessage(
     string id = "msg-1",
     string username = "viewer",
+    string channel = "codeacula",
     DateTimeOffset? receivedAt = null,
     IReadOnlyDictionary<string, string>? badges = null) =>
     new(
       Id: id,
-      Channel: "codeacula",
+      Channel: channel,
       Username: username,
       DisplayName: username,
       Color: "#ff0000",
@@ -172,5 +173,187 @@ public sealed class ChatStoreTests(PostgresFixture fixture)
     Assert.Equal(3, recent.Count);
     Assert.Equal(["msg-2", "msg-3", "msg-4"], recent.Select(e => e.MessageId));
     Assert.Equal(2, recent[0].Payload.GetProperty("n").GetInt32());
+  }
+
+  [Fact]
+  public async Task MarkMessageDeletedMarksOnlyThatRowAndLinksModerationEvent()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-1"), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-2"), CancellationToken.None);
+    var deletedAt = DateTimeOffset.UtcNow;
+    var moderationEventId = Guid.NewGuid();
+
+    var affected = await store.MarkMessageDeletedAsync(
+      "msg-1", deletedAt, "message deleted by moderator", moderationEventId, CancellationToken.None);
+
+    Assert.Equal(1, affected);
+
+    await using var query = documentStore.QuerySession();
+    var deleted = await query.LoadAsync<ChatMessageDocument>("msg-1");
+    var untouched = await query.LoadAsync<ChatMessageDocument>("msg-2");
+
+    Assert.NotNull(deleted);
+    Assert.Equal(deletedAt, deleted!.DeletedAt);
+    Assert.Equal("message deleted by moderator", deleted.DeletedReason);
+    Assert.Equal(moderationEventId.ToString(), deleted.ModerationEventId);
+
+    Assert.NotNull(untouched);
+    Assert.Null(untouched!.DeletedAt);
+    Assert.Null(untouched.DeletedReason);
+    Assert.Null(untouched.ModerationEventId);
+  }
+
+  [Fact]
+  public async Task MarkMessageDeletedReturnsZeroForAnUnknownId()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+
+    var affected = await store.MarkMessageDeletedAsync(
+      "does-not-exist", DateTimeOffset.UtcNow, "message deleted by moderator", Guid.NewGuid(), CancellationToken.None);
+
+    Assert.Equal(0, affected);
+  }
+
+  [Fact]
+  public async Task MarkMessageDeletedOverwritesAnAlreadyDeletedRowWithNoIsNullGuard()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-1"), CancellationToken.None);
+    var firstDeletedAt = DateTimeOffset.UtcNow;
+    var firstEventId = Guid.NewGuid();
+    _ = await store.MarkMessageDeletedAsync("msg-1", firstDeletedAt, "message deleted by moderator", firstEventId, CancellationToken.None);
+
+    // Re-applying against the SAME already-deleted row must succeed and overwrite — unlike the
+    // by-user/by-channel ops, this single-id statement has no `DeletedAt is null` guard.
+    var secondDeletedAt = firstDeletedAt.AddSeconds(5);
+    var secondEventId = Guid.NewGuid();
+    var affected = await store.MarkMessageDeletedAsync(
+      "msg-1", secondDeletedAt, "chat cleared", secondEventId, CancellationToken.None);
+
+    Assert.Equal(1, affected);
+
+    await using var query = documentStore.QuerySession();
+    var doc = await query.LoadAsync<ChatMessageDocument>("msg-1");
+
+    Assert.NotNull(doc);
+    Assert.Equal(secondDeletedAt, doc!.DeletedAt);
+    Assert.Equal("chat cleared", doc.DeletedReason);
+    Assert.Equal(secondEventId.ToString(), doc.ModerationEventId);
+  }
+
+  [Fact]
+  public async Task MarkUserMessagesDeletedMarksAllThatUsersUndeletedRowsInTheChannelCaseInsensitively()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-1", username: "rowdyviewer"), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-2", username: "rowdyviewer"), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-3", username: "someoneelse"), CancellationToken.None);
+    var deletedAt = DateTimeOffset.UtcNow;
+    var moderationEventId = Guid.NewGuid();
+
+    var affected = await store.MarkUserMessagesDeletedAsync(
+      "codeacula", "RowdyViewer", deletedAt, "timeout: no reason provided", moderationEventId, CancellationToken.None);
+
+    Assert.Equal(2, affected);
+
+    await using var query = documentStore.QuerySession();
+    var msg1 = await query.LoadAsync<ChatMessageDocument>("msg-1");
+    var msg2 = await query.LoadAsync<ChatMessageDocument>("msg-2");
+    var msg3 = await query.LoadAsync<ChatMessageDocument>("msg-3");
+
+    Assert.Equal(deletedAt, msg1!.DeletedAt);
+    Assert.Equal(deletedAt, msg2!.DeletedAt);
+    Assert.Equal("timeout: no reason provided", msg1.DeletedReason);
+    Assert.Equal(moderationEventId.ToString(), msg1.ModerationEventId);
+    Assert.Null(msg3!.DeletedAt); // a different user in the same channel is untouched
+  }
+
+  [Fact]
+  public async Task MarkUserMessagesDeletedOnlyTouchesStillUndeletedRowsOnRerun()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-1", username: "rowdyviewer"), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-2", username: "rowdyviewer"), CancellationToken.None);
+
+    // Seed msg-1 as already deleted by an EARLIER moderation event, before the redelivered
+    // timeout arrives.
+    var earlierDeletedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+    var earlierEventId = Guid.NewGuid();
+    _ = await store.MarkMessageDeletedAsync("msg-1", earlierDeletedAt, "message deleted by moderator", earlierEventId, CancellationToken.None);
+
+    var redeliveredDeletedAt = DateTimeOffset.UtcNow;
+    var redeliveredEventId = Guid.NewGuid();
+    var affected = await store.MarkUserMessagesDeletedAsync(
+      "codeacula", "rowdyviewer", redeliveredDeletedAt, "timeout: no reason provided", redeliveredEventId, CancellationToken.None);
+
+    Assert.Equal(1, affected); // only msg-2 — msg-1 was already deleted, so the filter skips it
+
+    await using var query = documentStore.QuerySession();
+    var msg1 = await query.LoadAsync<ChatMessageDocument>("msg-1");
+    var msg2 = await query.LoadAsync<ChatMessageDocument>("msg-2");
+
+    // msg-1's original soft-delete is untouched by the rerun.
+    Assert.Equal(earlierDeletedAt, msg1!.DeletedAt);
+    Assert.Equal("message deleted by moderator", msg1.DeletedReason);
+    Assert.Equal(earlierEventId.ToString(), msg1.ModerationEventId);
+
+    Assert.Equal(redeliveredDeletedAt, msg2!.DeletedAt);
+    Assert.Equal(redeliveredEventId.ToString(), msg2.ModerationEventId);
+  }
+
+  [Fact]
+  public async Task MarkChannelMessagesDeletedMarksAllUndeletedRowsInThatChannelOnly()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-1", channel: "codeacula"), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-2", username: "other", channel: "codeacula"), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-3", channel: "someone-else"), CancellationToken.None);
+    var deletedAt = DateTimeOffset.UtcNow;
+    var moderationEventId = Guid.NewGuid();
+
+    var affected = await store.MarkChannelMessagesDeletedAsync(
+      "codeacula", deletedAt, "chat cleared", moderationEventId, CancellationToken.None);
+
+    Assert.Equal(2, affected);
+
+    await using var query = documentStore.QuerySession();
+    var msg1 = await query.LoadAsync<ChatMessageDocument>("msg-1");
+    var msg2 = await query.LoadAsync<ChatMessageDocument>("msg-2");
+    var msg3 = await query.LoadAsync<ChatMessageDocument>("msg-3");
+
+    Assert.Equal(deletedAt, msg1!.DeletedAt);
+    Assert.Equal("chat cleared", msg1.DeletedReason);
+    Assert.Equal(deletedAt, msg2!.DeletedAt);
+    Assert.Null(msg3!.DeletedAt); // a different channel is untouched
+  }
+
+  [Fact]
+  public async Task MarkChannelMessagesDeletedOnlyTouchesStillUndeletedRowsOnRerun()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-1"), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-2", username: "other"), CancellationToken.None);
+    var earlierEventId = Guid.NewGuid();
+    _ = await store.MarkMessageDeletedAsync(
+      "msg-1", DateTimeOffset.UtcNow.AddMinutes(-1), "message deleted by moderator", earlierEventId, CancellationToken.None);
+
+    var affected = await store.MarkChannelMessagesDeletedAsync(
+      "codeacula", DateTimeOffset.UtcNow, "chat cleared", Guid.NewGuid(), CancellationToken.None);
+
+    Assert.Equal(1, affected); // only msg-2 — msg-1 was already deleted
+
+    await using var query = documentStore.QuerySession();
+    var msg1 = await query.LoadAsync<ChatMessageDocument>("msg-1");
+
+    Assert.Equal("message deleted by moderator", msg1!.DeletedReason); // untouched by the rerun
+    Assert.Equal(earlierEventId.ToString(), msg1.ModerationEventId);
   }
 }

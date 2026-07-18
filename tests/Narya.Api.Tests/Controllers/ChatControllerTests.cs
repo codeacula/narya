@@ -69,6 +69,29 @@ public sealed class ChatControllerTests
   }
 
   [Fact]
+  public async Task GetRecentIncludesDeletedAtAndDeletedReasonForAModeratedMessage()
+  {
+    var store = Substitute.For<IChatStore>();
+    var deletedAt = DateTimeOffset.Parse("2026-07-17T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
+    IReadOnlyList<ChatMessage> messages =
+    [
+      new ChatMessage(
+        Id: "msg-1", Channel: "codeacula", Username: "spammer", DisplayName: "Spammer",
+        Color: null, Message: "hi", ReceivedAt: DateTimeOffset.UtcNow, Badges: null, ChatterUserId: "spammer-id-1",
+        DeletedAt: deletedAt, DeletedReason: "message deleted by moderator"),
+    ];
+    _ = store.GetRecentMessagesAsync(40, Arg.Any<CancellationToken>()).Returns(messages);
+    var client = BuildOperatorClient(store);
+
+    var response = await client.GetAsync("/api/chat/recent");
+
+    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    var body = await response.Content.ReadAsStringAsync();
+    Assert.Contains("\"deletedReason\":\"message deleted by moderator\"", body);
+    Assert.Contains("\"deletedAt\":\"2026-07-17T12:00:00", body);
+  }
+
+  [Fact]
   public async Task GetRecentIsAccessibleWithAnOverlayToken()
   {
     var store = Substitute.For<IChatStore>();

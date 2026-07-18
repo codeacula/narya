@@ -37,6 +37,16 @@ namespace Narya.Core.Chat;
 /// captured here — left for a later phase (see
 /// <see cref="Narya.Database.Chat.ChatMessageDocument"/>'s <c>EmotesJson</c> doc comment for
 /// how the storage layer still reserves the column).
+///
+/// <see cref="DeletedAt"/>/<see cref="DeletedReason"/> default null on a freshly-ingested
+/// message — added in Task 2 (moderation soft-delete) so <c>GET /api/chat/recent</c> can surface
+/// a moderated message's reason (mirrors legacy's <c>deletedAt</c>/<c>deletedReason</c> columns,
+/// <c>legacy/src/shared/api.ts</c>). Appended at the end of the parameter list, both defaulted,
+/// so every existing call site (which all use named arguments) keeps compiling unchanged.
+/// <c>Narya.Database.Chat.ChatStore.TryInsertMessageAsync</c> ignores them on insert (a fresh
+/// message is never pre-deleted); only the soft-delete ops
+/// (<c>Narya.Core.Chat.IChatStore.MarkMessageDeletedAsync</c> and friends) and the
+/// <c>GetRecentMessagesAsync</c> read path populate them.
 /// </summary>
 public sealed record ChatMessage(
   string Id,
@@ -51,7 +61,9 @@ public sealed record ChatMessage(
   bool IsFirstTimer = false,
   bool IsFirstThisSession = false,
   bool IsFirstEver = false,
-  string? SessionId = null);
+  string? SessionId = null,
+  DateTimeOffset? DeletedAt = null,
+  string? DeletedReason = null);
 
 /// <summary>
 /// A moderation action affecting one or more chat messages. Mirrors legacy's

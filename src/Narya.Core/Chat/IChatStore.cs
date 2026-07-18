@@ -82,4 +82,53 @@ public interface IChatStore
   /// then reversed).
   /// </summary>
   Task<IReadOnlyList<ChatEvent>> GetRecentEventsAsync(int limit, CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Soft-deletes exactly one message by <paramref name="messageId"/> — a port of legacy's
+  /// <c>markMessageDeleted</c> (<c>update chat_messages set ... where id = ?</c>). Deliberately
+  /// carries NO <c>DeletedAt is null</c> guard, unlike
+  /// <see cref="MarkUserMessagesDeletedAsync"/>/<see cref="MarkChannelMessagesDeletedAsync"/>:
+  /// legacy's single-id statement unconditionally overwrites whatever soft-delete state (if any)
+  /// was already there, so a redelivered <c>message.deleted</c> for the same id simply
+  /// re-applies the same fields rather than being a no-op. Returns <c>0</c> (not an error) when
+  /// <paramref name="messageId"/> does not match a stored message — the message may not have
+  /// been ingested yet, or may never be (matches legacy, whose SQLite <c>update</c> is a silent
+  /// no-op on zero matched rows).
+  /// </summary>
+  Task<int> MarkMessageDeletedAsync(
+    string messageId,
+    DateTimeOffset deletedAt,
+    string deletedReason,
+    Guid moderationEventId,
+    CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Soft-deletes every currently-undeleted message from <paramref name="username"/>
+  /// (case-insensitive) in <paramref name="channel"/> — a port of legacy's
+  /// <c>markUserMessagesDeleted</c> (<c>... where channel = ? and username = ? and deleted_at is
+  /// null</c>). The <c>DeletedAt is null</c> filter is load-bearing for idempotency: a
+  /// redelivered <c>user.timeout</c>/<c>user.ban</c> for the same user only touches rows a prior
+  /// call left untouched, rather than re-stamping (and losing) an earlier, more specific
+  /// soft-delete reason. Returns the number of rows updated.
+  /// </summary>
+  Task<int> MarkUserMessagesDeletedAsync(
+    string channel,
+    string username,
+    DateTimeOffset deletedAt,
+    string deletedReason,
+    Guid moderationEventId,
+    CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Soft-deletes every currently-undeleted message in <paramref name="channel"/> — a port of
+  /// legacy's <c>markChannelMessagesDeleted</c> (<c>... where channel = ? and deleted_at is
+  /// null</c>). Same idempotency rationale as <see cref="MarkUserMessagesDeletedAsync"/>. Returns
+  /// the number of rows updated.
+  /// </summary>
+  Task<int> MarkChannelMessagesDeletedAsync(
+    string channel,
+    DateTimeOffset deletedAt,
+    string deletedReason,
+    Guid moderationEventId,
+    CancellationToken cancellationToken);
 }
