@@ -4,6 +4,7 @@ using TwitchLib.Api.Helix.Models.Channels.GetChannelInformation;
 using TwitchLib.Api.Helix.Models.Channels.ModifyChannelInformation;
 using TwitchLib.Api.Helix.Models.Channels.SendChatMessage;
 using TwitchLib.Api.Helix.Models.Channels.StartCommercial;
+using TwitchLib.Api.Helix.Models.EventSub;
 using TwitchLib.Api.Helix.Models.Games;
 using TwitchLib.Api.Helix.Models.Moderation.BanUser;
 using TwitchLib.Api.Helix.Models.Search;
@@ -65,4 +66,14 @@ internal interface IHelixApi
   Task<BanUserResponse> BanUserAsync(string broadcasterId, string moderatorId, BanUserRequest request, string accessToken, CancellationToken cancellationToken);
 
   Task ManageHeldAutoModMessagesAsync(string userId, string msgId, ManageHeldAutoModMessageActionEnum action, string accessToken, CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Creates a single EventSub subscription over an existing websocket session
+  /// (<c>transport.method = websocket</c> is hard-coded by <see cref="TwitchLibHelixApi"/> —
+  /// this seam has no webhook/conduit callers). <paramref name="condition"/> is a concrete
+  /// <see cref="Dictionary{TKey,TValue}"/> rather than <c>IReadOnlyDictionary</c> because that
+  /// is the exact type TwitchLib.Api's own <c>CreateEventSubSubscriptionAsync</c> requires.
+  /// </summary>
+  Task<CreateEventSubSubscriptionResponse> CreateEventSubSubscriptionAsync(
+    string type, string version, Dictionary<string, string> condition, string websocketSessionId, string accessToken, CancellationToken cancellationToken);
 }

@@ -2,10 +2,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using Narya.Twitch.Helix;
-using Narya.Twitch.Tokens;
 
-using TwitchLib.Api;
-using TwitchLib.Api.Core.Enums;
 using TwitchLib.EventSub.Websockets;
 using TwitchLib.EventSub.Websockets.Core.EventArgs;
 
@@ -54,8 +51,6 @@ public sealed partial class TwitchEventSubService : BackgroundService
   public static readonly TimeSpan MaxBackoffDelay = TimeSpan.FromMinutes(2);
 
   private readonly EventSubWebsocketClient _client;
-  private readonly TwitchAPI _api;
-  private readonly ITwitchCredentials _credentials;
   private readonly IHelixClient _helixClient;
   private readonly TimeProvider _timeProvider;
   private readonly ILogger<TwitchEventSubService> _logger;
@@ -63,6 +58,22 @@ public sealed partial class TwitchEventSubService : BackgroundService
 
   private EventSubStatus _status = EventSubStatus.Initial;
   private string? _lastSubscribedSessionId;
+
+  /// <summary>
+  /// Reentrancy guard for <see cref="ReconnectWithBackoffAsync"/>: 0 = no loop running, 1 = a
+  /// loop already owns the reconnect. <see cref="OnWebsocketDisconnectedAsync"/> fires this
+  /// fire-and-forget on every <c>WebsocketDisconnected</c>, and TwitchLib's own "Failed
+  /// Ping/Pong" spurious-disconnect behavior (twitchlib-spec.md §5 gotcha #10) can raise a
+  /// second one while the first backoff loop is still mid-retry. Without this guard, two
+  /// concurrent loops would each eventually call the shared singleton's
+  /// <see cref="EventSubWebsocketClient.ReconnectAsync()"/>, each could land its own session,
+  /// and each would independently pass <see cref="ShouldResubscribe"/> — creating every
+  /// subscription twice, so every redemption/chat/alert would double-fire. <c>internal</c>
+  /// (rather than a private nested field) only so <c>Narya.Twitch.Tests</c> can drive the guard
+  /// directly — the real <see cref="EventSubWebsocketClient"/> has no virtual members, so it
+  /// cannot be substituted to observe how many loops actually call it.
+  /// </summary>
+  internal int _reconnecting;
 
   /// <summary>
   /// Set once, at the top of <see cref="ExecuteAsync"/>, before the first
@@ -76,15 +87,11 @@ public sealed partial class TwitchEventSubService : BackgroundService
 
   public TwitchEventSubService(
     EventSubWebsocketClient client,
-    TwitchAPI api,
-    ITwitchCredentials credentials,
     IHelixClient helixClient,
     TimeProvider timeProvider,
     ILogger<TwitchEventSubService> logger)
   {
     _client = client;
-    _api = api;
-    _credentials = credentials;
     _helixClient = helixClient;
     _timeProvider = timeProvider;
     _logger = logger;
@@ -212,10 +219,28 @@ public sealed partial class TwitchEventSubService : BackgroundService
       return;
     }
 
-    var created = await CreateSubscriptionsAsync(sessionId, _stoppingToken).ConfigureAwait(false);
-    _lastSubscribedSessionId = sessionId;
-    LogConnected(_logger, sessionId, created, EventSubSubscriptions.All.Count);
-    UpdateStatus(status => status with { Connected = true, SessionId = sessionId, SubscriptionsCreated = created });
+    var outcome = await CreateSubscriptionsAsync(sessionId, _stoppingToken).ConfigureAwait(false);
+
+    if (outcome.Attempted)
+    {
+      // Only mark this session "subscribed" once resolution actually got past broadcaster-id
+      // lookup and the create loop ran — a bail-before-the-loop attempt (broadcaster id
+      // resolution failed) must stay retryable so a duplicate WebsocketConnected for the same
+      // session can try again, rather than being silently treated as handled forever.
+      _lastSubscribedSessionId = sessionId;
+    }
+
+    LogConnected(_logger, sessionId, outcome.Created, EventSubSubscriptions.All.Count);
+    UpdateStatus(status => status with
+    {
+      Connected = true,
+      SessionId = sessionId,
+      SubscriptionsCreated = outcome.Created,
+      // Clear a stale LastError only once the batch both ran and fully succeeded — a sub
+      // failure inside the loop already set a fresh, more specific LastError below, and a
+      // bailed-before-the-loop attempt leaves whatever CreateSubscriptionsAsync set in place.
+      LastError = outcome.Attempted && outcome.Created == EventSubSubscriptions.All.Count ? null : status.LastError,
+    });
   }
 
   private Task OnWebsocketDisconnectedAsync(object? sender, WebsocketDisconnectedArgs e)
@@ -258,45 +283,65 @@ public sealed partial class TwitchEventSubService : BackgroundService
   /// issue #37 documents that sequence leaving the socket unable to start again ("WebSocket
   /// has already been started"). <see cref="EventSubWebsocketClient.ReconnectAsync()"/> is the
   /// only supported recovery path; it resolves a fresh transport from DI internally.
+  ///
+  /// Guarded by <see cref="_reconnecting"/> so only one loop ever runs at a time: a second
+  /// <c>WebsocketDisconnected</c> firing while a loop is already in flight (see that field's
+  /// doc comment) is a no-op here rather than a second concurrent backoff loop racing the
+  /// first one's calls to the shared <see cref="EventSubWebsocketClient"/> singleton.
+  /// <c>internal</c> (rather than <c>private</c>) only so tests can drive it directly — see
+  /// <see cref="_reconnecting"/>'s doc comment for why the real client can't be substituted to
+  /// observe this from the outside.
   /// </summary>
-  private async Task ReconnectWithBackoffAsync(CancellationToken cancellationToken)
+  internal async Task ReconnectWithBackoffAsync(CancellationToken cancellationToken)
   {
-    foreach (var delay in BackoffDelays())
+    if (Interlocked.CompareExchange(ref _reconnecting, 1, 0) != 0)
     {
-      if (cancellationToken.IsCancellationRequested)
-      {
-        return;
-      }
+      return;
+    }
 
-      try
+    try
+    {
+      foreach (var delay in BackoffDelays())
       {
-        if (await _client.ReconnectAsync().ConfigureAwait(false))
+        if (cancellationToken.IsCancellationRequested)
         {
-          // Success — OnWebsocketConnectedAsync (wired in the constructor, onto this
-          // same client) takes it from here: it reads the new SessionId and decides
-          // whether to re-subscribe.
           return;
         }
 
-        LogReconnectAttemptFailed(_logger, null);
-      }
-      catch (OperationCanceledException)
-      {
-        return;
-      }
-      catch (Exception ex)
-      {
-        LogReconnectAttemptFailed(_logger, ex);
-      }
+        try
+        {
+          if (await _client.ReconnectAsync().ConfigureAwait(false))
+          {
+            // Success — OnWebsocketConnectedAsync (wired in the constructor, onto this
+            // same client) takes it from here: it reads the new SessionId and decides
+            // whether to re-subscribe.
+            return;
+          }
 
-      try
-      {
-        await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
+          LogReconnectAttemptFailed(_logger, null);
+        }
+        catch (OperationCanceledException)
+        {
+          return;
+        }
+        catch (Exception ex)
+        {
+          LogReconnectAttemptFailed(_logger, ex);
+        }
+
+        try
+        {
+          await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+          return;
+        }
       }
-      catch (OperationCanceledException)
-      {
-        return;
-      }
+    }
+    finally
+    {
+      _ = Interlocked.Exchange(ref _reconnecting, 0);
     }
   }
 
@@ -306,34 +351,27 @@ public sealed partial class TwitchEventSubService : BackgroundService
   /// — twitchlib-spec.md §3's "Our BackgroundService STILL owns" list. Every failure is logged
   /// and folded into <see cref="Status"/>'s <see cref="EventSubStatus.LastError"/>; the run
   /// keeps going regardless.
+  ///
+  /// <see cref="SubscriptionCreationOutcome.Attempted"/> distinguishes "bailed before the loop"
+  /// (broadcaster id resolution failed — nothing was attempted) from "the loop ran" (even if
+  /// some/all individual subscriptions failed inside it) — see
+  /// <see cref="OnWebsocketConnectedAsync"/>'s use of it to decide whether to update
+  /// <see cref="_lastSubscribedSessionId"/>. <c>internal</c> (rather than <c>private</c>) only
+  /// so tests can drive it directly against a substituted <see cref="IHelixClient"/> — the same
+  /// reasoning as <see cref="ReconnectWithBackoffAsync"/>'s accessibility.
   /// </summary>
-  private async Task<int> CreateSubscriptionsAsync(string sessionId, CancellationToken cancellationToken)
+  internal async Task<SubscriptionCreationOutcome> CreateSubscriptionsAsync(string sessionId, CancellationToken cancellationToken)
   {
-    // GetBroadcasterIdAsync is resolved first deliberately: it is itself a Helix call, and
-    // Narya.Twitch.Helix.TwitchLibHelixApi syncs the shared TwitchAPI singleton's
-    // Settings.ClientId from AppConfig on every call it makes — so by the time the loop
-    // below calls api.Helix.EventSub.CreateEventSubSubscriptionAsync directly, ClientId is
-    // already fresh even if this is the very first Helix call this process has made.
     var broadcasterIdResult = await _helixClient.GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
     if (broadcasterIdResult.IsFailed)
     {
       var reason = string.Join("; ", broadcasterIdResult.Errors.Select(error => error.Message));
       LogSubscriptionSetupFailed(_logger, reason);
       UpdateStatus(status => status with { LastError = reason });
-      return 0;
-    }
-
-    var tokenResult = await _credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, cancellationToken).ConfigureAwait(false);
-    if (tokenResult.IsFailed)
-    {
-      var reason = string.Join("; ", tokenResult.Errors.Select(error => error.Message));
-      LogSubscriptionSetupFailed(_logger, reason);
-      UpdateStatus(status => status with { LastError = reason });
-      return 0;
+      return new SubscriptionCreationOutcome(Attempted: false, Created: 0);
     }
 
     var broadcasterId = broadcasterIdResult.Value;
-    var accessToken = tokenResult.Value;
     var created = 0;
 
     foreach (var subscription in EventSubSubscriptions.All)
@@ -341,14 +379,25 @@ public sealed partial class TwitchEventSubService : BackgroundService
       try
       {
         var condition = subscription.ConditionFor(broadcasterId);
-        _ = await _api.Helix.EventSub.CreateEventSubSubscriptionAsync(
-          subscription.Type,
-          subscription.Version,
-          condition,
-          EventSubTransportMethod.Websocket,
-          websocketSessionId: sessionId,
-          accessToken: accessToken).ConfigureAwait(false);
-        created++;
+
+        // Routed through IHelixClient (not a raw api.Helix.EventSub call) specifically so
+        // every subscription resolves its own fresh broadcaster token and re-syncs
+        // Settings.ClientId — GetBroadcasterIdAsync above is cached for the process lifetime
+        // and would NOT pick up a Client ID an operator rotated in Settings after the first
+        // connect. See CreateEventSubWebsocketSubscriptionAsync's doc comment.
+        var subscriptionResult = await _helixClient.CreateEventSubWebsocketSubscriptionAsync(
+          subscription.Type, subscription.Version, condition, sessionId, cancellationToken).ConfigureAwait(false);
+
+        if (subscriptionResult.IsSuccess)
+        {
+          created++;
+        }
+        else
+        {
+          var reason = string.Join("; ", subscriptionResult.Errors.Select(error => error.Message));
+          LogSubscriptionCreateFailed(_logger, subscription.Type, subscription.Version, reason);
+          UpdateStatus(status => status with { LastError = $"{subscription.Type} v{subscription.Version}: {reason}" });
+        }
       }
       catch (OperationCanceledException)
       {
@@ -356,13 +405,17 @@ public sealed partial class TwitchEventSubService : BackgroundService
       }
       catch (Exception ex)
       {
-        LogSubscriptionCreateFailed(_logger, subscription.Type, subscription.Version, ex);
+        // Defensive only — IHelixClient.CreateEventSubWebsocketSubscriptionAsync maps every
+        // non-cancellation exception to Result.Fail itself, so this should not normally run.
+        LogSubscriptionCreateFailed(_logger, subscription.Type, subscription.Version, ex.Message);
         UpdateStatus(status => status with { LastError = $"{subscription.Type} v{subscription.Version}: {ex.Message}" });
       }
     }
 
-    return created;
+    return new SubscriptionCreationOutcome(Attempted: true, Created: created);
   }
+
+  internal readonly record struct SubscriptionCreationOutcome(bool Attempted, int Created);
 
   private void UpdateStatus(Func<EventSubStatus, EventSubStatus> update)
   {
@@ -402,6 +455,6 @@ public sealed partial class TwitchEventSubService : BackgroundService
   [LoggerMessage(Level = LogLevel.Warning, Message = "Could not create Twitch EventSub subscriptions: {Reason}")]
   private static partial void LogSubscriptionSetupFailed(ILogger logger, string reason);
 
-  [LoggerMessage(Level = LogLevel.Warning, Message = "Twitch EventSub subscription {Type} v{Version} failed")]
-  private static partial void LogSubscriptionCreateFailed(ILogger logger, string type, string version, Exception exception);
+  [LoggerMessage(Level = LogLevel.Warning, Message = "Twitch EventSub subscription {Type} v{Version} failed: {Reason}")]
+  private static partial void LogSubscriptionCreateFailed(ILogger logger, string type, string version, string reason);
 }

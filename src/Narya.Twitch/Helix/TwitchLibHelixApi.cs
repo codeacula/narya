@@ -7,6 +7,7 @@ using TwitchLib.Api.Helix.Models.Channels.GetChannelInformation;
 using TwitchLib.Api.Helix.Models.Channels.ModifyChannelInformation;
 using TwitchLib.Api.Helix.Models.Channels.SendChatMessage;
 using TwitchLib.Api.Helix.Models.Channels.StartCommercial;
+using TwitchLib.Api.Helix.Models.EventSub;
 using TwitchLib.Api.Helix.Models.Games;
 using TwitchLib.Api.Helix.Models.Moderation.BanUser;
 using TwitchLib.Api.Helix.Models.Search;
@@ -115,6 +116,14 @@ internal sealed class TwitchLibHelixApi(TwitchAPI api, IAppConfigStore appConfig
   {
     await SyncClientIdAsync(cancellationToken).ConfigureAwait(false);
     await api.Helix.Moderation.ManageHeldAutoModMessagesAsync(userId, msgId, action, accessToken).ConfigureAwait(false);
+  }
+
+  public async Task<CreateEventSubSubscriptionResponse> CreateEventSubSubscriptionAsync(
+    string type, string version, Dictionary<string, string> condition, string websocketSessionId, string accessToken, CancellationToken cancellationToken)
+  {
+    await SyncClientIdAsync(cancellationToken).ConfigureAwait(false);
+    return await api.Helix.EventSub.CreateEventSubSubscriptionAsync(
+      type, version, condition, EventSubTransportMethod.Websocket, websocketSessionId: websocketSessionId, accessToken: accessToken).ConfigureAwait(false);
   }
 
   private async Task SyncClientIdAsync(CancellationToken cancellationToken)

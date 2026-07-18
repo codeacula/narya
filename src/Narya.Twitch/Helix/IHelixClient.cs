@@ -80,4 +80,22 @@ public interface IHelixClient
 
   /// <summary>Resolves an AutoMod hold. A Twitch 404 (<c>BadResourceException</c> — the hold already expired/was resolved elsewhere) resolves as <see cref="AutomodOutcomes.Gone"/>, not a failure.</summary>
   Task<Result<AutomodResolution>> ResolveAutomodMessageAsync(string messageId, bool allow, CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Creates a single EventSub subscription over websocket transport. Unlike
+  /// <see cref="GetBroadcasterIdAsync"/>, this resolves a FRESH broadcaster token on every call
+  /// rather than caching one — and, going through <see cref="TwitchLibHelixApi"/> like every
+  /// other method here, it also syncs the shared <c>TwitchAPI</c> singleton's
+  /// <c>Settings.ClientId</c> from AppConfig on every call. That matters specifically for
+  /// resubscribe: <see cref="GetBroadcasterIdAsync"/> caches its result for the process
+  /// lifetime and so does NOT resync ClientId on a repeat call, so an operator who rotates the
+  /// Twitch Client ID and then hits a hard-drop EventSub reconnect (which resubscribes without
+  /// ever calling <see cref="GetAuthenticatedUserAsync"/> or another Helix method first) needs
+  /// subscription creation itself to be the thing that stays fresh. Returns
+  /// <see cref="Result"/> (never throws, except <see cref="OperationCanceledException"/>) so a
+  /// caller looping over many subscriptions can log-and-continue on one failure without
+  /// aborting the batch — see <c>TwitchEventSubService.CreateSubscriptionsAsync</c>.
+  /// </summary>
+  Task<Result> CreateEventSubWebsocketSubscriptionAsync(
+    string type, string version, IReadOnlyDictionary<string, string> condition, string sessionId, CancellationToken cancellationToken);
 }

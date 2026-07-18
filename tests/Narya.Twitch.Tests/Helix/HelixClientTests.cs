@@ -15,6 +15,7 @@ using TwitchLib.Api.Helix.Models.Channels.GetChannelInformation;
 using TwitchLib.Api.Helix.Models.Channels.ModifyChannelInformation;
 using TwitchLib.Api.Helix.Models.Channels.SendChatMessage;
 using TwitchLib.Api.Helix.Models.Channels.StartCommercial;
+using TwitchLib.Api.Helix.Models.EventSub;
 using TwitchLib.Api.Helix.Models.Games;
 using TwitchLib.Api.Helix.Models.Moderation.BanUser;
 using TwitchLib.Api.Helix.Models.Search;
@@ -117,6 +118,9 @@ public sealed class HelixClientTests
     FromJson<SendChatMessageResponse>(new { data = new[] { new { message_id = messageId, is_sent = isSent, drop_reason = dropReason } } });
 
   private static BanUserResponse EmptyBanResponse() => FromJson<BanUserResponse>(new { data = Array.Empty<object>() });
+
+  private static CreateEventSubSubscriptionResponse CreateEventSubSubscriptionResponseOf() =>
+    FromJson<CreateEventSubSubscriptionResponse>(new { data = Array.Empty<object>(), total = 1, total_cost = 1, max_total_cost = 10 });
 
   // ---------------------------------------------------------------------
   // GetAuthenticatedUserAsync
@@ -607,6 +611,69 @@ public sealed class HelixClientTests
 
     Assert.True(result.IsFailed);
     Assert.Contains(result.Errors, e => e.Message.Contains("Invalid OAuth token", StringComparison.Ordinal));
+  }
+
+  // ---------------------------------------------------------------------
+  // CreateEventSubWebsocketSubscriptionAsync (Phase 2 Task 5 fix pass) — a FRESH broadcaster
+  // token every call (never the cached GetBroadcasterIdAsync path), routed through IHelixApi
+  // so TwitchLibHelixApi's per-call Settings.ClientId sync always runs, even on a resubscribe
+  // long after the first connect.
+  // ---------------------------------------------------------------------
+
+  [Fact]
+  public async Task CreateEventSubWebsocketSubscriptionPassesTypeVersionConditionAndSessionIdWithAFreshToken()
+  {
+    var f = Build();
+    _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>()).Returns(Result.Ok("broadcaster-token"));
+    _ = f.HelixApi.CreateEventSubSubscriptionAsync(
+        "channel.chat.message", "1", Arg.Any<Dictionary<string, string>>(), "session-1", "broadcaster-token", Arg.Any<CancellationToken>())
+      .Returns(CreateEventSubSubscriptionResponseOf());
+
+    var condition = new Dictionary<string, string> { ["broadcaster_user_id"] = "bid-1", ["user_id"] = "bid-1" };
+    var result = await f.Client.CreateEventSubWebsocketSubscriptionAsync("channel.chat.message", "1", condition, "session-1", CancellationToken.None);
+
+    Assert.True(result.IsSuccess);
+    _ = await f.HelixApi.Received(1).CreateEventSubSubscriptionAsync(
+      "channel.chat.message",
+      "1",
+      Arg.Is<Dictionary<string, string>>(c => c["broadcaster_user_id"] == "bid-1" && c["user_id"] == "bid-1"),
+      "session-1",
+      "broadcaster-token",
+      Arg.Any<CancellationToken>());
+
+    // Never the cached broadcaster-id/token resolution path other methods share.
+    _ = await f.Credentials.DidNotReceive().GetActionCredentialsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task CreateEventSubWebsocketSubscriptionFailsWhenNoBroadcasterTokenIsAvailable()
+  {
+    var f = Build();
+    _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>())
+      .Returns(Result.Fail<string>("No stored Twitch Broadcaster token."));
+
+    var result = await f.Client.CreateEventSubWebsocketSubscriptionAsync(
+      "channel.chat.message", "1", new Dictionary<string, string>(), "session-1", CancellationToken.None);
+
+    Assert.True(result.IsFailed);
+    _ = await f.HelixApi.DidNotReceive().CreateEventSubSubscriptionAsync(
+      Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, string>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task CreateEventSubWebsocketSubscriptionMapsAThrownTwitchLibExceptionToResultFail()
+  {
+    var f = Build();
+    _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>()).Returns(Result.Ok("broadcaster-token"));
+    _ = f.HelixApi.CreateEventSubSubscriptionAsync(
+        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, string>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+      .Returns<CreateEventSubSubscriptionResponse>(_ => throw new BadScopeException("missing user:read:chat", null!));
+
+    var result = await f.Client.CreateEventSubWebsocketSubscriptionAsync(
+      "channel.chat.message", "1", new Dictionary<string, string> { ["broadcaster_user_id"] = "bid-1" }, "session-1", CancellationToken.None);
+
+    Assert.True(result.IsFailed);
+    Assert.Contains(result.Errors, e => e.Message.Contains("reconnect", StringComparison.OrdinalIgnoreCase));
   }
 
   // ---------------------------------------------------------------------

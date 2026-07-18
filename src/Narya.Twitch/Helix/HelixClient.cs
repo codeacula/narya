@@ -495,6 +495,30 @@ internal sealed class HelixClient(
     }
   }
 
+  public async Task<Result> CreateEventSubWebsocketSubscriptionAsync(
+    string type, string version, IReadOnlyDictionary<string, string> condition, string sessionId, CancellationToken cancellationToken)
+  {
+    // A FRESH token every call, deliberately not routed through the cached
+    // ResolveBroadcasterOrAppAccessTokenAsync/GetActionCredentialsAsync helpers above — see
+    // this method's doc comment on IHelixClient for why subscription creation specifically
+    // cannot rely on anything cached surviving a Twitch Client ID rotation.
+    var tokenResult = await credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, cancellationToken).ConfigureAwait(false);
+    if (tokenResult.IsFailed)
+    {
+      return Result.Fail(tokenResult.Errors);
+    }
+
+    // TwitchLib.Api's CreateEventSubSubscriptionAsync requires a concrete Dictionary; every
+    // EventSubSubscription.ConditionFor delegate already returns one, so this only allocates a
+    // copy for a caller that passed some other IReadOnlyDictionary implementation.
+    var conditionDictionary = condition as Dictionary<string, string> ?? new Dictionary<string, string>(condition);
+
+    var result = await ExecuteAsync(() =>
+      helixApi.CreateEventSubSubscriptionAsync(type, version, conditionDictionary, sessionId, tokenResult.Value, cancellationToken)).ConfigureAwait(false);
+
+    return result.IsFailed ? Result.Fail(result.Errors) : Result.Ok();
+  }
+
   /// <summary>Releases <see cref="_broadcasterIdLock"/>. HelixClient is a singleton, so this only runs once, at host shutdown.</summary>
   public void Dispose() => _broadcasterIdLock.Dispose();
 
