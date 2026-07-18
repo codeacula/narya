@@ -292,11 +292,21 @@ public sealed partial class TwitchCredentials(
   /// </summary>
   public Task InvalidateAsync(CancellationToken cancellationToken)
   {
-    // Bump FIRST, so a resolution that starts after this point re-reads the new config and any
-    // resolution already running observes the change before it commits.
-    _ = Interlocked.Increment(ref _identityGeneration);
+    // Clear the plain fields FIRST, then bump. The Interlocked increment is the only write here
+    // with release semantics, so it is what PUBLISHES these two null writes to a resolution
+    // running on another core; ordering the bump first would leave the nulls unordered with
+    // respect to it — unobservable on x86-64's strong model, genuinely reachable on ARM64, where
+    // a reader could see the new generation while still seeing the OLD cached identity.
+    //
+    // Bumping last does not weaken the guarantee the generation exists for. A resolution that
+    // starts in the window between the clears and the bump snapshots the OLD generation, reads
+    // the (now empty) cache, resolves against the NEW config, and then finds the generation
+    // moved and discards its own correct result — an over-clear, which costs one extra
+    // resolution. The invariant that matters is the other direction: no resolution can ever
+    // commit a STALE identity into a cleared field, and that holds either way.
     _appToken = null;
     _cachedBroadcasterId = null;
+    _ = Interlocked.Increment(ref _identityGeneration);
     return Task.CompletedTask;
   }
 

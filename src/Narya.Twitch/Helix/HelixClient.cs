@@ -580,12 +580,22 @@ internal sealed class HelixClient(
   /// </summary>
   public Task InvalidateAsync(CancellationToken cancellationToken)
   {
-    // Bump FIRST: a resolution that reads the new generation after this point but before the
-    // clears below still re-reads config, so it can only over-clear, never over-cache.
-    _ = Interlocked.Increment(ref _identityGeneration);
+    // Clear FIRST, bump LAST. The Interlocked increment is the only write here with release
+    // semantics, so it is what PUBLISHES the clears below to a resolution running on another
+    // core; bumping first would leave the null write to the plain _cachedBroadcasterId field
+    // unordered with respect to it — unobservable on x86-64's strong memory model, genuinely
+    // reachable on ARM64, where a reader could observe the new generation while still reading
+    // the OLD cached broadcaster id.
+    //
+    // The direction that matters is unchanged: a resolution that starts in the window between
+    // the clears and the bump snapshots the OLD generation, re-reads config (the cache is
+    // already empty), and then discards its own fresh result when it finds the generation
+    // moved — an over-clear costing one extra resolution. It can still never over-CACHE a
+    // stale identity, which is the invariant _identityGeneration exists to hold.
     _cachedBroadcasterId = null;
     _authenticatedUserIds.Clear();
     _caches.Clear();
+    _ = Interlocked.Increment(ref _identityGeneration);
     return Task.CompletedTask;
   }
 
