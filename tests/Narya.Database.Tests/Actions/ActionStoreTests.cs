@@ -67,6 +67,181 @@ public sealed class ActionStoreTests(PostgresFixture fixture)
     Assert.All(fetched.Steps, s => Assert.NotEqual(Guid.Empty, s.Id));
   }
 
+  /// <summary>
+  /// Backfills the coverage the review flagged: the original round-trip test above only exercises
+  /// 3 of the 11 <see cref="ActionStep"/> types and doesn't assert every field survives reload. The
+  /// hand-written <see cref="ActionStepJsonConverter"/> is the load-bearing mechanism that makes any
+  /// step type survive Marten storage at all (see its doc comment) — a converter bug that drops or
+  /// mangles one field on one step type is a silent data-loss bug, so this saves an Action with ONE
+  /// step of EVERY type, each carrying distinct, non-default values on every payload field and on
+  /// the base fields (<c>Enabled</c>, <c>DelayMs</c>), reloads it through a real Postgres via
+  /// <see cref="ActionStore.GetByIdAsync"/>, and asserts every field on every step individually.
+  /// </summary>
+  [Fact]
+  public async Task AllElevenStepTypesRoundTripThroughMartenWithEveryFieldIntact()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ActionStore(documentStore, TimeProvider.System);
+    var assetIdOne = Guid.NewGuid();
+    var assetIdTwo = Guid.NewGuid();
+
+    var created = await store.CreateAsync(
+      BuildUpsert(
+        steps:
+        [
+          new ShowTextActionStep
+          {
+            Template = "Hype train arriving!",
+            DurationMs = 4_200,
+            Style = TextStyle.Centered,
+            Tone = "gold",
+            Enabled = false,
+            DelayMs = 100,
+          },
+          new PlayMediaActionStep
+          {
+            AssetIds = [assetIdOne, assetIdTwo],
+            Selection = MediaSelection.Random,
+            Volume = 0.33,
+            DelayMs = 200,
+          },
+          new TtsSpeakActionStep
+          {
+            Template = "Announce the raid out loud.",
+            DelayMs = 300,
+          },
+          new SendChatActionStep
+          {
+            Template = "Thanks for the raid!",
+            Sender = ChatSender.Bot,
+            DelayMs = 400,
+          },
+          new LlmResponseActionStep
+          {
+            Template = "Reply to {input} in one sentence.",
+            DelayMs = 500,
+          },
+          new ObsSceneActionStep
+          {
+            SceneName = "Scene - Just Chatting",
+            DelayMs = 600,
+          },
+          new ObsTransitionActionStep
+          {
+            DelayMs = 700,
+          },
+          new TwitchShoutoutActionStep
+          {
+            LoginTemplate = "{arg1}",
+            DelayMs = 800,
+          },
+          new TwitchWhisperActionStep
+          {
+            LoginTemplate = "{arg2}",
+            Template = "Welcome to the stream!",
+            DelayMs = 900,
+          },
+          new TwitchTimeoutActionStep
+          {
+            LoginTemplate = "{arg1}",
+            SecondsTemplate = "{arg2}",
+            ReasonTemplate = "spam cleanup",
+            DelayMs = 1_000,
+          },
+          new TwitchBanActionStep
+          {
+            LoginTemplate = "{arg3}",
+            ReasonTemplate = "TOS violation",
+            DelayMs = 1_100,
+          },
+        ]),
+      CancellationToken.None);
+
+    Assert.True(created.IsSuccess);
+    Assert.Equal(11, created.Value.Steps.Count);
+
+    var fetched = await store.GetByIdAsync(created.Value.Id, CancellationToken.None);
+    Assert.NotNull(fetched);
+    Assert.Equal(11, fetched.Steps.Count);
+    Assert.Equal(Enumerable.Range(0, 11), fetched.Steps.Select(s => s.Position));
+    Assert.All(fetched.Steps, s => Assert.NotEqual(Guid.Empty, s.Id));
+
+    var showText = Assert.IsType<ShowTextActionStep>(fetched.Steps[0]);
+    Assert.Equal(0, showText.Position);
+    Assert.False(showText.Enabled);
+    Assert.Equal(100, showText.DelayMs);
+    Assert.Equal("Hype train arriving!", showText.Template);
+    Assert.Equal(4_200, showText.DurationMs);
+    Assert.Equal(TextStyle.Centered, showText.Style);
+    Assert.Equal("gold", showText.Tone);
+
+    var playMedia = Assert.IsType<PlayMediaActionStep>(fetched.Steps[1]);
+    Assert.Equal(1, playMedia.Position);
+    Assert.True(playMedia.Enabled);
+    Assert.Equal(200, playMedia.DelayMs);
+    Assert.Equal([assetIdOne, assetIdTwo], playMedia.AssetIds);
+    Assert.Equal(MediaSelection.Random, playMedia.Selection);
+    Assert.Equal(0.33, playMedia.Volume);
+
+    var ttsSpeak = Assert.IsType<TtsSpeakActionStep>(fetched.Steps[2]);
+    Assert.Equal(2, ttsSpeak.Position);
+    Assert.True(ttsSpeak.Enabled);
+    Assert.Equal(300, ttsSpeak.DelayMs);
+    Assert.Equal("Announce the raid out loud.", ttsSpeak.Template);
+
+    var sendChat = Assert.IsType<SendChatActionStep>(fetched.Steps[3]);
+    Assert.Equal(3, sendChat.Position);
+    Assert.True(sendChat.Enabled);
+    Assert.Equal(400, sendChat.DelayMs);
+    Assert.Equal("Thanks for the raid!", sendChat.Template);
+    Assert.Equal(ChatSender.Bot, sendChat.Sender);
+
+    var llmResponse = Assert.IsType<LlmResponseActionStep>(fetched.Steps[4]);
+    Assert.Equal(4, llmResponse.Position);
+    Assert.True(llmResponse.Enabled);
+    Assert.Equal(500, llmResponse.DelayMs);
+    Assert.Equal("Reply to {input} in one sentence.", llmResponse.Template);
+
+    var obsScene = Assert.IsType<ObsSceneActionStep>(fetched.Steps[5]);
+    Assert.Equal(5, obsScene.Position);
+    Assert.True(obsScene.Enabled);
+    Assert.Equal(600, obsScene.DelayMs);
+    Assert.Equal("Scene - Just Chatting", obsScene.SceneName);
+
+    var obsTransition = Assert.IsType<ObsTransitionActionStep>(fetched.Steps[6]);
+    Assert.Equal(6, obsTransition.Position);
+    Assert.True(obsTransition.Enabled);
+    Assert.Equal(700, obsTransition.DelayMs);
+
+    var shoutout = Assert.IsType<TwitchShoutoutActionStep>(fetched.Steps[7]);
+    Assert.Equal(7, shoutout.Position);
+    Assert.True(shoutout.Enabled);
+    Assert.Equal(800, shoutout.DelayMs);
+    Assert.Equal("{arg1}", shoutout.LoginTemplate);
+
+    var whisper = Assert.IsType<TwitchWhisperActionStep>(fetched.Steps[8]);
+    Assert.Equal(8, whisper.Position);
+    Assert.True(whisper.Enabled);
+    Assert.Equal(900, whisper.DelayMs);
+    Assert.Equal("{arg2}", whisper.LoginTemplate);
+    Assert.Equal("Welcome to the stream!", whisper.Template);
+
+    var timeout = Assert.IsType<TwitchTimeoutActionStep>(fetched.Steps[9]);
+    Assert.Equal(9, timeout.Position);
+    Assert.True(timeout.Enabled);
+    Assert.Equal(1_000, timeout.DelayMs);
+    Assert.Equal("{arg1}", timeout.LoginTemplate);
+    Assert.Equal("{arg2}", timeout.SecondsTemplate);
+    Assert.Equal("spam cleanup", timeout.ReasonTemplate);
+
+    var ban = Assert.IsType<TwitchBanActionStep>(fetched.Steps[10]);
+    Assert.Equal(10, ban.Position);
+    Assert.True(ban.Enabled);
+    Assert.Equal(1_100, ban.DelayMs);
+    Assert.Equal("{arg3}", ban.LoginTemplate);
+    Assert.Equal("TOS violation", ban.ReasonTemplate);
+  }
+
   [Fact]
   public async Task CreateValidationFailureInsertsNothing()
   {
