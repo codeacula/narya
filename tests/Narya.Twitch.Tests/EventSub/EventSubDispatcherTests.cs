@@ -770,12 +770,14 @@ public sealed class EventSubDispatcherTests
       {
         Event = new TwitchLib.EventSub.Core.SubscriptionTypes.Automod.AutomodMessageHoldV2
         {
+          BroadcasterUserLogin = "codeacula",
           MessageId = "held-1",
           UserLogin = "riskyviewer",
           UserName = "RiskyViewer",
           Message = new TwitchLib.EventSub.Core.Models.Automod.Message { Text = "questionable text" },
           Reason = "automod",
           HeldAt = heldAt,
+          Automod = new TwitchLib.EventSub.Core.Models.Automod.AutomodData { Category = "profanity", Level = 2 },
         },
       },
     };
@@ -783,11 +785,45 @@ public sealed class EventSubDispatcherTests
     var notification = EventSubDispatcher.DispatchAutomodHold(args);
 
     Assert.Equal("held-1", notification.MessageId);
+    Assert.Equal("codeacula", notification.Channel);
     Assert.Equal("riskyviewer", notification.Username);
     Assert.Equal("RiskyViewer", notification.DisplayName);
     Assert.Equal("questionable text", notification.Message);
     Assert.Equal("automod", notification.Reason);
+    Assert.Equal("profanity", notification.Category);
+    Assert.Equal(2, notification.Level);
     Assert.Equal(heldAt, notification.HeldAt);
+  }
+
+  /// <summary>
+  /// A hold caught by a blocked term (rather than AutoMod itself) carries no <c>Automod</c>
+  /// object at all — <see cref="AutomodHeldNotification.Category"/>/<see cref="AutomodHeldNotification.Level"/>
+  /// must null-propagate rather than throw a <see cref="NullReferenceException"/>.
+  /// </summary>
+  [Fact]
+  public void DispatchAutomodHoldWithNoAutomodDataLeavesCategoryAndLevelNull()
+  {
+    var args = new AutomodMessageHoldV2Args
+    {
+      Payload = new EventSubNotificationPayload<TwitchLib.EventSub.Core.SubscriptionTypes.Automod.AutomodMessageHoldV2>
+      {
+        Event = new TwitchLib.EventSub.Core.SubscriptionTypes.Automod.AutomodMessageHoldV2
+        {
+          MessageId = "held-2",
+          UserLogin = "riskyviewer",
+          UserName = "RiskyViewer",
+          Message = new TwitchLib.EventSub.Core.Models.Automod.Message { Text = "blocked term text" },
+          Reason = "blocked_term",
+          HeldAt = Now,
+          Automod = null,
+        },
+      },
+    };
+
+    var notification = EventSubDispatcher.DispatchAutomodHold(args);
+
+    Assert.Null(notification.Category);
+    Assert.Null(notification.Level);
   }
 
   [Fact]

@@ -706,7 +706,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     }
   }
 
-  /// <summary>No-op today — Phase 3 wires a consumer for the AutoMod held-message queue.</summary>
+  /// <summary>Consumed by <c>Narya.Application.Automod.RecordAutomodHoldHandler</c> (Phase 3 Task 6).</summary>
   internal async Task OnAutomodMessageHoldAsync(object? sender, AutomodMessageHoldV2Args e)
   {
     try
@@ -720,7 +720,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     }
   }
 
-  /// <summary>No-op today — Phase 3 wires a consumer for the AutoMod held-message queue.</summary>
+  /// <summary>Consumed by <c>Narya.Application.Automod.ResolveAutomodHoldHandler</c> (Phase 3 Task 6).</summary>
   internal async Task OnAutomodMessageUpdateAsync(object? sender, AutomodMessageUpdateV2Args e)
   {
     try

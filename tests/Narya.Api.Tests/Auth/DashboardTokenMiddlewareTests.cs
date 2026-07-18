@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 
 using Narya.Core.AppConfig;
+using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
 using Narya.Core.Sessions;
@@ -50,10 +51,11 @@ public sealed class DashboardTokenMiddlewareTests
         // IStreamSessionStore, the chat PersistChatMessageHandler/GetRecentChatMessagesQueryHandler/
         // GetRecentChatEventsQueryHandler that depend on IChatStore, and the Events
         // PersistStreamEventHandler/UpdateStreamEventHandler/GetRecentStreamEventsQueryHandler
-        // that depend on IStreamEventStore, and the Viewers UpdateViewerProfileCommandHandler/
-        // GetRosterQueryHandler/GetRecentViewersQueryHandler that depend on IViewerStore.
-        // Unconfigured substitutes are enough to satisfy that — their methods are never invoked
-        // by any test in this class.
+        // that depend on IStreamEventStore, the Viewers UpdateViewerProfileCommandHandler/
+        // GetRosterQueryHandler/GetRecentViewersQueryHandler that depend on IViewerStore, and
+        // the Automod RecordAutomodHoldHandler/ResolveAutomodHoldHandler/GetAutomodQueueQueryHandler
+        // that depend on IAutomodStore. Unconfigured substitutes are enough to satisfy that —
+        // their methods are never invoked by any test in this class.
         _ = b.ConfigureTestServices(services =>
         {
           _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
@@ -61,6 +63,7 @@ public sealed class DashboardTokenMiddlewareTests
           _ = services.AddSingleton(Substitute.For<IChatStore>());
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
           _ = services.AddSingleton(Substitute.For<IViewerStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomodStore>());
         });
 
         if (injectRemoteIp)

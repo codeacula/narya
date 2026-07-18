@@ -2,6 +2,7 @@ using Marten;
 using Marten.Events.Projections;
 
 using Narya.Database.AppConfig;
+using Narya.Database.Automod;
 using Narya.Database.Chat;
 using Narya.Database.Common;
 using Narya.Database.Events;
@@ -55,5 +56,12 @@ public static class NaryaMartenConfig
     // is the identity, same no-separate-Id pattern as ChatterDocument.
     _ = options.Schema.For<ViewerProfileDocument>()
       .Identity(x => x.Login);
+
+    // AutoMod hold queue (Phase 3 Task 6) — see AutomodHoldDocument's doc comment. Indexed on
+    // ResolvedAt (the pending/resolved partition every query filters on, and the sweep) and
+    // HeldAt (pending ordering, and the sweep's staleness cutoff).
+    _ = options.Schema.For<AutomodHoldDocument>()
+      .Index(x => x.ResolvedAt)
+      .Index(x => x.HeldAt);
   }
 }

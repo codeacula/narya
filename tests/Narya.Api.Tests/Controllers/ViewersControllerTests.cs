@@ -9,6 +9,7 @@ using NSubstitute;
 
 using Narya.Api.Auth;
 using Narya.Core.AppConfig;
+using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
 using Narya.Core.Sessions;
@@ -45,6 +46,7 @@ public sealed class ViewersControllerTests
           _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
           _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomodStore>());
         });
       })
       .CreateClient();

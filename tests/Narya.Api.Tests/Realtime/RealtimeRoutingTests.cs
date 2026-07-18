@@ -77,4 +77,20 @@ public sealed class RealtimeRoutingTests
 
     Assert.Equal([RealtimeHub.OperatorGroup], groups);
   }
+
+  /// <summary>
+  /// Moderated content (a held message's text/category/level, and who resolved it) must never
+  /// reach an overlay browser source — <c>automod:held</c>/<c>automod:resolved</c> (Phase 3
+  /// Task 6) are deliberately absent from <see cref="RealtimeEventNames.OverlayAllowlist"/>, same
+  /// rationale as <c>whisper:message</c>.
+  /// </summary>
+  [Theory]
+  [InlineData("automod:held")]
+  [InlineData("automod:resolved")]
+  public void AutomodEventsRouteToTheOperatorGroupOnlyAgainstTheRealAllowlist(string eventName)
+  {
+    var groups = RealtimeRouting.GroupsFor(eventName);
+
+    Assert.Equal([RealtimeHub.OperatorGroup], groups);
+  }
 }

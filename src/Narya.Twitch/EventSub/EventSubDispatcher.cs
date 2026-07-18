@@ -1,3 +1,4 @@
+using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
 using Narya.Core.Sessions;
@@ -307,10 +308,22 @@ public static class EventSubDispatcher
 
   public static StreamOfflineNotification DispatchStreamOffline(StreamOfflineArgs _) => new();
 
+  /// <summary>
+  /// <see cref="AutomodHeldNotification.Channel"/> carries Twitch's raw
+  /// <c>BroadcasterUserLogin</c> through unresolved (possibly empty) — the config fallback
+  /// (<c>?? appConfig.twitchChannel</c> in legacy) requires I/O this pure dispatcher cannot
+  /// perform; <c>Narya.Application.Automod.RecordAutomodHoldHandler</c> applies it.
+  /// <see cref="AutomodHeldNotification.Category"/>/<see cref="AutomodHeldNotification.Level"/>
+  /// come from the nested <c>Automod</c> object, which Twitch omits when the hold was caught by
+  /// a blocked term instead — <c>e.Automod?.Category</c>/<c>e.Automod?.Level</c> null-propagate
+  /// to match legacy's <c>automod?.category ?? null</c>/<c>automod?.level ?? null</c>.
+  /// </summary>
   public static AutomodHeldNotification DispatchAutomodHold(AutomodMessageHoldV2Args args)
   {
     var e = args.Payload.Event;
-    return new AutomodHeldNotification(e.MessageId, e.UserLogin, e.UserName, e.Message.Text, e.Reason, e.HeldAt);
+    return new AutomodHeldNotification(
+      e.MessageId, e.BroadcasterUserLogin, e.UserLogin, e.UserName, e.Message.Text, e.Reason,
+      e.Automod?.Category, e.Automod?.Level, e.HeldAt);
   }
 
   public static AutomodResolvedNotification DispatchAutomodUpdate(AutomodMessageUpdateV2Args args)

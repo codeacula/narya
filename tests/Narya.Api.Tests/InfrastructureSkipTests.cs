@@ -9,6 +9,7 @@ using NSubstitute;
 using StackExchange.Redis;
 
 using Narya.Core.AppConfig;
+using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
 using Narya.Core.Sessions;
@@ -49,9 +50,11 @@ public sealed class InfrastructureSkipTests
   /// <c>GetRecentChatMessagesQueryHandler</c>/<c>GetRecentChatEventsQueryHandler</c> that depend
   /// on <see cref="IChatStore"/>, the Events <c>PersistStreamEventHandler</c>/
   /// <c>UpdateStreamEventHandler</c>/<c>GetRecentStreamEventsQueryHandler</c> that depend on
-  /// <see cref="IStreamEventStore"/>, and the Viewers <c>UpdateViewerProfileCommandHandler</c>/
+  /// <see cref="IStreamEventStore"/>, the Viewers <c>UpdateViewerProfileCommandHandler</c>/
   /// <c>GetRosterQueryHandler</c>/<c>GetRecentViewersQueryHandler</c> that depend on
-  /// <see cref="IViewerStore"/> — unconfigured substitutes are enough to satisfy that.
+  /// <see cref="IViewerStore"/>, and the Automod <c>RecordAutomodHoldHandler</c>/
+  /// <c>ResolveAutomodHoldHandler</c>/<c>GetAutomodQueueQueryHandler</c> that depend on
+  /// <see cref="IAutomodStore"/> — unconfigured substitutes are enough to satisfy that.
   /// </summary>
   private static WebApplicationFactory<Program> BuildFactory() =>
     new WebApplicationFactory<Program>()
@@ -66,6 +69,7 @@ public sealed class InfrastructureSkipTests
           _ = services.AddSingleton(Substitute.For<IChatStore>());
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
           _ = services.AddSingleton(Substitute.For<IViewerStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomodStore>());
         });
       });
 

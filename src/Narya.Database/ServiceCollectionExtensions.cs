@@ -1,13 +1,16 @@
 using Marten;
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Core.AppConfig;
+using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
 using Narya.Database.AppConfig;
+using Narya.Database.Automod;
 using Narya.Database.Chat;
 using Narya.Database.Events;
 using Narya.Database.Sessions;
@@ -32,6 +35,13 @@ public static class ServiceCollectionExtensions
     _ = services.AddSingleton<IChatStore, ChatStore>();
     _ = services.AddSingleton<IStreamEventStore, StreamEventStore>();
     _ = services.AddSingleton<IViewerStore, ViewerStore>();
+    _ = services.AddSingleton<IAutomodStore, AutomodStore>();
+
+    // TryAddSingleton: AutomodStore depends on TimeProvider (SweepExpiredHoldsAsync/GetQueueAsync's
+    // "now"). Narya.Application also TryAdds TimeProvider.System, but Narya.Database must not
+    // rely on AddNaryaApplication having run first — a host that composes AddNaryaDatabase alone
+    // still needs a working clock the first time it resolves the automod queue.
+    services.TryAddSingleton(TimeProvider.System);
 
     return services;
   }

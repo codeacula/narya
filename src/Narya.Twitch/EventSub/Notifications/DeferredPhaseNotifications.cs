@@ -20,23 +20,11 @@ public sealed record CategorySignalNotification(string? GameId, string? GameName
 // full rationale. EventSubDispatcher.DispatchStreamOnline/DispatchStreamOffline below still
 // produce them, just from the new namespace.
 
-/// <summary>
-/// Published for <c>automod.message.hold</c> (v2). Phase 3 consumes this to populate the
-/// AutoMod held-message queue (<c>recordAutomodHold</c> in legacy).
-/// </summary>
-public sealed record AutomodHeldNotification(
-  string MessageId,
-  string Username,
-  string DisplayName,
-  string Message,
-  string Reason,
-  DateTimeOffset HeldAt) : INotification;
-
-/// <summary>
-/// Published for <c>automod.message.update</c> (v2). Phase 3 consumes this to resolve a
-/// previously held message (<c>resolveAutomodHold</c> in legacy). <see cref="Status"/> is
-/// Twitch's raw value (<c>Approved</c>/<c>Denied</c>/<c>Expired</c>) — normalizing it to
-/// legacy's <c>allowed</c>/<c>denied</c>/<c>expired</c> resolution vocabulary is Phase 3's job,
-/// same as the rest of the persistence this notification feeds.
-/// </summary>
-public sealed record AutomodResolvedNotification(string MessageId, string Status, string ModeratorUserName) : INotification;
+// AutomodHeldNotification/AutomodResolvedNotification (originally defined here for
+// automod.message.hold/automod.message.update) moved to Narya.Core.Automod in Phase 3 Task 6
+// for the same reference-direction reason — their consumers
+// (Narya.Application.Automod.RecordAutomodHoldHandler/ResolveAutomodHoldHandler) live in an
+// assembly that does not reference Narya.Twitch. See AutomodHeldNotification's doc comment in
+// that new location for the full rationale, including the additive Channel/Category/Level
+// fields. EventSubDispatcher.DispatchAutomodHold/DispatchAutomodUpdate below still produce
+// them, just from the new namespace.
