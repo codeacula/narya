@@ -5,6 +5,8 @@ using Narya.Core.Automation;
 using Narya.Database.Automation;
 using Narya.Database.Tests.Fixtures;
 
+using Npgsql;
+
 namespace Narya.Database.Tests.Automation;
 
 /// <summary>
@@ -237,6 +239,62 @@ public sealed class AutomationRunStoreTests(PostgresFixture fixture)
     await using var session = documentStore.QuerySession();
     var rows = await session.Query<AutomationRunDocument>().Where(r => r.TriggerId == triggerId).ToListAsync(CancellationToken.None);
     _ = Assert.Single(rows);
+  }
+
+  /// <summary>
+  /// THE POOL. The cooldown gate serializes claimants, so how many pooled CONNECTIONS one claimant
+  /// needs while holding the lock decides whether a burst survives. Taking the lock on one
+  /// connection and then reading/inserting on two more inverts the pool: every waiter holds a
+  /// connection it cannot use, and the single lock holder blocks waiting for connections only the
+  /// waiters can give back — a raid or spam wave driving one chat-phrase trigger then fails EVERY
+  /// claim with an NpgsqlException (pool exhausted) instead of a true/false verdict, and
+  /// <c>TriggerDispatcher</c>'s blanket catch does not cover the claim path.
+  ///
+  /// <para>
+  /// The store is therefore pointed at a deliberately TINY pool, smaller than the number of racers,
+  /// with a short timeout so a starved run fails fast rather than hanging the suite. Every claim
+  /// must still return a verdict, and exactly one may be admitted: proof the whole claim fits in a
+  /// single connection.
+  /// </para>
+  /// </summary>
+  [Fact]
+  public async Task ABurstOfCooldownGatedClaimsDoesNotExhaustTheConnectionPool()
+  {
+    const int PoolSize = 4;
+    const int Racers = 16;
+
+    var documentStore = fixture.CreateStore(options =>
+    {
+      NaryaMartenConfig.Configure(options);
+      options.Connection(new NpgsqlConnectionStringBuilder(fixture.ConnectionString)
+      {
+        MaxPoolSize = PoolSize,
+        Timeout = 5,
+      }.ConnectionString);
+    });
+
+    await using var _ = documentStore.ConfigureAwait(false);
+    await documentStore.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
+    await documentStore.Advanced.Clean.DeleteAllDocumentsAsync(CancellationToken.None);
+
+    var store = new AutomationRunStore(documentStore);
+    var triggerId = Guid.NewGuid();
+    var at = DateTimeOffset.UtcNow;
+    var cooldowns = new TriggerCooldowns(GlobalCooldownMs: 60_000, UserCooldownMs: 0);
+
+    using var gate = new Barrier(Racers);
+    var claims = Enumerable.Range(0, Racers).Select(i => Task.Run(async () =>
+    {
+      gate.SignalAndWait();
+      return await store.TryClaimAsync(
+        Guid.NewGuid(), triggerId, $"evt-{i}", null, at.AddMilliseconds(i), cooldowns, CancellationToken.None);
+    }));
+
+    // Every claim returns a verdict — none throws. Task.WhenAll surfaces the first exception, which
+    // is exactly the pool-exhaustion failure this pins down.
+    var results = await Task.WhenAll(claims);
+
+    Assert.Equal(1, results.Count(admitted => admitted));
   }
 
   // ---------------------------------------------------------------------------------------

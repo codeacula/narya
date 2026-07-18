@@ -74,8 +74,16 @@ public sealed class StreamSessionStoreTests(PostgresFixture fixture)
   /// THE RACE. N concurrent <c>stream.online</c> deliveries for the SAME source, all released
   /// together from a <see cref="Barrier"/> so they hit the store at genuinely the same time —
   /// Twitch redelivers <c>stream.online</c> routinely. The old pre-check (re-read, then insert if
-  /// nothing found) is passed by every one of them before any of them writes; only the partial
-  /// unique index over <c>OpenMarker</c> can hold the line.
+  /// nothing found) is passed by every one of them before any of them writes.
+  ///
+  /// <para>
+  /// The mechanism under test here is the UNIQUE index on <c>Source</c>, not the partial index over
+  /// <c>OpenMarker</c> — the latter cannot hold this line. A racer that reads <c>openSessions</c>
+  /// after an earlier winner committed sees that winner, closes it (its own uncommitted update, so
+  /// the conflicting open-marker index entry points at a tuple it owns) and inserts a second row for
+  /// the same stream id without ever conflicting on the marker. That is exactly the interleaving the
+  /// two assertions below rule out: one id handed to every caller, one row in total.
+  /// </para>
   /// </summary>
   [Fact]
   public async Task ConcurrentStreamOnlineDeliveriesForOneSourceLeaveExactlyOneOpenSession()
@@ -102,9 +110,9 @@ public sealed class StreamSessionStoreTests(PostgresFixture fixture)
     var open = await query.Query<StreamSessionDocument>().Where(s => s.EndedAt == null).ToListAsync();
     _ = Assert.Single(open);
     var all = await query.Query<StreamSessionDocument>().CountAsync();
-    // The store starts empty, so the losers had nothing to close and their transactions carried
-    // only their own insert: this asserts none of those rejected inserts leaked a row. The
-    // rolled-back CLOSE is a separate claim, exercised by
+    // No loser leaked a row — neither a rejected insert of its own, nor (for a racer that read the
+    // winner's committed row and closed it before inserting) a second row for the same stream id.
+    // The rolled-back CLOSE of a DIFFERENT source's session is a separate claim, exercised by
     // ConcurrentStreamOnlineDeliveriesDoNotCloseTheOpenSessionOutsideTheWinnersTransaction.
     Assert.Equal(1, all);
   }

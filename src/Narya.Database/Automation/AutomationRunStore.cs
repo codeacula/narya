@@ -1,4 +1,5 @@
 using Marten;
+using Marten.Services;
 
 using Narya.Core.Actions;
 using Narya.Core.Automation;
@@ -42,11 +43,23 @@ public sealed class AutomationRunStore(IDocumentStore store) : IAutomationRunSto
   /// concurrent claim that has already committed.
   ///
   /// <para>
-  /// The lock is taken on its own connection, held across the read and the insert, and released
-  /// only after the insert has committed — so the next claimant's read cannot miss it. It is
-  /// skipped entirely when no cooldown is configured (<see cref="TriggerCooldowns.Enforced"/>),
-  /// which is the common case: without a cooldown there is nothing to serialize, and the dedupe
-  /// index alone is the gate.
+  /// <b>Exactly ONE pooled connection is used for the whole claim</b>, and the lock is taken on it:
+  /// the transaction-scoped <c>pg_advisory_xact_lock</c>, the cooldown read and the claim insert all
+  /// run on that single connection, inside one transaction. Taking the lock on a connection separate
+  /// from the read and the insert would invert the pool — every waiter would hold a connection it
+  /// cannot use while the one lock holder still needed two MORE connections from the same pool
+  /// before it could release. A burst of concurrent claims on one trigger (a raid, or a spam wave
+  /// driving one chat-phrase trigger) would exhaust Npgsql's pool with lock waiters, stall the
+  /// holder until the connection timeout, and fail every claim in the burst with an exception rather
+  /// than a true/false verdict.
+  /// </para>
+  ///
+  /// <para>
+  /// The lock is transaction-scoped, so it is released by the COMMIT itself — the claim row is
+  /// visible to the next waiter the instant the lock is, with no window in between and no unlock
+  /// statement that a failure path could skip. It is skipped entirely when no cooldown is configured
+  /// (<see cref="TriggerCooldowns.Enforced"/>), which is the common case: without a cooldown there
+  /// is nothing to serialize, and the dedupe index alone is the gate.
   /// </para>
   /// </summary>
   public async Task<bool> TryClaimAsync(
@@ -60,33 +73,49 @@ public sealed class AutomationRunStore(IDocumentStore store) : IAutomationRunSto
   {
     if (!cooldowns.Enforced)
     {
-      return await InsertClaimAsync(runId, triggerId, dedupeKey, actorLogin, ranAt, cancellationToken).ConfigureAwait(false);
+      await using var unlockedSession = store.LightweightSession();
+      return await InsertClaimAsync(unlockedSession, runId, triggerId, dedupeKey, actorLogin, ranAt, cancellationToken)
+        .ConfigureAwait(false);
     }
 
-    var lockKey = AdvisoryLockKey(triggerId);
+    // ONE pooled connection for the whole claim: the lock, the cooldown read and the insert all run
+    // on it, inside one transaction. SessionOptions.ForTransaction enlists Marten in the
+    // externally-owned transaction, so the session borrows THIS connection instead of renting a
+    // second one, and leaves the commit to us.
     await using var connection = store.Storage.Database.CreateConnection();
     await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-    await ExecuteAdvisoryLockAsync(connection, "pg_advisory_lock", lockKey, cancellationToken).ConfigureAwait(false);
+    await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+    await TakeAdvisoryLockAsync(transaction, AdvisoryLockKey(triggerId), cancellationToken).ConfigureAwait(false);
 
-    try
+    await using var session = store.LightweightSession(SessionOptions.ForTransaction(transaction));
+
+    if (await IsOnCooldownAsync(session, triggerId, actorLogin, ranAt, cooldowns, cancellationToken).ConfigureAwait(false))
     {
-      return !await IsOnCooldownAsync(triggerId, actorLogin, ranAt, cooldowns, cancellationToken).ConfigureAwait(false)
-        && await InsertClaimAsync(runId, triggerId, dedupeKey, actorLogin, ranAt, cancellationToken).ConfigureAwait(false);
+      // Roll back rather than just returning: nothing was written, but the ROLLBACK is what ends the
+      // transaction and so releases the advisory lock for the next waiter. Letting disposal do it
+      // would hold the lock for the rest of this method's scope.
+      await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+      return false;
     }
-    finally
+
+    if (!await InsertClaimAsync(session, runId, triggerId, dedupeKey, actorLogin, ranAt, cancellationToken).ConfigureAwait(false))
     {
-      // Explicit, rather than relying on the connection going back to the pool: an advisory lock
-      // belongs to the backend session, and a POOLED connection's backend outlives Dispose. Npgsql
-      // does issue DISCARD ALL (which releases advisory locks) on reset, but a gate this important
-      // should not depend on another library's reset policy staying the same.
-      await ExecuteAdvisoryLockAsync(connection, "pg_advisory_unlock", lockKey, CancellationToken.None).ConfigureAwait(false);
+      // The dedupe index rejected a redelivery. The failed statement has already aborted the
+      // transaction; roll it back explicitly for the same reason as above.
+      await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+      return false;
     }
+
+    // COMMIT publishes the claim row and releases the transaction-scoped lock in one step, so the
+    // next waiter's cooldown read cannot miss the row this caller just claimed.
+    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    return true;
   }
 
-  private async Task<bool> InsertClaimAsync(
+  private static async Task<bool> InsertClaimAsync(
+    IDocumentSession session,
     Guid runId, Guid triggerId, string? dedupeKey, string? actorLogin, DateTimeOffset ranAt, CancellationToken cancellationToken)
   {
-    await using var session = store.LightweightSession();
     session.Insert(new AutomationRunDocument
     {
       Id = runId,
@@ -109,11 +138,15 @@ public sealed class AutomationRunStore(IDocumentStore store) : IAutomationRunSto
     }
   }
 
-  private async Task<bool> IsOnCooldownAsync(
+  /// <summary>
+  /// Reads through the CALLER's session — the one already enlisted in the advisory-locked
+  /// transaction — rather than opening a session (and therefore a second pooled connection) of its
+  /// own. See <see cref="TryClaimAsync"/> on why a second connection here would invert the pool.
+  /// </summary>
+  private static async Task<bool> IsOnCooldownAsync(
+    IQuerySession session,
     Guid triggerId, string? actorLogin, DateTimeOffset at, TriggerCooldowns cooldowns, CancellationToken cancellationToken)
   {
-    await using var session = store.QuerySession();
-
     if (cooldowns.GlobalCooldownMs > 0)
     {
       var cutoff = at.AddMilliseconds(-cooldowns.GlobalCooldownMs);
@@ -141,11 +174,12 @@ public sealed class AutomationRunStore(IDocumentStore store) : IAutomationRunSto
     return false;
   }
 
-  private static async Task ExecuteAdvisoryLockAsync(
-    NpgsqlConnection connection, string function, int key, CancellationToken cancellationToken)
+  private static async Task TakeAdvisoryLockAsync(
+    NpgsqlTransaction transaction, int key, CancellationToken cancellationToken)
   {
-    await using var command = connection.CreateCommand();
-    command.CommandText = $"select {function}($1, $2)";
+    await using var command = transaction.Connection!.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText = "select pg_advisory_xact_lock($1, $2)";
     _ = command.Parameters.Add(new NpgsqlParameter<int> { Value = AdvisoryLockNamespace });
     _ = command.Parameters.Add(new NpgsqlParameter<int> { Value = key });
     _ = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);

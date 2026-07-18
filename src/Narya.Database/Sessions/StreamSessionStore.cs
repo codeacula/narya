@@ -13,15 +13,32 @@ namespace Narya.Database.Sessions;
 /// Mirrors legacy's <c>streamSession.ts</c>.
 ///
 /// <para>
-/// <b>The one-active-session invariant is a DATABASE constraint.</b> It used to be a pre-check —
-/// re-read inside the write session, and insert if nothing was found — which two concurrent
-/// <c>stream.online</c> deliveries could both pass before either wrote. It is now a partial unique
-/// index over <see cref="StreamSessionDocument.OpenMarker"/> (see <c>NaryaMartenConfig</c>): the
-/// second insert is rejected by Postgres, and <see cref="GetOrStartSessionAsync"/> treats that
-/// rejection as the benign "someone else already opened it" case, returning the winner rather than
-/// surfacing a failure — Twitch redelivers <c>stream.online</c> as a matter of course.
-/// The close-the-previous-session-then-open-a-new-one restart path still commits as ONE
-/// transaction, so a reader never observes two open sessions or a source with zero.
+/// <b>Both write invariants are DATABASE constraints.</b> They used to be pre-checks — re-read
+/// inside the write session, and insert if nothing was found — which two concurrent
+/// <c>stream.online</c> deliveries could both pass before either wrote. They are now two unique
+/// indexes (see <c>NaryaMartenConfig</c>):
+/// </para>
+///
+/// <para>
+/// <b>One session per source</b> — a UNIQUE index on <see cref="StreamSessionDocument.Source"/>.
+/// The partial index below cannot cover this: a same-source loser is free to CLOSE the winner's row
+/// inside its own transaction and then insert a second row for the same stream id, which the open
+/// marker never sees. Without the Source index that leaves a zero-length phantom session and splits
+/// the stream's chatter accounting across two ids.
+/// </para>
+///
+/// <para>
+/// <b>At most one OPEN session</b> — a partial unique index over
+/// <see cref="StreamSessionDocument.OpenMarker"/>, covering two DIFFERENT sources going online at
+/// once.
+/// </para>
+///
+/// <para>
+/// Either rejection is treated by <see cref="GetOrStartSessionAsync"/> as the benign "someone else
+/// already opened it" case, returning the winner rather than surfacing a failure — Twitch
+/// redelivers <c>stream.online</c> as a matter of course. The
+/// close-the-previous-session-then-open-a-new-one restart path still commits as ONE transaction, so
+/// a reader never observes two open sessions or a source with zero.
 /// </para>
 ///
 /// <para>
@@ -99,10 +116,12 @@ public sealed class StreamSessionStore(IDocumentStore store) : IStreamSessionSto
     }
     catch (Exception ex) when (IsUniqueViolation(ex))
     {
-      // A concurrent stream.online won the race and its session is the open one. That is the
-      // NORMAL case for a Twitch redelivery, not an error — roll this attempt back and report the
-      // winner. Re-read outside the aborted transaction: everything this transaction did (the
-      // close above included) is gone, so the winner's row is the whole truth.
+      // A concurrent stream.online won the race — either for this same source (the Source unique
+      // index) or by opening a session of its own first (the OpenMarker partial unique index).
+      // That is the NORMAL case for a Twitch redelivery, not an error — roll this attempt back and
+      // report the winner. Re-read outside the aborted transaction: everything this transaction did
+      // (the close above included) is gone, so the winner's row is the whole truth. FindBySource
+      // first, so a same-source loser hands back the very session it was asked for.
       await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
       var winner = await FindBySourceAsync(source, cancellationToken).ConfigureAwait(false)
         ?? await FindOpenAsync(cancellationToken).ConfigureAwait(false);
@@ -197,8 +216,10 @@ public sealed class StreamSessionStore(IDocumentStore store) : IStreamSessionSto
 
   /// <summary>
   /// Walks the exception chain (Marten wraps the underlying Postgres failure) looking for SQLSTATE
-  /// 23505 — here, the partial unique index on <see cref="StreamSessionDocument.OpenMarker"/>
-  /// rejecting a second open session. Identical pattern to
+  /// 23505 — here, either the unique index on <see cref="StreamSessionDocument.Source"/> rejecting a
+  /// second session for one stream id, or the partial unique index on
+  /// <see cref="StreamSessionDocument.OpenMarker"/> rejecting a second OPEN session. Both are the
+  /// same benign lost-the-race outcome for the caller. Identical pattern to
   /// <c>Narya.Database.Automation.AutomationRunStore.IsUniqueViolation</c>.
   /// </summary>
   private static bool IsUniqueViolation(Exception error)

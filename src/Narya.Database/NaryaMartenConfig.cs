@@ -34,20 +34,31 @@ public static class NaryaMartenConfig
     _ = options.Schema.For<DbAppConfigSecrets>();
 
     // Plain (non-event-sourced) documents — see StreamSessionDocument's doc comment for why
-    // sessions are a document rather than a snapshot projection. Indexed on Source (the
-    // GetOrStartSessionAsync dedup lookup) and EndedAt (the "find the open session" lookup);
-    // StreamSessionChatterDocument is indexed on SessionId (GetSessionChatterCountAsync).
+    // sessions are a document rather than a snapshot projection. Indexed on EndedAt (the "find the
+    // open session" lookup); StreamSessionChatterDocument on SessionId (GetSessionChatterCountAsync).
     //
-    // OpenMarker carries a PARTIAL UNIQUE index — the same idiom as AutomationRunDocument's
-    // DedupeKey index below, and the reason the one-active-session invariant is now a database
-    // constraint rather than a hopeful pre-check in StreamSessionStore. OpenMarker is a computed
-    // property that is the constant "open" while EndedAt is null and null once the session ends
-    // (see StreamSessionDocument), so "unique where the marker is not null" reads as "at most one
-    // row in this table may be open." A unique index (rather than optimistic concurrency, which
-    // guards ONE document's version and so cannot see a second, different row being inserted) is
-    // the only mechanism that can express a constraint ACROSS rows.
+    // TWO unique indexes, because the store enforces TWO distinct cross-row invariants and one
+    // index cannot express both:
+    //
+    // 1. Source is UNIQUE — one session row per natural key, ever. GetOrStartSessionAsync's
+    //    FindBySourceAsync dedup lookup is what this backs, and without the index that lookup is a
+    //    pre-check two concurrent stream.online deliveries for the SAME stream id can both pass:
+    //    the loser then CLOSES the winner's row inside its own transaction (legal as far as the
+    //    OpenMarker index is concerned, since the conflicting index entry points at a tuple the
+    //    loser itself just updated) and inserts a second row for that stream id. That leaves a
+    //    zero-length phantom session and splits the stream's session-chatter accounting across two
+    //    ids. Uniqueness on Source is what makes the loser's insert fail instead.
+    // 2. OpenMarker carries a PARTIAL UNIQUE index — the same idiom as AutomationRunDocument's
+    //    DedupeKey index below. OpenMarker is a computed property that is the constant "open" while
+    //    EndedAt is null and null once the session ends (see StreamSessionDocument), so "unique
+    //    where the marker is not null" reads as "at most one row in this table may be open." This
+    //    is the cross-SOURCE half: two different stream ids going online at once.
+    //
+    // Unique indexes rather than optimistic concurrency, which guards ONE document's version and so
+    // cannot see a second, different row being inserted — only an index expresses a constraint
+    // ACROSS rows.
     _ = options.Schema.For<StreamSessionDocument>()
-      .Index(x => x.Source)
+      .Index(x => x.Source, i => i.IsUnique = true)
       .Index(x => x.EndedAt)
       .Index(x => x.OpenMarker!, i =>
       {
