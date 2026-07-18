@@ -102,13 +102,19 @@ public sealed class StreamSessionStoreTests(PostgresFixture fixture)
     var open = await query.Query<StreamSessionDocument>().Where(s => s.EndedAt == null).ToListAsync();
     _ = Assert.Single(open);
     var all = await query.Query<StreamSessionDocument>().CountAsync();
-    Assert.Equal(1, all); // and no orphaned closed rows from the losers' rolled-back transactions
+    // The store starts empty, so the losers had nothing to close and their transactions carried
+    // only their own insert: this asserts none of those rejected inserts leaked a row. The
+    // rolled-back CLOSE is a separate claim, exercised by
+    // ConcurrentStreamOnlineDeliveriesDoNotCloseTheOpenSessionOutsideTheWinnersTransaction.
+    Assert.Equal(1, all);
   }
 
   /// <summary>
-  /// The same race across DIFFERENT sources — two stream restarts landing together. Only one may
-  /// end up open; the other's whole transaction (its close of the previous session included) is
-  /// rolled back, so the winner is still open and reachable.
+  /// The same race across DIFFERENT sources, from an EMPTY store — so no racer has a previous
+  /// session to close and every transaction is insert-only. Only one may end up open, and it must
+  /// be the one <see cref="StreamSessionStore.GetActiveSessionAsync"/> hands back. The
+  /// close-rollback half of the invariant is NOT observable here; see
+  /// <see cref="ConcurrentStreamOnlineDeliveriesDoNotCloseTheOpenSessionOutsideTheWinnersTransaction"/>.
   /// </summary>
   [Fact]
   public async Task ConcurrentStreamOnlineDeliveriesForDifferentSourcesLeaveExactlyOneOpenSession()
@@ -133,6 +139,72 @@ public sealed class StreamSessionStoreTests(PostgresFixture fixture)
 
     var active = await store.GetActiveSessionAsync(CancellationToken.None);
     Assert.Equal(open[0].Id, active!.Id);
+  }
+
+  /// <summary>
+  /// THE TRANSACTION-SCOPING RACE. The two races above start from an empty store, so
+  /// <c>openSessions</c> inside <c>GetOrStartSessionAsync</c> is empty for every racer and the
+  /// close statement — and therefore its rollback — is never exercised at all.
+  ///
+  /// <para>
+  /// Here an open session for <c>twitch:0</c> is seeded FIRST, so every racer really does issue a
+  /// close of it before its own insert, flushed by its own <c>SaveChangesAsync</c>. A racer whose
+  /// insert is rejected by the partial unique index must take its close DOWN WITH IT.
+  /// </para>
+  ///
+  /// <para>
+  /// The row COUNT is deliberately not asserted: more than one racer legitimately commits when a
+  /// racer's <c>openSessions</c> read happens to see an earlier winner's row, closes it, and
+  /// inserts its own — that is the ordinary restart path, not a violation. What must hold is that
+  /// every committed close was committed by a transaction whose insert ALSO committed. Each racer
+  /// carries a DISTINCT <c>startedAt</c>, so a closed row's <c>EndedAt</c> names exactly which
+  /// racer closed it: if <c>SessionOptions.ForTransaction</c> were mis-scoped so the first
+  /// <c>SaveChangesAsync</c> committed the close independently of the outer
+  /// <c>NpgsqlTransaction</c>, a loser would have durably closed a session while leaving no row of
+  /// its own, and its <c>startedAt</c> would appear as an <c>EndedAt</c> that matches no
+  /// <c>StartedAt</c> in the store.
+  /// </para>
+  /// </summary>
+  [Fact]
+  public async Task ConcurrentStreamOnlineDeliveriesDoNotCloseTheOpenSessionOutsideTheWinnersTransaction()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new StreamSessionStore(documentStore);
+    var seededStartedAt = DateTimeOffset.UtcNow;
+
+    var seeded = await store.GetOrStartSessionAsync("twitch:0", seededStartedAt, CancellationToken.None);
+
+    const int Racers = 6;
+    using var gate = new Barrier(Racers);
+    var starts = Enumerable.Range(1, Racers).Select(i => Task.Run(async () =>
+    {
+      gate.SignalAndWait();
+      return await store.GetOrStartSessionAsync($"twitch:{i}", seededStartedAt.AddMinutes(i), CancellationToken.None);
+    }));
+
+    _ = await Task.WhenAll(starts);
+
+    await using var query = documentStore.QuerySession();
+    var open = await query.Query<StreamSessionDocument>().Where(s => s.EndedAt == null).ToListAsync();
+    var winner = Assert.Single(open);
+    Assert.NotEqual(seeded.Id, winner.Id); // the seeded session was superseded, not re-handed out
+
+    var all = await query.Query<StreamSessionDocument>().ToListAsync();
+    var committedStarts = all.Select(s => s.StartedAt).ToHashSet();
+
+    // The seeded session really was closed — the close path was exercised, not skipped.
+    var reloadedSeed = all.Single(s => s.Id == seeded.Id);
+    _ = Assert.NotNull(reloadedSeed.EndedAt);
+
+    // Every surviving close belongs to a racer that also survived. A loser's close leaking out of
+    // its rolled-back transaction would stamp an EndedAt no committed StartedAt can account for.
+    foreach (var closed in all.Where(s => s.EndedAt is not null))
+    {
+      Assert.Contains(closed.EndedAt!.Value, committedStarts);
+    }
+
+    var active = await store.GetActiveSessionAsync(CancellationToken.None);
+    Assert.Equal(winner.Id, active!.Id);
   }
 
   [Fact]
