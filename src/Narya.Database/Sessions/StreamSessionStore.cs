@@ -93,7 +93,15 @@ public sealed class StreamSessionStore(IDocumentStore store) : IStreamSessionSto
     // still never observes two open sessions, nor a source with zero.
     await using var connection = store.Storage.Database.CreateConnection();
     await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-    await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+    // READ COMMITTED, stated explicitly to match the advisory-locked transactions in
+    // AutomationRunStore/ActionStore/AutomationTriggerStore rather than relying on Npgsql's
+    // ReadCommitted default for IsolationLevel.Unspecified. Npgsql does NOT inherit the server's
+    // default_transaction_isolation, so this is defense against a future driver-default change,
+    // not against a hardened server. The read-then-write below wants the per-statement snapshot
+    // for the same reason its siblings do.
+    await using var transaction = await connection
+      .BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken)
+      .ConfigureAwait(false);
     await using var session = store.LightweightSession(SessionOptions.ForTransaction(transaction));
 
     var openSessions = await session.Query<StreamSessionDocument>()

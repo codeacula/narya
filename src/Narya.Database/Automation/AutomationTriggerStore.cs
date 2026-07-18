@@ -213,11 +213,16 @@ public sealed class AutomationTriggerStore(IDocumentStore store, TimeProvider ti
       {
         connection = store.Storage.Database.CreateConnection();
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        // READ COMMITTED explicitly — the action-exists check inside this scope is only correct
-        // because it takes a fresh snapshot AFTER the advisory lock was granted, and so sees a
-        // concurrent delete that already committed. A pinned (REPEATABLE READ / SERIALIZABLE)
-        // snapshot taken at lock acquisition would let this write a trigger against an action
-        // the delete already removed. See ActionStore.DeleteAsync for the mirror image.
+        // READ COMMITTED — the action-exists check inside this scope is only correct because it
+        // takes a fresh snapshot AFTER the advisory lock was granted, and so sees a concurrent
+        // delete that already committed. A pinned (REPEATABLE READ / SERIALIZABLE) snapshot taken
+        // at lock acquisition would let this write a trigger against an action the delete already
+        // removed. See ActionStore.DeleteAsync for the mirror image.
+        //
+        // Stated explicitly rather than relying on Npgsql's ReadCommitted default for
+        // IsolationLevel.Unspecified. Npgsql does NOT inherit the server's
+        // default_transaction_isolation, so this is defense against a future driver-default
+        // change, not against a hardened server — see AutomationRunStore.TryClaimAsync.
         transaction = await connection
           .BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken)
           .ConfigureAwait(false);

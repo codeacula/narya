@@ -121,12 +121,17 @@ public sealed class ActionStore(IDocumentStore store, TimeProvider timeProvider)
     await using var connection = store.Storage.Database.CreateConnection();
     await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-    // READ COMMITTED explicitly, for the same reason AutomationRunStore.TryClaimAsync passes it:
-    // the reference read below is only meaningful because it takes a FRESH snapshot after
-    // pg_advisory_xact_lock returned, and so observes whatever the previous lock holder
-    // committed. Under REPEATABLE READ or SERIALIZABLE this transaction would be pinned to a
-    // snapshot taken at the lock acquisition itself, so a concurrently-created trigger would be
-    // invisible to the read and this delete would orphan it.
+    // READ COMMITTED, for the same reason AutomationRunStore.TryClaimAsync needs it: the reference
+    // read below is only meaningful because it takes a FRESH snapshot after pg_advisory_xact_lock
+    // returned, and so observes whatever the previous lock holder committed. Under REPEATABLE READ
+    // or SERIALIZABLE this transaction would be pinned to a snapshot taken at the lock acquisition
+    // itself, so a concurrently-created trigger would be invisible to the read and this delete
+    // would orphan it.
+    //
+    // Stated explicitly rather than relying on Npgsql's ReadCommitted default for
+    // IsolationLevel.Unspecified. Npgsql does NOT inherit the server's
+    // default_transaction_isolation, so this is defense against a future driver-default change,
+    // not against a hardened server — see AutomationRunStore.TryClaimAsync for the long form.
     await using var transaction = await connection
       .BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken)
       .ConfigureAwait(false);

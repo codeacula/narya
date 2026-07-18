@@ -83,15 +83,22 @@ public sealed class AutomationRunStore(IDocumentStore store) : IAutomationRunSto
     // externally-owned transaction, so the session borrows THIS connection instead of renting a
     // second one, and leaves the commit to us.
     //
-    // READ COMMITTED is passed EXPLICITLY, not inherited. The whole gate depends on the cooldown
-    // read seeing the winner's just-committed claim row, and only READ COMMITTED takes a fresh
-    // snapshot per statement — the read runs AFTER pg_advisory_xact_lock returns, so it sees
-    // everything the previous holder committed on its way out. Under REPEATABLE READ or
-    // SERIALIZABLE the transaction is instead pinned to a snapshot taken at its FIRST statement,
-    // which is the lock acquisition itself: every waiter would then read a snapshot from before
-    // the winner committed, miss the claim row, and insert its own — silently reopening the exact
-    // TOCTOU this lock exists to close, on any deployment whose
-    // default_transaction_isolation is hardened away from the Postgres default.
+    // The whole gate depends on the cooldown read seeing the winner's just-committed claim row,
+    // and only READ COMMITTED takes a fresh snapshot per statement — the read runs AFTER
+    // pg_advisory_xact_lock returns, so it sees everything the previous holder committed on its
+    // way out. Under REPEATABLE READ or SERIALIZABLE the transaction would instead be pinned to a
+    // snapshot taken at its FIRST statement, which is the lock acquisition itself: every waiter
+    // would read a snapshot from before the winner committed, miss the claim row, and insert its
+    // own, reopening the TOCTOU this lock exists to close.
+    //
+    // READ COMMITTED is stated explicitly rather than relying on Npgsql's ReadCommitted default
+    // for IsolationLevel.Unspecified. To be clear about what this does and does not buy: Npgsql
+    // does NOT inherit the server's default_transaction_isolation — it names an isolation level on
+    // the wire for every BeginTransaction path, including the bare overload — so a server hardened
+    // to REPEATABLE READ could not have reached us here anyway. This argument is defense against a
+    // future change to the DRIVER's default, not against server configuration.
+    // NpgsqlIsolationLevelPinnedTests pins that driver default so such a change fails a test
+    // instead of silently changing this transaction's semantics.
     await using var connection = store.Storage.Database.CreateConnection();
     await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
     await using var transaction = await connection
