@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Application.Behaviors;
+using Narya.Core.Dashboard;
 using Narya.Core.Realtime;
 
 namespace Narya.Application;
@@ -47,6 +48,13 @@ public static class ServiceCollectionExtensions
     // WebApplicationFactory test under Narya:SkipInfrastructure) still needs a working clock
     // the first time it publishes StreamOfflineNotification.
     services.TryAddSingleton(TimeProvider.System);
+
+    // TryAddSingleton, same rationale as IRealtimePublisher above:
+    // GetDashboardStatusQueryHandler hard-depends on IDashboardTwitchStatusProvider, so a host
+    // that composes AddNaryaApplication without also composing Narya.Twitch's AddNaryaTwitch
+    // (a WebApplicationFactory test under Narya:SkipInfrastructure) still needs something to
+    // resolve. See NullDashboardTwitchStatusProvider's doc comment.
+    services.TryAddSingleton<IDashboardTwitchStatusProvider, NullDashboardTwitchStatusProvider>();
 
     return services;
   }

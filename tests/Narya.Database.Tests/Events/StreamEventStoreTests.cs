@@ -132,4 +132,39 @@ public sealed class StreamEventStoreTests(PostgresFixture fixture)
 
     Assert.Null(stored.Ago);
   }
+
+  [Fact]
+  public async Task GetSessionShoutoutEventsReturnsOnlyTheMatchingSessionAndKindsOldestFirst()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new StreamEventStore(documentStore);
+    var start = DateTimeOffset.UtcNow;
+
+    _ = await store.InsertAsync(
+      BuildEvent(id: "follow-1", kind: "follow", receivedAt: start, sessionId: "session-1"), CancellationToken.None);
+    _ = await store.InsertAsync(
+      BuildEvent(id: "sub-1", kind: "sub", receivedAt: start.AddSeconds(1), sessionId: "session-1"), CancellationToken.None);
+    // A different session — must be excluded.
+    _ = await store.InsertAsync(
+      BuildEvent(id: "follow-2", kind: "follow", receivedAt: start.AddSeconds(2), sessionId: "session-2"), CancellationToken.None);
+    // Same session, but a kind not requested — must be excluded.
+    _ = await store.InsertAsync(
+      BuildEvent(id: "adbreak-1", kind: "ad_break", receivedAt: start.AddSeconds(3), sessionId: "session-1"), CancellationToken.None);
+
+    var events = await store.GetSessionShoutoutEventsAsync("session-1", ["follow", "sub"], CancellationToken.None);
+
+    Assert.Equal(["follow-1", "sub-1"], events.Select(e => e.Id)); // oldest first
+  }
+
+  [Fact]
+  public async Task GetSessionShoutoutEventsReturnsEmptyWhenNothingMatches()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new StreamEventStore(documentStore);
+    _ = await store.InsertAsync(BuildEvent(sessionId: "session-1"), CancellationToken.None);
+
+    var events = await store.GetSessionShoutoutEventsAsync("session-2", ["follow"], CancellationToken.None);
+
+    Assert.Empty(events);
+  }
 }

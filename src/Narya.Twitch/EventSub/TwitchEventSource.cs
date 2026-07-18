@@ -18,7 +18,7 @@ namespace Narya.Twitch.EventSub;
 /// Registered via <c>ServiceCollectionExtensions.AddNaryaTwitchEventSub</c>, which
 /// <c>Replace</c>s the <see cref="NoopTwitchEventSource"/> default — never both at once.
 /// </summary>
-public sealed class TwitchEventSource(EventSubWebsocketClient client) : ITwitchEventSource
+public sealed class TwitchEventSource(EventSubWebsocketClient client, TwitchEventSubService eventSubService) : ITwitchEventSource
 {
   /// <summary>
   /// Exists for interface completeness — <see cref="TwitchEventSubService.ExecuteAsync"/> is
@@ -34,4 +34,13 @@ public sealed class TwitchEventSource(EventSubWebsocketClient client) : ITwitchE
 
   public async Task ReconnectAsync() =>
     _ = await client.ReconnectAsync().ConfigureAwait(false);
+
+  /// <summary>
+  /// Delegates to the same <see cref="TwitchEventSubService"/> singleton
+  /// <c>ServiceCollectionExtensions.AddNaryaTwitchEventSub</c> registers both as itself (for
+  /// this) and as the hosted service that actually drives the connection — one instance, two
+  /// registrations, so this always reports the real, live status regardless of which
+  /// registration a caller resolved.
+  /// </summary>
+  public EventSubStatus Status => eventSubService.Status;
 }

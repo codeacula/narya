@@ -48,9 +48,11 @@ public static class NaryaMartenConfig
       .Identity(x => x.Login);
 
     // Stream event persistence (Phase 3 Task 4) — see StreamEventDocument's doc comment.
-    // Indexed on ReceivedAt (GetRecentAsync's ordering).
+    // Indexed on ReceivedAt (GetRecentAsync's ordering) and SessionId (Phase 3 Task 7's
+    // GetSessionShoutoutEventsAsync, scoped to the current session).
     _ = options.Schema.For<StreamEventDocument>()
-      .Index(x => x.ReceivedAt);
+      .Index(x => x.ReceivedAt)
+      .Index(x => x.SessionId);
 
     // Viewer profiles (Phase 3 Task 5) — see ViewerProfileDocument's doc comment. Login itself
     // is the identity, same no-separate-Id pattern as ChatterDocument.

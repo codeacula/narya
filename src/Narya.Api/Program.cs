@@ -1,4 +1,5 @@
 using Narya.Api.Auth;
+using Narya.Api.Dashboard;
 using Narya.Api.Realtime;
 using Narya.Application;
 using Narya.Cache;
@@ -9,6 +10,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<NaryaAuthOptions>(builder.Configuration.GetSection("Narya"));
 builder.Services.AddSingleton<DashboardTokenAuthenticator>();
+
+// Registered unconditionally (not inside the SkipInfrastructure guard below): RealtimeHub
+// depends on it regardless of which mode is active, and it holds no infrastructure connection
+// of its own — just an in-memory connection-id set (see RealtimeConnectionTracker's doc
+// comment). A SkipInfrastructure test never calls AddSignalR, so the hub itself is simply never
+// mapped/instantiated in that mode; registering the tracker either way is harmless.
+builder.Services.AddSingleton<RealtimeConnectionTracker>();
+
 builder.Services.AddControllers();
 
 builder.Services.AddNaryaApplication();
@@ -40,6 +49,12 @@ if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
 
   _ = builder.Services.AddSignalR();
   _ = builder.Services.AddHostedService<RealtimeBroadcastService>();
+
+  // Phase 3 Task 7: needs a live SignalR hub to skip against (RealtimeConnectionTracker is only
+  // ever populated by a real RealtimeHub connection) and a live Marten/Twitch DI graph to build
+  // a snapshot from — kept inside this same guard so a WebApplicationFactory test never starts
+  // the heartbeat loop, the same way it never opens a live Redis subscription.
+  _ = builder.Services.AddHostedService<DashboardHeartbeatService>();
 }
 
 var app = builder.Build();

@@ -431,4 +431,68 @@ public sealed class ChatStoreTests(PostgresFixture fixture)
     var stored = Assert.Single(page);
     Assert.Equal("session-1", stored.SessionId);
   }
+
+  [Fact]
+  public async Task GetActiveChatterCountCountsDistinctUsernamesSinceTheCutoff()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    var now = DateTimeOffset.UtcNow;
+
+    // Two messages from the same user within the window count once.
+    _ = await store.TryInsertMessageAsync(
+      BuildMessage(id: "msg-1", username: "alice", receivedAt: now.AddMinutes(-1)), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(
+      BuildMessage(id: "msg-2", username: "alice", receivedAt: now), CancellationToken.None);
+    // A different user, also within the window.
+    _ = await store.TryInsertMessageAsync(
+      BuildMessage(id: "msg-3", username: "bob", receivedAt: now.AddMinutes(-2)), CancellationToken.None);
+    // Outside the window entirely.
+    _ = await store.TryInsertMessageAsync(
+      BuildMessage(id: "msg-4", username: "carol", receivedAt: now.AddMinutes(-30)), CancellationToken.None);
+
+    var count = await store.GetActiveChatterCountAsync(now.AddMinutes(-15), CancellationToken.None);
+
+    Assert.Equal(2, count); // alice, bob — carol is outside the window
+  }
+
+  [Fact]
+  public async Task GetActiveChatterCountIsZeroWhenNoMessagesAreWithinTheWindow()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    var now = DateTimeOffset.UtcNow;
+    _ = await store.TryInsertMessageAsync(
+      BuildMessage(id: "msg-1", username: "alice", receivedAt: now.AddHours(-1)), CancellationToken.None);
+
+    var count = await store.GetActiveChatterCountAsync(now.AddMinutes(-15), CancellationToken.None);
+
+    Assert.Equal(0, count);
+  }
+
+  [Fact]
+  public async Task GetKnownChatterCountReturnsTheChattersRowCount()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    await store.UpsertChatterAsync("alice", DateTimeOffset.UtcNow, "Alice", null, null, CancellationToken.None);
+    await store.UpsertChatterAsync("bob", DateTimeOffset.UtcNow, "Bob", null, null, CancellationToken.None);
+    // A second message from an already-known chatter must not inflate the count.
+    await store.UpsertChatterAsync("alice", DateTimeOffset.UtcNow, "Alice", null, null, CancellationToken.None);
+
+    var count = await store.GetKnownChatterCountAsync(CancellationToken.None);
+
+    Assert.Equal(2, count);
+  }
+
+  [Fact]
+  public async Task GetKnownChatterCountIsZeroWhenNoChattersExist()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+
+    var count = await store.GetKnownChatterCountAsync(CancellationToken.None);
+
+    Assert.Equal(0, count);
+  }
 }

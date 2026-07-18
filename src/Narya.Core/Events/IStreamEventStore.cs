@@ -44,4 +44,15 @@ public interface IStreamEventStore
   /// the returned events — <c>GetRecentStreamEventsQueryHandler</c> computes it.
   /// </summary>
   Task<IReadOnlyList<StreamEvent>> GetRecentAsync(int limit, CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Every stream event stamped with <paramref name="sessionId"/> whose <see cref="StreamEvent.Kind"/>
+  /// is one of <paramref name="kinds"/>, oldest-to-newest — the source rows for
+  /// <c>Narya.Application.Dashboard.GetSessionShoutoutsQueryHandler</c>'s per-actor grouping. A
+  /// port of legacy's <c>selectSessionShoutoutRows</c> (<c>legacy/src/server/dashboard/status.ts</c>,
+  /// <c>where session_id = ? and kind in (...) order by received_at asc</c>). <see cref="StreamEvent.Ago"/>
+  /// is always <see langword="null"/> on the returned events, same as <see cref="GetRecentAsync"/>.
+  /// </summary>
+  Task<IReadOnlyList<StreamEvent>> GetSessionShoutoutEventsAsync(
+    string sessionId, IReadOnlyList<string> kinds, CancellationToken cancellationToken);
 }

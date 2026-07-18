@@ -17,4 +17,15 @@ public interface ITwitchEventSource
   Task StopAsync();
 
   Task ReconnectAsync();
+
+  /// <summary>
+  /// A point-in-time snapshot of the connection state — see <see cref="EventSubStatus"/>. Added
+  /// in Phase 3 Task 7 so <c>Narya.Twitch.Dashboard.TwitchDashboardStatusProvider</c> can read it
+  /// through this same port rather than depending on <see cref="TwitchEventSubService"/>
+  /// directly, which is registered only when a host opts into the real transport
+  /// (<see cref="ServiceCollectionExtensions.AddNaryaTwitchEventSub"/>). <see cref="NoopTwitchEventSource"/>
+  /// returns <see cref="EventSubStatus.Initial"/> (not connected) — the correct answer for a host
+  /// with no live socket.
+  /// </summary>
+  EventSubStatus Status { get; }
 }

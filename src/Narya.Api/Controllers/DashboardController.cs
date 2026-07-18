@@ -2,6 +2,7 @@ using MediatR;
 
 using Microsoft.AspNetCore.Mvc;
 
+using Narya.Application.Dashboard;
 using Narya.Application.Events;
 using Narya.Application.Viewers;
 using Narya.Core.Viewers;
@@ -13,15 +14,18 @@ namespace Narya.Api.Controllers;
 /// <c>Narya.Api.Auth.DashboardTokenMiddleware.OverlayPaths</c>. Unlike <c>GET /api/chat/recent</c>
 /// (which the chat overlay needs to seed itself before <c>chat:message</c> broadcasts start
 /// arriving), nothing under <c>/overlay</c> reads this route: the shoutout ticker instead reads
-/// <c>GET /api/dashboard/session-shoutouts</c> (a later task) and the live
-/// <c>stream:event</c>/<c>stream:event:update</c> broadcasts, both already overlay-allowlisted
-/// (see <c>Narya.Core.Realtime.RealtimeEventNames.OverlayAllowlist</c>).
+/// <c>GET /api/dashboard/session-shoutouts</c> (IS overlay-allowlisted — see
+/// <see cref="GetSessionShoutouts"/>) and the live <c>stream:event</c>/<c>stream:event:update</c>
+/// broadcasts, both already overlay-allowlisted (see
+/// <c>Narya.Core.Realtime.RealtimeEventNames.OverlayAllowlist</c>).
 ///
-/// <c>GET /api/dashboard/viewers</c> and <c>PATCH /api/dashboard/viewers/{login}/profile</c>
-/// (Phase 3 Task 5) are operator-only for the same reason: neither is read by anything under
-/// <c>/overlay</c>, and a profile edit is squarely operator-only configuration. See
-/// <c>Narya.Api.Controllers.ViewersController</c> for the sibling <c>/api/viewers/*</c> routes
-/// (roster, per-viewer messages) legacy split under a different path prefix.
+/// <c>GET /api/dashboard/viewers</c>, <c>PATCH /api/dashboard/viewers/{login}/profile</c> (Phase 3
+/// Task 5), and <c>GET /api/dashboard/status</c> (Phase 3 Task 7 — see <see cref="GetStatus"/>)
+/// are operator-only for the same reason: neither is read by anything under <c>/overlay</c>, and
+/// a profile edit / the full status snapshot (auth token expiry, EventSub error detail) are
+/// squarely operator-only. See <c>Narya.Api.Controllers.ViewersController</c> for the sibling
+/// <c>/api/viewers/*</c> routes (roster, per-viewer messages) legacy split under a different path
+/// prefix.
 /// </summary>
 [ApiController]
 [Route("api/dashboard")]
@@ -32,6 +36,26 @@ public sealed class DashboardController(IMediator mediator) : ControllerBase
   {
     var events = await mediator.Send(new GetRecentStreamEventsQuery(), cancellationToken).ConfigureAwait(false);
     return Ok(events);
+  }
+
+  /// <summary>
+  /// Overlay-allowlisted — see <c>Narya.Api.Auth.DashboardTokenMiddleware.OverlayPaths</c>. The
+  /// <c>/overlay/shoutouts</c> ticker reads this to seed itself, same rationale as
+  /// <c>GET /api/chat/recent</c>.
+  /// </summary>
+  [HttpGet("session-shoutouts")]
+  public async Task<IActionResult> GetSessionShoutouts(CancellationToken cancellationToken)
+  {
+    var shoutouts = await mediator.Send(new GetSessionShoutoutsQuery(), cancellationToken).ConfigureAwait(false);
+    return Ok(shoutouts);
+  }
+
+  /// <summary>Operator-only — same REST shape <c>Narya.Api.Dashboard.DashboardHeartbeatService</c> broadcasts as <c>dashboard:status</c>.</summary>
+  [HttpGet("status")]
+  public async Task<IActionResult> GetStatus(CancellationToken cancellationToken)
+  {
+    var status = await mediator.Send(new GetDashboardStatusQuery(), cancellationToken).ConfigureAwait(false);
+    return Ok(status);
   }
 
   [HttpGet("viewers")]

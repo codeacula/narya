@@ -157,4 +157,19 @@ public interface IChatStore
   /// </summary>
   Task<IReadOnlyList<ChatMessage>> GetMessagesByUsernameAsync(
     string username, string? beforeId, int limit, CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Count of distinct <c>chat_messages.username</c> values with <c>ReceivedAt &gt;= since</c> —
+  /// a port of legacy's <c>getActiveChatterCount</c> (<c>legacy/src/server/dashboard/status.ts</c>,
+  /// a 15-minute window at the call site). Feeds <c>DashboardStatus.ActiveChatters</c>.
+  /// </summary>
+  Task<int> GetActiveChatterCountAsync(DateTimeOffset since, CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Total row count of the <c>chatters</c> projection — every login ever seen, regardless of
+  /// how long ago. A port of legacy's <c>getKnownChatterCount</c>
+  /// (<c>legacy/src/server/dashboard/status.ts</c>, <c>select count(*) from chatters</c>). Feeds
+  /// <c>DashboardStatus.KnownChatters</c>.
+  /// </summary>
+  Task<int> GetKnownChatterCountAsync(CancellationToken cancellationToken);
 }

@@ -67,6 +67,18 @@ public sealed class StreamEventStore(IDocumentStore store) : IStreamEventStore
     return [.. docs.Select(ToStreamEvent)];
   }
 
+  public async Task<IReadOnlyList<StreamEvent>> GetSessionShoutoutEventsAsync(
+    string sessionId, IReadOnlyList<string> kinds, CancellationToken cancellationToken)
+  {
+    await using var session = store.QuerySession();
+    var docs = await session.Query<StreamEventDocument>()
+      .Where(e => e.SessionId == sessionId && kinds.Contains(e.Kind))
+      .OrderBy(e => e.ReceivedAt)
+      .ToListAsync(cancellationToken);
+
+    return [.. docs.Select(ToStreamEvent)];
+  }
+
   private static StreamEvent ToStreamEvent(StreamEventDocument doc) => new(
     Id: doc.Id,
     Kind: doc.Kind,

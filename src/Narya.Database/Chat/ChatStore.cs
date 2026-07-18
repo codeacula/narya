@@ -250,6 +250,29 @@ public sealed class ChatStore(IDocumentStore store) : IChatStore
     return [.. docs.OrderBy(m => m.ReceivedAt).Select(ToChatMessageWithSession)];
   }
 
+  public async Task<int> GetActiveChatterCountAsync(DateTimeOffset since, CancellationToken cancellationToken)
+  {
+    await using var session = store.QuerySession();
+
+    // Projected to just Username, then de-duplicated client-side (mirrors the existing
+    // GetRecentViewersAsync.Select(c => c.Login) pattern in ViewerStore) rather than relying on
+    // Marten's LINQ provider to translate a chained Distinct().CountAsync() into a single
+    // COUNT(DISTINCT ...) — chat volume in a 15-minute window is small enough that this is not a
+    // meaningful cost, and it keeps the query shape proven-safe.
+    var usernames = await session.Query<ChatMessageDocument>()
+      .Where(m => m.ReceivedAt >= since)
+      .Select(m => m.Username)
+      .ToListAsync(cancellationToken);
+
+    return usernames.Distinct(StringComparer.Ordinal).Count();
+  }
+
+  public async Task<int> GetKnownChatterCountAsync(CancellationToken cancellationToken)
+  {
+    await using var session = store.QuerySession();
+    return await session.Query<ChatterDocument>().CountAsync(cancellationToken);
+  }
+
   private static string? SerializeBadges(IReadOnlyDictionary<string, string>? badges) =>
     badges is null ? null : JsonSerializer.Serialize(badges);
 

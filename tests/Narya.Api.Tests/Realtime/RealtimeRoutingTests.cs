@@ -93,4 +93,18 @@ public sealed class RealtimeRoutingTests
 
     Assert.Equal([RealtimeHub.OperatorGroup], groups);
   }
+
+  /// <summary>
+  /// The dashboard status snapshot carries auth token expiry and EventSub error detail — never
+  /// overlay-visible, per the Phase 3 plan's realtime allowlist ("<c>automod:held</c>/
+  /// <c>automod:resolved</c>/<c>dashboard:status</c>/<c>whisper:message</c> operator-only"). Same
+  /// rationale as <see cref="WhisperMessageRoutesToTheOperatorGroupOnlyAgainstTheRealAllowlist"/>.
+  /// </summary>
+  [Fact]
+  public void DashboardStatusRoutesToTheOperatorGroupOnlyAgainstTheRealAllowlist()
+  {
+    var groups = RealtimeRouting.GroupsFor("dashboard:status");
+
+    Assert.Equal([RealtimeHub.OperatorGroup], groups);
+  }
 }

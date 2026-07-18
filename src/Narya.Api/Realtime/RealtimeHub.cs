@@ -17,7 +17,7 @@ namespace Narya.Api.Realtime;
 /// SignalR convention for this exact situation. Only that token is trusted; no header is
 /// consulted for role or client IP.
 /// </summary>
-public sealed class RealtimeHub(DashboardTokenAuthenticator authenticator) : Hub
+public sealed class RealtimeHub(DashboardTokenAuthenticator authenticator, RealtimeConnectionTracker connectionTracker) : Hub
 {
   public const string OperatorGroup = "operator";
   public const string OverlayGroup = "overlay";
@@ -33,20 +33,30 @@ public sealed class RealtimeHub(DashboardTokenAuthenticator authenticator) : Hub
         // to the operator group, so this alone already means "operators see everything" —
         // also joining the overlay group would double-deliver every allowlisted event.
         await Groups.AddToGroupAsync(Context.ConnectionId, OperatorGroup).ConfigureAwait(false);
+        connectionTracker.Add(Context.ConnectionId);
         break;
 
       case DashboardTokenAuthenticator.OverlayRole:
         await Groups.AddToGroupAsync(Context.ConnectionId, OverlayGroup).ConfigureAwait(false);
+        connectionTracker.Add(Context.ConnectionId);
         break;
 
       default:
         // Reject unauthenticated. No token, an unrecognized token, or no dashboard
         // token configured at all (HasDashboardToken == false) all resolve to a null
-        // role here — none of them get a connection.
+        // role here — none of them get a connection. Deliberately NOT added to
+        // connectionTracker — see that class's doc comment for why OnDisconnectedAsync
+        // removing an id that was never added is still safe.
         Context.Abort();
         return;
     }
 
     await base.OnConnectedAsync().ConfigureAwait(false);
+  }
+
+  public override Task OnDisconnectedAsync(Exception? exception)
+  {
+    connectionTracker.Remove(Context.ConnectionId);
+    return base.OnDisconnectedAsync(exception);
   }
 }

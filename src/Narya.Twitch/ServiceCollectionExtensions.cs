@@ -4,7 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Core.AppConfig;
+using Narya.Core.Dashboard;
 using Narya.Twitch.Chat;
+using Narya.Twitch.Dashboard;
 using Narya.Twitch.EventSub;
 using Narya.Twitch.Helix;
 using Narya.Twitch.Oauth;
@@ -81,6 +83,13 @@ public static class ServiceCollectionExtensions
     // ITwitchEventSource first (e.g. a test) is never overridden by this default.
     services.TryAddSingleton<ITwitchEventSource, NoopTwitchEventSource>();
 
+    // Phase 3 Task 7: the Twitch-auth/EventSub half of DashboardStatus. Depends only on
+    // ITwitchTokenStore (registered above) and ITwitchEventSource (whichever variant is
+    // registered — Noop here, or the real one after AddNaryaTwitchEventSub replaces it), so it
+    // is safe to register unconditionally in AddNaryaTwitch rather than needing the real
+    // EventSub opt-in.
+    _ = services.AddSingleton<IDashboardTwitchStatusProvider, TwitchDashboardStatusProvider>();
+
     // Stateless (every member is a pure function of its arguments — see ChatRoleResolver's doc
     // comment), so a singleton is safe. Nothing in Phase 2 resolves this via DI yet —
     // EventSubDispatcher calls ChatRoleResolver's static methods directly, since it must stay a
@@ -120,11 +129,17 @@ public static class ServiceCollectionExtensions
   {
     _ = services.AddTwitchLibEventSubWebsockets();
 
+    // Registered as itself, not just as IHostedService: TwitchEventSource (below) needs the
+    // SAME singleton instance to read Status from — AddHostedService<T> alone only exposes T
+    // through IHostedService, which is not resolvable by its concrete type. The factory
+    // registration just below reuses this exact instance as the hosted service, so there is
+    // still only ever one TwitchEventSubService for the process, whichever way it is resolved.
+    _ = services.AddSingleton<TwitchEventSubService>();
+    _ = services.AddHostedService(sp => sp.GetRequiredService<TwitchEventSubService>());
+
     // Replace, not TryAdd: this call's entire purpose is to swap out the
     // NoopTwitchEventSource AddNaryaTwitch registered.
     _ = services.Replace(ServiceDescriptor.Singleton<ITwitchEventSource, TwitchEventSource>());
-
-    _ = services.AddHostedService<TwitchEventSubService>();
 
     return services;
   }

@@ -17,4 +17,6 @@ public sealed class NoopTwitchEventSource : ITwitchEventSource
   public Task StopAsync() => Task.CompletedTask;
 
   public Task ReconnectAsync() => Task.CompletedTask;
+
+  public EventSubStatus Status => EventSubStatus.Initial;
 }
