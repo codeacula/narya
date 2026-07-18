@@ -27,6 +27,12 @@ public static class NaryaMartenConfig
     options.RegisterNaryaEvents(typeof(NaryaDatabase).Assembly);
     _ = options.Projections.Snapshot<DbAppConfig>(SnapshotLifecycle.Inline);
 
+    // The secret half of the app config (see DbAppConfigSecrets' doc comment). A plain
+    // document, deliberately NOT event-sourced: it is overwritten in place so rotating a
+    // secret erases the old value, which an append-only stream can never do. No index —
+    // every read/write is a point lookup by the fixed AppConfigStore.RootId.
+    _ = options.Schema.For<DbAppConfigSecrets>();
+
     // Plain (non-event-sourced) documents — see StreamSessionDocument's doc comment for why
     // sessions are a document rather than a snapshot projection. Indexed on Source (the
     // GetOrStartSessionAsync dedup lookup) and EndedAt (the "find the open session" lookup);

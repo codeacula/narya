@@ -24,8 +24,10 @@ public sealed record DbTwitchToken
   /// </summary>
   public bool IsCleared { get; init; }
 
-  public string AccessToken { get; init; } = "";
-  public string? RefreshToken { get; init; }
+  /// <summary>
+  /// Non-secret metadata only. The access/refresh tokens deliberately do NOT live here or
+  /// on <see cref="TwitchTokenUpdatedEvent"/> — see <c>DbTwitchTokenSecrets</c>.
+  /// </summary>
   public IReadOnlyList<string> Scopes { get; init; } = [];
   public string? TokenType { get; init; }
   public DateTimeOffset? ExpiresAt { get; init; }
@@ -36,8 +38,6 @@ public sealed record DbTwitchToken
   public static DbTwitchToken Apply(IEvent<TwitchTokenUpdatedEvent> ev, DbTwitchToken current) => current with
   {
     IsCleared = false,
-    AccessToken = ev.Data.AccessToken,
-    RefreshToken = ev.Data.RefreshToken,
     Scopes = ev.Data.Scopes,
     TokenType = ev.Data.TokenType,
     ExpiresAt = ev.Data.ExpiresAt,
@@ -47,8 +47,6 @@ public sealed record DbTwitchToken
   public static DbTwitchToken Apply(IEvent<TwitchTokenClearedEvent> ev, DbTwitchToken current) => current with
   {
     IsCleared = true,
-    AccessToken = "",
-    RefreshToken = null,
     Scopes = [],
     TokenType = null,
     ExpiresAt = null,
@@ -56,20 +54,30 @@ public sealed record DbTwitchToken
   };
 
   /// <summary>
-  /// Returns null when tombstoned, so a cleared token round-trips through
-  /// <c>TwitchTokenStore.GetAsync</c> exactly like a provider that was never connected.
+  /// Composes this event-sourced metadata half with the overwrite-in-place secret half
+  /// into the single domain record callers see. Returns null when tombstoned, so a cleared
+  /// token round-trips through <c>TwitchTokenStore.GetAsync</c> exactly like a provider
+  /// that was never connected. A null <paramref name="secrets"/> — the document was
+  /// deleted on disconnect, or never written — yields the domain defaults (empty access
+  /// token, null refresh token) rather than throwing. Replaces the former
+  /// <c>explicit operator</c>, which could not express the second input.
   /// </summary>
-  public static explicit operator TwitchToken?(DbTwitchToken db)
+  public TwitchToken? ToDomain(DbTwitchTokenSecrets? secrets)
   {
-    return db.IsCleared
-      ? null
-      : new TwitchToken
-      {
-        AccessToken = db.AccessToken,
-        RefreshToken = db.RefreshToken,
-        Scopes = db.Scopes,
-        TokenType = db.TokenType,
-        ExpiresAt = db.ExpiresAt,
-      };
+    if (IsCleared)
+    {
+      return null;
+    }
+
+    var s = secrets ?? new DbTwitchTokenSecrets();
+
+    return new TwitchToken
+    {
+      AccessToken = s.AccessToken,
+      RefreshToken = s.RefreshToken,
+      Scopes = Scopes,
+      TokenType = TokenType,
+      ExpiresAt = ExpiresAt,
+    };
   }
 }

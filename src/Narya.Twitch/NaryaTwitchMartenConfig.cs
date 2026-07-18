@@ -39,5 +39,11 @@ public static class NaryaTwitchMartenConfig
   {
     options.RegisterNaryaEvents(typeof(NaryaTwitch).Assembly);
     _ = options.Projections.Snapshot<DbTwitchToken>(SnapshotLifecycle.Inline);
+
+    // The secret half of each provider's token (see DbTwitchTokenSecrets' doc comment). A
+    // plain document, deliberately NOT event-sourced: overwritten on save and hard-deleted
+    // on disconnect, which an append-only stream can never do. No index — every read/write
+    // is a point lookup by the fixed TwitchTokenStore.StreamIdFor guid.
+    _ = options.Schema.For<DbTwitchTokenSecrets>();
   }
 }

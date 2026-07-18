@@ -50,15 +50,29 @@ public sealed class DbAppConfigSnapshotCompatibilityTests
     Assert.NotNull(deserialized);
     Assert.Equal(DbAppConfig.Default.TwitchChannel, deserialized.TwitchChannel);
     Assert.Equal(DbAppConfig.Default.TwitchClientId, deserialized.TwitchClientId);
-    Assert.Equal(DbAppConfig.Default.TwitchClientSecret, deserialized.TwitchClientSecret);
     Assert.Equal(DbAppConfig.Default.ObsUrl, deserialized.ObsUrl);
-    Assert.Equal(DbAppConfig.Default.ObsPassword, deserialized.ObsPassword);
     Assert.Equal(DbAppConfig.Default.ObsScenePrefix, deserialized.ObsScenePrefix);
     Assert.Equal(DbAppConfig.Default.DiscordClientId, deserialized.DiscordClientId);
-    Assert.Equal(DbAppConfig.Default.DiscordBotToken, deserialized.DiscordBotToken);
     Assert.Equal(DbAppConfig.Default.ChatterboxBaseUrl, deserialized.ChatterboxBaseUrl);
     Assert.Equal(DbAppConfig.Default.MusicPollIntervalMs, deserialized.MusicPollIntervalMs);
     Assert.Equal(DbAppConfig.Default.MusicPlayerctlPlayer, deserialized.MusicPlayerctlPlayer);
     Assert.Equal(DbAppConfig.Default.SoundVolume, deserialized.SoundVolume);
+  }
+
+  /// <summary>
+  /// The same initializer rule applies to the secret half, which is a plain overwritten
+  /// document rather than a snapshot projection but deserializes through the same path.
+  /// </summary>
+  [Fact]
+  public void SecretsDocumentMissingFieldsDeserializeToTheDomainDefaults()
+  {
+    var deserialized = JsonSerializer.Deserialize<DbAppConfigSecrets>(
+      """{"Id":"11111111-1111-1111-1111-111111111111","TwitchClientSecret":"s3cret"}""",
+      Options);
+
+    Assert.NotNull(deserialized);
+    Assert.Equal("s3cret", deserialized.TwitchClientSecret);
+    Assert.Equal(DbAppConfigSecrets.Default.ObsPassword, deserialized.ObsPassword);
+    Assert.Equal(DbAppConfigSecrets.Default.DiscordBotToken, deserialized.DiscordBotToken);
   }
 }

@@ -9,6 +9,12 @@ namespace Narya.Database.AppConfig;
 /// an instance method on the patch itself because Narya.Database already references
 /// Narya.Core — the reverse reference needed for <c>AppConfigPatch</c> to construct an
 /// <see cref="AppConfigUpdatedEvent"/> directly would make the project graph circular.
+///
+/// <para>
+/// The patch's three secret fields are deliberately absent from <see cref="ToEvent"/> —
+/// they are folded into <see cref="DbAppConfigSecrets"/> by <see cref="ToSecrets"/>
+/// instead, and never enter the append-only event stream.
+/// </para>
 /// </summary>
 public static class AppConfigPatchExtensions
 {
@@ -19,15 +25,31 @@ public static class AppConfigPatchExtensions
       OccurredAt = occurredAt,
       TwitchChannel = patch.TwitchChannel,
       TwitchClientId = patch.TwitchClientId,
-      TwitchClientSecret = patch.TwitchClientSecret,
       ObsUrl = patch.ObsUrl,
-      ObsPassword = patch.ObsPassword,
       ObsScenePrefix = patch.ObsScenePrefix,
       DiscordClientId = patch.DiscordClientId,
-      DiscordBotToken = patch.DiscordBotToken,
       ChatterboxBaseUrl = patch.ChatterboxBaseUrl,
       MusicPollIntervalMs = patch.MusicPollIntervalMs,
       MusicPlayerctlPlayer = patch.MusicPlayerctlPlayer,
       SoundVolume = patch.SoundVolume,
     };
+
+  /// <summary>
+  /// Folds the patch's secret fields over the currently stored secrets document, honouring
+  /// the same null-means-unchanged contract the event projection uses: null leaves the
+  /// stored secret alone, an explicit empty string clears it. <paramref name="current"/> is
+  /// null when no secret has ever been written, in which case the domain defaults apply.
+  /// </summary>
+  public static DbAppConfigSecrets ToSecrets(this AppConfigPatch patch, Guid id, DbAppConfigSecrets? current)
+  {
+    var existing = current ?? DbAppConfigSecrets.Default;
+
+    return existing with
+    {
+      Id = id,
+      TwitchClientSecret = patch.TwitchClientSecret ?? existing.TwitchClientSecret,
+      ObsPassword = patch.ObsPassword ?? existing.ObsPassword,
+      DiscordBotToken = patch.DiscordBotToken ?? existing.DiscordBotToken,
+    };
+  }
 }

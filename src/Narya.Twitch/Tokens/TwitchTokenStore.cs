@@ -13,6 +13,25 @@ namespace Narya.Twitch.Tokens;
 /// disconnect (<see cref="DeleteAsync"/>) appends a <see cref="TwitchTokenClearedEvent"/>
 /// rather than deleting the stream, so re-authenticating later resumes the same stream
 /// instead of starting a fresh one.
+///
+/// <para>
+/// Each provider's token is stored in two halves sharing the one
+/// <see cref="StreamIdFor"/> identity: non-secret metadata (scopes, token type, expiry) is
+/// event-sourced on the stream, while the access/refresh tokens live in
+/// <see cref="DbTwitchTokenSecrets"/>, a plain document overwritten on save and HARD
+/// DELETED on disconnect. An append-only stream could not erase them — and
+/// <c>TwitchCredentials.RefreshAndSaveAsync</c> saves on every refresh, so the stream
+/// would otherwise accumulate one plaintext credential set per refresh. Both halves are
+/// written through the same <c>IDocumentSession</c> and committed by one
+/// <c>SaveChangesAsync</c>.
+/// </para>
+///
+/// <para>
+/// NOT implemented, matching legacy: disconnect does not call Twitch's token-revocation
+/// endpoint. Deleting the local secrets document erases OUR copy, but a refresh token that
+/// leaked before the disconnect stays live at Twitch until the operator revokes the app's
+/// access there.
+/// </para>
 /// </summary>
 public sealed class TwitchTokenStore(IDocumentStore store) : ITwitchTokenStore
 {
@@ -28,9 +47,18 @@ public sealed class TwitchTokenStore(IDocumentStore store) : ITwitchTokenStore
 
   public async Task<Result<TwitchToken?>> GetAsync(TwitchProvider provider, CancellationToken cancellationToken)
   {
+    var streamId = StreamIdFor(provider);
+
     await using var session = store.QuerySession();
-    var db = await session.LoadAsync<DbTwitchToken>(StreamIdFor(provider), cancellationToken);
-    return Result.Ok(db is null ? null : (TwitchToken?)db);
+    var db = await session.LoadAsync<DbTwitchToken>(streamId, cancellationToken);
+
+    if (db is null)
+    {
+      return Result.Ok<TwitchToken?>(null);
+    }
+
+    var secrets = await session.LoadAsync<DbTwitchTokenSecrets>(streamId, cancellationToken);
+    return Result.Ok(db.ToDomain(secrets));
   }
 
   public Task<Result> SaveAsync(TwitchProvider provider, TwitchToken token, CancellationToken cancellationToken)
@@ -39,14 +67,21 @@ public sealed class TwitchTokenStore(IDocumentStore store) : ITwitchTokenStore
     {
       EventId = Guid.NewGuid(),
       OccurredAt = DateTimeOffset.UtcNow,
-      AccessToken = token.AccessToken,
-      RefreshToken = token.RefreshToken,
       Scopes = token.Scopes,
       TokenType = token.TokenType,
       ExpiresAt = token.ExpiresAt,
     };
 
-    return AppendAsync(provider, ev, cancellationToken);
+    // A save always replaces the whole token, so the secrets document is a straight
+    // overwrite — no null-means-unchanged folding, unlike AppConfig's patch semantics.
+    var secrets = new DbTwitchTokenSecrets
+    {
+      Id = StreamIdFor(provider),
+      AccessToken = token.AccessToken,
+      RefreshToken = token.RefreshToken,
+    };
+
+    return WriteAsync(provider, ev, session => session.Store(secrets), cancellationToken);
   }
 
   public Task<Result> DeleteAsync(TwitchProvider provider, CancellationToken cancellationToken)
@@ -57,10 +92,21 @@ public sealed class TwitchTokenStore(IDocumentStore store) : ITwitchTokenStore
       OccurredAt = DateTimeOffset.UtcNow,
     };
 
-    return AppendAsync(provider, ev, cancellationToken);
+    // The cleared event is kept (connect/disconnect audit trail), but the secret half is
+    // physically deleted in the same transaction — this is the erasure legacy got from
+    // `delete from twitch_oauth where provider = ?`.
+    return WriteAsync(
+      provider,
+      ev,
+      session => session.Delete<DbTwitchTokenSecrets>(StreamIdFor(provider)),
+      cancellationToken);
   }
 
-  private async Task<Result> AppendAsync(TwitchProvider provider, object ev, CancellationToken cancellationToken)
+  private async Task<Result> WriteAsync(
+    TwitchProvider provider,
+    object ev,
+    Action<IDocumentSession> applySecrets,
+    CancellationToken cancellationToken)
   {
     var streamId = StreamIdFor(provider);
 
@@ -70,6 +116,8 @@ public sealed class TwitchTokenStore(IDocumentStore store) : ITwitchTokenStore
     _ = streamState is null
       ? session.Events.StartStream<DbTwitchToken>(streamId, ev)
       : session.Events.Append(streamId, ev);
+
+    applySecrets(session);
 
     await session.SaveChangesAsync(cancellationToken);
 

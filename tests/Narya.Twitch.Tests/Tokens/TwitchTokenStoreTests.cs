@@ -1,8 +1,12 @@
+using System.Globalization;
+
 using Marten;
 
 using Narya.Database;
 using Narya.Twitch.Tests.Fixtures;
 using Narya.Twitch.Tokens;
+
+using Npgsql;
 
 namespace Narya.Twitch.Tests.Tokens;
 
@@ -103,5 +107,91 @@ public sealed class TwitchTokenStoreTests(PostgresFixture fixture)
     var streamState = await query.Events.FetchStreamStateAsync(TwitchTokenStore.StreamIdFor(TwitchProvider.Broadcaster));
     Assert.NotNull(streamState);
     Assert.Equal(2, streamState!.Version);
+  }
+
+  /// <summary>
+  /// Legacy hard-deleted the <c>twitch_oauth</c> row on disconnect. The cleared event is
+  /// still appended (the connect/disconnect audit trail is deliberately retained), but the
+  /// secret half must be physically gone — a tombstoned projection alone would leave the
+  /// access/refresh tokens readable.
+  /// </summary>
+  [Fact]
+  public async Task DeletePhysicallyRemovesTheSecretsDocumentButKeepsTheClearedEvent()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new TwitchTokenStore(documentStore);
+    var streamId = TwitchTokenStore.StreamIdFor(TwitchProvider.Broadcaster);
+
+    _ = await store.SaveAsync(
+      TwitchProvider.Broadcaster,
+      new TwitchToken { AccessToken = "erase-me", RefreshToken = "erase-me-too", Scopes = Scopes.Broadcaster },
+      CancellationToken.None);
+
+    await using (var beforeQuery = documentStore.QuerySession())
+    {
+      Assert.NotNull(await beforeQuery.LoadAsync<DbTwitchTokenSecrets>(streamId));
+    }
+
+    _ = await store.DeleteAsync(TwitchProvider.Broadcaster, CancellationToken.None);
+
+    await using var query = documentStore.QuerySession();
+    Assert.Null(await query.LoadAsync<DbTwitchTokenSecrets>(streamId));
+
+    var streamState = await query.Events.FetchStreamStateAsync(streamId);
+    Assert.NotNull(streamState);
+    Assert.Equal(2, streamState!.Version);
+
+    Assert.Equal(0, await CountEventsContainingAsync("erase-me"));
+  }
+
+  /// <summary>
+  /// The regression guard for the review finding. <c>RefreshAndSaveAsync</c> saves on every
+  /// token refresh, so an inline-secret event stream accumulated one full plaintext
+  /// credential set per refresh that nothing could ever erase. Asserts against the raw
+  /// <c>mt_events</c> table, not the read model.
+  /// </summary>
+  [Fact]
+  public async Task ResavingATokenLeavesNoAccessTokenAnywhereInTheEventStore()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new TwitchTokenStore(documentStore);
+
+    _ = await store.SaveAsync(
+      TwitchProvider.Broadcaster,
+      new TwitchToken { AccessToken = "access-first", RefreshToken = "refresh-first", Scopes = Scopes.Broadcaster },
+      CancellationToken.None);
+    _ = await store.SaveAsync(
+      TwitchProvider.Broadcaster,
+      new TwitchToken { AccessToken = "access-second", RefreshToken = "refresh-second", Scopes = Scopes.Broadcaster },
+      CancellationToken.None);
+
+    var result = await store.GetAsync(TwitchProvider.Broadcaster, CancellationToken.None);
+    Assert.Equal("access-second", result.Value!.AccessToken);
+    Assert.Equal("refresh-second", result.Value.RefreshToken);
+
+    Assert.Equal(0, await CountEventsContainingAsync("access-first"));
+    Assert.Equal(0, await CountEventsContainingAsync("refresh-first"));
+    Assert.Equal(0, await CountEventsContainingAsync("access-second"));
+    Assert.Equal(0, await CountEventsContainingAsync("refresh-second"));
+
+    // The non-secret metadata must still be event-sourced, or this test would also pass on
+    // a store that stopped appending events entirely.
+    Assert.Equal(2, await CountEventsContainingAsync(Scopes.Broadcaster[0]));
+  }
+
+  /// <summary>
+  /// Counts raw <c>mt_events</c> rows whose serialized data contains <paramref name="needle"/>.
+  /// Deliberately bypasses Marten's typed API — the point is what is physically on disk in
+  /// the append-only stream, not what the current event record shape can deserialize.
+  /// </summary>
+  private async Task<int> CountEventsContainingAsync(string needle)
+  {
+    await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+    await connection.OpenAsync();
+    await using var command = new NpgsqlCommand(
+      "select count(*) from mt_events where data::text like '%' || @needle || '%'",
+      connection);
+    _ = command.Parameters.AddWithValue(nameof(needle), needle);
+    return Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
   }
 }
