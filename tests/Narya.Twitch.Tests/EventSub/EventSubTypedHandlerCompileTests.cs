@@ -10,20 +10,22 @@ namespace Narya.Twitch.Tests.EventSub;
 /// Step 0's build-time confirmation (Phase 2 Task 5, twitchlib-spec.md §5's UNVERIFIED item):
 /// TwitchLib.EventSub.Core 3.0.0 must model a strongly-typed <c>AsyncEventHandler&lt;T&gt;</c>
 /// for the EXACT version every entry in <see cref="Narya.Twitch.EventSub.EventSubSubscriptions.All"/>
-/// subscribes at — most notably v2 for <c>channel.moderate</c>,
-/// <c>automod.message.hold</c>, and <c>automod.message.update</c> (see that class's doc
-/// comment for why v2 over v1). There is no runtime behavior to assert: this test passing
-/// (i.e. the assignments below compiling at all) IS the proof. A future TwitchLib upgrade that
-/// renamed or removed one of these Args types would fail this build immediately, rather than
-/// only surfacing once Task 6 tries to wire dispatch against a handler that quietly stopped
-/// existing.
+/// subscribes at — most notably v2 for <c>automod.message.hold</c> and
+/// <c>automod.message.update</c> (see that class's doc comment for why v2 over v1).
+/// <c>channel.moderate</c> is deliberately NOT asserted here any more: the Phase 2 final-review
+/// fix pass dropped that subscription entirely (see <see cref="Narya.Twitch.EventSub.EventSubSubscriptions"/>'s
+/// doc comment at its former place in the table) because v2 needs scopes beyond
+/// <see cref="Narya.Twitch.Scopes.Broadcaster"/>. There is no runtime behavior to assert: this
+/// test passing (i.e. the assignments below compiling at all) IS the proof. A future TwitchLib
+/// upgrade that renamed or removed one of these Args types would fail this build immediately,
+/// rather than only surfacing once Task 6 tries to wire dispatch against a handler that quietly
+/// stopped existing.
 /// </summary>
 public sealed class EventSubTypedHandlerCompileTests
 {
   [Fact]
   public void TypedHandlersForEverySubscribedVersionExistInCore()
   {
-    AsyncEventHandler<ChannelModerateV2Args> moderateV2 = (_, _) => Task.CompletedTask;
     AsyncEventHandler<AutomodMessageHoldV2Args> automodHoldV2 = (_, _) => Task.CompletedTask;
     AsyncEventHandler<AutomodMessageUpdateV2Args> automodUpdateV2 = (_, _) => Task.CompletedTask;
     AsyncEventHandler<ChannelFollowArgs> follow = (_, _) => Task.CompletedTask;
@@ -44,7 +46,6 @@ public sealed class EventSubTypedHandlerCompileTests
     AsyncEventHandler<StreamOfflineArgs> streamOffline = (_, _) => Task.CompletedTask;
     AsyncEventHandler<UserWhisperMessageArgs> whisper = (_, _) => Task.CompletedTask;
 
-    Assert.NotNull(moderateV2);
     Assert.NotNull(automodHoldV2);
     Assert.NotNull(automodUpdateV2);
     Assert.NotNull(follow);

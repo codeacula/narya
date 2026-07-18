@@ -31,7 +31,6 @@ public sealed class EventSubSubscriptionsTests
     ("channel.chat.clear", "1", ["broadcaster_user_id", "user_id"]),
     ("channel.chat.clear_user_messages", "1", ["broadcaster_user_id", "user_id"]),
     ("channel.chat.notification", "1", ["broadcaster_user_id", "user_id"]),
-    ("channel.moderate", "2", ["broadcaster_user_id", "moderator_user_id"]),
     ("automod.message.hold", "2", ["broadcaster_user_id", "moderator_user_id"]),
     ("automod.message.update", "2", ["broadcaster_user_id", "moderator_user_id"]),
     ("channel.channel_points_custom_reward_redemption.add", "1", ["broadcaster_user_id"]),
@@ -59,6 +58,19 @@ public sealed class EventSubSubscriptionsTests
   {
     var pairs = EventSubSubscriptions.All.Select(s => (s.Type, s.Version)).ToArray();
     Assert.Equal(pairs.Length, pairs.Distinct().Count());
+  }
+
+  /// <summary>
+  /// Phase 2 final-review fix: <c>channel.moderate</c> v2 403s at creation because it needs
+  /// moderator:read/manage scopes beyond <see cref="Scopes.Broadcaster"/> — see
+  /// <see cref="EventSubSubscriptions"/>'s doc comment and the comment at its former place in
+  /// <see cref="EventSubSubscriptions.All"/>. Deliberately absent until Phase 3 makes the
+  /// broader-consent call; this locks the removal so it is not silently reintroduced.
+  /// </summary>
+  [Fact]
+  public void ChannelModerateIsNotSubscribed()
+  {
+    Assert.DoesNotContain(EventSubSubscriptions.All, s => s.Type == "channel.moderate");
   }
 
   [Fact]
@@ -111,7 +123,6 @@ public sealed class EventSubSubscriptionsTests
   }
 
   [Theory]
-  [InlineData("channel.moderate")]
   [InlineData("automod.message.hold")]
   [InlineData("automod.message.update")]
   public void ModerationSubscriptionsAreVersion2(string type)

@@ -117,6 +117,68 @@ public sealed class TwitchCredentialsTests
     _ = await f.OAuthClient.Received(1).RefreshAsync("old-refresh", Arg.Any<CancellationToken>());
   }
 
+  /// <summary>
+  /// Phase 2 final-review fix: two concurrent <see cref="TwitchCredentials.GetAccessTokenAsync"/>
+  /// calls for the same provider, both racing in while the stored token is inside the refresh
+  /// buffer, must not both call <see cref="ITwitchOAuthClient.RefreshAsync"/> — Twitch rotates
+  /// the refresh token on every use, so the loser of an unguarded race would spend an
+  /// already-consumed refresh token and get back <c>invalid_grant</c>. The second call must
+  /// instead wait for the first to finish and reuse the token it saved.
+  /// </summary>
+  [Fact]
+  public async Task ConcurrentGetAccessTokenCallsForTheSameProviderRefreshOnlyOnce()
+  {
+    var f = Build();
+
+    // A mutable "store" so a save from the first call is visible to the second call's
+    // re-read after it acquires the lock — a real ITwitchTokenStore would behave the same way.
+    var currentStored = new TwitchToken
+    {
+      AccessToken = "old-access",
+      RefreshToken = "old-refresh",
+      Scopes = Scopes.Broadcaster,
+      TokenType = "bearer",
+      ExpiresAt = Now + TimeSpan.FromSeconds(30), // inside the 60s buffer
+    };
+    _ = f.TokenStore.GetAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>())
+      .Returns(_ => Result.Ok<TwitchToken?>(currentStored));
+    _ = f.TokenStore.SaveAsync(TwitchProvider.Broadcaster, Arg.Any<TwitchToken>(), Arg.Any<CancellationToken>())
+      .Returns(callInfo =>
+      {
+        currentStored = callInfo.Arg<TwitchToken>();
+        return Result.Ok();
+      });
+
+    var refreshCallCount = 0;
+    var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var releaseRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    _ = f.OAuthClient.RefreshAsync("old-refresh", Arg.Any<CancellationToken>())
+      .Returns(async _ =>
+      {
+        refreshCallCount++;
+        refreshStarted.SetResult();
+        await releaseRefresh.Task;
+        return Result.Ok(new TwitchTokenResponse { AccessToken = "new-access", ExpiresIn = 3600 });
+      });
+
+    var firstCall = f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, CancellationToken.None);
+    await refreshStarted.Task; // the first call is now inside the lock, mid-refresh
+
+    var secondCall = f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, CancellationToken.None);
+    await Task.Delay(50); // give the second call a chance to reach (and block on) the lock
+
+    releaseRefresh.SetResult();
+    var results = await Task.WhenAll(firstCall, secondCall);
+
+    Assert.True(results[0].IsSuccess);
+    Assert.True(results[1].IsSuccess);
+    Assert.Equal("new-access", results[0].Value);
+    Assert.Equal("new-access", results[1].Value);
+    Assert.Equal(1, refreshCallCount);
+    _ = await f.OAuthClient.Received(1).RefreshAsync("old-refresh", Arg.Any<CancellationToken>());
+  }
+
   [Fact]
   public async Task DoesNotRefreshAFreshToken()
   {

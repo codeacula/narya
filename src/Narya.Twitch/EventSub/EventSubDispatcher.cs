@@ -123,11 +123,14 @@ public static class EventSubDispatcher
 
   /// <summary>
   /// Twitch fires this for a bulk per-user clear (ban or timeout both trigger it) without a
-  /// reason — <c>channel.moderate</c> v2 (<see cref="DispatchModerate"/>) is the richer source
-  /// that carries the actual reason for the same underlying action. Both are dispatched
-  /// independently (twitchlib-spec.md §3.5 lists them as separate mappings); a consumer that
-  /// persists both is expected to dedup on (channel, username, a tight time window) — noted as
-  /// a Phase 3 follow-up in the Task 6 report, not solved here.
+  /// reason. Legacy's <c>eventsub.ts</c> also subscribed <c>channel.moderate</c> v2 as a richer
+  /// source carrying the actual ban/timeout reason for the same underlying action — Narya does
+  /// NOT (see <see cref="EventSubSubscriptions"/>'s doc comment at the removal site): v2 needs a
+  /// broad set of <c>moderator:read</c>/<c>moderator:manage</c> scopes beyond
+  /// <see cref="Scopes.Broadcaster"/>, and granting them is deferred to Phase 3 as the
+  /// operator's call once moderation persistence actually needs the richer data. This method is
+  /// therefore the ONLY source of a ban/timeout <see cref="ChatModerationEvent"/> today — no
+  /// dedup concern, since there is no second dispatch path to double-fire against.
   /// </summary>
   public static ChatModeratedNotification DispatchChatClearUserMessages(ChannelChatClearUserMessagesArgs args, DateTimeOffset now)
   {
@@ -135,35 +138,6 @@ public static class EventSubDispatcher
     var moderationEvent = new ChatModerationEvent(
       "user.timeout", e.BroadcasterUserLogin, MessageId: null, e.TargetUserLogin, now, "messages cleared");
     return new ChatModeratedNotification(moderationEvent);
-  }
-
-  /// <summary>
-  /// <c>channel.moderate</c> v2 covers far more action types than chat moderation (VIP grants,
-  /// slow mode, raids, ...) — only <c>ban</c>, <c>timeout</c>, and <c>delete</c> produce a
-  /// <see cref="ChatModerationEvent"/>; every other action returns null (nothing to persist as
-  /// a moderated chat message).
-  /// </summary>
-  public static ChatModeratedNotification? DispatchModerate(ChannelModerateV2Args args, DateTimeOffset now)
-  {
-    var e = args.Payload.Event;
-
-    ChatModerationEvent? moderationEvent = (e.Action, e.Ban, e.Timeout, e.Delete) switch
-    {
-      ("ban", { } ban, _, _) => new ChatModerationEvent(
-        "user.ban", e.BroadcasterUserLogin, MessageId: null, ban.UserLogin, now, $"ban: {ReasonOrDefault(ban.Reason)}"),
-
-      ("timeout", _, { } timeout, _) => new ChatModerationEvent(
-        "user.timeout", e.BroadcasterUserLogin, MessageId: null, timeout.UserLogin, now,
-        $"timeout: {ReasonOrDefault(timeout.Reason)}"),
-
-      ("delete", _, _, { } delete) => new ChatModerationEvent(
-        "message.deleted", e.BroadcasterUserLogin, delete.MessageId, delete.UserLogin, now,
-        "message deleted by moderator"),
-
-      _ => null,
-    };
-
-    return moderationEvent is null ? null : new ChatModeratedNotification(moderationEvent);
   }
 
   public static StreamEventOccurredNotification DispatchFollow(ChannelFollowArgs args, DateTimeOffset now)
@@ -263,6 +237,40 @@ public static class EventSubDispatcher
     return new StreamEventOccurredNotification(streamEvent);
   }
 
+  /// <summary>
+  /// <c>channel.chat.notification</c> covers a wide family of chat system messages (sub, resub,
+  /// raid, announcement, ...) — every one of those already has its own dedicated EventSub
+  /// subscription and dispatch method (<see cref="DispatchSubscribe"/>, <see cref="DispatchRaid"/>,
+  /// ...), so handling them again here would double-fire the same stream event. Only
+  /// <c>notice_type == "watch_streak"</c> produces anything — matching legacy's
+  /// <c>eventsub.ts</c> <c>channel.chat.notification</c> case, which is likewise a no-op for
+  /// every other notice type — and returns null otherwise.
+  ///
+  /// <b>Known gap</b> (Phase 2 Task 6 final-review Step 0 — verified by decompiling
+  /// TwitchLib.EventSub.Core 3.0.0's <c>ChannelChatNotification</c> model and the raw assembly
+  /// for any "watch_streak" string literal; see the Task 6 report for the full trace): the
+  /// library has NO typed field for the watch-streak payload at all. <c>ChannelChatNotification.NoticeType</c>
+  /// is a plain string Twitch populates correctly (so the <c>watch_streak</c> check below works),
+  /// but there is no <c>WatchStreak</c> property or any extension-data bag anywhere on the type,
+  /// and System.Text.Json silently drops unmapped JSON members by default — so the streak count
+  /// Twitch sends in the real notification never survives deserialization into this object.
+  /// There is therefore no way to reproduce legacy's exact <c>"watch streak · {N} months"</c>
+  /// wording from this args type today; the detail is the generic <c>"watch streak"</c> until a
+  /// future TwitchLib release models the field (or a later phase parses the raw notification
+  /// JSON itself, which no other dispatch method in this class does).
+  /// </summary>
+  public static StreamEventOccurredNotification? DispatchChatNotification(ChannelChatNotificationArgs args, DateTimeOffset now)
+  {
+    var e = args.Payload.Event;
+    if (!string.Equals(e.NoticeType, "watch_streak", StringComparison.Ordinal))
+    {
+      return null;
+    }
+
+    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "redeem", e.ChatterUserName, "watch streak", "silver", now);
+    return new StreamEventOccurredNotification(streamEvent);
+  }
+
   public static WhisperReceivedNotification DispatchWhisper(UserWhisperMessageArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
@@ -305,8 +313,6 @@ public static class EventSubDispatcher
     var e = args.Payload.Event;
     return new AutomodResolvedNotification(e.MessageId, e.Status, e.ModeratorUserName);
   }
-
-  private static string ReasonOrDefault(string? reason) => string.IsNullOrEmpty(reason) ? "no reason provided" : reason;
 
   private static string TierLabel(string tier) => tier switch
   {

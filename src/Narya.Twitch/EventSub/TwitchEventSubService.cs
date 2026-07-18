@@ -170,7 +170,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     _client.ChannelChatMessageDelete += OnChatMessageDeleteAsync;
     _client.ChannelChatClear += OnChatClearAsync;
     _client.ChannelChatClearUserMessages += OnChatClearUserMessagesAsync;
-    _client.ChannelModerateV2 += OnChannelModerateAsync;
+    _client.ChannelChatNotification += OnChatNotificationAsync;
     _client.ChannelFollow += OnChannelFollowAsync;
     _client.ChannelSubscribe += OnChannelSubscribeAsync;
     _client.ChannelSubscriptionMessage += OnChannelSubscriptionMessageAsync;
@@ -424,11 +424,17 @@ public sealed partial class TwitchEventSubService : BackgroundService
     }
   }
 
-  internal async Task OnChannelModerateAsync(object? sender, ChannelModerateV2Args e)
+  /// <summary>
+  /// Only <c>notice_type == "watch_streak"</c> produces anything — <see cref="EventSubDispatcher.DispatchChatNotification"/>'s
+  /// doc comment covers why every other notice type returns null (already covered by its own
+  /// dedicated subscription) and the known TwitchLib.EventSub.Core 3.0.0 gap in the streak
+  /// count itself.
+  /// </summary>
+  internal async Task OnChatNotificationAsync(object? sender, ChannelChatNotificationArgs e)
   {
     try
     {
-      var notification = EventSubDispatcher.DispatchModerate(e, _timeProvider.GetUtcNow());
+      var notification = EventSubDispatcher.DispatchChatNotification(e, _timeProvider.GetUtcNow());
       if (notification is not null)
       {
         await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
@@ -436,7 +442,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     }
     catch (Exception ex)
     {
-      LogEventHandlerFailed(_logger, nameof(OnChannelModerateAsync), ex);
+      LogEventHandlerFailed(_logger, nameof(OnChatNotificationAsync), ex);
     }
   }
 

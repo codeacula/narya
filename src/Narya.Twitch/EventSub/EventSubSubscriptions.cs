@@ -25,22 +25,21 @@ public sealed record EventSubSubscription
 /// broadcaster's own user id — Narya has no moderator-bot identity distinct from the
 /// broadcaster and bot accounts already modeled by <see cref="TwitchProvider"/>, so anywhere
 /// Twitch's condition schema calls for <c>moderator_user_id</c> or <c>user_id</c> (chat,
-/// <c>channel.moderate</c>, <c>automod.message.*</c>, <c>channel.follow</c>,
-/// <c>user.whisper.message</c>), it is filled with the broadcaster id too — matching legacy.
+/// <c>automod.message.*</c>, <c>channel.follow</c>, <c>user.whisper.message</c>), it is filled
+/// with the broadcaster id too — matching legacy.
 ///
-/// <c>channel.moderate</c> and both <c>automod.message.*</c> types are subscribed at
-/// <b>v2</b>, not v1: Step 0 (Phase 2 Task 5, twitchlib-spec.md §5 UNVERIFIED item) confirmed
-/// TwitchLib.EventSub.Core 3.0.0 models typed handlers for both versions of each
-/// (<c>ChannelModerateArgs</c>/<c>ChannelModerateV2Args</c>,
-/// <c>AutomodMessageHoldArgs</c>/<c>AutomodMessageHoldV2Args</c>,
+/// Both <c>automod.message.*</c> types are subscribed at <b>v2</b>, not v1: Step 0 (Phase 2
+/// Task 5, twitchlib-spec.md §5 UNVERIFIED item) confirmed TwitchLib.EventSub.Core 3.0.0
+/// models typed handlers for both versions of each
+/// (<c>AutomodMessageHoldArgs</c>/<c>AutomodMessageHoldV2Args</c>,
 /// <c>AutomodMessageUpdateArgs</c>/<c>AutomodMessageUpdateV2Args</c>) — v2 was chosen because
-/// it is a strict superset (e.g. <c>ChannelModerateV2</c>'s <c>Action</c> field documents
-/// <c>warn</c> and the <c>shared_chat_*</c> action family that v1 cannot represent at all) and
-/// because <see cref="TwitchLib.EventSub.Websockets.EventSubWebsocketClient"/> keys its
-/// dispatch off the <c>(type, version)</c> pair Twitch echoes back in each notification's
-/// metadata — subscribing at v2 is what makes the client route into the V2-typed handler
-/// rather than the deprecated v1 one. See the Phase 2 Task 5 report for the full Step 0
-/// findings.
+/// it is a strict superset, and because <see cref="TwitchLib.EventSub.Websockets.EventSubWebsocketClient"/>
+/// keys its dispatch off the <c>(type, version)</c> pair Twitch echoes back in each
+/// notification's metadata — subscribing at v2 is what makes the client route into the
+/// V2-typed handler rather than the deprecated v1 one. See the Phase 2 Task 5 report for the
+/// full Step 0 findings.
+///
+/// <c>channel.moderate</c> is deliberately ABSENT — see the comment at its former place below.
 /// </summary>
 public static class EventSubSubscriptions
 {
@@ -60,7 +59,17 @@ public static class EventSubSubscriptions
     new() { Type = "channel.chat.clear", Version = "1", ConditionFor = BroadcasterAndUser },
     new() { Type = "channel.chat.clear_user_messages", Version = "1", ConditionFor = BroadcasterAndUser },
     new() { Type = "channel.chat.notification", Version = "1", ConditionFor = BroadcasterAndUser },
-    new() { Type = "channel.moderate", Version = "2", ConditionFor = BroadcasterAndModerator },
+
+    // channel.moderate v2 (richer ban/timeout-with-reason + moderator name) is DEFERRED to
+    // Phase 3 — it needs broad moderator:read/manage scopes (blocked_terms, chat_settings,
+    // unban_requests, banned_users, chat_messages, warnings, moderators, vips) not in
+    // Scopes.Broadcaster; adding them expands the operator's OAuth consent, so it's the
+    // operator's call when moderation persistence lands. Subscribing anyway 403s at creation
+    // (twitchlib-spec.md documented it as inherited verbatim from legacy, which never actually
+    // subscribed to channel.moderate — legacy's ban/timeout signal was tmi.js `timeout`/`ban`
+    // events, not EventSub). The visible signal today is channel.chat.clear_user_messages
+    // (below) — DispatchChatClearUserMessages's doc comment covers what that does and does not
+    // carry compared to what v2 would have added.
     new() { Type = "automod.message.hold", Version = "2", ConditionFor = BroadcasterAndModerator },
     new() { Type = "automod.message.update", Version = "2", ConditionFor = BroadcasterAndModerator },
     new() { Type = "channel.channel_points_custom_reward_redemption.add", Version = "1", ConditionFor = Broadcaster },

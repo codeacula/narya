@@ -8,7 +8,6 @@ using TwitchLib.EventSub.Core.EventArgs.Stream;
 using TwitchLib.EventSub.Core.EventArgs.User;
 using TwitchLib.EventSub.Core.Models;
 using TwitchLib.EventSub.Core.Models.ChannelPoints;
-using TwitchLib.EventSub.Core.Models.Moderate;
 using TwitchLib.EventSub.Core.SubscriptionTypes.Channel;
 
 // TwitchLib.EventSub.Core.Models.Chat.ChatMessage/ChatBadge and
@@ -18,9 +17,6 @@ using TwitchLib.EventSub.Core.SubscriptionTypes.Channel;
 using TwitchChatBadge = TwitchLib.EventSub.Core.Models.Chat.ChatBadge;
 using TwitchChatMessage = TwitchLib.EventSub.Core.Models.Chat.ChatMessage;
 using TwitchWhisperMessage = TwitchLib.EventSub.Core.Models.Whisper.WhisperMessage;
-
-// TwitchLib.EventSub.Core.Models.Moderate.Timeout collides with System.Threading.Timeout.
-using ModerateTimeout = TwitchLib.EventSub.Core.Models.Moderate.Timeout;
 
 namespace Narya.Twitch.Tests.EventSub;
 
@@ -282,83 +278,6 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("rowdyviewer", notification.ModerationEvent.Username);
     Assert.Null(notification.ModerationEvent.MessageId);
   }
-
-  [Fact]
-  public void DispatchModerateMapsBanWithAReason()
-  {
-    var args = ModerateArgs("ban", ban: new Ban { UserLogin = "baduser", Reason = "spam" });
-
-    var notification = EventSubDispatcher.DispatchModerate(args, Now);
-
-    Assert.NotNull(notification);
-    Assert.Equal("user.ban", notification!.ModerationEvent.Type);
-    Assert.Equal("baduser", notification.ModerationEvent.Username);
-    Assert.Equal("ban: spam", notification.ModerationEvent.DeletedReason);
-  }
-
-  [Fact]
-  public void DispatchModerateMapsBanWithNoReasonToTheDefaultText()
-  {
-    var args = ModerateArgs("ban", ban: new Ban { UserLogin = "baduser", Reason = null });
-
-    var notification = EventSubDispatcher.DispatchModerate(args, Now);
-
-    Assert.Equal("ban: no reason provided", notification!.ModerationEvent.DeletedReason);
-  }
-
-  [Fact]
-  public void DispatchModerateMapsTimeoutWithAReason()
-  {
-    var args = ModerateArgs("timeout", timeout: new ModerateTimeout { UserLogin = "rowdyviewer", Reason = "cooldown" });
-
-    var notification = EventSubDispatcher.DispatchModerate(args, Now);
-
-    Assert.NotNull(notification);
-    Assert.Equal("user.timeout", notification!.ModerationEvent.Type);
-    Assert.Equal("rowdyviewer", notification.ModerationEvent.Username);
-    Assert.Equal("timeout: cooldown", notification.ModerationEvent.DeletedReason);
-  }
-
-  [Fact]
-  public void DispatchModerateMapsDelete()
-  {
-    var args = ModerateArgs("delete", delete: new Delete { UserLogin = "spammer", MessageId = "msg-321" });
-
-    var notification = EventSubDispatcher.DispatchModerate(args, Now);
-
-    Assert.NotNull(notification);
-    Assert.Equal("message.deleted", notification!.ModerationEvent.Type);
-    Assert.Equal("msg-321", notification.ModerationEvent.MessageId);
-    Assert.Equal("message deleted by moderator", notification.ModerationEvent.DeletedReason);
-  }
-
-  [Theory]
-  [InlineData("vip")]
-  [InlineData("unmod")]
-  [InlineData("raid")]
-  [InlineData("warn")]
-  public void DispatchModerateReturnsNullForActionsThatAreNotChatModeration(string action)
-  {
-    var args = ModerateArgs(action);
-
-    Assert.Null(EventSubDispatcher.DispatchModerate(args, Now));
-  }
-
-  private static ChannelModerateV2Args ModerateArgs(string action, Ban? ban = null, ModerateTimeout? timeout = null, Delete? delete = null) =>
-    new()
-    {
-      Payload = new EventSubNotificationPayload<ChannelModerateV2>
-      {
-        Event = new ChannelModerateV2
-        {
-          BroadcasterUserLogin = "codeacula",
-          Action = action,
-          Ban = ban,
-          Timeout = timeout,
-          Delete = delete,
-        },
-      },
-    };
 
   // ---------------------------------------------------------------------------------------
   // Stream events: follow / sub / gift / cheer / raid / redeem / ad break
@@ -634,6 +553,51 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("ad break · 90s", notification.Event.Detail);
     Assert.Equal("info", notification.Event.Tone);
   }
+
+  // ---------------------------------------------------------------------------------------
+  // Chat notification (watch streak) — Phase 2 final-review fix pass
+  // ---------------------------------------------------------------------------------------
+
+  [Fact]
+  public void DispatchChatNotificationMapsAWatchStreakToARedeemStreamEvent()
+  {
+    var args = ChatNotificationArgs("watch_streak", "LoyalViewer");
+
+    var notification = EventSubDispatcher.DispatchChatNotification(args, Now);
+
+    Assert.NotNull(notification);
+    Assert.Equal("redeem", notification!.Event.Kind);
+    Assert.Equal("LoyalViewer", notification.Event.Actor);
+    Assert.Equal("watch streak", notification.Event.Detail);
+    Assert.Equal("silver", notification.Event.Tone);
+    Assert.Equal(Now, notification.Event.ReceivedAt);
+    Assert.False(string.IsNullOrEmpty(notification.Event.Id));
+  }
+
+  [Theory]
+  [InlineData("sub")]
+  [InlineData("resub")]
+  [InlineData("raid")]
+  [InlineData("announcement")]
+  public void DispatchChatNotificationReturnsNullForEveryNonWatchStreakNoticeType(string noticeType)
+  {
+    var args = ChatNotificationArgs(noticeType, "SomeChatter");
+
+    Assert.Null(EventSubDispatcher.DispatchChatNotification(args, Now));
+  }
+
+  private static ChannelChatNotificationArgs ChatNotificationArgs(string noticeType, string chatterUserName) => new()
+  {
+    Payload = new EventSubNotificationPayload<ChannelChatNotification>
+    {
+      Event = new ChannelChatNotification
+      {
+        BroadcasterUserLogin = "codeacula",
+        ChatterUserName = chatterUserName,
+        NoticeType = noticeType,
+      },
+    },
+  };
 
   // ---------------------------------------------------------------------------------------
   // Whisper

@@ -13,6 +13,15 @@ namespace Narya.Twitch.EventSub.Notifications;
 /// **redemption id** (not a transport id)", so <see cref="EventSubDispatcher.DispatchRedemption"/>
 /// reuses that same id here rather than minting an unrelated one, giving Phase 4's
 /// <c>automation_runs</c> dedup a stable, meaningful id to key off later.
+///
+/// <b>No <c>SessionId</c> field, unlike legacy</b>: legacy's <c>emitStreamEvent</c>
+/// (<c>legacy/src/server/eventsub.ts</c>) stamps every row with <c>stream_events.session_id</c>
+/// so the dashboard can dim events from a different stream session. <see cref="EventSubDispatcher"/>
+/// is a pure translation with no database access, so Phase 2 cannot know the active session —
+/// this record simply has nowhere to put one yet. This is the actual, deliberate Phase 2 shape,
+/// not an oversight: Phase 3's session-scoping restructure (see
+/// <see cref="Narya.Twitch.Chat.ChatMessage"/>'s doc comment for the parallel chat-side gap and
+/// the planned ingested/broadcast notification split) is what will add it.
 /// </summary>
 public sealed record StreamEvent(
   string Id,
