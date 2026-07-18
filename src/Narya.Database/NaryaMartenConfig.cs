@@ -1,6 +1,8 @@
 using Marten;
 using Marten.Events.Projections;
+using Marten.Schema;
 
+using Narya.Database.Actions;
 using Narya.Database.AppConfig;
 using Narya.Database.Automod;
 using Narya.Database.Chat;
@@ -71,5 +73,19 @@ public static class NaryaMartenConfig
     // Indexed on Label (MediaAssetStore.GetAllAsync's ordering).
     _ = options.Schema.For<MediaAssetDocument>()
       .Index(x => x.Label);
+
+    // Actions + embedded steps (Phase 4 Task 2) — see ActionDocument's doc comment. Name is a
+    // REAL case-insensitive unique database constraint (Casing = Lower generates the index over
+    // lower(data ->> 'Name'), IsUnique = true makes it a unique index) rather than app-level
+    // enforcement — the Postgres equivalent of legacy's SQLite `name text not null unique` +
+    // `order by name collate nocase`, so "Hype" and "hype" collide the same way.
+    // ActionStore.IsUniqueNameViolation catches the resulting 23505 and translates it to a typed
+    // DuplicateActionNameError instead of letting the raw exception propagate.
+    _ = options.Schema.For<ActionDocument>()
+      .Index(x => x.Name, i =>
+      {
+        i.IsUnique = true;
+        i.Casing = ComputedIndex.Casings.Lower;
+      });
   }
 }

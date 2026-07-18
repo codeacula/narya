@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 
 using Narya.Api.Auth;
+using Narya.Core.Actions;
 using Narya.Core.AppConfig;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
@@ -64,6 +65,7 @@ public sealed class AutomodControllerTests
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
           _ = services.AddSingleton(Substitute.For<IViewerStore>());
           _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
+          _ = services.AddSingleton(Substitute.For<IActionStore>());
         });
       })
       .CreateClient();

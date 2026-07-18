@@ -1,6 +1,8 @@
 using Marten;
 
+using Narya.Core.Actions;
 using Narya.Core.Media;
+using Narya.Database.Actions;
 using Narya.Database.Media;
 using Narya.Database.Tests.Fixtures;
 
@@ -259,23 +261,85 @@ public sealed class MediaAssetStoreTests(PostgresFixture fixture)
   }
 
   /// <summary>
-  /// <see cref="IMediaAssetStore.IsReferencedByAnyActionAsync"/> is stubbed to always return
-  /// <see langword="false"/> for Phase 4 Task 1 — <c>ActionDocument</c> (Task 2) doesn't exist
-  /// yet, so there is no actions collection to query. This test documents the stub's current
-  /// behavior directly rather than silently assuming it; Task 2 replaces the stub AND this
-  /// assertion together once a referenced-asset fixture is possible. The
-  /// <see cref="MediaAssetDeleteOutcome.Referenced"/> 409 path is therefore untestable until then
-  /// — see <c>IMediaAssetStore.IsReferencedByAnyActionAsync</c>'s doc comment.
+  /// Inserts a minimal <see cref="ActionDocument"/> with a single <c>play_media</c> step directly
+  /// via a Marten session — a hand-rolled fixture rather than going through
+  /// <c>Narya.Database.Actions.ActionStore</c>, so this test file does not need to depend on the
+  /// Actions store's own validation/normalization to set up its scenario.
+  /// </summary>
+  private static async Task InsertActionReferencingAssetAsync(IDocumentStore documentStore, Guid assetId)
+  {
+    await using var session = documentStore.LightweightSession();
+    session.Insert(new ActionDocument
+    {
+      Id = Guid.NewGuid(),
+      Name = $"References {assetId}",
+      Enabled = true,
+      Steps =
+      [
+        new PlayMediaActionStep
+        {
+          Id = Guid.NewGuid(),
+          Position = 0,
+          AssetIds = [assetId],
+          Selection = MediaSelection.First,
+        },
+      ],
+      CreatedAt = DateTimeOffset.UtcNow,
+      UpdatedAt = DateTimeOffset.UtcNow,
+    });
+    await session.SaveChangesAsync(CancellationToken.None);
+  }
+
+  /// <summary>
+  /// Phase 4 Task 1 stubbed <see cref="IMediaAssetStore.IsReferencedByAnyActionAsync"/> to always
+  /// return <see langword="false"/> because <see cref="ActionDocument"/> didn't exist yet. This
+  /// is that deferred test, now that it does: an Action with a <c>play_media</c> step whose
+  /// <c>assetIds</c> names this asset makes the check true.
   /// </summary>
   [Fact]
-  public async Task IsReferencedByAnyActionIsStubbedToAlwaysReturnFalseUntilTask2WiresActionDocument()
+  public async Task IsReferencedByAnyActionIsTrueWhenAPlayMediaStepNamesTheAsset()
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var store = new MediaAssetStore(documentStore, new FakeMediaFileCatalog(), TimeProvider.System);
     var created = await store.CreateAsync(BuildRemotePatch(), CancellationToken.None);
+    await InsertActionReferencingAssetAsync(documentStore, created.Value.Id);
+
+    var referenced = await store.IsReferencedByAnyActionAsync(created.Value.Id, CancellationToken.None);
+
+    Assert.True(referenced);
+  }
+
+  [Fact]
+  public async Task IsReferencedByAnyActionIsFalseWhenNoStepNamesTheAsset()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new MediaAssetStore(documentStore, new FakeMediaFileCatalog(), TimeProvider.System);
+    var created = await store.CreateAsync(BuildRemotePatch(), CancellationToken.None);
+    // An action exists, but references a DIFFERENT asset entirely.
+    await InsertActionReferencingAssetAsync(documentStore, Guid.NewGuid());
 
     var referenced = await store.IsReferencedByAnyActionAsync(created.Value.Id, CancellationToken.None);
 
     Assert.False(referenced);
+  }
+
+  /// <summary>
+  /// Completes Phase 4 Task 1's deferred coverage: <c>DELETE /api/media-assets/{id}</c> (here,
+  /// the store method behind it) now genuinely returns <see cref="MediaAssetDeleteOutcome.Referenced"/>
+  /// instead of always succeeding, now that there is an Action to reference it.
+  /// </summary>
+  [Fact]
+  public async Task DeleteOnAReferencedAssetReturnsReferencedAndDoesNotDeleteIt()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new MediaAssetStore(documentStore, new FakeMediaFileCatalog(), TimeProvider.System);
+    var created = await store.CreateAsync(BuildRemotePatch(), CancellationToken.None);
+    await InsertActionReferencingAssetAsync(documentStore, created.Value.Id);
+
+    var outcome = await store.DeleteAsync(created.Value.Id, CancellationToken.None);
+
+    Assert.Equal(MediaAssetDeleteOutcome.Referenced, outcome);
+    var stillThere = await store.GetByIdAsync(created.Value.Id, CancellationToken.None);
+    Assert.NotNull(stillThere);
   }
 }

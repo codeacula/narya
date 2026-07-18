@@ -12,6 +12,7 @@ using Narya.Core.AppConfig;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
+using Narya.Core.Actions;
 using Narya.Core.Media;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
@@ -55,9 +56,10 @@ public sealed class InfrastructureSkipTests
   /// <c>GetRosterQueryHandler</c>/<c>GetRecentViewersQueryHandler</c> that depend on
   /// <see cref="IViewerStore"/>, the Automod <c>RecordAutomodHoldHandler</c>/
   /// <c>ResolveAutomodHoldHandler</c>/<c>GetAutomodQueueQueryHandler</c> that depend on
-  /// <see cref="IAutomodStore"/>, and (Phase 4 Task 1) <c>Narya.Api.Controllers.MediaAssetsController</c>
-  /// itself, which depends on <see cref="IMediaAssetStore"/> directly (no MediatR handler in
-  /// between — see that controller's doc comment) — unconfigured substitutes are enough to
+  /// <see cref="IAutomodStore"/>, and (Phase 4 Task 1/2) <c>Narya.Api.Controllers.MediaAssetsController</c>
+  /// and <c>Narya.Api.Controllers.ActionsController</c> themselves, which depend on
+  /// <see cref="IMediaAssetStore"/>/<see cref="IActionStore"/> directly (no MediatR handler in
+  /// between — see those controllers' doc comments) — unconfigured substitutes are enough to
   /// satisfy that. <see cref="IMediaFileCatalog"/> needs no substitute here: its default
   /// <c>NullMediaFileCatalog</c> is registered unconditionally via <c>TryAddSingleton</c> in
   /// <c>AddNaryaApplication</c>, so it resolves even under SkipInfrastructure.
@@ -77,6 +79,7 @@ public sealed class InfrastructureSkipTests
           _ = services.AddSingleton(Substitute.For<IViewerStore>());
           _ = services.AddSingleton(Substitute.For<IAutomodStore>());
           _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
+          _ = services.AddSingleton(Substitute.For<IActionStore>());
         });
       });
 

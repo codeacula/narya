@@ -2,7 +2,9 @@ using FluentResults;
 
 using Marten;
 
+using Narya.Core.Actions;
 using Narya.Core.Media;
+using Narya.Database.Actions;
 
 namespace Narya.Database.Media;
 
@@ -116,9 +118,30 @@ public sealed class MediaAssetStore(IDocumentStore store, IMediaFileCatalog cata
     return MediaAssetDeleteOutcome.Deleted;
   }
 
-  /// <summary>Stubbed — see <see cref="IMediaAssetStore.IsReferencedByAnyActionAsync"/>'s doc comment.</summary>
-  public Task<bool> IsReferencedByAnyActionAsync(Guid id, CancellationToken cancellationToken) =>
-    Task.FromResult(false);
+  /// <summary>
+  /// Wired against <see cref="ActionDocument"/> (Phase 4 Task 2 — was stubbed to always return
+  /// <see langword="false"/> in Task 1, since <see cref="ActionDocument"/> didn't exist yet).
+  ///
+  /// Loads every Action and checks its embedded steps in memory rather than pushing the
+  /// predicate into a Marten/Postgres JSONB query: the check is "does any ActionDocument have a
+  /// <c>play_media</c> step whose <c>AssetIds</c> contains this id", which needs Marten's LINQ
+  /// provider to translate a nested-collection `Any` over a POLYMORPHIC element type (filter by
+  /// runtime subtype, then by a property that only exists on that subtype) into SQL — a
+  /// combination Marten's computed-index/query translation is not documented to support for
+  /// arbitrarily-shaped JSONB array elements. The configured Actions catalog is operator-sized
+  /// (tens, not millions, of rows — the same order of magnitude as
+  /// <see cref="MediaAssetStore.GetAllAsync"/>'s own full-table load), so an in-memory scan is the
+  /// safe, correct choice here; if the catalog ever grows enough for this to matter, revisit with
+  /// a real SQL-side query.
+  /// </summary>
+  public async Task<bool> IsReferencedByAnyActionAsync(Guid id, CancellationToken cancellationToken)
+  {
+    await using var session = store.QuerySession();
+    var actions = await session.Query<ActionDocument>().ToListAsync(cancellationToken);
+    return actions.Any(action => action.Steps
+      .OfType<PlayMediaActionStep>()
+      .Any(step => step.AssetIds.Contains(id)));
+  }
 
   private MediaAsset ToAsset(MediaAssetDocument doc)
   {

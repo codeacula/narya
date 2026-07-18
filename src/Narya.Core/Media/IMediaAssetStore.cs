@@ -55,16 +55,12 @@ public interface IMediaAssetStore
 
   /// <summary>
   /// True when a <c>play_media</c> step on any Action still names <paramref name="id"/> in its
-  /// <c>assetIds</c>.
-  ///
-  /// <b>Stubbed for Phase 4 Task 1 — always returns <see langword="false"/>.</b> Phase 4 Task 2
-  /// introduces the Action/step document this needs to query (<c>ActionDocument</c>, with
-  /// embedded <c>play_media</c> steps); this task's dispatch order comes before that, so there is
-  /// no actions collection to query yet. <c>Narya.Database.Media.MediaAssetStore.DeleteAsync</c>
-  /// already calls this method (not a duplicated inline check), so Task 2 wiring this up to a
-  /// real query against <c>ActionDocument</c> is a one-method change with no caller-side edits.
-  /// Until then, <c>DELETE /api/media-assets/{id}</c> can never actually return 409 — every
-  /// delete either 404s (unknown id) or succeeds.
+  /// <c>assetIds</c>. Wired in Phase 4 Task 2 against <c>Narya.Database.Actions.ActionDocument</c>
+  /// — see <c>Narya.Database.Media.MediaAssetStore.IsReferencedByAnyActionAsync</c>'s doc comment
+  /// for the query approach (in-memory scan, not a pushed-down JSONB predicate, and why).
+  /// <c>Narya.Database.Media.MediaAssetStore.DeleteAsync</c> calls this method (not a duplicated
+  /// inline check), so <c>DELETE /api/media-assets/{id}</c> now genuinely returns 409 when a
+  /// referenced asset is deleted.
   /// </summary>
   Task<bool> IsReferencedByAnyActionAsync(Guid id, CancellationToken cancellationToken);
 }
