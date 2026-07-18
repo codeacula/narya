@@ -141,11 +141,11 @@ public sealed class AutomodControllerTests
     Assert.Contains("\"resolution\":\"denied\"", body);
     _ = await helix.DidNotReceive().ResolveAutomodMessageAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     _ = await store.DidNotReceive().ResolveHoldAsync(
-      Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+      Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<AutomodResolutionSource>(), Arg.Any<CancellationToken>());
   }
 
   [Fact]
-  public async Task AllowOkOutcomeResolvesAuthoritativelyWithTheConfiguredChannelAsModerator()
+  public async Task AllowOkOutcomeResolvesWithDashboardPrecedenceAndTheConfiguredChannelAsModerator()
   {
     var (client, store, helix) = BuildOperatorClient();
     var pending = BuildHold();
@@ -153,7 +153,7 @@ public sealed class AutomodControllerTests
     _ = helix.ResolveAutomodMessageAsync("held-1", true, Arg.Any<CancellationToken>())
       .Returns(Result.Ok(new AutomodResolution { Outcome = AutomodOutcomes.Ok }));
     var resolved = pending with { ResolvedAt = DateTimeOffset.UtcNow, Resolution = "allowed", ResolvedBy = "codeacula" };
-    _ = store.ResolveHoldAsync("held-1", "allowed", "codeacula", true, Arg.Any<CancellationToken>())
+    _ = store.ResolveHoldAsync("held-1", "allowed", "codeacula", AutomodResolutionSource.Dashboard, Arg.Any<CancellationToken>())
       .Returns(new AutomodResolveResult(resolved, true));
 
     var response = await client.PostAsync("/api/automod/held-1/allow", null);
@@ -161,11 +161,11 @@ public sealed class AutomodControllerTests
     Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     var body = await response.Content.ReadAsStringAsync();
     Assert.Contains("\"resolution\":\"allowed\"", body);
-    _ = await store.Received(1).ResolveHoldAsync("held-1", "allowed", "codeacula", true, Arg.Any<CancellationToken>());
+    _ = await store.Received(1).ResolveHoldAsync("held-1", "allowed", "codeacula", AutomodResolutionSource.Dashboard, Arg.Any<CancellationToken>());
   }
 
   [Fact]
-  public async Task DenyGoneOutcomeResolvesAsExpiredNonAuthoritatively()
+  public async Task DenyGoneOutcomeResolvesAsExpiredSpeculatively()
   {
     var (client, store, helix) = BuildOperatorClient();
     var pending = BuildHold();
@@ -173,7 +173,7 @@ public sealed class AutomodControllerTests
     _ = helix.ResolveAutomodMessageAsync("held-1", false, Arg.Any<CancellationToken>())
       .Returns(Result.Ok(new AutomodResolution { Outcome = AutomodOutcomes.Gone }));
     var resolved = pending with { ResolvedAt = DateTimeOffset.UtcNow, Resolution = "expired" };
-    _ = store.ResolveHoldAsync("held-1", "expired", null, false, Arg.Any<CancellationToken>())
+    _ = store.ResolveHoldAsync("held-1", "expired", null, AutomodResolutionSource.Speculative, Arg.Any<CancellationToken>())
       .Returns(new AutomodResolveResult(resolved, true));
 
     var response = await client.PostAsync("/api/automod/held-1/deny", null);
@@ -181,7 +181,7 @@ public sealed class AutomodControllerTests
     Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     var body = await response.Content.ReadAsStringAsync();
     Assert.Contains("\"resolution\":\"expired\"", body);
-    _ = await store.Received(1).ResolveHoldAsync("held-1", "expired", null, false, Arg.Any<CancellationToken>());
+    _ = await store.Received(1).ResolveHoldAsync("held-1", "expired", null, AutomodResolutionSource.Speculative, Arg.Any<CancellationToken>());
   }
 
   [Fact]

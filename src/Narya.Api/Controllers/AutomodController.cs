@@ -79,14 +79,16 @@ public sealed class AutomodController(
     AutomodResolveResult result;
     if (helixResult.Value.Outcome == AutomodOutcomes.Gone)
     {
-      result = await automodStore.ResolveHoldAsync(id, "expired", null, authoritative: false, cancellationToken)
+      result = await automodStore.ResolveHoldAsync(id, "expired", null, AutomodResolutionSource.Speculative, cancellationToken)
         .ConfigureAwait(false);
     }
     else
     {
+      // Dashboard precedence, not EventSub: this is our report of a Helix call we made, and a
+      // later automod.message.update from Twitch itself outranks it — see AutomodResolutionSource.
       var resolvedBy = await ResolveModeratorLoginAsync(cancellationToken).ConfigureAwait(false);
       result = await automodStore.ResolveHoldAsync(
-          id, allow ? "allowed" : "denied", resolvedBy, authoritative: true, cancellationToken)
+          id, allow ? "allowed" : "denied", resolvedBy, AutomodResolutionSource.Dashboard, cancellationToken)
         .ConfigureAwait(false);
     }
 

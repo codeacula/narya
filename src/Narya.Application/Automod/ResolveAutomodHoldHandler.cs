@@ -5,10 +5,11 @@ using Narya.Core.Automod;
 namespace Narya.Application.Automod;
 
 /// <summary>
-/// Resolves a previously held message authoritatively — a port of legacy's <c>eventsub.ts</c>
-/// <c>automod.message.update</c> handler, sourced from Twitch's own EventSub verdict (never
-/// speculative — <c>authoritative: true</c> here can overturn a locally-recorded speculative
-/// "expired" exactly once; see <see cref="IAutomodStore.ResolveHoldAsync"/>'s doc comment).
+/// Resolves a previously held message from Twitch's own EventSub verdict — a port of legacy's
+/// <c>eventsub.ts</c> <c>automod.message.update</c> handler. This is the system of record, so it
+/// resolves with the highest precedence (<see cref="AutomodResolutionSource.EventSub"/>): it can
+/// overturn both a speculative "expired" and a contradictory dashboard verdict, and nothing can
+/// overturn it — see <see cref="IAutomodStore.ResolveHoldAsync"/>'s doc comment.
 /// </summary>
 public sealed class ResolveAutomodHoldHandler(IAutomodStore automodStore, IMediator mediator)
   : INotificationHandler<AutomodResolvedNotification>
@@ -19,10 +20,10 @@ public sealed class ResolveAutomodHoldHandler(IAutomodStore automodStore, IMedia
     var resolvedBy = string.IsNullOrEmpty(notification.ModeratorUserName) ? null : notification.ModeratorUserName;
 
     var result = await automodStore.ResolveHoldAsync(
-      notification.MessageId, resolution, resolvedBy, authoritative: true, cancellationToken).ConfigureAwait(false);
+      notification.MessageId, resolution, resolvedBy, AutomodResolutionSource.EventSub, cancellationToken).ConfigureAwait(false);
 
-    // Changed is false for an unknown id, or when this authoritative verdict lost a race (or
-    // arrived redundantly) against an already-resolved hold — neither broadcasts, matching
+    // Changed is false for an unknown id, or when this verdict was redundant (the same resolution
+    // an equal-or-higher-precedence source already stored) — neither broadcasts, matching
     // legacy's resolveAutomodHold, which only broadcasts on an actual row change.
     if (result is { Changed: true, Hold: not null })
     {

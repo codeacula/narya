@@ -6,9 +6,9 @@ namespace Narya.Core.Automation;
 /// The <c>automation_runs</c> invocation log — a port of legacy's dedicated prepared statements in
 /// <c>legacy/src/server/triggerDispatcher.ts</c> (<c>insertRun</c>/<c>finishRun</c>/<c>lastRunAt</c>/
 /// <c>lastUserRunAt</c>/<c>deleteOldRuns</c>). This table is BOTH the invocation log and the dedupe
-/// table: <see cref="TryClaimAsync"/> is the only write path that creates a row, and the row it
-/// creates is what <see cref="GetLastRunAtAsync"/>/<see cref="GetLastUserRunAtAsync"/> read back for
-/// cooldowns. Implemented by <c>Narya.Database.Automation.AutomationRunStore</c>; registered
+/// table AND the cooldown table: <see cref="TryClaimAsync"/> is the only write path that creates a
+/// row, and the row it creates is what a later <see cref="TryClaimAsync"/> reads back to decide
+/// whether the trigger is still cooling down. Implemented by <c>Narya.Database.Automation.AutomationRunStore</c>; registered
 /// <c>AddSingleton&lt;IAutomationRunStore, AutomationRunStore&gt;</c> in
 /// <c>Narya.Database.ServiceCollectionExtensions.AddNaryaDatabase</c> — same reference-direction
 /// constraint as <c>Narya.Core.Automation.IAutomationTriggerStore</c> (defined here, not alongside
@@ -35,9 +35,26 @@ public interface IAutomationRunStore
   /// check-then-insert would have a TOCTOU gap two concurrent redeliveries could both pass; only the
   /// database's own uniqueness guarantee, observed via which insert wins, closes it.
   /// </para>
+  ///
+  /// <para>
+  /// <b>This is also the cooldown gate.</b> <paramref name="cooldowns"/> is enforced HERE rather
+  /// than by the caller, because a caller that reads the last run and then claims has a TOCTOU gap
+  /// the dedupe key cannot close: two DIFFERENT event ids inside one cooldown window carry
+  /// different dedupe keys, so both inserts are legal and both callers fire. When
+  /// <see cref="TriggerCooldowns.Enforced"/>, the implementation must make the cooldown read and
+  /// this insert one serialized operation, so exactly one of N racing callers is admitted.
+  /// A cooldown rejection and a dedupe rejection are indistinguishable to the caller — both are
+  /// <see langword="false"/>, both mean "do not run the Action."
+  /// </para>
   /// </summary>
   Task<bool> TryClaimAsync(
-    Guid runId, Guid triggerId, string? dedupeKey, string? actorLogin, DateTimeOffset ranAt, CancellationToken cancellationToken);
+    Guid runId,
+    Guid triggerId,
+    string? dedupeKey,
+    string? actorLogin,
+    DateTimeOffset ranAt,
+    TriggerCooldowns cooldowns,
+    CancellationToken cancellationToken);
 
   /// <summary>
   /// Updates the provisional row <paramref name="runId"/> claimed with the Action's real outcome.
@@ -46,12 +63,6 @@ public interface IAutomationRunStore
   /// <c>UPDATE ... WHERE id = ?</c>, which likewise updates zero rows rather than erroring.
   /// </summary>
   Task FinishAsync(Guid runId, ActionRunStatus status, string detail, CancellationToken cancellationToken);
-
-  /// <summary>The most recent <c>RanAt</c> for any run of <paramref name="triggerId"/>, regardless of status — the global-cooldown source.</summary>
-  Task<DateTimeOffset?> GetLastRunAtAsync(Guid triggerId, CancellationToken cancellationToken);
-
-  /// <summary>The most recent <c>RanAt</c> for <paramref name="triggerId"/> and <paramref name="actorLogin"/>, regardless of status — the user-cooldown source.</summary>
-  Task<DateTimeOffset?> GetLastUserRunAtAsync(Guid triggerId, string actorLogin, CancellationToken cancellationToken);
 
   /// <summary>
   /// Deletes every run row with <c>RanAt</c> before <paramref name="cutoff"/> and returns how many

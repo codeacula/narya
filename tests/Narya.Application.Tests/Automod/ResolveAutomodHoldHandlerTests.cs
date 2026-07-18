@@ -29,17 +29,17 @@ public sealed class ResolveAutomodHoldHandlerTests
   [InlineData("Denied", "denied")]
   [InlineData("Expired", "expired")]
   [InlineData("something-unrecognized", "expired")]
-  public async Task NormalizesTwitchsStatusAndCallsResolveHoldAuthoritatively(string rawStatus, string expectedResolution)
+  public async Task NormalizesTwitchsStatusAndResolvesWithEventSubPrecedence(string rawStatus, string expectedResolution)
   {
     var f = Build();
     _ = f.AutomodStore.ResolveHoldAsync(
-        "held-1", expectedResolution, "ModeratorName", true, Arg.Any<CancellationToken>())
+        "held-1", expectedResolution, "ModeratorName", AutomodResolutionSource.EventSub, Arg.Any<CancellationToken>())
       .Returns(new AutomodResolveResult(BuildHold(expectedResolution), true));
 
     await f.Handler.Handle(new AutomodResolvedNotification("held-1", rawStatus, "ModeratorName"), CancellationToken.None);
 
     _ = await f.AutomodStore.Received(1).ResolveHoldAsync(
-      "held-1", expectedResolution, "ModeratorName", true, Arg.Any<CancellationToken>());
+      "held-1", expectedResolution, "ModeratorName", AutomodResolutionSource.EventSub, Arg.Any<CancellationToken>());
   }
 
   [Fact]
@@ -47,7 +47,7 @@ public sealed class ResolveAutomodHoldHandlerTests
   {
     var f = Build();
     _ = f.AutomodStore.ResolveHoldAsync(
-        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<AutomodResolutionSource>(), Arg.Any<CancellationToken>())
       .Returns(new AutomodResolveResult(BuildHold("allowed"), true));
 
     await f.Handler.Handle(new AutomodResolvedNotification("held-1", "Approved", "ModeratorName"), CancellationToken.None);
@@ -61,7 +61,7 @@ public sealed class ResolveAutomodHoldHandlerTests
   {
     var f = Build();
     _ = f.AutomodStore.ResolveHoldAsync(
-        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<AutomodResolutionSource>(), Arg.Any<CancellationToken>())
       .Returns(new AutomodResolveResult(BuildHold("denied"), false));
 
     await f.Handler.Handle(new AutomodResolvedNotification("held-1", "Approved", "ModeratorName"), CancellationToken.None);
@@ -74,7 +74,7 @@ public sealed class ResolveAutomodHoldHandlerTests
   {
     var f = Build();
     _ = f.AutomodStore.ResolveHoldAsync(
-        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<AutomodResolutionSource>(), Arg.Any<CancellationToken>())
       .Returns(new AutomodResolveResult(null, false));
 
     await f.Handler.Handle(new AutomodResolvedNotification("does-not-exist", "Approved", "ModeratorName"), CancellationToken.None);
@@ -87,11 +87,11 @@ public sealed class ResolveAutomodHoldHandlerTests
   {
     var f = Build();
     _ = f.AutomodStore.ResolveHoldAsync(
-        "held-1", "allowed", null, true, Arg.Any<CancellationToken>())
+        "held-1", "allowed", null, AutomodResolutionSource.EventSub, Arg.Any<CancellationToken>())
       .Returns(new AutomodResolveResult(BuildHold("allowed"), true));
 
     await f.Handler.Handle(new AutomodResolvedNotification("held-1", "Approved", string.Empty), CancellationToken.None);
 
-    _ = await f.AutomodStore.Received(1).ResolveHoldAsync("held-1", "allowed", null, true, Arg.Any<CancellationToken>());
+    _ = await f.AutomodStore.Received(1).ResolveHoldAsync("held-1", "allowed", null, AutomodResolutionSource.EventSub, Arg.Any<CancellationToken>());
   }
 }

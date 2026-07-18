@@ -1,6 +1,7 @@
 using Marten;
 
 using Narya.Core.Actions;
+using Narya.Core.Automation;
 using Narya.Database.Automation;
 using Narya.Database.Tests.Fixtures;
 
@@ -37,7 +38,7 @@ public sealed class AutomationRunStoreTests(PostgresFixture fixture)
     var triggerId = Guid.NewGuid();
     var ranAt = DateTimeOffset.UtcNow;
 
-    var claimed = await store.TryClaimAsync(runId, triggerId, "dedupe-key-1", "someviewer", ranAt, CancellationToken.None);
+    var claimed = await store.TryClaimAsync(runId, triggerId, "dedupe-key-1", "someviewer", ranAt, TriggerCooldowns.None, CancellationToken.None);
 
     Assert.True(claimed);
 
@@ -59,8 +60,8 @@ public sealed class AutomationRunStoreTests(PostgresFixture fixture)
     var triggerId = Guid.NewGuid();
     var ranAt = DateTimeOffset.UtcNow;
 
-    var first = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "trigger-redelivery-key", null, ranAt, CancellationToken.None);
-    var second = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "trigger-redelivery-key", null, ranAt.AddSeconds(1), CancellationToken.None);
+    var first = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "trigger-redelivery-key", null, ranAt, TriggerCooldowns.None, CancellationToken.None);
+    var second = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "trigger-redelivery-key", null, ranAt.AddSeconds(1), TriggerCooldowns.None, CancellationToken.None);
 
     Assert.True(first);
     Assert.False(second);
@@ -78,8 +79,8 @@ public sealed class AutomationRunStoreTests(PostgresFixture fixture)
     var store = new AutomationRunStore(documentStore);
     var ranAt = DateTimeOffset.UtcNow;
 
-    var first = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "trigger-a:evt-1", null, ranAt, CancellationToken.None);
-    var second = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "trigger-b:evt-1", null, ranAt, CancellationToken.None);
+    var first = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "trigger-a:evt-1", null, ranAt, TriggerCooldowns.None, CancellationToken.None);
+    var second = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "trigger-b:evt-1", null, ranAt, TriggerCooldowns.None, CancellationToken.None);
 
     Assert.True(first);
     Assert.True(second);
@@ -94,8 +95,8 @@ public sealed class AutomationRunStoreTests(PostgresFixture fixture)
     var triggerId = Guid.NewGuid();
     var ranAt = DateTimeOffset.UtcNow;
 
-    var first = await store.TryClaimAsync(Guid.NewGuid(), triggerId, null, null, ranAt, CancellationToken.None);
-    var second = await store.TryClaimAsync(Guid.NewGuid(), triggerId, null, null, ranAt.AddSeconds(1), CancellationToken.None);
+    var first = await store.TryClaimAsync(Guid.NewGuid(), triggerId, null, null, ranAt, TriggerCooldowns.None, CancellationToken.None);
+    var second = await store.TryClaimAsync(Guid.NewGuid(), triggerId, null, null, ranAt.AddSeconds(1), TriggerCooldowns.None, CancellationToken.None);
 
     Assert.True(first);
     Assert.True(second);
@@ -111,7 +112,7 @@ public sealed class AutomationRunStoreTests(PostgresFixture fixture)
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var store = new AutomationRunStore(documentStore);
     var runId = Guid.NewGuid();
-    _ = await store.TryClaimAsync(runId, Guid.NewGuid(), null, null, DateTimeOffset.UtcNow, CancellationToken.None);
+    _ = await store.TryClaimAsync(runId, Guid.NewGuid(), null, null, DateTimeOffset.UtcNow, TriggerCooldowns.None, CancellationToken.None);
 
     await store.FinishAsync(runId, ActionRunStatus.Succeeded, string.Empty, CancellationToken.None);
 
@@ -133,53 +134,109 @@ public sealed class AutomationRunStoreTests(PostgresFixture fixture)
   }
 
   // ---------------------------------------------------------------------------------------
-  // GetLastRunAtAsync / GetLastUserRunAtAsync — the cooldown source.
+  // TryClaimAsync — cooldown admission. The claim IS the cooldown gate; see
+  // IAutomationRunStore.TryClaimAsync.
   // ---------------------------------------------------------------------------------------
 
   [Fact]
-  public async Task GetLastRunAtReturnsNullWhenTheTriggerHasNeverRun()
-  {
-    await using var documentStore = await BuildCleanDocumentStoreAsync();
-    var store = new AutomationRunStore(documentStore);
-
-    var last = await store.GetLastRunAtAsync(Guid.NewGuid(), CancellationToken.None);
-
-    Assert.Null(last);
-  }
-
-  [Fact]
-  public async Task GetLastRunAtReturnsTheMostRecentRanAtAcrossAnyStatus()
-  {
-    await using var documentStore = await BuildCleanDocumentStoreAsync();
-    var store = new AutomationRunStore(documentStore);
-    var triggerId = Guid.NewGuid();
-    var older = DateTimeOffset.UtcNow.AddMinutes(-5);
-    var newer = DateTimeOffset.UtcNow;
-
-    _ = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "k1", null, older, CancellationToken.None);
-    _ = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "k2", null, newer, CancellationToken.None);
-
-    var last = await store.GetLastRunAtAsync(triggerId, CancellationToken.None);
-
-    Assert.Equal(newer, last);
-  }
-
-  [Fact]
-  public async Task GetLastUserRunAtScopesToBothTriggerAndActor()
+  public async Task AClaimInsideTheGlobalCooldownWindowIsRejected()
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var store = new AutomationRunStore(documentStore);
     var triggerId = Guid.NewGuid();
     var at = DateTimeOffset.UtcNow;
+    var cooldowns = new TriggerCooldowns(GlobalCooldownMs: 60_000, UserCooldownMs: 0);
 
-    _ = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "k1", "alice", at, CancellationToken.None);
-    _ = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "k2", "bob", at.AddMinutes(1), CancellationToken.None);
+    var first = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "evt-1", null, at, cooldowns, CancellationToken.None);
+    // A DIFFERENT event id, so the dedupe index cannot be what rejects it — only the cooldown can.
+    var second = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "evt-2", null, at.AddSeconds(5), cooldowns, CancellationToken.None);
 
-    var aliceLast = await store.GetLastUserRunAtAsync(triggerId, "alice", CancellationToken.None);
-    var carolLast = await store.GetLastUserRunAtAsync(triggerId, "carol", CancellationToken.None);
+    Assert.True(first);
+    Assert.False(second);
+  }
 
-    Assert.Equal(at, aliceLast);
-    Assert.Null(carolLast);
+  [Fact]
+  public async Task AClaimAfterTheGlobalCooldownWindowIsAdmitted()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new AutomationRunStore(documentStore);
+    var triggerId = Guid.NewGuid();
+    var at = DateTimeOffset.UtcNow;
+    var cooldowns = new TriggerCooldowns(GlobalCooldownMs: 60_000, UserCooldownMs: 0);
+
+    var first = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "evt-1", null, at, cooldowns, CancellationToken.None);
+    var second = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "evt-2", null, at.AddMinutes(2), cooldowns, CancellationToken.None);
+
+    Assert.True(first);
+    Assert.True(second);
+  }
+
+  [Fact]
+  public async Task TheUserCooldownScopesToTheActorAndDoesNotBlockAnotherViewer()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new AutomationRunStore(documentStore);
+    var triggerId = Guid.NewGuid();
+    var at = DateTimeOffset.UtcNow;
+    var cooldowns = new TriggerCooldowns(GlobalCooldownMs: 0, UserCooldownMs: 60_000);
+
+    var alice = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "evt-1", "alice", at, cooldowns, CancellationToken.None);
+    var aliceAgain = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "evt-2", "alice", at.AddSeconds(5), cooldowns, CancellationToken.None);
+    var bob = await store.TryClaimAsync(Guid.NewGuid(), triggerId, "evt-3", "bob", at.AddSeconds(6), cooldowns, CancellationToken.None);
+
+    Assert.True(alice);
+    Assert.False(aliceAgain);
+    Assert.True(bob);
+  }
+
+  /// <summary>A cooldown is scoped to ONE trigger — a busy trigger must never gate a different one.</summary>
+  [Fact]
+  public async Task ACooldownOnOneTriggerDoesNotBlockAnother()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new AutomationRunStore(documentStore);
+    var at = DateTimeOffset.UtcNow;
+    var cooldowns = new TriggerCooldowns(GlobalCooldownMs: 60_000, UserCooldownMs: 0);
+
+    var first = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "evt-1", null, at, cooldowns, CancellationToken.None);
+    var other = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "evt-2", null, at.AddSeconds(1), cooldowns, CancellationToken.None);
+
+    Assert.True(first);
+    Assert.True(other);
+  }
+
+  /// <summary>
+  /// THE RACE. N genuinely concurrent claims — different event ids, so the dedupe index is not
+  /// what rejects them — released from one Barrier so they hit the store at the same time. Exactly
+  /// one may be admitted inside a single cooldown window; a pre-check-then-insert dispatcher fails
+  /// this because every task passes the check before any of them writes.
+  /// </summary>
+  [Fact]
+  public async Task ConcurrentDistinctEventsInsideOneCooldownWindowAdmitExactlyOne()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new AutomationRunStore(documentStore);
+    var triggerId = Guid.NewGuid();
+    var at = DateTimeOffset.UtcNow;
+    var cooldowns = new TriggerCooldowns(GlobalCooldownMs: 60_000, UserCooldownMs: 0);
+
+    const int Racers = 8;
+    using var gate = new Barrier(Racers);
+    var claims = Enumerable.Range(0, Racers).Select(i => Task.Run(async () =>
+    {
+      gate.SignalAndWait();
+      return await store.TryClaimAsync(
+        Guid.NewGuid(), triggerId, $"evt-{i}", null, at.AddMilliseconds(i), cooldowns, CancellationToken.None);
+    }));
+
+    var results = await Task.WhenAll(claims);
+
+    Assert.Equal(1, results.Count(admitted => admitted));
+
+    // And the log agrees: a rejected claim must not have left a run row behind either.
+    await using var session = documentStore.QuerySession();
+    var rows = await session.Query<AutomationRunDocument>().Where(r => r.TriggerId == triggerId).ToListAsync(CancellationToken.None);
+    _ = Assert.Single(rows);
   }
 
   // ---------------------------------------------------------------------------------------
@@ -196,9 +253,9 @@ public sealed class AutomationRunStoreTests(PostgresFixture fixture)
     var old2 = now.AddDays(-8);
     var recent = now.AddDays(-1);
 
-    _ = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "old-1", null, old1, CancellationToken.None);
-    _ = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "old-2", null, old2, CancellationToken.None);
-    _ = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "recent-1", null, recent, CancellationToken.None);
+    _ = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "old-1", null, old1, TriggerCooldowns.None, CancellationToken.None);
+    _ = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "old-2", null, old2, TriggerCooldowns.None, CancellationToken.None);
+    _ = await store.TryClaimAsync(Guid.NewGuid(), Guid.NewGuid(), "recent-1", null, recent, TriggerCooldowns.None, CancellationToken.None);
 
     var cutoff = now.AddDays(-7);
     var pruned = await store.PruneAsync(cutoff, CancellationToken.None);

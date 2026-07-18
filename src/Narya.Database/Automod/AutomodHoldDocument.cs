@@ -1,3 +1,5 @@
+using Narya.Core.Automod;
+
 namespace Narya.Database.Automod;
 
 /// <summary>
@@ -44,4 +46,18 @@ public sealed record AutomodHoldDocument
   /// which have no human moderator behind them.
   /// </summary>
   public string? ResolvedBy { get; init; }
+
+  /// <summary>
+  /// Where <see cref="Resolution"/> came from, and therefore which of two colliding resolutions
+  /// wins — see <see cref="AutomodResolutionSource"/>. Meaningless while <see cref="ResolvedAt"/>
+  /// is null.
+  ///
+  /// <para>
+  /// The initializer is <see cref="AutomodResolutionSource.Speculative"/>, the domain default and
+  /// the LOWEST precedence, deliberately: a hold document written before this field existed
+  /// deserializes to it, and the honest reading of a resolution whose provenance was never
+  /// recorded is "unknown, so let any real verdict overturn it" — not "unoverturnable."
+  /// </para>
+  /// </summary>
+  public AutomodResolutionSource ResolvedSource { get; init; } = AutomodResolutionSource.Speculative;
 }

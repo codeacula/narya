@@ -107,7 +107,7 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
   }
 
   // ---------------------------------------------------------------------------------------
-  // ResolveHoldAsync — the three-way idempotency
+  // ResolveHoldAsync — AutomodResolutionSource precedence
   // ---------------------------------------------------------------------------------------
 
   [Fact]
@@ -118,7 +118,7 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
     var store = new AutomodStore(documentStore, chatStore, TimeProvider.System);
     _ = await store.RecordHoldAsync(BuildHold(), CancellationToken.None);
 
-    var result = await store.ResolveHoldAsync("held-1", "allowed", "codeacula", authoritative: true, CancellationToken.None);
+    var result = await store.ResolveHoldAsync("held-1", "allowed", "codeacula", AutomodResolutionSource.EventSub, CancellationToken.None);
 
     Assert.True(result.Changed);
     Assert.NotNull(result.Hold);
@@ -131,15 +131,15 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
   }
 
   [Fact]
-  public async Task ResolvingAnAlreadyResolvedHoldNonAuthoritativelyIsANoOp()
+  public async Task ResolvingAnAlreadyResolvedHoldFromALowerPrecedenceSourceIsANoOp()
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var chatStore = new ChatStore(documentStore);
     var store = new AutomodStore(documentStore, chatStore, TimeProvider.System);
     _ = await store.RecordHoldAsync(BuildHold(), CancellationToken.None);
-    _ = await store.ResolveHoldAsync("held-1", "denied", "codeacula", authoritative: true, CancellationToken.None);
+    _ = await store.ResolveHoldAsync("held-1", "denied", "codeacula", AutomodResolutionSource.EventSub, CancellationToken.None);
 
-    var result = await store.ResolveHoldAsync("held-1", "allowed", "someoneelse", authoritative: false, CancellationToken.None);
+    var result = await store.ResolveHoldAsync("held-1", "allowed", "someoneelse", AutomodResolutionSource.Speculative, CancellationToken.None);
 
     Assert.False(result.Changed);
     Assert.Equal("denied", result.Hold!.Resolution); // unchanged
@@ -147,43 +147,140 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
   }
 
   [Fact]
-  public async Task AnAuthoritativeVerdictOverturnsASpeculativeExpiryExactlyOnce()
+  public async Task AHigherPrecedenceVerdictOverturnsASpeculativeExpiryExactlyOnce()
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var chatStore = new ChatStore(documentStore);
     var store = new AutomodStore(documentStore, chatStore, TimeProvider.System);
     _ = await store.RecordHoldAsync(BuildHold(), CancellationToken.None);
-    _ = await store.ResolveHoldAsync("held-1", "expired", null, authoritative: false, CancellationToken.None);
+    _ = await store.ResolveHoldAsync("held-1", "expired", null, AutomodResolutionSource.Speculative, CancellationToken.None);
 
-    var overturned = await store.ResolveHoldAsync("held-1", "allowed", "codeacula", authoritative: true, CancellationToken.None);
+    var overturned = await store.ResolveHoldAsync("held-1", "allowed", "codeacula", AutomodResolutionSource.EventSub, CancellationToken.None);
 
     Assert.True(overturned.Changed);
     Assert.Equal("allowed", overturned.Hold!.Resolution);
     Assert.Equal("codeacula", overturned.Hold.ResolvedBy);
 
-    // The overturn happens exactly once — a second authoritative call against the now-"allowed"
-    // hold is a no-op, even one carrying a different resolution.
-    var secondAuthoritative = await store.ResolveHoldAsync("held-1", "denied", "someoneelse", authoritative: true, CancellationToken.None);
+    // The overturn happens exactly once — a second EventSub call against the now-"allowed" hold
+    // is a no-op, even one carrying a different resolution: EventSub does not outrank EventSub.
+    var secondAuthoritative = await store.ResolveHoldAsync("held-1", "denied", "someoneelse", AutomodResolutionSource.EventSub, CancellationToken.None);
     Assert.False(secondAuthoritative.Changed);
     Assert.Equal("allowed", secondAuthoritative.Hold!.Resolution);
     Assert.Equal("codeacula", secondAuthoritative.Hold.ResolvedBy);
   }
 
+  /// <summary>
+  /// SEQUENTIAL, and named accordingly. This used to be called
+  /// <c>TwoAuthoritativeResultsNeverRaceTheFirstWins</c>, which overclaimed: it ran the two
+  /// resolutions one after the other and so exercised no race at all. The actual race is
+  /// <see cref="ConcurrentEventSubAndDashboardResolutionsConvergeOnEventSub"/>.
+  /// </summary>
   [Fact]
-  public async Task TwoAuthoritativeResultsNeverRaceTheFirstWins()
+  public async Task ASecondSequentialEventSubVerdictDoesNotDisplaceTheFirst()
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var chatStore = new ChatStore(documentStore);
     var store = new AutomodStore(documentStore, chatStore, TimeProvider.System);
     _ = await store.RecordHoldAsync(BuildHold(), CancellationToken.None);
 
-    var firstAuthoritative = await store.ResolveHoldAsync("held-1", "allowed", "codeacula", authoritative: true, CancellationToken.None);
-    var secondAuthoritative = await store.ResolveHoldAsync("held-1", "denied", "someoneelse", authoritative: true, CancellationToken.None);
+    var first = await store.ResolveHoldAsync("held-1", "allowed", "codeacula", AutomodResolutionSource.EventSub, CancellationToken.None);
+    var second = await store.ResolveHoldAsync("held-1", "denied", "someoneelse", AutomodResolutionSource.EventSub, CancellationToken.None);
 
-    Assert.True(firstAuthoritative.Changed);
-    Assert.False(secondAuthoritative.Changed);
-    Assert.Equal("allowed", secondAuthoritative.Hold!.Resolution); // first authoritative wins
-    Assert.Equal("codeacula", secondAuthoritative.Hold.ResolvedBy);
+    Assert.True(first.Changed);
+    Assert.False(second.Changed);
+    Assert.Equal("allowed", second.Hold!.Resolution); // equal precedence does not outrank
+    Assert.Equal("codeacula", second.Hold.ResolvedBy);
+  }
+
+  /// <summary>Operator decision: Twitch's own EventSub verdict is the system of record and overrides a dashboard-derived one.</summary>
+  [Fact]
+  public async Task AnEventSubVerdictOverturnsAContradictoryDashboardVerdict()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var chatStore = new ChatStore(documentStore);
+    var store = new AutomodStore(documentStore, chatStore, TimeProvider.System);
+    _ = await store.RecordHoldAsync(BuildHold(), CancellationToken.None);
+    _ = await store.ResolveHoldAsync("held-1", "allowed", "codeacula", AutomodResolutionSource.Dashboard, CancellationToken.None);
+
+    var result = await store.ResolveHoldAsync("held-1", "denied", "TwitchMod", AutomodResolutionSource.EventSub, CancellationToken.None);
+
+    Assert.True(result.Changed);
+    Assert.Equal("denied", result.Hold!.Resolution);
+    Assert.Equal("TwitchMod", result.Hold.ResolvedBy);
+  }
+
+  [Fact]
+  public async Task ADashboardVerdictNeverOverturnsAnEventSubVerdict()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var chatStore = new ChatStore(documentStore);
+    var store = new AutomodStore(documentStore, chatStore, TimeProvider.System);
+    _ = await store.RecordHoldAsync(BuildHold(), CancellationToken.None);
+    _ = await store.ResolveHoldAsync("held-1", "denied", "TwitchMod", AutomodResolutionSource.EventSub, CancellationToken.None);
+
+    var result = await store.ResolveHoldAsync("held-1", "allowed", "codeacula", AutomodResolutionSource.Dashboard, CancellationToken.None);
+
+    Assert.False(result.Changed);
+    Assert.Equal("denied", result.Hold!.Resolution);
+    Assert.Equal("TwitchMod", result.Hold.ResolvedBy);
+
+    // And the losing resolution appended NO audit row — the ledger must never hold a verdict the
+    // store did not actually adopt.
+    var events = await chatStore.GetRecentEventsAsync(20, CancellationToken.None);
+    var resolves = events.Where(e => e.Type == "automod.resolve" && e.MessageId == "held-1").ToList();
+    _ = Assert.Single(resolves);
+    Assert.Equal("denied", resolves[0].Payload.GetProperty("resolution").GetString());
+  }
+
+  /// <summary>
+  /// THE RACE. An EventSub resolution and a dashboard resolution released together from one
+  /// <see cref="Barrier"/> — both load the hold as unresolved before either saves, which is
+  /// exactly the interleaving a load-then-unconditional-store could not survive. Run in BOTH
+  /// arrival orders (the barrier makes the order genuinely nondeterministic, and the loop makes
+  /// it get exercised repeatedly), asserting that the stored verdict is EventSub's every time.
+  /// </summary>
+  [Fact]
+  public async Task ConcurrentEventSubAndDashboardResolutionsConvergeOnEventSub()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var chatStore = new ChatStore(documentStore);
+    var store = new AutomodStore(documentStore, chatStore, TimeProvider.System);
+
+    for (var round = 0; round < 10; round++)
+    {
+      var id = $"race-{round}";
+      _ = await store.RecordHoldAsync(BuildHold(id: id), CancellationToken.None);
+
+      using var gate = new Barrier(2);
+      var eventSub = Task.Run(async () =>
+      {
+        gate.SignalAndWait();
+        return await store.ResolveHoldAsync(id, "denied", "TwitchMod", AutomodResolutionSource.EventSub, CancellationToken.None);
+      });
+      var dashboard = Task.Run(async () =>
+      {
+        gate.SignalAndWait();
+        return await store.ResolveHoldAsync(id, "allowed", "codeacula", AutomodResolutionSource.Dashboard, CancellationToken.None);
+      });
+
+      var results = await Task.WhenAll(eventSub, dashboard);
+
+      var stored = await store.GetHoldAsync(id, CancellationToken.None);
+      Assert.Equal("denied", stored!.Resolution);
+      Assert.Equal("TwitchMod", stored.ResolvedBy);
+
+      // The audit trail mirrors the writes that actually happened and nothing else: one row per
+      // Changed result. A loser never appends, so the ledger can never end on a verdict the store
+      // does not hold. (Two rows are possible and truthful — the dashboard legitimately resolving
+      // an unresolved hold, then EventSub overturning it, same shape as a speculative expiry being
+      // overturned. The LAST row is always EventSub's.)
+      var events = await chatStore.GetRecentEventsAsync(100, CancellationToken.None);
+      var resolves = events.Where(e => e.Type == "automod.resolve" && e.MessageId == id).ToList();
+      Assert.Equal(results.Count(r => r.Changed), resolves.Count);
+      Assert.NotEmpty(resolves);
+      // GetRecentEventsAsync returns oldest-first, so the LAST row is the ledger's final word.
+      Assert.Equal("denied", resolves[^1].Payload.GetProperty("resolution").GetString());
+    }
   }
 
   [Fact]
@@ -193,7 +290,7 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
     var chatStore = new ChatStore(documentStore);
     var store = new AutomodStore(documentStore, chatStore, TimeProvider.System);
 
-    var result = await store.ResolveHoldAsync("does-not-exist", "allowed", "codeacula", authoritative: true, CancellationToken.None);
+    var result = await store.ResolveHoldAsync("does-not-exist", "allowed", "codeacula", AutomodResolutionSource.EventSub, CancellationToken.None);
 
     Assert.False(result.Changed);
     Assert.Null(result.Hold);
@@ -242,7 +339,7 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
     _ = await store.RecordHoldAsync(BuildHold(id: "stale-1", heldAt: now.AddHours(-3)), CancellationToken.None);
 
     _ = await store.SweepExpiredHoldsAsync(CancellationToken.None);
-    var overturned = await store.ResolveHoldAsync("stale-1", "denied", "codeacula", authoritative: true, CancellationToken.None);
+    var overturned = await store.ResolveHoldAsync("stale-1", "denied", "codeacula", AutomodResolutionSource.EventSub, CancellationToken.None);
 
     Assert.True(overturned.Changed);
     Assert.Equal("denied", overturned.Hold!.Resolution);
@@ -337,12 +434,12 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
     var store = new AutomodStore(documentStore, chatStore, clock);
 
     _ = await store.RecordHoldAsync(BuildHold(id: "old-resolution"), CancellationToken.None);
-    _ = await store.ResolveHoldAsync("old-resolution", "allowed", "codeacula", authoritative: true, CancellationToken.None);
+    _ = await store.ResolveHoldAsync("old-resolution", "allowed", "codeacula", AutomodResolutionSource.EventSub, CancellationToken.None);
 
     // Advance past the 15-minute recently-resolved window before resolving the second hold.
     clock.Set(now.AddMinutes(20));
     _ = await store.RecordHoldAsync(BuildHold(id: "recent-resolution"), CancellationToken.None);
-    _ = await store.ResolveHoldAsync("recent-resolution", "denied", "codeacula", authoritative: true, CancellationToken.None);
+    _ = await store.ResolveHoldAsync("recent-resolution", "denied", "codeacula", AutomodResolutionSource.EventSub, CancellationToken.None);
 
     var queue = await store.GetQueueAsync(CancellationToken.None);
 

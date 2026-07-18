@@ -40,6 +40,23 @@ public sealed record StreamSessionDocument
 
   public bool DiscordAnnounceTerminal { get; init; }
 
+  /// <summary>
+  /// The one-active-session invariant, expressed as something a database can enforce: the constant
+  /// <c>"open"</c> while <see cref="EndedAt"/> is null, and null once the session ends. A PARTIAL
+  /// UNIQUE index over it (unique where non-null — see <c>NaryaMartenConfig</c>) therefore means
+  /// "at most one open session may exist," which no index over <see cref="EndedAt"/> itself could
+  /// say (many CLOSED sessions are legal, so <c>EndedAt</c> cannot be unique).
+  ///
+  /// <para>
+  /// Deliberately COMPUTED from <see cref="EndedAt"/> rather than a settable field: a settable one
+  /// could be forgotten at any write site that ends a session and would then silently disarm the
+  /// constraint. It is get-only, so it is serialized into the document JSON (where the index reads
+  /// it) and ignored on deserialization — nothing round-trips it, and it can never disagree with
+  /// <see cref="EndedAt"/>.
+  /// </para>
+  /// </summary>
+  public string? OpenMarker => EndedAt is null ? "open" : null;
+
   public static explicit operator StreamSession(StreamSessionDocument doc)
   {
     return new StreamSession(

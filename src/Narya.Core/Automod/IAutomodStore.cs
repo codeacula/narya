@@ -27,53 +27,56 @@ public interface IAutomodStore
   Task<bool> RecordHoldAsync(AutomodHold hold, CancellationToken cancellationToken);
 
   /// <summary>
-  /// The three-way idempotency rule (mirrors legacy's <c>resolveAutomodHold</c> EXACTLY):
+  /// The resolution rule:
   /// <list type="bullet">
   /// <item>Unknown <paramref name="id"/> → <c>{ Hold: null, Changed: false }</c>.</item>
   /// <item>An unresolved hold → always resolves: sets <c>ResolvedAt</c> to now, <c>Resolution</c>
-  /// to <paramref name="resolution"/>, <c>ResolvedBy</c> to <paramref name="resolvedBy"/>.</item>
+  /// to <paramref name="resolution"/>, <c>ResolvedBy</c> to <paramref name="resolvedBy"/>, and
+  /// records <paramref name="source"/> as the resolution's provenance.</item>
   /// <item>An already-resolved hold → returned UNCHANGED (<c>Changed: false</c>) UNLESS
-  /// <paramref name="authoritative"/> is <see langword="true"/> AND the stored
-  /// <see cref="AutomodHold.Resolution"/> is <c>"expired"</c> AND <paramref name="resolution"/>
-  /// is not <c>"expired"</c> — an authoritative verdict may overturn a speculative expiry
-  /// (the sweep, or a "gone" allow/deny outcome) exactly once. Two authoritative results never
-  /// race: whichever call observes the hold as still unresolved (or still speculatively expired)
-  /// first is the one that writes; the second sees the now-resolved (non-"expired") row and is a
-  /// no-op.</item>
+  /// <paramref name="source"/> STRICTLY OUTRANKS the stored source (see
+  /// <see cref="AutomodResolutionSource"/>) AND <paramref name="resolution"/> actually differs
+  /// from the stored one. So a real verdict overturns a speculative expiry exactly once (the
+  /// pre-existing behavior), and — new — an EventSub verdict overturns a contradictory dashboard
+  /// one, while a dashboard verdict never overturns an EventSub one.</item>
   /// </list>
   /// On an actual write, also appends an <c>automod.resolve</c> row to the <c>chat_events</c>
   /// ledger via the injected <c>Narya.Core.Chat.IChatStore</c> — same "the store does its own
-  /// audit trail" pattern as <see cref="RecordHoldAsync"/>. The load-check-then-conditionally-write
-  /// happens inside a single Marten <c>IDocumentSession</c>, so the idempotency decision and the
-  /// write it gates are atomic WITHIN that session — no other operation on the SAME session can
-  /// observe a state between them. That is not the same as unraceable: a lightweight session is a
-  /// unit of work, not a read-locked transaction, so two DIFFERENT sessions (e.g. the HTTP
-  /// allow/deny route and a concurrent EventSub dispatch) can each load the hold as unresolved
-  /// before either calls <c>SaveChangesAsync</c>, and both then write. The three-way idempotency
-  /// rule above still leaves the system in a sane end state when that happens (whichever save
-  /// lands last simply overwrites with an equivalent resolution, since both derive from the same
-  /// underlying Helix action) — but it is a benign accident of both callers agreeing on the
-  /// outcome, not a guarantee this method enforces across sessions.
+  /// audit trail" pattern as <see cref="RecordHoldAsync"/>. Only the resolution that actually won
+  /// appends; a losing one appends nothing, so the audit trail can never hold two contradictory
+  /// verdicts for one hold.
+  ///
+  /// <para>
+  /// <b>This is enforced against concurrent callers, not just sequential ones.</b> The decision
+  /// and the write it gates are one optimistically-concurrent read-modify-write: the stored
+  /// document carries a version, the update only lands if the version is still the one that was
+  /// read, and a loser re-reads and re-applies the rule above against the winner's state. Two
+  /// callers racing (the HTTP allow/deny route and a concurrent EventSub dispatch) therefore
+  /// converge on the SAME stored verdict regardless of arrival order — the higher-precedence
+  /// source's — rather than on whichever happened to save last.
+  /// </para>
   /// </summary>
   Task<AutomodResolveResult> ResolveHoldAsync(
-    string id, string resolution, string? resolvedBy, bool authoritative, CancellationToken cancellationToken);
+    string id, string resolution, string? resolvedBy, AutomodResolutionSource source, CancellationToken cancellationToken);
 
   /// <summary>The stored hold for <paramref name="id"/>, or null if none exists.</summary>
   Task<AutomodHold?> GetHoldAsync(string id, CancellationToken cancellationToken);
 
   /// <summary>
   /// Resolves every unresolved hold whose <see cref="AutomodHold.HeldAt"/> is older than the
-  /// hold-expiry window (2 hours) as <c>"expired"</c>, NON-authoritatively — so a later real
-  /// verdict (an authoritative <see cref="ResolveHoldAsync"/> call) can still overturn it exactly
-  /// once. Mirrors legacy's <c>sweepExpiredHolds</c>: Twitch auto-expires held messages well
+  /// hold-expiry window (2 hours) as <c>"expired"</c>, with
+  /// <see cref="AutomodResolutionSource.Speculative"/> provenance — so a later real verdict
+  /// (a <see cref="AutomodResolutionSource.Dashboard"/> or
+  /// <see cref="AutomodResolutionSource.EventSub"/> <see cref="ResolveHoldAsync"/> call) can still
+  /// overturn it exactly once. Mirrors legacy's <c>sweepExpiredHolds</c>: Twitch auto-expires held messages well
   /// inside an hour, so this is a conservative safety net for a hold whose <c>update</c> event
   /// this process missed (a socket drop, or downtime), reusing <see cref="ResolveHoldAsync"/> so
   /// each swept hold still gets its own audit-trail row and idempotency guarantees.
   ///
   /// <para>
   /// Returns exactly the holds this call actually swept to <c>"expired"</c> (never one that a
-  /// concurrent, separate session resolved first — see <see cref="ResolveHoldAsync"/>'s doc
-  /// comment on why two sessions can race). This store is deliberately mediator-free (see this
+  /// concurrent caller resolved first — <see cref="ResolveHoldAsync"/> reports that loss as
+  /// <c>Changed: false</c>). This store is deliberately mediator-free (see this
   /// interface's class doc comment), so it CANNOT broadcast <c>automod:resolved</c> itself for a
   /// hold it silently expires — the caller, <c>Narya.Application.Automod.GetAutomodQueueQueryHandler</c>,
   /// calls this FIRST and publishes one <c>AutomodResolvedBroadcastNotification</c> per returned

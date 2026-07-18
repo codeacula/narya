@@ -111,16 +111,16 @@ public sealed class AutomationSignalHandlersTests
     private readonly HashSet<string> _claimedDedupeKeys = [];
 
     public Task<bool> TryClaimAsync(
-      Guid runId, Guid triggerId, string? dedupeKey, string? actorLogin, DateTimeOffset ranAt, CancellationToken cancellationToken) =>
+      Guid runId,
+      Guid triggerId,
+      string? dedupeKey,
+      string? actorLogin,
+      DateTimeOffset ranAt,
+      TriggerCooldowns cooldowns,
+      CancellationToken cancellationToken) =>
       Task.FromResult(dedupeKey is null || _claimedDedupeKeys.Add(dedupeKey));
 
     public Task FinishAsync(Guid runId, ActionRunStatus status, string detail, CancellationToken cancellationToken) => Task.CompletedTask;
-
-    public Task<DateTimeOffset?> GetLastRunAtAsync(Guid triggerId, CancellationToken cancellationToken) =>
-      Task.FromResult((DateTimeOffset?)null);
-
-    public Task<DateTimeOffset?> GetLastUserRunAtAsync(Guid triggerId, string actorLogin, CancellationToken cancellationToken) =>
-      Task.FromResult((DateTimeOffset?)null);
 
     public Task<int> PruneAsync(DateTimeOffset cutoff, CancellationToken cancellationToken) => Task.FromResult(0);
   }

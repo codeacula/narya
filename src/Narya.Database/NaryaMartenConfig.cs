@@ -37,9 +37,23 @@ public static class NaryaMartenConfig
     // sessions are a document rather than a snapshot projection. Indexed on Source (the
     // GetOrStartSessionAsync dedup lookup) and EndedAt (the "find the open session" lookup);
     // StreamSessionChatterDocument is indexed on SessionId (GetSessionChatterCountAsync).
+    //
+    // OpenMarker carries a PARTIAL UNIQUE index — the same idiom as AutomationRunDocument's
+    // DedupeKey index below, and the reason the one-active-session invariant is now a database
+    // constraint rather than a hopeful pre-check in StreamSessionStore. OpenMarker is a computed
+    // property that is the constant "open" while EndedAt is null and null once the session ends
+    // (see StreamSessionDocument), so "unique where the marker is not null" reads as "at most one
+    // row in this table may be open." A unique index (rather than optimistic concurrency, which
+    // guards ONE document's version and so cannot see a second, different row being inserted) is
+    // the only mechanism that can express a constraint ACROSS rows.
     _ = options.Schema.For<StreamSessionDocument>()
       .Index(x => x.Source)
-      .Index(x => x.EndedAt);
+      .Index(x => x.EndedAt)
+      .Index(x => x.OpenMarker!, i =>
+      {
+        i.IsUnique = true;
+        i.Predicate = "(data ->> 'OpenMarker') is not null";
+      });
     _ = options.Schema.For<StreamSessionChatterDocument>()
       .Index(x => x.SessionId);
 
@@ -72,9 +86,18 @@ public static class NaryaMartenConfig
     // AutoMod hold queue (Phase 3 Task 6) — see AutomodHoldDocument's doc comment. Indexed on
     // ResolvedAt (the pending/resolved partition every query filters on, and the sweep) and
     // HeldAt (pending ordering, and the sweep's staleness cutoff).
+    //
+    // OPTIMISTIC CONCURRENCY: a hold's resolution is a read-decide-write whose decision depends on
+    // the CURRENTLY stored resolution and its source (AutomodResolutionSource precedence). A
+    // unique index cannot express that rule and a raw conditional UPDATE would duplicate it in
+    // SQL, so the version check is the mechanism instead: a resolution written against a stale
+    // read is rejected, and AutomodStore.ResolveHoldAsync re-reads and re-decides. This is the
+    // only document in the store that carries it — every other write path is either a point
+    // overwrite with no read-derived decision, or already guarded by a unique index.
     _ = options.Schema.For<AutomodHoldDocument>()
       .Index(x => x.ResolvedAt)
-      .Index(x => x.HeldAt);
+      .Index(x => x.HeldAt)
+      .UseOptimisticConcurrency(true);
 
     // The configured media catalog (Phase 4 Task 1) — see MediaAssetDocument's doc comment.
     // Indexed on Label (MediaAssetStore.GetAllAsync's ordering).
@@ -122,8 +145,8 @@ public static class NaryaMartenConfig
     // IAutomationRunStore.TryClaimAsync's dedup signal. Predicate syntax confirmed against Marten
     // 8.37.4's own computed-index docs: the predicate is raw SQL over the same
     // `data ->> 'PropertyName'` expression the index itself is built from. (TriggerId, RanAt) and
-    // (TriggerId, ActorLogin, RanAt) serve the dispatcher's global/user cooldown reads
-    // (GetLastRunAtAsync/GetLastUserRunAtAsync) — legacy's idx_automation_runs_cooldown/
+    // (TriggerId, ActorLogin, RanAt) serve the global/user cooldown reads TryClaimAsync now makes
+    // under its per-trigger advisory lock — legacy's idx_automation_runs_cooldown/
     // idx_automation_runs_user_cooldown.
     _ = options.Schema.For<AutomationRunDocument>()
       .Index(x => x.DedupeKey, i =>

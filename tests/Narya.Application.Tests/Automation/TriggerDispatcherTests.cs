@@ -45,20 +45,38 @@ public sealed class TriggerDispatcherTests
     private readonly Dictionary<Guid, DateTimeOffset> _lastRunByTrigger = [];
     private readonly Dictionary<(Guid TriggerId, string ActorLogin), DateTimeOffset> _lastRunByTriggerAndUser = [];
 
-    public List<(Guid RunId, Guid TriggerId, string? DedupeKey, string? ActorLogin, DateTimeOffset RanAt)> Claims { get; } = [];
+    public List<(Guid RunId, Guid TriggerId, string? DedupeKey, string? ActorLogin, DateTimeOffset RanAt, TriggerCooldowns Cooldowns)> Claims { get; } = [];
 
     public Dictionary<Guid, (ActionRunStatus Status, string Detail)> Finished { get; } = [];
 
+    /// <summary>
+    /// Enforces dedupe AND cooldown admission, because the real store now does both inside one
+    /// serialized claim (see <see cref="IAutomationRunStore.TryClaimAsync"/>) — the dispatcher no
+    /// longer gates cooldowns itself, so a fake that ignored <paramref name="cooldowns"/> would
+    /// make the dispatcher's cooldown tests vacuously pass.
+    /// </summary>
     public Task<bool> TryClaimAsync(
-      Guid runId, Guid triggerId, string? dedupeKey, string? actorLogin, DateTimeOffset ranAt, CancellationToken cancellationToken)
+      Guid runId,
+      Guid triggerId,
+      string? dedupeKey,
+      string? actorLogin,
+      DateTimeOffset ranAt,
+      TriggerCooldowns cooldowns,
+      CancellationToken cancellationToken)
     {
-      Claims.Add((runId, triggerId, dedupeKey, actorLogin, ranAt));
+      Claims.Add((runId, triggerId, dedupeKey, actorLogin, ranAt, cooldowns));
 
       if (dedupeKey is not null && !_claimedDedupeKeys.Add(dedupeKey))
       {
         return Task.FromResult(false);
       }
 
+      if (IsOnCooldown(triggerId, actorLogin, ranAt, cooldowns))
+      {
+        return Task.FromResult(false);
+      }
+
+      // Admitted — record the run as the cooldown baseline for the next claim.
       _lastRunByTrigger[triggerId] = ranAt;
       if (actorLogin is not null)
       {
@@ -74,13 +92,18 @@ public sealed class TriggerDispatcherTests
       return Task.CompletedTask;
     }
 
-    public Task<DateTimeOffset?> GetLastRunAtAsync(Guid triggerId, CancellationToken cancellationToken) =>
-      Task.FromResult(_lastRunByTrigger.TryGetValue(triggerId, out var value) ? value : (DateTimeOffset?)null);
-
-    public Task<DateTimeOffset?> GetLastUserRunAtAsync(Guid triggerId, string actorLogin, CancellationToken cancellationToken) =>
-      Task.FromResult(_lastRunByTriggerAndUser.TryGetValue((triggerId, actorLogin), out var value) ? value : (DateTimeOffset?)null);
-
     public Task<int> PruneAsync(DateTimeOffset cutoff, CancellationToken cancellationToken) => Task.FromResult(0);
+
+    private bool IsOnCooldown(Guid triggerId, string? actorLogin, DateTimeOffset ranAt, TriggerCooldowns cooldowns)
+    {
+      return (cooldowns.GlobalCooldownMs > 0
+        && _lastRunByTrigger.TryGetValue(triggerId, out var lastGlobal)
+        && (ranAt - lastGlobal).TotalMilliseconds < cooldowns.GlobalCooldownMs)
+        || (cooldowns.UserCooldownMs > 0
+        && actorLogin is not null
+        && _lastRunByTriggerAndUser.TryGetValue((triggerId, actorLogin), out var lastUser)
+        && (ranAt - lastUser).TotalMilliseconds < cooldowns.UserCooldownMs);
+    }
   }
 
   private sealed record Fixture(

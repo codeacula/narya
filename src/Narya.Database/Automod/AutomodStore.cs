@@ -1,5 +1,7 @@
 using System.Text.Json;
 
+using JasperFx;
+
 using Marten;
 
 using Narya.Core.Automod;
@@ -20,11 +22,12 @@ namespace Narya.Database.Automod;
 /// </para>
 ///
 /// <para>
-/// <b>The three-way idempotency.</b> <see cref="ResolveHoldAsync"/> is the only place a hold's
-/// resolution is written, and — like <c>StreamSessionStore.GetOrStartSessionAsync</c>'s
-/// one-active-session invariant — it enforces the rule itself, atomically inside a single
-/// <see cref="IDocumentSession"/>: load, decide (unresolved, or an authoritative overturn of a
-/// speculative expiry), conditionally write, all before <c>SaveChangesAsync</c>. See
+/// <b>Resolution precedence, enforced by the database.</b> <see cref="ResolveHoldAsync"/> is the
+/// only place a hold's resolution is written. It is a VERSION-CHECKED read-decide-write
+/// (<c>UseOptimisticConcurrency</c> on <see cref="AutomodHoldDocument"/>), not a bare load
+/// followed by an unconditional store: two concurrent resolutions cannot both commit, and the
+/// loser re-reads and re-applies <see cref="AutomodResolutionSource"/> precedence, so the stored
+/// verdict is deterministic rather than arrival-ordered. See
 /// <see cref="IAutomodStore.ResolveHoldAsync"/>'s doc comment for the exact rule.
 /// </para>
 ///
@@ -93,53 +96,89 @@ public sealed class AutomodStore(IDocumentStore store, IChatStore chatStore, Tim
     return true;
   }
 
+  /// <summary>
+  /// How many times a losing writer re-reads and re-applies the precedence rule before giving up.
+  /// Each retry needs a DIFFERENT concurrent writer to have committed in between, and the rule is
+  /// monotonic (a resolution can only ever be replaced by a strictly higher-precedence source, of
+  /// which there are three), so the loop provably converges long before this bound — it exists
+  /// only so a pathological store can never spin forever.
+  /// </summary>
+  private const int ResolveAttempts = 5;
+
+  /// <summary>
+  /// <b>Mechanism: Marten optimistic concurrency</b> (<c>UseOptimisticConcurrency</c> on
+  /// <see cref="AutomodHoldDocument"/> — see <c>NaryaMartenConfig</c>), not a partial unique index
+  /// and not a hand-written conditional UPDATE. A unique index cannot express "only if the new
+  /// source outranks the stored one", and a conditional UPDATE over raw JSONB would duplicate the
+  /// precedence rule in SQL where it could rot out of sync with this method. The version check
+  /// makes the read-decide-write one atomic step: a writer whose read is stale is REJECTED rather
+  /// than allowed to overwrite, and it then re-reads and re-decides, so the surviving verdict is
+  /// the one the precedence rule picks — not the one that happened to save last.
+  /// </summary>
   public async Task<AutomodResolveResult> ResolveHoldAsync(
-    string id, string resolution, string? resolvedBy, bool authoritative, CancellationToken cancellationToken)
+    string id, string resolution, string? resolvedBy, AutomodResolutionSource source, CancellationToken cancellationToken)
   {
-    await using var session = store.LightweightSession();
-
-    var existing = await session.LoadAsync<AutomodHoldDocument>(id, cancellationToken);
-    if (existing is null)
+    for (var attempt = 0; ; attempt++)
     {
-      return new AutomodResolveResult(null, false);
+      await using var session = store.LightweightSession();
+
+      var existing = await session.LoadAsync<AutomodHoldDocument>(id, cancellationToken);
+      if (existing is null)
+      {
+        return new AutomodResolveResult(null, false);
+      }
+
+      if (!Wins(existing, resolution, source))
+      {
+        return new AutomodResolveResult(ToAutomodHold(existing), false);
+      }
+
+      var resolvedAt = timeProvider.GetUtcNow();
+      var updated = existing with
+      {
+        ResolvedAt = resolvedAt,
+        Resolution = resolution,
+        ResolvedBy = resolvedBy,
+        ResolvedSource = source,
+      };
+
+      session.Store(updated);
+      try
+      {
+        await session.SaveChangesAsync(cancellationToken);
+      }
+      catch (ConcurrencyException) when (attempt < ResolveAttempts)
+      {
+        // Someone else resolved this hold between our load and our save. Their verdict is now the
+        // stored one; loop to re-apply the precedence rule against it. Note this is BEFORE the
+        // audit append below, so a losing resolution never appends a contradictory chat_event.
+        continue;
+      }
+
+      _ = await chatStore.AppendChatEventAsync(
+        "automod.resolve",
+        updated.Channel,
+        JsonSerializer.Serialize(new { resolution, resolvedBy }),
+        id,
+        updated.Username,
+        resolvedAt,
+        cancellationToken).ConfigureAwait(false);
+
+      return new AutomodResolveResult(ToAutomodHold(updated), true);
     }
-
-    var isUnresolved = existing.ResolvedAt is null;
-    // An authoritative verdict (Twitch's own automod.message.update, or a successful allow/deny
-    // Helix call) is allowed to replace a speculatively-recorded "expired" — but only once: once
-    // the resolution is no longer "expired", this branch is false forever, so two authoritative
-    // outcomes racing each other stay idempotent (first one to reach this line wins).
-    var supersedesProvisionalExpiry = authoritative
-      && existing.Resolution == "expired"
-      && resolution != "expired";
-
-    if (!isUnresolved && !supersedesProvisionalExpiry)
-    {
-      return new AutomodResolveResult(ToAutomodHold(existing), false);
-    }
-
-    var resolvedAt = timeProvider.GetUtcNow();
-    var updated = existing with
-    {
-      ResolvedAt = resolvedAt,
-      Resolution = resolution,
-      ResolvedBy = resolvedBy,
-    };
-
-    session.Store(updated);
-    await session.SaveChangesAsync(cancellationToken);
-
-    _ = await chatStore.AppendChatEventAsync(
-      "automod.resolve",
-      updated.Channel,
-      JsonSerializer.Serialize(new { resolution, resolvedBy }),
-      id,
-      updated.Username,
-      resolvedAt,
-      cancellationToken).ConfigureAwait(false);
-
-    return new AutomodResolveResult(ToAutomodHold(updated), true);
   }
+
+  /// <summary>
+  /// The precedence rule, in one place (see <see cref="IAutomodStore.ResolveHoldAsync"/>): an
+  /// unresolved hold always accepts a resolution; a resolved one only accepts a STRICTLY
+  /// higher-precedence source carrying a DIFFERENT verdict. The "different verdict" half keeps an
+  /// EventSub confirmation of what the dashboard already recorded from pointlessly rewriting the
+  /// row and appending a second, identical audit event — and, for a
+  /// <see cref="AutomodResolutionSource.Speculative"/> stored resolution (always <c>"expired"</c>),
+  /// is exactly the old <c>resolution != "expired"</c> condition.
+  /// </summary>
+  private static bool Wins(AutomodHoldDocument existing, string resolution, AutomodResolutionSource source) =>
+    existing.ResolvedAt is null || (source > existing.ResolvedSource && existing.Resolution != resolution);
 
   public async Task<AutomodHold?> GetHoldAsync(string id, CancellationToken cancellationToken)
   {
@@ -166,7 +205,7 @@ public sealed class AutomodStore(IDocumentStore store, IChatStore chatStore, Tim
     var swept = new List<AutomodHold>(stale.Count);
     foreach (var doc in stale)
     {
-      var result = await ResolveHoldAsync(doc.Id, "expired", null, authoritative: false, cancellationToken).ConfigureAwait(false);
+      var result = await ResolveHoldAsync(doc.Id, "expired", null, AutomodResolutionSource.Speculative, cancellationToken).ConfigureAwait(false);
       if (result is { Changed: true, Hold: not null })
       {
         swept.Add(result.Hold);

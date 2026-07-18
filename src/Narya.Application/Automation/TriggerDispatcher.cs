@@ -44,14 +44,20 @@ public sealed partial class TriggerDispatcher(
       return null;
     }
 
-    if (opts.EnforceGates && await IsOnCooldownAsync(trigger, opts.ActorLogin, at, cancellationToken).ConfigureAwait(false))
-    {
-      return null;
-    }
-
     var runId = Guid.NewGuid();
     var dedupeKey = string.IsNullOrEmpty(opts.EventId) ? null : $"{trigger.Id}:{opts.EventId}";
-    var claimed = await runStore.TryClaimAsync(runId, trigger.Id, dedupeKey, opts.ActorLogin, at, cancellationToken).ConfigureAwait(false);
+
+    // The cooldown gate is the STORE's job, not a check here followed by an unrelated claim: two
+    // different concurrent events carry two different dedupe keys, so a pre-check both of them
+    // passed would let both fire inside one window. Passing the window into the claim makes
+    // admission and claim one serialized database operation — see IAutomationRunStore.TryClaimAsync.
+    var cooldowns = opts.EnforceGates
+      ? new TriggerCooldowns(trigger.GlobalCooldownMs, trigger.UserCooldownMs)
+      : TriggerCooldowns.None;
+
+    var claimed = await runStore
+      .TryClaimAsync(runId, trigger.Id, dedupeKey, opts.ActorLogin, at, cooldowns, cancellationToken)
+      .ConfigureAwait(false);
     if (!claimed)
     {
       return null;
@@ -317,29 +323,6 @@ public sealed partial class TriggerDispatcher(
 
   /// <summary>A trigger with a null <see cref="AutomationTrigger.ModuleId"/> is global; a non-null one is armed only while that module is the live one.</summary>
   private bool IsArmed(AutomationTrigger trigger) => trigger.ModuleId is null || trigger.ModuleId == activeModuleProvider.GetActiveModuleId();
-
-  private async Task<bool> IsOnCooldownAsync(AutomationTrigger trigger, string? actorLogin, DateTimeOffset at, CancellationToken cancellationToken)
-  {
-    if (trigger.GlobalCooldownMs > 0)
-    {
-      var last = await runStore.GetLastRunAtAsync(trigger.Id, cancellationToken).ConfigureAwait(false);
-      if (last is { } lastRunAt && (at - lastRunAt).TotalMilliseconds < trigger.GlobalCooldownMs)
-      {
-        return true;
-      }
-    }
-
-    if (trigger.UserCooldownMs > 0 && !string.IsNullOrEmpty(actorLogin))
-    {
-      var last = await runStore.GetLastUserRunAtAsync(trigger.Id, actorLogin, cancellationToken).ConfigureAwait(false);
-      if (last is { } lastRunAt && (at - lastRunAt).TotalMilliseconds < trigger.UserCooldownMs)
-      {
-        return true;
-      }
-    }
-
-    return false;
-  }
 
   private async Task<IReadOnlyList<TriggerRunSummary>> InvokeAllAsync(
     IReadOnlyList<(AutomationTrigger Trigger, TemplateContext Context)> candidates, TriggerInvokeOptions options, CancellationToken cancellationToken)

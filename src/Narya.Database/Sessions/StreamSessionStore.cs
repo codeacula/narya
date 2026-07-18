@@ -1,6 +1,9 @@
 using Marten;
+using Marten.Services;
 
 using Narya.Core.Sessions;
+
+using Npgsql;
 
 namespace Narya.Database.Sessions;
 
@@ -10,15 +13,15 @@ namespace Narya.Database.Sessions;
 /// Mirrors legacy's <c>streamSession.ts</c>.
 ///
 /// <para>
-/// <b>The one-active-session invariant.</b> <see cref="GetOrStartSessionAsync"/> is the only
-/// place a session is created, and it enforces "at most one open session" itself rather than
-/// relying on a database constraint: within a single <see cref="IDocumentSession"/> it
-/// re-checks for an existing row with the same <see cref="StreamSessionDocument.Source"/> (in
-/// case one was created between the caller's initial read and this method opening its write
-/// session — mirroring legacy's re-check inside its <c>db.transaction</c>), then closes every
-/// currently-open session before inserting the new one, and finally commits all of it as one
-/// <c>SaveChangesAsync</c> — so a reader can never observe two open sessions or a source with
-/// zero open sessions after a legitimate stream restart.
+/// <b>The one-active-session invariant is a DATABASE constraint.</b> It used to be a pre-check —
+/// re-read inside the write session, and insert if nothing was found — which two concurrent
+/// <c>stream.online</c> deliveries could both pass before either wrote. It is now a partial unique
+/// index over <see cref="StreamSessionDocument.OpenMarker"/> (see <c>NaryaMartenConfig</c>): the
+/// second insert is rejected by Postgres, and <see cref="GetOrStartSessionAsync"/> treats that
+/// rejection as the benign "someone else already opened it" case, returning the winner rather than
+/// surfacing a failure — Twitch redelivers <c>stream.online</c> as a matter of course.
+/// The close-the-previous-session-then-open-a-new-one restart path still commits as ONE
+/// transaction, so a reader never observes two open sessions or a source with zero.
 /// </para>
 ///
 /// <para>
@@ -56,15 +59,25 @@ public sealed class StreamSessionStore(IDocumentStore store) : IStreamSessionSto
       return (StreamSession)existing;
     }
 
-    await using var session = store.LightweightSession();
-
-    // Re-check inside the write session — see the class doc comment for why.
-    var duplicate = await session.Query<StreamSessionDocument>()
-      .FirstOrDefaultAsync(s => s.Source == source, cancellationToken);
-    if (duplicate is not null)
+    var created = new StreamSessionDocument
     {
-      return (StreamSession)duplicate;
-    }
+      Id = Guid.NewGuid().ToString(),
+      StartedAt = startedAt,
+      EndedAt = null,
+      Source = source,
+    };
+
+    // ONE explicit Postgres transaction, with the close flushed BEFORE the insert inside it. The
+    // ordering matters and Marten's own unit of work will not guarantee it: left to one
+    // SaveChangesAsync, the close (an update) and the open (an insert) are batched together and
+    // the insert can reach the unique index while the previous session is still marked open,
+    // failing a restart that is entirely legitimate. Two SaveChangesAsync calls enlisted in one
+    // externally-owned transaction give the statement order without giving up atomicity: a reader
+    // still never observes two open sessions, nor a source with zero.
+    await using var connection = store.Storage.Database.CreateConnection();
+    await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+    await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+    await using var session = store.LightweightSession(SessionOptions.ForTransaction(transaction));
 
     var openSessions = await session.Query<StreamSessionDocument>()
       .Where(s => s.EndedAt == null)
@@ -75,16 +88,32 @@ public sealed class StreamSessionStore(IDocumentStore store) : IStreamSessionSto
       session.Store(open with { EndedAt = startedAt });
     }
 
-    var created = new StreamSessionDocument
-    {
-      Id = Guid.NewGuid().ToString(),
-      StartedAt = startedAt,
-      EndedAt = null,
-      Source = source,
-    };
+    await session.SaveChangesAsync(cancellationToken);
+
     session.Insert(created);
 
-    await session.SaveChangesAsync(cancellationToken);
+    try
+    {
+      await session.SaveChangesAsync(cancellationToken);
+      await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+    catch (Exception ex) when (IsUniqueViolation(ex))
+    {
+      // A concurrent stream.online won the race and its session is the open one. That is the
+      // NORMAL case for a Twitch redelivery, not an error — roll this attempt back and report the
+      // winner. Re-read outside the aborted transaction: everything this transaction did (the
+      // close above included) is gone, so the winner's row is the whole truth.
+      await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+      var winner = await FindBySourceAsync(source, cancellationToken).ConfigureAwait(false)
+        ?? await FindOpenAsync(cancellationToken).ConfigureAwait(false);
+
+      // A winner that is already gone (closed and superseded between the violation and this read)
+      // leaves nothing truthful to return, and inventing a session the store does not hold would
+      // be worse than surfacing it — the caller retries the next stream.online delivery.
+      return winner is null
+        ? throw new InvalidOperationException($"Stream session for source '{source}' lost the open-session race but no open session exists.")
+        : (StreamSession)winner;
+    }
 
     return (StreamSession)created;
   }
@@ -155,5 +184,33 @@ public sealed class StreamSessionStore(IDocumentStore store) : IStreamSessionSto
     await using var session = store.QuerySession();
     return await session.Query<StreamSessionDocument>()
       .FirstOrDefaultAsync(s => s.Source == source, cancellationToken);
+  }
+
+  private async Task<StreamSessionDocument?> FindOpenAsync(CancellationToken cancellationToken)
+  {
+    await using var session = store.QuerySession();
+    return await session.Query<StreamSessionDocument>()
+      .Where(s => s.EndedAt == null)
+      .OrderByDescending(s => s.StartedAt)
+      .FirstOrDefaultAsync(cancellationToken);
+  }
+
+  /// <summary>
+  /// Walks the exception chain (Marten wraps the underlying Postgres failure) looking for SQLSTATE
+  /// 23505 — here, the partial unique index on <see cref="StreamSessionDocument.OpenMarker"/>
+  /// rejecting a second open session. Identical pattern to
+  /// <c>Narya.Database.Automation.AutomationRunStore.IsUniqueViolation</c>.
+  /// </summary>
+  private static bool IsUniqueViolation(Exception error)
+  {
+    for (var current = error; current is not null; current = current.InnerException)
+    {
+      if (current is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+      {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

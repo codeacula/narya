@@ -70,6 +70,71 @@ public sealed class StreamSessionStoreTests(PostgresFixture fixture)
     Assert.Equal(second.Id, active!.Id);
   }
 
+  /// <summary>
+  /// THE RACE. N concurrent <c>stream.online</c> deliveries for the SAME source, all released
+  /// together from a <see cref="Barrier"/> so they hit the store at genuinely the same time —
+  /// Twitch redelivers <c>stream.online</c> routinely. The old pre-check (re-read, then insert if
+  /// nothing found) is passed by every one of them before any of them writes; only the partial
+  /// unique index over <c>OpenMarker</c> can hold the line.
+  /// </summary>
+  [Fact]
+  public async Task ConcurrentStreamOnlineDeliveriesForOneSourceLeaveExactlyOneOpenSession()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new StreamSessionStore(documentStore);
+    var startedAt = DateTimeOffset.UtcNow;
+
+    const int Racers = 8;
+    using var gate = new Barrier(Racers);
+    var starts = Enumerable.Range(0, Racers).Select(_ => Task.Run(async () =>
+    {
+      gate.SignalAndWait();
+      return await store.GetOrStartSessionAsync("twitch:race", startedAt, CancellationToken.None);
+    }));
+
+    var sessions = await Task.WhenAll(starts);
+
+    // Every caller must have been handed the SAME session — a redelivery is not an error, and a
+    // caller that got a different id would go on to attribute chatters to a phantom session.
+    _ = Assert.Single(sessions.Select(s => s.Id).Distinct());
+
+    await using var query = documentStore.QuerySession();
+    var open = await query.Query<StreamSessionDocument>().Where(s => s.EndedAt == null).ToListAsync();
+    _ = Assert.Single(open);
+    var all = await query.Query<StreamSessionDocument>().CountAsync();
+    Assert.Equal(1, all); // and no orphaned closed rows from the losers' rolled-back transactions
+  }
+
+  /// <summary>
+  /// The same race across DIFFERENT sources — two stream restarts landing together. Only one may
+  /// end up open; the other's whole transaction (its close of the previous session included) is
+  /// rolled back, so the winner is still open and reachable.
+  /// </summary>
+  [Fact]
+  public async Task ConcurrentStreamOnlineDeliveriesForDifferentSourcesLeaveExactlyOneOpenSession()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new StreamSessionStore(documentStore);
+    var startedAt = DateTimeOffset.UtcNow;
+
+    const int Racers = 6;
+    using var gate = new Barrier(Racers);
+    var starts = Enumerable.Range(0, Racers).Select(i => Task.Run(async () =>
+    {
+      gate.SignalAndWait();
+      return await store.GetOrStartSessionAsync($"twitch:{i}", startedAt, CancellationToken.None);
+    }));
+
+    _ = await Task.WhenAll(starts);
+
+    await using var query = documentStore.QuerySession();
+    var open = await query.Query<StreamSessionDocument>().Where(s => s.EndedAt == null).ToListAsync();
+    _ = Assert.Single(open);
+
+    var active = await store.GetActiveSessionAsync(CancellationToken.None);
+    Assert.Equal(open[0].Id, active!.Id);
+  }
+
   [Fact]
   public async Task EndActiveSessionClosesTheOpenSession()
   {
