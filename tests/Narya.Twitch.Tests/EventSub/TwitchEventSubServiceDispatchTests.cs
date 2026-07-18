@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 using Narya.Core.Chat;
+using Narya.Core.Events;
 using Narya.Twitch.EventSub;
 using Narya.Twitch.EventSub.Notifications;
 using Narya.Twitch.Helix;
@@ -133,9 +134,9 @@ public sealed class TwitchEventSubServiceDispatchTests
     await f.Service.OnChannelSubscribeAsync(sender: null, subscribeArgs);
     await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
 
-    await f.Mediator.Received(1).Publish(Arg.Any<StreamEventOccurredNotification>(), Arg.Any<CancellationToken>());
+    await f.Mediator.Received(1).Publish(Arg.Any<StreamEventIngestedNotification>(), Arg.Any<CancellationToken>());
     await f.Mediator.Received(1).Publish(
-      Arg.Is<StreamEventUpdatedNotification>(n => n.Update.Detail == "resub · Tier 1 · 3 months"), Arg.Any<CancellationToken>());
+      Arg.Is<StreamEventUpdateIngestedNotification>(n => n.Update.Detail == "resub · Tier 1 · 3 months"), Arg.Any<CancellationToken>());
   }
 
   [Fact]
@@ -146,9 +147,9 @@ public sealed class TwitchEventSubServiceDispatchTests
 
     await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
 
-    await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventUpdatedNotification>(), Arg.Any<CancellationToken>());
+    await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventUpdateIngestedNotification>(), Arg.Any<CancellationToken>());
     await f.Mediator.Received(1).Publish(
-      Arg.Is<StreamEventOccurredNotification>(n => n.Event.Detail == "resub · Tier 1 · 6 months"), Arg.Any<CancellationToken>());
+      Arg.Is<StreamEventIngestedNotification>(n => n.Event.Detail == "resub · Tier 1 · 6 months"), Arg.Any<CancellationToken>());
   }
 
   [Fact]
@@ -159,13 +160,13 @@ public sealed class TwitchEventSubServiceDispatchTests
 
     await f.Service.OnChannelSubscribeAsync(sender: null, giftedSubscribeArgs);
 
-    await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventOccurredNotification>(), Arg.Any<CancellationToken>());
+    await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventIngestedNotification>(), Arg.Any<CancellationToken>());
 
     // A subscription.message for the same user afterward must NOT find a pending merge target.
     var messageArgs = SubscriptionMessageArgs(userId: "99", userName: "GiftRecipient", tier: "1000", cumulativeMonths: 1);
     await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
 
-    await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventUpdatedNotification>(), Arg.Any<CancellationToken>());
+    await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventUpdateIngestedNotification>(), Arg.Any<CancellationToken>());
   }
 
   /// <summary>
@@ -187,17 +188,17 @@ public sealed class TwitchEventSubServiceDispatchTests
     await f.Service.OnChannelSubscribeAsync(sender: null, subscribeArgs);
 
     // Exactly one alert total: the resub the message published. The later subscribe must not
-    // add a second "new sub" StreamEventOccurredNotification, and must not touch the update
+    // add a second "new sub" StreamEventIngestedNotification, and must not touch the update
     // notification either.
     await f.Mediator.Received(1).Publish(
-      Arg.Is<StreamEventOccurredNotification>(n => n.Event.Detail == "resub · Tier 1 · 3 months"), Arg.Any<CancellationToken>());
-    await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventUpdatedNotification>(), Arg.Any<CancellationToken>());
+      Arg.Is<StreamEventIngestedNotification>(n => n.Event.Detail == "resub · Tier 1 · 3 months"), Arg.Any<CancellationToken>());
+    await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventUpdateIngestedNotification>(), Arg.Any<CancellationToken>());
   }
 
   /// <summary>
   /// A redelivered <c>channel.subscription.message</c> for a resub already merged (e.g. an
   /// EventSub reconnect redelivering the same notification) must be dropped outright — not
-  /// published as a second <see cref="StreamEventUpdatedNotification"/>.
+  /// published as a second <see cref="StreamEventUpdateIngestedNotification"/>.
   /// </summary>
   [Fact]
   public async Task ADuplicateSubscriptionMessageRedeliveryIsDroppedNotPublishedAgain()
@@ -211,7 +212,7 @@ public sealed class TwitchEventSubServiceDispatchTests
     // The same subscription.message redelivered.
     await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
 
-    await f.Mediator.Received(1).Publish(Arg.Any<StreamEventUpdatedNotification>(), Arg.Any<CancellationToken>());
+    await f.Mediator.Received(1).Publish(Arg.Any<StreamEventUpdateIngestedNotification>(), Arg.Any<CancellationToken>());
   }
 
   private static ChannelChatMessageArgs ChatMessageArgs(string chatterLogin) => new()

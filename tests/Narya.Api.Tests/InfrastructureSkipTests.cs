@@ -10,6 +10,7 @@ using StackExchange.Redis;
 
 using Narya.Core.AppConfig;
 using Narya.Core.Chat;
+using Narya.Core.Events;
 using Narya.Core.Sessions;
 
 namespace Narya.Api.Tests;
@@ -36,15 +37,18 @@ public sealed class InfrastructureSkipTests
 {
   /// <summary>
   /// Under SkipInfrastructure, <c>AddNaryaDatabase</c> (the only source of
-  /// <see cref="IAppConfigStore"/>/<see cref="IStreamSessionStore"/>/<see cref="IChatStore"/>)
-  /// never runs. Accessing <c>factory.Services</c> still builds the host, and ASP.NET's default
-  /// Development-environment DI validation (<c>ValidateOnBuild</c>) eagerly constructs every
-  /// registered handler, including the <c>/api/config</c> MediatR handlers that take a
-  /// constructor dependency on <see cref="IAppConfigStore"/>, the Sessions
+  /// <see cref="IAppConfigStore"/>/<see cref="IStreamSessionStore"/>/<see cref="IChatStore"/>/
+  /// <see cref="IStreamEventStore"/>) never runs. Accessing <c>factory.Services</c> still builds
+  /// the host, and ASP.NET's default Development-environment DI validation
+  /// (<c>ValidateOnBuild</c>) eagerly constructs every registered handler, including the
+  /// <c>/api/config</c> MediatR handlers that take a constructor dependency on
+  /// <see cref="IAppConfigStore"/>, the Sessions
   /// <c>StreamOnlineHandler</c>/<c>StreamOfflineHandler</c> that depend on
-  /// <see cref="IStreamSessionStore"/>, and the chat <c>PersistChatMessageHandler</c>/
+  /// <see cref="IStreamSessionStore"/>, the chat <c>PersistChatMessageHandler</c>/
   /// <c>GetRecentChatMessagesQueryHandler</c>/<c>GetRecentChatEventsQueryHandler</c> that depend
-  /// on <see cref="IChatStore"/> — unconfigured substitutes are enough to satisfy that.
+  /// on <see cref="IChatStore"/>, and the Events <c>PersistStreamEventHandler</c>/
+  /// <c>UpdateStreamEventHandler</c>/<c>GetRecentStreamEventsQueryHandler</c> that depend on
+  /// <see cref="IStreamEventStore"/> — unconfigured substitutes are enough to satisfy that.
   /// </summary>
   private static WebApplicationFactory<Program> BuildFactory() =>
     new WebApplicationFactory<Program>()
@@ -57,6 +61,7 @@ public sealed class InfrastructureSkipTests
           _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
           _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
           _ = services.AddSingleton(Substitute.For<IChatStore>());
+          _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
         });
       });
 

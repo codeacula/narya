@@ -289,7 +289,10 @@ public sealed class EventSubDispatcherTests
   {
     var args = new ChannelFollowArgs
     {
-      Payload = new EventSubNotificationPayload<ChannelFollow> { Event = new ChannelFollow { UserName = "NewFollower" } },
+      Payload = new EventSubNotificationPayload<ChannelFollow>
+      {
+        Event = new ChannelFollow { UserName = "NewFollower", UserLogin = "newfollower" },
+      },
     };
 
     var notification = EventSubDispatcher.DispatchFollow(args, Now);
@@ -299,6 +302,7 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("followed", notification.Event.Detail);
     Assert.Equal("silver", notification.Event.Tone);
     Assert.Equal(Now, notification.Event.ReceivedAt);
+    Assert.Equal("newfollower", notification.Event.ActorLogin);
     Assert.False(string.IsNullOrEmpty(notification.Event.Id));
   }
 
@@ -326,6 +330,23 @@ public sealed class EventSubDispatcherTests
   }
 
   [Fact]
+  public void DispatchSubscribeMapsActorLogin()
+  {
+    var args = new ChannelSubscribeArgs
+    {
+      Payload = new EventSubNotificationPayload<ChannelSubscribe>
+      {
+        Event = new ChannelSubscribe { UserName = "NewSubscriber", UserLogin = "newsubscriber", Tier = "1000", IsGift = false },
+      },
+    };
+
+    var notification = EventSubDispatcher.DispatchSubscribe(args, Now);
+
+    Assert.NotNull(notification);
+    Assert.Equal("newsubscriber", notification!.Event.ActorLogin);
+  }
+
+  [Fact]
   public void DispatchSubscribeReturnsNullForAGiftedSub()
   {
     var args = new ChannelSubscribeArgs
@@ -349,6 +370,7 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("sub", notification.Event.Kind);
     Assert.Equal(expectedDetail, notification.Event.Detail);
     Assert.Equal("warning", notification.Event.Tone);
+    Assert.Equal("resubscriber", notification.Event.ActorLogin);
   }
 
   [Fact]
@@ -367,7 +389,13 @@ public sealed class EventSubDispatcherTests
   {
     Payload = new EventSubNotificationPayload<ChannelSubscriptionMessage>
     {
-      Event = new ChannelSubscriptionMessage { UserName = "Resubscriber", Tier = tier, CumulativeMonths = cumulativeMonths },
+      Event = new ChannelSubscriptionMessage
+      {
+        UserName = "Resubscriber",
+        UserLogin = "resubscriber",
+        Tier = tier,
+        CumulativeMonths = cumulativeMonths,
+      },
     },
   };
 
@@ -436,7 +464,7 @@ public sealed class EventSubDispatcherTests
     {
       Payload = new EventSubNotificationPayload<ChannelSubscriptionGift>
       {
-        Event = new ChannelSubscriptionGift { UserName = "GenerousGifter", Total = 5 },
+        Event = new ChannelSubscriptionGift { UserName = "GenerousGifter", UserLogin = "generousgifter", Total = 5 },
       },
     };
 
@@ -446,6 +474,7 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("GenerousGifter", notification.Event.Actor);
     Assert.Equal("gifted 5 subs to the channel", notification.Event.Detail);
     Assert.Equal("warning", notification.Event.Tone);
+    Assert.Equal("generousgifter", notification.Event.ActorLogin);
   }
 
   [Fact]
@@ -479,7 +508,10 @@ public sealed class EventSubDispatcherTests
   {
     var namedArgs = new ChannelCheerArgs
     {
-      Payload = new EventSubNotificationPayload<ChannelCheer> { Event = new ChannelCheer { UserName = "BigSpender", Bits = 500 } },
+      Payload = new EventSubNotificationPayload<ChannelCheer>
+      {
+        Event = new ChannelCheer { UserName = "BigSpender", UserLogin = "bigspender", Bits = 500 },
+      },
     };
     var anonymousArgs = new ChannelCheerArgs
     {
@@ -493,6 +525,7 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("BigSpender", named.Event.Actor);
     Assert.Equal("cheered 500 bits", named.Event.Detail);
     Assert.Equal("info", named.Event.Tone);
+    Assert.Equal("bigspender", named.Event.ActorLogin);
     Assert.Equal("Anonymous", anonymous.Event.Actor);
   }
 
@@ -503,7 +536,7 @@ public sealed class EventSubDispatcherTests
     {
       Payload = new EventSubNotificationPayload<ChannelRaid>
       {
-        Event = new ChannelRaid { FromBroadcasterUserName = "RaidingStreamer", Viewers = 12 },
+        Event = new ChannelRaid { FromBroadcasterUserName = "RaidingStreamer", FromBroadcasterUserLogin = "raidingstreamer", Viewers = 12 },
       },
     };
 
@@ -513,6 +546,7 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("RaidingStreamer", notification.Event.Actor);
     Assert.Equal("raided with 12 viewers", notification.Event.Detail);
     Assert.Equal("note", notification.Event.Tone);
+    Assert.Equal("raidingstreamer", notification.Event.ActorLogin);
   }
 
   [Fact]
@@ -526,6 +560,7 @@ public sealed class EventSubDispatcherTests
         {
           Id = "redemption-abc-123",
           UserName = "Redeemer",
+          UserLogin = "redeemer",
           Reward = new RedemptionReward { Title = "Play a sound" },
         },
       },
@@ -537,6 +572,7 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("redeem", notification.Event.Kind);
     Assert.Equal("redeemed \"Play a sound\"", notification.Event.Detail);
     Assert.Equal("info", notification.Event.Tone);
+    Assert.Equal("redeemer", notification.Event.ActorLogin);
   }
 
   [Fact]
@@ -553,6 +589,7 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("Twitch", notification.Event.Actor);
     Assert.Equal("ad break · 90s", notification.Event.Detail);
     Assert.Equal("info", notification.Event.Tone);
+    Assert.Null(notification.Event.ActorLogin); // no login source for an ad break — matches legacy's unparameterized emitStreamEvent call
   }
 
   // ---------------------------------------------------------------------------------------
@@ -573,6 +610,7 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("silver", notification.Event.Tone);
     Assert.Equal(Now, notification.Event.ReceivedAt);
     Assert.False(string.IsNullOrEmpty(notification.Event.Id));
+    Assert.Equal("loyalviewer", notification.Event.ActorLogin);
   }
 
   [Theory]
@@ -595,6 +633,7 @@ public sealed class EventSubDispatcherTests
       {
         BroadcasterUserLogin = "codeacula",
         ChatterUserName = chatterUserName,
+        ChatterUserLogin = chatterUserName.ToLowerInvariant(),
         NoticeType = noticeType,
       },
     },

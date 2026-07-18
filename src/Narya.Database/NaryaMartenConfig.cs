@@ -4,6 +4,7 @@ using Marten.Events.Projections;
 using Narya.Database.AppConfig;
 using Narya.Database.Chat;
 using Narya.Database.Common;
+using Narya.Database.Events;
 using Narya.Database.Sessions;
 using Narya.Database.Viewers;
 
@@ -44,5 +45,10 @@ public static class NaryaMartenConfig
       .Index(x => x.OccurredAt);
     _ = options.Schema.For<ChatterDocument>()
       .Identity(x => x.Login);
+
+    // Stream event persistence (Phase 3 Task 4) — see StreamEventDocument's doc comment.
+    // Indexed on ReceivedAt (GetRecentAsync's ordering).
+    _ = options.Schema.For<StreamEventDocument>()
+      .Index(x => x.ReceivedAt);
   }
 }

@@ -13,6 +13,7 @@ using NSubstitute;
 using Narya.Api.Auth;
 using Narya.Core.AppConfig;
 using Narya.Core.Chat;
+using Narya.Core.Events;
 using Narya.Core.Sessions;
 
 using DomainConfig = Narya.Domain.AppConfig.AppConfig;
@@ -26,11 +27,11 @@ namespace Narya.Api.Tests.Controllers;
 /// normally registers it) is skipped under <c>Narya:SkipInfrastructure=true</c>. This
 /// proves the controller's <c>Result</c>→HTTP mapping AND that the real validator bounds
 /// (see <c>UpdateAppConfigCommandValidator</c>) are what reject an out-of-range PUT, not a
-/// hand-rolled stand-in for it. <see cref="IStreamSessionStore"/> and <see cref="IChatStore"/>
-/// are also substituted (unconfigured — nothing here exercises them) purely to satisfy DI
-/// validation: the Sessions and chat handlers registered by MediatR's assembly scan take a
-/// constructor dependency on them, and <c>AddNaryaDatabase</c> is skipped just like it is for
-/// <see cref="IAppConfigStore"/>.
+/// hand-rolled stand-in for it. <see cref="IStreamSessionStore"/>, <see cref="IChatStore"/>, and
+/// <see cref="IStreamEventStore"/> are also substituted (unconfigured — nothing here exercises
+/// them) purely to satisfy DI validation: the Sessions, chat, and stream-event handlers
+/// registered by MediatR's assembly scan take a constructor dependency on them, and
+/// <c>AddNaryaDatabase</c> is skipped just like it is for <see cref="IAppConfigStore"/>.
 /// </summary>
 public sealed class ConfigControllerTests
 {
@@ -53,6 +54,7 @@ public sealed class ConfigControllerTests
           _ = services.AddSingleton(store);
           _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
           _ = services.AddSingleton(Substitute.For<IChatStore>());
+          _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
         });
       })
       .CreateClient();

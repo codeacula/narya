@@ -1,4 +1,5 @@
 using Narya.Core.Chat;
+using Narya.Core.Events;
 using Narya.Core.Sessions;
 using Narya.Twitch.EventSub.Notifications;
 
@@ -142,11 +143,11 @@ public static class EventSubDispatcher
     return new ChatModeratedNotification(moderationEvent);
   }
 
-  public static StreamEventOccurredNotification DispatchFollow(ChannelFollowArgs args, DateTimeOffset now)
+  public static StreamEventIngestedNotification DispatchFollow(ChannelFollowArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
-    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "follow", e.UserName, "followed", "silver", now);
-    return new StreamEventOccurredNotification(streamEvent);
+    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "follow", e.UserName, "followed", "silver", now, ActorLogin: e.UserLogin);
+    return new StreamEventIngestedNotification(streamEvent);
   }
 
   /// <summary>
@@ -155,7 +156,7 @@ public static class EventSubDispatcher
   /// fires <c>channel.subscribe</c> for each recipient, and surfacing both would double-count
   /// the sub as two stream events. Matches legacy's <c>if (event.is_gift) break;</c>.
   /// </summary>
-  public static StreamEventOccurredNotification? DispatchSubscribe(ChannelSubscribeArgs args, DateTimeOffset now)
+  public static StreamEventIngestedNotification? DispatchSubscribe(ChannelSubscribeArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
     if (e.IsGift)
@@ -164,8 +165,8 @@ public static class EventSubDispatcher
     }
 
     var detail = $"new sub · {TierLabel(e.Tier)}";
-    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "sub", e.UserName, detail, "warning", now);
-    return new StreamEventOccurredNotification(streamEvent);
+    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "sub", e.UserName, detail, "warning", now, ActorLogin: e.UserLogin);
+    return new StreamEventIngestedNotification(streamEvent);
   }
 
   /// <summary>
@@ -174,13 +175,13 @@ public static class EventSubDispatcher
   /// a brand-new <see cref="StreamEvent"/> with the full resub detail
   /// (<see cref="ResubDetail"/>) rather than the bare "new sub" wording.
   /// </summary>
-  public static StreamEventOccurredNotification DispatchSubscriptionMessageAsNewEvent(
+  public static StreamEventIngestedNotification DispatchSubscriptionMessageAsNewEvent(
     ChannelSubscriptionMessageArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
     var streamEvent = new StreamEvent(
-      Guid.NewGuid().ToString(), "sub", e.UserName, ResubDetail(e.Tier, e.CumulativeMonths), "warning", now);
-    return new StreamEventOccurredNotification(streamEvent);
+      Guid.NewGuid().ToString(), "sub", e.UserName, ResubDetail(e.Tier, e.CumulativeMonths), "warning", now, ActorLogin: e.UserLogin);
+    return new StreamEventIngestedNotification(streamEvent);
   }
 
   /// <summary>
@@ -188,55 +189,56 @@ public static class EventSubDispatcher
   /// already emitted (<paramref name="pendingStreamEventId"/>) with the richer resub detail,
   /// instead of emitting a second stream event for the same subscription.
   /// </summary>
-  public static StreamEventUpdatedNotification DispatchSubscriptionMessageAsMerge(
+  public static StreamEventUpdateIngestedNotification DispatchSubscriptionMessageAsMerge(
     ChannelSubscriptionMessageArgs args, string pendingStreamEventId)
   {
     var e = args.Payload.Event;
     var update = new StreamEventUpdate(pendingStreamEventId, ResubDetail(e.Tier, e.CumulativeMonths), "warning");
-    return new StreamEventUpdatedNotification(update);
+    return new StreamEventUpdateIngestedNotification(update);
   }
 
-  public static StreamEventOccurredNotification DispatchGift(ChannelSubscriptionGiftArgs args, DateTimeOffset now)
+  public static StreamEventIngestedNotification DispatchGift(ChannelSubscriptionGiftArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
     var gifter = string.IsNullOrEmpty(e.UserName) ? "Anonymous" : e.UserName;
     var detail = $"gifted {e.Total} sub{(e.Total != 1 ? "s" : "")} to the channel";
-    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "gift", gifter, detail, "warning", now);
-    return new StreamEventOccurredNotification(streamEvent);
+    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "gift", gifter, detail, "warning", now, ActorLogin: e.UserLogin);
+    return new StreamEventIngestedNotification(streamEvent);
   }
 
-  public static StreamEventOccurredNotification DispatchCheer(ChannelCheerArgs args, DateTimeOffset now)
+  public static StreamEventIngestedNotification DispatchCheer(ChannelCheerArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
     var cheerer = string.IsNullOrEmpty(e.UserName) ? "Anonymous" : e.UserName;
     var detail = $"cheered {e.Bits} bits";
-    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "cheer", cheerer, detail, "info", now);
-    return new StreamEventOccurredNotification(streamEvent);
+    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "cheer", cheerer, detail, "info", now, ActorLogin: e.UserLogin);
+    return new StreamEventIngestedNotification(streamEvent);
   }
 
-  public static StreamEventOccurredNotification DispatchRaid(ChannelRaidArgs args, DateTimeOffset now)
+  public static StreamEventIngestedNotification DispatchRaid(ChannelRaidArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
     var detail = $"raided with {e.Viewers} viewer{(e.Viewers != 1 ? "s" : "")}";
-    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "raid", e.FromBroadcasterUserName, detail, "note", now);
-    return new StreamEventOccurredNotification(streamEvent);
+    var streamEvent = new StreamEvent(
+      Guid.NewGuid().ToString(), "raid", e.FromBroadcasterUserName, detail, "note", now, ActorLogin: e.FromBroadcasterUserLogin);
+    return new StreamEventIngestedNotification(streamEvent);
   }
 
   /// <summary><see cref="StreamEvent.Id"/> is the Twitch redemption id itself — see that field's doc comment.</summary>
-  public static StreamEventOccurredNotification DispatchRedemption(ChannelPointsCustomRewardRedemptionArgs args, DateTimeOffset now)
+  public static StreamEventIngestedNotification DispatchRedemption(ChannelPointsCustomRewardRedemptionArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
     var detail = $"redeemed \"{e.Reward.Title}\"";
-    var streamEvent = new StreamEvent(e.Id, "redeem", e.UserName, detail, "info", now);
-    return new StreamEventOccurredNotification(streamEvent);
+    var streamEvent = new StreamEvent(e.Id, "redeem", e.UserName, detail, "info", now, ActorLogin: e.UserLogin);
+    return new StreamEventIngestedNotification(streamEvent);
   }
 
-  public static StreamEventOccurredNotification DispatchAdBreak(ChannelAdBreakBeginArgs args, DateTimeOffset now)
+  public static StreamEventIngestedNotification DispatchAdBreak(ChannelAdBreakBeginArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
     var detail = $"ad break · {e.DurationSeconds}s";
     var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "ad_break", "Twitch", detail, "info", now);
-    return new StreamEventOccurredNotification(streamEvent);
+    return new StreamEventIngestedNotification(streamEvent);
   }
 
   /// <summary>
@@ -261,7 +263,7 @@ public static class EventSubDispatcher
   /// future TwitchLib release models the field (or a later phase parses the raw notification
   /// JSON itself, which no other dispatch method in this class does).
   /// </summary>
-  public static StreamEventOccurredNotification? DispatchChatNotification(ChannelChatNotificationArgs args, DateTimeOffset now)
+  public static StreamEventIngestedNotification? DispatchChatNotification(ChannelChatNotificationArgs args, DateTimeOffset now)
   {
     var e = args.Payload.Event;
     if (!string.Equals(e.NoticeType, "watch_streak", StringComparison.Ordinal))
@@ -269,8 +271,9 @@ public static class EventSubDispatcher
       return null;
     }
 
-    var streamEvent = new StreamEvent(Guid.NewGuid().ToString(), "redeem", e.ChatterUserName, "watch streak", "silver", now);
-    return new StreamEventOccurredNotification(streamEvent);
+    var streamEvent = new StreamEvent(
+      Guid.NewGuid().ToString(), "redeem", e.ChatterUserName, "watch streak", "silver", now, ActorLogin: e.ChatterUserLogin);
+    return new StreamEventIngestedNotification(streamEvent);
   }
 
   public static WhisperReceivedNotification DispatchWhisper(UserWhisperMessageArgs args, DateTimeOffset now)

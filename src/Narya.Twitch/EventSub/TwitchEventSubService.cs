@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+using Narya.Core.Events;
 using Narya.Twitch.EventSub.Notifications;
 using Narya.Twitch.Helix;
 

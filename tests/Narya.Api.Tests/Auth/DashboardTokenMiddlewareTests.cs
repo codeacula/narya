@@ -11,6 +11,7 @@ using NSubstitute;
 
 using Narya.Core.AppConfig;
 using Narya.Core.Chat;
+using Narya.Core.Events;
 using Narya.Core.Sessions;
 
 namespace Narya.Api.Tests.Auth;
@@ -39,21 +40,23 @@ public sealed class DashboardTokenMiddlewareTests
         _ = b.UseSetting("Narya:SkipInfrastructure", "true"); // Program.cs guard: no Marten/Redis in these tests
 
         // Under SkipInfrastructure, AddNaryaDatabase (the only source of IAppConfigStore,
-        // IStreamSessionStore, and IChatStore) never runs. Nothing in this class exercises
-        // /api/config, stream sessions, or chat, but the host still has to build: ASP.NET's
-        // default Development-environment DI validation (ValidateOnBuild) eagerly constructs
-        // every registered handler, including the /api/config MediatR handlers that take a
-        // constructor dependency on IAppConfigStore, the Sessions
-        // StreamOnlineHandler/StreamOfflineHandler that depend on IStreamSessionStore, and the
-        // chat PersistChatMessageHandler/GetRecentChatMessagesQueryHandler/
-        // GetRecentChatEventsQueryHandler that depend on IChatStore. Unconfigured substitutes
-        // are enough to satisfy that — their methods are never invoked by any test in this
-        // class.
+        // IStreamSessionStore, IChatStore, and IStreamEventStore) never runs. Nothing in this
+        // class exercises /api/config, stream sessions, chat, or stream events, but the host
+        // still has to build: ASP.NET's default Development-environment DI validation
+        // (ValidateOnBuild) eagerly constructs every registered handler, including the
+        // /api/config MediatR handlers that take a constructor dependency on IAppConfigStore,
+        // the Sessions StreamOnlineHandler/StreamOfflineHandler that depend on
+        // IStreamSessionStore, the chat PersistChatMessageHandler/GetRecentChatMessagesQueryHandler/
+        // GetRecentChatEventsQueryHandler that depend on IChatStore, and the Events
+        // PersistStreamEventHandler/UpdateStreamEventHandler/GetRecentStreamEventsQueryHandler
+        // that depend on IStreamEventStore. Unconfigured substitutes are enough to satisfy that
+        // — their methods are never invoked by any test in this class.
         _ = b.ConfigureTestServices(services =>
         {
           _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
           _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
           _ = services.AddSingleton(Substitute.For<IChatStore>());
+          _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
         });
 
         if (injectRemoteIp)
