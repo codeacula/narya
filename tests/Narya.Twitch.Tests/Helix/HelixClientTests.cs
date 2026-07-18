@@ -218,22 +218,41 @@ public sealed class HelixClientTests
   [Fact]
   public async Task InvalidateAlsoDropsTheCachedAuthenticatedUserIdSoABotReauthIsPickedUp()
   {
+    // Drives the ONLY path that reads the cached authenticated-user id: the bot chat-send
+    // sender resolution. Asserting through GetAuthenticatedUserAsync would prove nothing —
+    // that method always round-trips to IHelixApi and never consults the cache — so the
+    // regression (a reconnected bot account keeps sending under the PREVIOUS bot's user id
+    // until the process restarts) has to be observed on the sender id Twitch is given.
     var f = Build();
     _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Bot, Arg.Any<CancellationToken>()).Returns(Result.Ok("bot-token"));
+    _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>()).Returns(Result.Ok("broadcaster-token"));
+    _ = f.HelixApi.GetUsersAsync(Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(ThechannelLogin)), "broadcaster-token", Arg.Any<CancellationToken>())
+      .Returns(UsersResponse(("bid-1", "thechannel")));
     _ = f.HelixApi.GetUsersAsync(null, "bot-token", Arg.Any<CancellationToken>())
       .Returns(UsersResponse(("bot-1", "oldbot")));
+    _ = f.HelixApi.SendChatMessageAsync(
+        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+      .Returns(ChatResponse("msg-1", isSent: true));
 
-    var first = await f.Client.GetAuthenticatedUserAsync(TwitchProvider.Bot, CancellationToken.None);
-    Assert.Equal("oldbot", first.Value.Login);
+    var first = await f.Client.SendChatMessageAsync(TwitchProvider.Bot, "before", cancellationToken: CancellationToken.None);
+    Assert.True(first.IsSuccess);
+    _ = await f.HelixApi.Received(1).SendChatMessageAsync(
+      Arg.Is<string>(s => s == "bid-1"), Arg.Is<string>(s => s == "bot-1"), Arg.Any<string>(), Arg.Any<string?>(),
+      Arg.Is<string>(s => s == "bot-token"), Arg.Any<CancellationToken>());
 
+    // The operator reconnects a different bot account.
     _ = f.HelixApi.GetUsersAsync(null, "bot-token", Arg.Any<CancellationToken>())
       .Returns(UsersResponse(("bot-2", "newbot")));
     await f.Client.InvalidateAsync(CancellationToken.None);
 
-    var second = await f.Client.GetAuthenticatedUserAsync(TwitchProvider.Bot, CancellationToken.None);
+    var second = await f.Client.SendChatMessageAsync(TwitchProvider.Bot, "after", cancellationToken: CancellationToken.None);
 
-    Assert.Equal("newbot", second.Value.Login);
-    Assert.Equal("bot-2", second.Value.Id);
+    Assert.True(second.IsSuccess);
+    // The load-bearing assertion: the NEW bot's user id is what Twitch is told sent the
+    // message. Without the _authenticatedUserIds.Clear() in InvalidateAsync this stays "bot-1".
+    _ = await f.HelixApi.Received(1).SendChatMessageAsync(
+      Arg.Is<string>(s => s == "bid-1"), Arg.Is<string>(s => s == "bot-2"), Arg.Any<string>(), Arg.Any<string?>(),
+      Arg.Is<string>(s => s == "bot-token"), Arg.Any<CancellationToken>());
   }
 
   // ---------------------------------------------------------------------

@@ -127,6 +127,18 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
   internal int _reconnecting;
 
   /// <summary>
+  /// Count of <see cref="ReconnectWithBackoffAsync"/> ENTRIES, incremented before the
+  /// <see cref="_reconnecting"/> guard is consulted, so a request that the guard collapses into
+  /// an already-running loop still counts. Exists purely as a test seam: the real
+  /// <see cref="EventSubWebsocketClient"/> has no virtual members (see
+  /// <see cref="_reconnecting"/>'s doc comment), so "did an invalidation actually ask for a
+  /// reconnect?" is otherwise unobservable without opening a socket to Twitch — and a test that
+  /// asserts only on <see cref="_reconnecting"/> cannot tell "the guard was respected" apart
+  /// from "no reconnect was ever requested". Nothing in production reads it.
+  /// </summary>
+  internal int _reconnectRequests;
+
+  /// <summary>
   /// Set once, at the top of <see cref="ExecuteAsync"/>, before the first
   /// <see cref="EventSubWebsocketClient.ConnectAsync"/> call that could cause any of the
   /// handlers wired below to run — every handler either reads this after that assignment has
@@ -134,7 +146,10 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
   /// very call that follows the assignment) or, in the narrow boot-race case, reads the
   /// default <see cref="CancellationToken.None"/>, which is a safe never-cancels value.
   /// </summary>
-  private CancellationToken _stoppingToken;
+  /// <remarks><c>internal</c> only so a test can hand the fire-and-forget reconnect an
+  /// already-cancelled token, which makes the backoff loop return before it would touch the
+  /// real websocket client.</remarks>
+  internal CancellationToken _stoppingToken;
 
   public TwitchEventSubService(
     EventSubWebsocketClient client,
@@ -870,6 +885,7 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
   /// </summary>
   internal async Task ReconnectWithBackoffAsync(CancellationToken cancellationToken)
   {
+    _ = Interlocked.Increment(ref _reconnectRequests);
     if (Interlocked.CompareExchange(ref _reconnecting, 1, 0) != 0)
     {
       return;

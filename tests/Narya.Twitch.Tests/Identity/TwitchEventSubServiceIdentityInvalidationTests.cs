@@ -29,17 +29,23 @@ namespace Narya.Twitch.Tests.Identity;
 /// chat automation they matched. These tests assert both directions across an invalidation: the
 /// old login stops being suppressed, and the new one starts.
 ///
-/// <see cref="TwitchEventSubService._reconnecting"/> is pre-latched in every test here (the same
+/// The other half is the EventSub reconnect: subscriptions are all conditioned on the broadcaster
+/// id, so an invalidation that does not reconnect leaves them bound to the old channel forever.
+/// <see cref="TwitchEventSubService._reconnectRequests"/> is the seam that makes that observable
+/// — the real <see cref="EventSubWebsocketClient"/> has no virtual members and cannot be
+/// substituted, and this suite never opens a socket to Twitch.
+///
+/// <see cref="TwitchEventSubService._reconnecting"/> is pre-latched by default here (the same
 /// internal-guard trick <c>TwitchEventSubServiceReconnectGuardTests</c> uses) so
-/// <c>InvalidateAsync</c>'s fire-and-forget reconnect returns immediately instead of driving the
-/// real <see cref="EventSubWebsocketClient"/>, which has no virtual members and would attempt an
-/// actual connection to Twitch — something this suite never does.
+/// <c>InvalidateAsync</c>'s fire-and-forget reconnect returns immediately instead of driving that
+/// client. The one test that needs the loop genuinely entered starts from a free guard and an
+/// already-cancelled stopping token, which makes it return at its first cancellation check.
 /// </summary>
 public sealed class TwitchEventSubServiceIdentityInvalidationTests
 {
   private sealed record Fixture(TwitchEventSubService Service, IHelixClient HelixClient, IMediator Mediator);
 
-  private static Fixture Build()
+  private static Fixture Build(int reconnecting = 1, CancellationToken stoppingToken = default)
   {
     var helixClient = Substitute.For<IHelixClient>();
     var mediator = Substitute.For<IMediator>();
@@ -56,7 +62,8 @@ public sealed class TwitchEventSubServiceIdentityInvalidationTests
       NullLogger<TwitchEventSubService>.Instance)
     {
       // Park the reconnect loop — see the class doc comment.
-      _reconnecting = 1,
+      _reconnecting = reconnecting,
+      _stoppingToken = stoppingToken,
     };
 
     return new Fixture(service, helixClient, mediator);
@@ -107,6 +114,28 @@ public sealed class TwitchEventSubServiceIdentityInvalidationTests
   }
 
   [Fact]
+  public async Task InvalidatingRequestsAnEventSubReconnectSoSubscriptionsRebindToTheNewChannel()
+  {
+    // The defect this whole task exists to fix: without the reconnect, a channel switch clears
+    // the cached bot login but leaves every EventSub subscription — all conditioned on the OLD
+    // broadcaster id — in place until the process restarts. The guard starts FREE here so the
+    // backoff loop is genuinely entered; the stopping token is already cancelled so the loop
+    // returns at its first cancellation check, before it would touch the real websocket client.
+    using var cancelled = new CancellationTokenSource();
+    await cancelled.CancelAsync();
+    var f = Build(reconnecting: 0, stoppingToken: cancelled.Token);
+
+    await f.Service.InvalidateAsync(CancellationToken.None);
+
+    // The load-bearing assertion: the backoff loop was actually entered. Deleting the
+    // fire-and-forget reconnect from InvalidateAsync leaves this at 0.
+    Assert.Equal(1, f.Service._reconnectRequests);
+
+    // ...and it took and released the guard rather than bailing out at it.
+    Assert.Equal(0, f.Service._reconnecting);
+  }
+
+  [Fact]
   public async Task InvalidatingRespectsTheReconnectReentrancyGuardInsteadOfStartingASecondLoop()
   {
     var f = Build();
@@ -116,6 +145,10 @@ public sealed class TwitchEventSubServiceIdentityInvalidationTests
     // collapse into that single loop rather than each starting one of their own.
     await f.Service.InvalidateAsync(CancellationToken.None);
     await f.Service.InvalidateAsync(CancellationToken.None);
+
+    // Both invalidations DID ask for a reconnect — without this the assertion below is
+    // satisfied just as well by a build that never requests one at all.
+    Assert.Equal(2, f.Service._reconnectRequests);
 
     // Untouched: only the loop that acquired the guard is allowed to release it. Had these
     // calls run the loop body, its `finally` would have reset this to 0.
