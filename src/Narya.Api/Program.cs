@@ -37,9 +37,27 @@ if (trustedProxies.Length > 0)
 
 // Refuses to start an unsafe no-token deployment. Registered as an IStartupFilter, not run after
 // app.StartAsync(), so the check happens while the pipeline is being built and the listening
-// socket is still closed — see StartupBindingGuardFilter's doc comment. Skipped under
-// SkipInfrastructure, where WebApplicationFactory binds an ephemeral test server with no token by
-// design; the guard itself is covered directly by StartupBindingGuardTests.
+// socket is still closed — see StartupBindingGuardFilter's doc comment. The guard's own logic is
+// covered directly by StartupBindingGuardTests; this registration by
+// StartupBindingGuardCompositionTests.
+//
+// WHY THIS SHARES SkipInfrastructure's SWITCH RATHER THAN GETTING ITS OWN. A review asked for the
+// registration to be made unconditional, on the theory that a WebApplicationFactory host binds no
+// addresses and so the guard would be inert there. It is not: only the FIRST of the guard's three
+// refusals looks at bound addresses. The other two — a declared Narya:TrustedProxies allowlist,
+// and the absence of the AllowLoopbackOperatorWithoutToken opt-in — fire on configuration alone,
+// so an unconditional registration refuses to build exactly the no-token and no-token-plus-proxy
+// hosts that DashboardTokenMiddlewareTests must construct in order to test the middleware's
+// loopback decision at all. Making it unconditional was tried and fails 6 of those tests.
+//
+// Giving the guard a dedicated bypass key instead would be worse, not better. SkipInfrastructure
+// is a SELF-LIMITING bypass: a host that sets it has no Marten and no Redis registered and cannot
+// serve a single real request, so it can never be a quietly-misconfigured production deployment. A
+// standalone Narya:SkipStartupBindingGuard would be a switch a fully-working production host could
+// set and still run — a strictly larger attack surface than the coupling it removed. There is also
+// no reachable bypass today: DashboardTokenMiddleware.ResolveLoopbackRole independently requires
+// the AllowLoopbackOperatorWithoutToken opt-in, which appsettings.json pins false and which
+// launchSettings.json (never published) is the only thing that sets true.
 if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
 {
   _ = builder.Services.AddSingleton<IStartupFilter, StartupBindingGuardFilter>();
