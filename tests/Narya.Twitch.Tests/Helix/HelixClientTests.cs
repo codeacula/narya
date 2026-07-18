@@ -52,6 +52,7 @@ public sealed class HelixClientTests
 
   private static readonly string[] ThechannelLogin = ["thechannel"];
   private static readonly string[] SomeviewerLogin = ["someviewer"];
+  private static readonly string[] OtherchannelLogin = ["otherchannel"];
 
   private sealed class ManualTimeProvider(DateTimeOffset now) : TimeProvider
   {
@@ -181,6 +182,58 @@ public sealed class HelixClientTests
 
     Assert.True(result.IsSuccess);
     Assert.Equal("bid-1", result.Value);
+  }
+
+  [Fact]
+  public async Task InvalidateMakesTheNextCallReResolveAgainstTheNewChannel()
+  {
+    // The regression this covers: the broadcaster id was cached for the process lifetime, so an
+    // operator who switched TwitchChannel in Settings kept every Helix call — and every EventSub
+    // subscription condition built from this id — pointed at the PREVIOUS broadcaster until the
+    // process restarted.
+    var f = Build();
+    _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>())
+      .Returns(Result.Ok("broadcaster-token"));
+    _ = f.HelixApi.GetUsersAsync(
+        Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(ThechannelLogin)), "broadcaster-token", Arg.Any<CancellationToken>())
+      .Returns(UsersResponse(("bid-1", "thechannel")));
+
+    var before = await f.Client.GetBroadcasterIdAsync(CancellationToken.None);
+    Assert.Equal("bid-1", before.Value);
+
+    // The operator saves a new channel: config flips, and the invalidation fires.
+    _ = f.AppConfigStore.GetAsync(Arg.Any<CancellationToken>())
+      .Returns(Result.Ok(Config with { TwitchChannel = "otherchannel" }));
+    _ = f.HelixApi.GetUsersAsync(
+        Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(OtherchannelLogin)), "broadcaster-token", Arg.Any<CancellationToken>())
+      .Returns(UsersResponse(("bid-2", "otherchannel")));
+    await f.Client.InvalidateAsync(CancellationToken.None);
+
+    var after = await f.Client.GetBroadcasterIdAsync(CancellationToken.None);
+
+    Assert.True(after.IsSuccess);
+    Assert.Equal("bid-2", after.Value); // the load-bearing assertion
+  }
+
+  [Fact]
+  public async Task InvalidateAlsoDropsTheCachedAuthenticatedUserIdSoABotReauthIsPickedUp()
+  {
+    var f = Build();
+    _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Bot, Arg.Any<CancellationToken>()).Returns(Result.Ok("bot-token"));
+    _ = f.HelixApi.GetUsersAsync(null, "bot-token", Arg.Any<CancellationToken>())
+      .Returns(UsersResponse(("bot-1", "oldbot")));
+
+    var first = await f.Client.GetAuthenticatedUserAsync(TwitchProvider.Bot, CancellationToken.None);
+    Assert.Equal("oldbot", first.Value.Login);
+
+    _ = f.HelixApi.GetUsersAsync(null, "bot-token", Arg.Any<CancellationToken>())
+      .Returns(UsersResponse(("bot-2", "newbot")));
+    await f.Client.InvalidateAsync(CancellationToken.None);
+
+    var second = await f.Client.GetAuthenticatedUserAsync(TwitchProvider.Bot, CancellationToken.None);
+
+    Assert.Equal("newbot", second.Value.Login);
+    Assert.Equal("bot-2", second.Value.Id);
   }
 
   // ---------------------------------------------------------------------

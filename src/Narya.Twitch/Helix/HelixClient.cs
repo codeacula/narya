@@ -4,6 +4,7 @@ using System.Globalization;
 using FluentResults;
 
 using Narya.Core.AppConfig;
+using Narya.Twitch.Identity;
 using Narya.Twitch.Tokens;
 
 using TwitchLib.Api.Core.Enums;
@@ -28,7 +29,7 @@ internal sealed class HelixClient(
   IHelixApi helixApi,
   ITwitchCredentials credentials,
   IAppConfigStore appConfigStore,
-  TimeProvider timeProvider) : IHelixClient, IBroadcasterIdResolver, IDisposable
+  TimeProvider timeProvider) : IHelixClient, IBroadcasterIdResolver, ITwitchIdentityCache, IDisposable
 {
   public const int DefaultTimeoutSeconds = 600;
   public const int MaxTimeoutSeconds = 1_209_600;
@@ -517,6 +518,31 @@ internal sealed class HelixClient(
       helixApi.CreateEventSubSubscriptionAsync(type, version, conditionDictionary, sessionId, tokenResult.Value, cancellationToken)).ConfigureAwait(false);
 
     return result.IsFailed ? Result.Fail(result.Errors) : Result.Ok();
+  }
+
+  /// <summary>
+  /// Drops everything this client caches ABOUT a particular Twitch identity: the resolved
+  /// broadcaster id (so the very next <see cref="GetBroadcasterIdAsync"/> re-reads
+  /// <c>TwitchChannel</c> from config and re-resolves against Helix), the per-provider
+  /// authenticated-user ids (a bot reauth can point <see cref="TwitchProvider.Bot"/> at a
+  /// different account entirely), and the two short-TTL response caches, which describe the
+  /// OLD broadcaster's stream.
+  ///
+  /// Deliberately not taking <see cref="_broadcasterIdLock"/>: a concurrent
+  /// <see cref="GetBroadcasterIdAsync"/> already holding that lock is mid-resolution against
+  /// the config it read, and blocking here to overwrite its result would only serialize this
+  /// call behind a Helix round trip. The reference assignment is atomic, so the worst case is
+  /// that one in-flight resolution finishes and re-populates the field — the next call after
+  /// that still re-resolves, because that resolution reads the NEW channel from
+  /// <see cref="IAppConfigStore"/>, which has already committed by the time anything calls
+  /// this.
+  /// </summary>
+  public Task InvalidateAsync(CancellationToken cancellationToken)
+  {
+    _cachedBroadcasterId = null;
+    _authenticatedUserIds.Clear();
+    _caches.Clear();
+    return Task.CompletedTask;
   }
 
   /// <summary>Releases <see cref="_broadcasterIdLock"/>. HelixClient is a singleton, so this only runs once, at host shutdown.</summary>

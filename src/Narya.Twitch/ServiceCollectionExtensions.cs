@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Core.AppConfig;
 using Narya.Core.Dashboard;
+using Narya.Core.Twitch;
 using Narya.Twitch.Chat;
+using Narya.Twitch.Identity;
 using Narya.Twitch.Dashboard;
 using Narya.Twitch.EventSub;
 using Narya.Twitch.Helix;
@@ -46,7 +48,13 @@ public static class ServiceCollectionExtensions
     // must be a singleton — TryAdd rather than Add so a host that already registered its own
     // TimeProvider (e.g. for testing) is not overridden.
     services.TryAddSingleton(TimeProvider.System);
-    _ = services.AddSingleton<ITwitchCredentials, TwitchCredentials>();
+
+    // Registered as itself and then aliased, the same shape as HelixClient below: the
+    // ITwitchIdentityCache registration further down needs the SAME instance, and a second
+    // `AddSingleton<ITwitchIdentityCache, TwitchCredentials>()` would build a separate object
+    // with its own app-token cache — invalidating that one would clear nothing any caller reads.
+    _ = services.AddSingleton<TwitchCredentials>();
+    _ = services.AddSingleton<ITwitchCredentials>(sp => sp.GetRequiredService<TwitchCredentials>());
 
     // The single TwitchAPI instance every Helix call shares. Secret is deliberately left
     // unset (setting it would enable TwitchLib's own app-token auto-minting) and
@@ -98,6 +106,22 @@ public static class ServiceCollectionExtensions
     // no DI change of its own.
     _ = services.AddSingleton<IChatRoleResolver, ChatRoleResolver>();
 
+    // The two process-lifetime identity caches AddNaryaTwitch owns, exposed a second time under
+    // ITwitchIdentityCache via factory registrations that resolve the SAME singletons above —
+    // never `AddSingleton<ITwitchIdentityCache, HelixClient>()`, which would construct a second
+    // HelixClient with its own separate cache, so invalidating it would clear nothing the real
+    // callers read. AddNaryaTwitchEventSub adds a third (TwitchEventSubService) when a host opts
+    // into the real socket.
+    _ = services.AddSingleton<ITwitchIdentityCache>(sp => sp.GetRequiredService<HelixClient>());
+    _ = services.AddSingleton<ITwitchIdentityCache>(sp => sp.GetRequiredService<TwitchCredentials>());
+
+    // Plain AddSingleton, not TryAdd: AddNaryaApplication TryAdds NullTwitchIdentityInvalidator
+    // as the default for hosts with no Twitch layer (Narya.Agent, a WebApplicationFactory test
+    // under Narya:SkipInfrastructure), and a plain Add here is what makes the real
+    // implementation win in a host that composes both, regardless of which extension method ran
+    // first — the same shape as Narya.Cache's IRealtimePublisher registration.
+    _ = services.AddSingleton<ITwitchIdentityInvalidator, TwitchIdentityInvalidator>();
+
     return services;
   }
 
@@ -140,6 +164,14 @@ public static class ServiceCollectionExtensions
     // Replace, not TryAdd: this call's entire purpose is to swap out the
     // NoopTwitchEventSource AddNaryaTwitch registered.
     _ = services.Replace(ServiceDescriptor.Singleton<ITwitchEventSource, TwitchEventSource>());
+
+    // The third identity cache — the bot login behind the bot-loop guard, plus the reconnect
+    // that rebinds every subscription to the current broadcaster. Registered here rather than in
+    // AddNaryaTwitch because TwitchEventSubService itself only exists once a host opts into the
+    // real socket; a host without it simply contributes one fewer cache to
+    // TwitchIdentityInvalidator's IEnumerable. Resolves the same singleton the hosted-service
+    // registration above uses.
+    _ = services.AddSingleton<ITwitchIdentityCache>(sp => sp.GetRequiredService<TwitchEventSubService>());
 
     return services;
   }

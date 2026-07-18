@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Narya.Api.Auth;
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
+using Narya.Core.Twitch;
 using Narya.Core.Automation;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
@@ -61,7 +62,8 @@ public sealed class TwitchAuthControllerTests
     IAppConfigStore AppConfigStore,
     ITwitchOAuthClient OAuthClient,
     ITwitchTokenStore TokenStore,
-    ITwitchEventSource EventSource);
+    ITwitchEventSource EventSource,
+    ITwitchIdentityInvalidator IdentityInvalidator);
 
   private static TestClient BuildOperatorClient(DomainConfig? appConfig = null)
   {
@@ -74,6 +76,7 @@ public sealed class TwitchAuthControllerTests
     _ = tokenStore.GetAsync(Arg.Any<TwitchProvider>(), Arg.Any<CancellationToken>())
       .Returns(Result.Ok<TwitchToken?>(null));
     var eventSource = Substitute.For<ITwitchEventSource>();
+    var identityInvalidator = Substitute.For<ITwitchIdentityInvalidator>();
 
     var factory = new WebApplicationFactory<Program>()
       .WithWebHostBuilder(b =>
@@ -90,6 +93,7 @@ public sealed class TwitchAuthControllerTests
           _ = services.AddSingleton(oauthClient);
           _ = services.AddSingleton(tokenStore);
           _ = services.AddSingleton(eventSource);
+          _ = services.AddSingleton(identityInvalidator);
           _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
           _ = services.AddSingleton(Substitute.For<IChatStore>());
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
@@ -107,7 +111,7 @@ public sealed class TwitchAuthControllerTests
 
     var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", OperatorToken);
-    return new TestClient(client, appConfigStore, oauthClient, tokenStore, eventSource);
+    return new TestClient(client, appConfigStore, oauthClient, tokenStore, eventSource, identityInvalidator);
   }
 
   private static string SetCookieHeader(HttpResponseMessage response) =>
@@ -283,7 +287,10 @@ public sealed class TwitchAuthControllerTests
       TwitchProvider.Broadcaster,
       Arg.Is<TwitchToken>(t => t.AccessToken == "access-1" && t.RefreshToken == "refresh-1"),
       Arg.Any<CancellationToken>());
-    await test.EventSource.Received(1).ReconnectAsync();
+    // The broadcaster's identity may have moved (a different channel, newly granted scopes),
+    // so every cached Twitch identity is dropped and EventSub rebinds — see
+    // ITwitchIdentityInvalidator.
+    await test.IdentityInvalidator.Received(1).InvalidateAsync(Arg.Any<CancellationToken>());
     await test.EventSource.DidNotReceive().StopAsync();
 
     // The cookie must be cleared regardless of outcome.
@@ -293,7 +300,7 @@ public sealed class TwitchAuthControllerTests
   }
 
   [Fact]
-  public async Task CallbackWithValidBotStateDoesNotTriggerEventSubReconnect()
+  public async Task CallbackWithValidBotStateAlsoInvalidatesTheCachedTwitchIdentity()
   {
     var test = BuildOperatorClient();
     test.Client.DefaultRequestHeaders.Authorization = null;
@@ -315,7 +322,11 @@ public sealed class TwitchAuthControllerTests
     Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
     _ = await test.TokenStore.Received(1).SaveAsync(
       TwitchProvider.Bot, Arg.Any<TwitchToken>(), Arg.Any<CancellationToken>());
-    await test.EventSource.DidNotReceive().ReconnectAsync();
+    // The security-relevant case: the bot-loop guard compares an incoming chat message's author
+    // against a cached bot login. Reconnecting a DIFFERENT bot account without invalidating that
+    // cache leaves the guard pointed at the previous bot, so the new bot no longer recognizes —
+    // and therefore answers — its own messages.
+    await test.IdentityInvalidator.Received(1).InvalidateAsync(Arg.Any<CancellationToken>());
   }
 
   [Fact]

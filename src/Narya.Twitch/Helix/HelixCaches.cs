@@ -64,4 +64,20 @@ internal sealed class HelixCaches(TimeProvider timeProvider)
       _adSchedule = (timeProvider.GetUtcNow() + AdScheduleTtl, value);
     }
   }
+
+  /// <summary>
+  /// Drops both cached responses. Called only from <see cref="HelixClient.InvalidateAsync"/>:
+  /// these entries describe a SPECIFIC broadcaster's stream and ad schedule, so once the
+  /// broadcaster changes they are not merely stale, they are about the wrong channel — and
+  /// their TTLs (15s/5s) would otherwise keep serving that wrong channel's answers to the
+  /// dashboard for a few seconds after the switch.
+  /// </summary>
+  public void Clear()
+  {
+    lock (_lock)
+    {
+      _streamStatus = null;
+      _adSchedule = null;
+    }
+  }
 }

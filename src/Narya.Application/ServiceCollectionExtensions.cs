@@ -9,6 +9,7 @@ using Narya.Application.Behaviors;
 using Narya.Core.Dashboard;
 using Narya.Core.Media;
 using Narya.Core.Realtime;
+using Narya.Core.Twitch;
 
 namespace Narya.Application;
 
@@ -58,6 +59,16 @@ public static class ServiceCollectionExtensions
     // (a WebApplicationFactory test under Narya:SkipInfrastructure) still needs something to
     // resolve. See NullDashboardTwitchStatusProvider's doc comment.
     services.TryAddSingleton<IDashboardTwitchStatusProvider, NullDashboardTwitchStatusProvider>();
+
+    // TryAddSingleton, same rationale as IRealtimePublisher/IDashboardTwitchStatusProvider
+    // above: UpdateAppConfigCommandHandler hard-depends on ITwitchIdentityInvalidator so a
+    // channel/credentials change drops the cached broadcaster id, app token, and bot login. A
+    // host that composes AddNaryaApplication without AddNaryaTwitch (Narya.Agent; a
+    // WebApplicationFactory test under Narya:SkipInfrastructure) has no such caches, so the
+    // no-op is the correct answer there — see NullTwitchIdentityInvalidator's doc comment.
+    // AddNaryaTwitch registers the real TwitchIdentityInvalidator with a plain AddSingleton,
+    // which wins over this regardless of composition order.
+    services.TryAddSingleton<ITwitchIdentityInvalidator, NullTwitchIdentityInvalidator>();
 
     // TryAddSingleton, same rationale as IRealtimePublisher/IDashboardTwitchStatusProvider above:
     // Narya.Api.Controllers.MediaAssetsController hard-depends on IMediaFileCatalog (and, once

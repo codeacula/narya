@@ -3,6 +3,7 @@ using FluentResults;
 using Microsoft.Extensions.Logging;
 
 using Narya.Core.AppConfig;
+using Narya.Twitch.Identity;
 using Narya.Twitch.Oauth;
 
 namespace Narya.Twitch.Tokens;
@@ -20,7 +21,7 @@ public sealed partial class TwitchCredentials(
   IBroadcasterIdResolver broadcasterIdResolver,
   IAppConfigStore appConfigStore,
   TimeProvider timeProvider,
-  ILogger<TwitchCredentials> logger) : ITwitchCredentials, IDisposable
+  ILogger<TwitchCredentials> logger) : ITwitchCredentials, ITwitchIdentityCache, IDisposable
 {
   /// <summary>
   /// A stored token is treated as due for refresh once its remaining lifetime drops inside
@@ -241,6 +242,28 @@ public sealed partial class TwitchCredentials(
       AccessToken = accessTokenResult.Value,
       BroadcasterId = _cachedBroadcasterId,
     });
+  }
+
+  /// <summary>
+  /// Drops the cached app access token and the cached broadcaster id. The app token is minted
+  /// from the Twitch client id/secret, so a credentials change makes the cached one belong to a
+  /// different application entirely — and it has an hour-long lifetime, so nothing would evict
+  /// it on its own. The stored USER tokens are deliberately untouched: they live in
+  /// <see cref="ITwitchTokenStore"/>, which is the source of truth and is already re-read on
+  /// every call (see <see cref="GetAccessTokenAsync"/>), so an OAuth reauth is picked up
+  /// without any invalidation here.
+  ///
+  /// Not taking <see cref="_appTokenLock"/>, for the same reason
+  /// <see cref="Helix.HelixClient.InvalidateAsync"/> does not take its own lock: the writes are
+  /// atomic reference assignments, and blocking behind an in-flight <c>client_credentials</c>
+  /// round trip would buy nothing — the next caller after it re-mints against the new secret
+  /// regardless.
+  /// </summary>
+  public Task InvalidateAsync(CancellationToken cancellationToken)
+  {
+    _appToken = null;
+    _cachedBroadcasterId = null;
+    return Task.CompletedTask;
   }
 
   /// <summary>

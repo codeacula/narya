@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Narya.Core.Events;
 using Narya.Twitch.EventSub.Notifications;
 using Narya.Twitch.Helix;
+using Narya.Twitch.Identity;
 
 using TwitchLib.EventSub.Core.EventArgs.Automod;
 using TwitchLib.EventSub.Core.EventArgs.Channel;
@@ -53,7 +54,7 @@ namespace Narya.Twitch.EventSub;
 /// reconnect was driven from here (a hard drop) or from there (an OAuth callback granting new
 /// scopes): either way these same handlers fire and run the same decision logic.
 /// </summary>
-public sealed partial class TwitchEventSubService : BackgroundService
+public sealed partial class TwitchEventSubService : BackgroundService, ITwitchIdentityCache
 {
   /// <summary>The first retry delay in <see cref="ReconnectWithBackoffAsync"/>'s backoff sequence.</summary>
   public static readonly TimeSpan InitialBackoffDelay = TimeSpan.FromSeconds(1);
@@ -782,6 +783,44 @@ public sealed partial class TwitchEventSubService : BackgroundService
 
     _cachedBotLogin = result.Value.Login.ToLowerInvariant();
     return _cachedBotLogin;
+  }
+
+  /// <summary>
+  /// The EventSub half of <see cref="Core.Twitch.ITwitchIdentityInvalidator"/>. Two jobs:
+  ///
+  /// <list type="number">
+  /// <item>Clear <see cref="_cachedBotLogin"/>. This is the security-relevant one: the bot-loop
+  /// guard in <see cref="OnChatMessageAsync"/> suppresses messages whose author matches this
+  /// value, so after the operator reconnects a DIFFERENT bot account a stale value means the
+  /// new bot's own messages are no longer recognized as its own — the bot answers itself, and
+  /// each answer re-triggers the same chat automation, which is a loop, not a cosmetic bug.
+  /// The next chat message re-resolves it via Helix (whose authenticated-user cache the same
+  /// invalidation pass already cleared).</item>
+  /// <item>Reconnect, so the subscriptions — every one of which is conditioned on the
+  /// broadcaster id (<see cref="EventSubSubscriptions.All"/>) — are recreated against the new
+  /// broadcaster instead of staying bound to the old channel.</item>
+  /// </list>
+  ///
+  /// <see cref="_lastSubscribedSessionId"/> is cleared alongside so
+  /// <see cref="ShouldResubscribe"/> cannot answer "no" on the way back up, even in the case
+  /// where the reconnect somehow lands the same session id.
+  ///
+  /// The reconnect goes through <see cref="ReconnectWithBackoffAsync"/> — the same guarded loop
+  /// a hard drop uses — rather than calling <see cref="EventSubWebsocketClient.ReconnectAsync()"/>
+  /// directly, for two reasons. It gets the retry behavior for free (an invalidation that lands
+  /// while Twitch is unreachable still eventually re-subscribes instead of silently leaving the
+  /// socket on the old channel), and <see cref="_reconnecting"/> makes concurrent or repeated
+  /// invalidations collapse into a single in-flight loop rather than a reconnect storm.
+  /// Fire-and-forget for the same reason <see cref="OnWebsocketDisconnectedAsync"/> is: the loop
+  /// runs until it succeeds, and no caller of this method — a config save, an OAuth callback —
+  /// has any business awaiting a Twitch round trip before returning its own response.
+  /// </summary>
+  public Task InvalidateAsync(CancellationToken cancellationToken)
+  {
+    _cachedBotLogin = null;
+    _lastSubscribedSessionId = null;
+    _ = ReconnectWithBackoffAsync(_stoppingToken);
+    return Task.CompletedTask;
   }
 
   /// <summary>

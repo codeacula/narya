@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 
 using Narya.Api.Auth;
 using Narya.Core.AppConfig;
+using Narya.Core.Twitch;
 using Narya.Twitch;
 using Narya.Twitch.EventSub;
 using Narya.Twitch.Oauth;
@@ -31,6 +32,7 @@ public sealed partial class TwitchAuthController(
   ITwitchOAuthClient oauthClient,
   ITwitchTokenStore tokenStore,
   ITwitchEventSource eventSource,
+  ITwitchIdentityInvalidator identityInvalidator,
   IOptions<NaryaAuthOptions> authOptions,
   ILogger<TwitchAuthController> logger) : ControllerBase
 {
@@ -108,19 +110,23 @@ public sealed partial class TwitchAuthController(
       });
     }
 
-    if (provider.Value == TwitchProvider.Broadcaster)
+    // Both providers, not just the broadcaster. A broadcaster reauth can point at a different
+    // channel (new broadcaster id, new subscription conditions) and grants scopes the live
+    // socket needs fresh subscriptions for. A bot reauth is the security-relevant one: the
+    // bot-loop guard suppresses chat messages matching the cached bot login, so reconnecting a
+    // DIFFERENT bot account without clearing that cache leaves the guard comparing against the
+    // previous bot — the new bot stops recognizing its own messages and answers itself.
+    //
+    // Best-effort: the token is already saved, so a failure here must never fail the callback.
+    // The invalidator swallows and logs per-cache failures itself; this catch is the outer
+    // backstop for anything it cannot (resolution, cancellation on shutdown).
+    try
     {
-      // Best-effort: a live socket makes a plain reconnect-on-restart insufficient (newly
-      // granted scopes need fresh subscriptions now), but a reconnect failure here must never
-      // fail the callback itself — the token is already saved.
-      try
-      {
-        await eventSource.ReconnectAsync().ConfigureAwait(false);
-      }
-      catch (Exception ex)
-      {
-        LogEventSubReconnectFailed(logger, ex);
-      }
+      await identityInvalidator.InvalidateAsync(cancellationToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventSubReconnectFailed(logger, ex);
     }
 
     return Redirect("/");
