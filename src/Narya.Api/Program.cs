@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using Marten;
+
 using Narya.Api.Auth;
 using Narya.Api.Dashboard;
 using Narya.Api.Realtime;
@@ -9,6 +11,7 @@ using Narya.Application.Actions;
 using Narya.Application.Automation;
 using Narya.Cache;
 using Narya.Database;
+using Narya.Database.Automation;
 using Narya.Twitch;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -101,6 +104,16 @@ app.MapControllers();
 if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
 {
   _ = app.MapHub<RealtimeHub>("/hubs/realtime");
+
+  // Phase 4 Task 5: seeds the four built-in dashboard slash commands (Shoutout/Whisper/Timeout/
+  // Ban) once, ever — idempotent via BuiltInSlashCommandSeeder's own ledger row, so an operator's
+  // later edit or delete of a seeded row is never recreated on the next boot. Needs a live
+  // IDocumentStore from AddNaryaDatabase above, so it stays inside this same guard — a
+  // WebApplicationFactory test (SkipInfrastructure=true) never runs it.
+  await using var seedScope = app.Services.CreateAsyncScope();
+  var seedDocumentStore = seedScope.ServiceProvider.GetRequiredService<IDocumentStore>();
+  var seedTimeProvider = seedScope.ServiceProvider.GetRequiredService<TimeProvider>();
+  await BuiltInSlashCommandSeeder.SeedAsync(seedDocumentStore, seedTimeProvider, CancellationToken.None).ConfigureAwait(false);
 }
 
 // SPA fallback: anything not matched by a controller or a static file serves

@@ -93,5 +93,18 @@ public static class NaryaMartenConfig
     // index configured: every read/write is a point lookup by the fixed
     // MediaMuteStore.RootId, never a scan or a filter on any other field.
     _ = options.Schema.For<MediaMuteDocument>();
+
+    // Automation triggers (Phase 4 Task 5) — see AutomationTriggerDocument's doc comment. A
+    // compound index on (Kind, Enabled) serves GetEnabledByKindAsync (the dispatcher's, Task 6,
+    // read path — legacy's idx_automation_triggers_kind); ModuleId gets its own index for the
+    // Phase 8 coordinator's future "triggers scoped to this module" lookup (legacy's
+    // idx_automation_triggers_module).
+    _ = options.Schema.For<AutomationTriggerDocument>()
+      .Index([x => x.Kind, x => x.Enabled])
+      .Index(x => x.ModuleId);
+
+    // The one-shot seed ledger (Phase 4 Task 5) — see SeedLedgerDocument's doc comment. No index:
+    // every read/write is a point lookup by Id (the seed key itself).
+    _ = options.Schema.For<SeedLedgerDocument>();
   }
 }

@@ -46,6 +46,7 @@ public static class ServiceCollectionExtensions
     _ = services.AddSingleton<IMediaResolver, MediaResolver>();
     _ = services.AddSingleton<IActionStore, ActionStore>();
     _ = services.AddSingleton<IMediaMuteStore, MediaMuteStore>();
+    _ = services.AddSingleton<IAutomationTriggerStore, AutomationTriggerStore>();
 
     // TryAddSingleton: AutomodStore depends on TimeProvider (SweepExpiredHoldsAsync/GetQueueAsync's
     // "now"). Narya.Application also TryAdds TimeProvider.System, but Narya.Database must not
