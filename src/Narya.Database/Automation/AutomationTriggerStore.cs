@@ -208,14 +208,38 @@ public sealed class AutomationTriggerStore(IDocumentStore store, TimeProvider ti
 
     public static async Task<LockedScope> OpenAsync(IDocumentStore store, Guid actionId, CancellationToken cancellationToken)
     {
-      var connection = store.Storage.Database.CreateConnection();
-      await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-      var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-      await ActionReferenceLock.TakeAsync(transaction, actionId, cancellationToken).ConfigureAwait(false);
+      // Nothing owns the connection or the transaction until the LockedScope is constructed, so
+      // every step between here and that constructor has to unwind them by hand. A throw from
+      // OpenAsync/BeginTransactionAsync/TakeAsync (cancellation while blocked on
+      // pg_advisory_xact_lock is the realistic one) would otherwise leave a pooled connection
+      // stranded idle-in-transaction, still holding its lock, until finalization.
+      NpgsqlConnection? connection = null;
+      NpgsqlTransaction? transaction = null;
+      try
+      {
+        connection = store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await ActionReferenceLock.TakeAsync(transaction, actionId, cancellationToken).ConfigureAwait(false);
 
-      // ForTransaction enlists Marten in the transaction we own: the session borrows THIS
-      // connection instead of renting a second one, and leaves the commit to us.
-      return new LockedScope(connection, transaction, store.LightweightSession(SessionOptions.ForTransaction(transaction)));
+        // ForTransaction enlists Marten in the transaction we own: the session borrows THIS
+        // connection instead of renting a second one, and leaves the commit to us.
+        return new LockedScope(connection, transaction, store.LightweightSession(SessionOptions.ForTransaction(transaction)));
+      }
+      catch
+      {
+        if (transaction is not null)
+        {
+          await transaction.DisposeAsync().ConfigureAwait(false);
+        }
+
+        if (connection is not null)
+        {
+          await connection.DisposeAsync().ConfigureAwait(false);
+        }
+
+        throw;
+      }
     }
 
     public async Task CommitAsync(CancellationToken cancellationToken)
