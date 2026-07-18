@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 
 using Narya.Core.AppConfig;
+using Narya.Core.Sessions;
 
 namespace Narya.Api.Tests.Auth;
 
@@ -36,14 +37,20 @@ public sealed class DashboardTokenMiddlewareTests
         _ = b.UseSetting("Narya:DashboardToken", configuredToken);
         _ = b.UseSetting("Narya:SkipInfrastructure", "true"); // Program.cs guard: no Marten/Redis in these tests
 
-        // Under SkipInfrastructure, AddNaryaDatabase (the only source of IAppConfigStore)
-        // never runs. Nothing in this class exercises /api/config, but the host still has
-        // to build: ASP.NET's default Development-environment DI validation
-        // (ValidateOnBuild) eagerly constructs every registered handler, including the
-        // /api/config MediatR handlers that take a constructor dependency on
-        // IAppConfigStore. An unconfigured substitute is enough to satisfy that — its
-        // methods are never invoked by any test in this class.
-        _ = b.ConfigureTestServices(services => services.AddSingleton(Substitute.For<IAppConfigStore>()));
+        // Under SkipInfrastructure, AddNaryaDatabase (the only source of IAppConfigStore and
+        // IStreamSessionStore) never runs. Nothing in this class exercises /api/config or
+        // stream sessions, but the host still has to build: ASP.NET's default
+        // Development-environment DI validation (ValidateOnBuild) eagerly constructs every
+        // registered handler, including the /api/config MediatR handlers that take a
+        // constructor dependency on IAppConfigStore and the Sessions
+        // StreamOnlineHandler/StreamOfflineHandler that depend on IStreamSessionStore.
+        // Unconfigured substitutes are enough to satisfy that — their methods are never
+        // invoked by any test in this class.
+        _ = b.ConfigureTestServices(services =>
+        {
+          _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
+          _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
+        });
 
         if (injectRemoteIp)
         {

@@ -12,6 +12,7 @@ using NSubstitute;
 
 using Narya.Api.Auth;
 using Narya.Core.AppConfig;
+using Narya.Core.Sessions;
 using Narya.Twitch;
 using Narya.Twitch.EventSub;
 using Narya.Twitch.Oauth;
@@ -30,6 +31,9 @@ namespace Narya.Api.Tests.Twitch;
 /// <c>AddNaryaTwitch</c> (which would normally register the real/no-op implementations) never
 /// runs under the infrastructure guard. The middleware's exempt-path allowlist needs no
 /// substitution: it is exercised directly against the real <see cref="DashboardTokenMiddleware"/>.
+/// <see cref="IStreamSessionStore"/> is substituted too (unconfigured — nothing here exercises
+/// it), purely so the Sessions MediatR handlers' constructor dependency resolves under DI
+/// validation, same reason as the other three.
 /// </summary>
 public sealed class TwitchAuthControllerTests
 {
@@ -77,6 +81,7 @@ public sealed class TwitchAuthControllerTests
           _ = services.AddSingleton(oauthClient);
           _ = services.AddSingleton(tokenStore);
           _ = services.AddSingleton(eventSource);
+          _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
         });
       });
 

@@ -9,6 +9,7 @@ using NSubstitute;
 using StackExchange.Redis;
 
 using Narya.Core.AppConfig;
+using Narya.Core.Sessions;
 
 namespace Narya.Api.Tests;
 
@@ -34,11 +35,13 @@ public sealed class InfrastructureSkipTests
 {
   /// <summary>
   /// Under SkipInfrastructure, <c>AddNaryaDatabase</c> (the only source of
-  /// <see cref="IAppConfigStore"/>) never runs. Accessing <c>factory.Services</c> still
-  /// builds the host, and ASP.NET's default Development-environment DI validation
-  /// (<c>ValidateOnBuild</c>) eagerly constructs every registered handler, including the
-  /// <c>/api/config</c> MediatR handlers that take a constructor dependency on
-  /// <see cref="IAppConfigStore"/> — an unconfigured substitute is enough to satisfy that.
+  /// <see cref="IAppConfigStore"/>/<see cref="IStreamSessionStore"/>) never runs. Accessing
+  /// <c>factory.Services</c> still builds the host, and ASP.NET's default
+  /// Development-environment DI validation (<c>ValidateOnBuild</c>) eagerly constructs every
+  /// registered handler, including the <c>/api/config</c> MediatR handlers that take a
+  /// constructor dependency on <see cref="IAppConfigStore"/> and the Sessions
+  /// <c>StreamOnlineHandler</c>/<c>StreamOfflineHandler</c> that depend on
+  /// <see cref="IStreamSessionStore"/> — unconfigured substitutes are enough to satisfy that.
   /// </summary>
   private static WebApplicationFactory<Program> BuildFactory() =>
     new WebApplicationFactory<Program>()
@@ -46,7 +49,11 @@ public sealed class InfrastructureSkipTests
       {
         _ = b.UseSetting("Narya:DashboardToken", "op-token");
         _ = b.UseSetting("Narya:SkipInfrastructure", "true");
-        _ = b.ConfigureTestServices(services => services.AddSingleton(Substitute.For<IAppConfigStore>()));
+        _ = b.ConfigureTestServices(services =>
+        {
+          _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
+          _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
+        });
       });
 
   [Fact]

@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="FluentResults" />
+    <PackageReference Include="MediatR" />
   </ItemGroup>
 
   <PropertyGroup>

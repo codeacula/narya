@@ -40,6 +40,14 @@ public static class ServiceCollectionExtensions
     // real publisher, never this default.
     services.TryAddSingleton<IRealtimePublisher, NullRealtimePublisher>();
 
+    // TryAddSingleton: StreamOfflineHandler (Sessions) depends on TimeProvider. Narya.Twitch
+    // also TryAdds TimeProvider.System (for TwitchCredentials) but Narya.Application must not
+    // rely on Narya.Twitch's registration having run first — a host that composes
+    // AddNaryaApplication without AddNaryaTwitch (a future Narya.Agent host; a
+    // WebApplicationFactory test under Narya:SkipInfrastructure) still needs a working clock
+    // the first time it publishes StreamOfflineNotification.
+    services.TryAddSingleton(TimeProvider.System);
+
     return services;
   }
 }

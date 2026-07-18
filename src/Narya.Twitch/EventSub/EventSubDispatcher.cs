@@ -1,3 +1,4 @@
+using Narya.Core.Sessions;
 using Narya.Twitch.Chat;
 using Narya.Twitch.EventSub.Notifications;
 

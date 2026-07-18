@@ -13,11 +13,12 @@ namespace Narya.Twitch.EventSub.Notifications;
 /// </summary>
 public sealed record CategorySignalNotification(string? GameId, string? GameName) : INotification;
 
-/// <summary>Published for <c>stream.online</c>. Phase 3 consumes this for session tracking and the go-live announcement.</summary>
-public sealed record StreamOnlineNotification(string StreamId, DateTimeOffset StartedAt) : INotification;
-
-/// <summary>Published for <c>stream.offline</c>. Phase 3 consumes this to end the active stream session.</summary>
-public sealed record StreamOfflineNotification : INotification;
+// StreamOnlineNotification/StreamOfflineNotification (originally defined here for
+// stream.online/stream.offline) moved to Narya.Core.Sessions in Phase 3 — their consumers
+// (Narya.Application.Sessions's handlers) live in an assembly that does not reference
+// Narya.Twitch. See StreamOnlineNotification's doc comment in that new location for the
+// full rationale. EventSubDispatcher.DispatchStreamOnline/DispatchStreamOffline below still
+// produce them, just from the new namespace.
 
 /// <summary>
 /// Published for <c>automod.message.hold</c> (v2). Phase 3 consumes this to populate the
