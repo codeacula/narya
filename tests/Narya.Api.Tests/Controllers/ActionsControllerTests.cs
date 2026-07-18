@@ -13,6 +13,7 @@ using Narya.Api.Auth;
 using Narya.Application.Actions;
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
+using Narya.Core.Automation;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
@@ -66,6 +67,7 @@ public sealed class ActionsControllerTests
           _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
           _ = services.AddSingleton(Substitute.For<IMediaResolver>());
           _ = services.AddSingleton(Substitute.For<IHelixClient>());
+          _ = services.AddSingleton(Substitute.For<IMediaMuteStore>());
         });
       })
       .CreateClient();

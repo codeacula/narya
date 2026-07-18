@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
+using Narya.Core.Automation;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
@@ -75,6 +76,7 @@ public sealed class DashboardTokenMiddlewareTests
           _ = services.AddSingleton(Substitute.For<IActionStore>());
           _ = services.AddSingleton(Substitute.For<IMediaResolver>());
           _ = services.AddSingleton(Substitute.For<IHelixClient>());
+          _ = services.AddSingleton(Substitute.For<IMediaMuteStore>());
         });
 
         if (injectRemoteIp)

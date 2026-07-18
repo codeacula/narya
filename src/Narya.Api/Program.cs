@@ -5,6 +5,8 @@ using Narya.Api.Auth;
 using Narya.Api.Dashboard;
 using Narya.Api.Realtime;
 using Narya.Application;
+using Narya.Application.Actions;
+using Narya.Application.Automation;
 using Narya.Cache;
 using Narya.Database;
 using Narya.Twitch;
@@ -41,6 +43,17 @@ if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
   var connectionString = builder.Configuration.GetConnectionString("Narya")
     ?? throw new InvalidOperationException("Missing ConnectionStrings:Narya configuration.");
   _ = builder.Services.AddNaryaDatabase(connectionString);
+
+  // Phase 4 Task 4: replaces AddNaryaApplication's IMediaMuteGate no-op default
+  // (NoopMediaMuteGate, TryAddSingleton'd — never muted) with the real
+  // IMediaMuteStore-backed adapter, now that AddNaryaDatabase above has registered the real
+  // store. A plain AddSingleton always wins the last-registration-wins rule over that earlier
+  // TryAddSingleton default (see IActionStepPorts.cs's and MediaMuteGate's doc comments). Kept
+  // inside this SkipInfrastructure guard, same reasoning as every other real-store override on
+  // this page: MediaMuteGate's IMediaMuteStore dependency only resolves once Marten is
+  // composed, so a WebApplicationFactory test under SkipInfrastructure must keep the no-op
+  // default (or substitute IMediaMuteGate/IMediaMuteStore directly) rather than register this.
+  _ = builder.Services.AddSingleton<IMediaMuteGate, MediaMuteGate>();
 
   var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException("Missing ConnectionStrings:Redis configuration.");

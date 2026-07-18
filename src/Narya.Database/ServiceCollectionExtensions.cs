@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
+using Narya.Core.Automation;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
@@ -13,6 +14,7 @@ using Narya.Core.Sessions;
 using Narya.Core.Viewers;
 using Narya.Database.Actions;
 using Narya.Database.AppConfig;
+using Narya.Database.Automation;
 using Narya.Database.Automod;
 using Narya.Database.Chat;
 using Narya.Database.Events;
@@ -43,6 +45,7 @@ public static class ServiceCollectionExtensions
     _ = services.AddSingleton<IMediaAssetStore, MediaAssetStore>();
     _ = services.AddSingleton<IMediaResolver, MediaResolver>();
     _ = services.AddSingleton<IActionStore, ActionStore>();
+    _ = services.AddSingleton<IMediaMuteStore, MediaMuteStore>();
 
     // TryAddSingleton: AutomodStore depends on TimeProvider (SweepExpiredHoldsAsync/GetQueueAsync's
     // "now"). Narya.Application also TryAdds TimeProvider.System, but Narya.Database must not

@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Narya.Api.Auth;
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
+using Narya.Core.Automation;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
@@ -54,6 +55,7 @@ public sealed class ViewersControllerTests
           _ = services.AddSingleton(Substitute.For<IActionStore>());
           _ = services.AddSingleton(Substitute.For<IMediaResolver>());
           _ = services.AddSingleton(Substitute.For<IHelixClient>());
+          _ = services.AddSingleton(Substitute.For<IMediaMuteStore>());
         });
       })
       .CreateClient();

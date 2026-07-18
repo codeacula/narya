@@ -4,6 +4,7 @@ using Marten.Schema;
 
 using Narya.Database.Actions;
 using Narya.Database.AppConfig;
+using Narya.Database.Automation;
 using Narya.Database.Automod;
 using Narya.Database.Chat;
 using Narya.Database.Common;
@@ -87,5 +88,10 @@ public static class NaryaMartenConfig
         i.IsUnique = true;
         i.Casing = ComputedIndex.Casings.Lower;
       });
+
+    // The master media-mute switch (Phase 4 Task 4) — see MediaMuteDocument's doc comment. No
+    // index configured: every read/write is a point lookup by the fixed
+    // MediaMuteStore.RootId, never a scan or a filter on any other field.
+    _ = options.Schema.For<MediaMuteDocument>();
   }
 }

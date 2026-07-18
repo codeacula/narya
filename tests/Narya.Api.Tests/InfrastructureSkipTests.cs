@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
+using Narya.Core.Automation;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
@@ -66,7 +67,12 @@ public sealed class InfrastructureSkipTests
   /// <c>AddNaryaApplication</c>, so it resolves even under SkipInfrastructure. Phase 4 Task 3:
   /// <c>Narya.Application.Actions.ActionExecutor</c> is a real, unguarded <c>AddSingleton</c> and
   /// hard-depends on <see cref="IMediaResolver"/>/<see cref="IHelixClient"/>, neither of which has
-  /// an infrastructure-free default — both need an unconfigured substitute here too.
+  /// an infrastructure-free default — both need an unconfigured substitute here too. Phase 4 Task
+  /// 4: <c>GetMediaMuteQueryHandler</c>/<c>SetMediaMuteCommandHandler</c> depend on
+  /// <see cref="IMediaMuteStore"/> directly — unlike <c>Narya.Application.Actions.IMediaMuteGate</c>
+  /// (which keeps a working <c>NoopMediaMuteGate</c> default under SkipInfrastructure — see
+  /// <c>Narya.Application.Automation.MediaMuteGate</c>'s doc comment), <see cref="IMediaMuteStore"/>
+  /// has no infrastructure-free default and needs an unconfigured substitute here too.
   /// </summary>
   private static WebApplicationFactory<Program> BuildFactory() =>
     new WebApplicationFactory<Program>()
@@ -86,6 +92,7 @@ public sealed class InfrastructureSkipTests
           _ = services.AddSingleton(Substitute.For<IActionStore>());
           _ = services.AddSingleton(Substitute.For<IMediaResolver>());
           _ = services.AddSingleton(Substitute.For<IHelixClient>());
+          _ = services.AddSingleton(Substitute.For<IMediaMuteStore>());
         });
       });
 
