@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 
 using FluentResults;
 
@@ -8,9 +9,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
-using NSubstitute;
-
 using Narya.Api.Auth;
+using Narya.Application.Actions;
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
 using Narya.Core.Automod;
@@ -19,6 +19,9 @@ using Narya.Core.Events;
 using Narya.Core.Media;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
+using Narya.Twitch.Helix;
+
+using NSubstitute;
 
 namespace Narya.Api.Tests.Controllers;
 
@@ -27,16 +30,22 @@ namespace Narya.Api.Tests.Controllers;
 /// same shape as <c>MediaAssetsControllerTests</c>. <see cref="IActionStore"/> is substituted with
 /// a controlled instance; every other document store is substituted unconfigured, same reason as
 /// <c>MediaAssetsControllerTests</c> (ValidateOnBuild eagerly constructs every MediatR handler in
-/// the DI graph regardless of which controller a given test targets). Every route is
-/// operator-only — deliberately NOT on <c>DashboardTokenMiddleware.OverlayPaths</c>.
+/// the DI graph regardless of which controller a given test targets). Phase 4 Task 3:
+/// <see cref="IActionExecutor"/> is substituted too — it is a real, unguarded <c>AddSingleton</c>
+/// (see <c>Narya.Application.ServiceCollectionExtensions</c>), and its OWN hard dependencies
+/// (<see cref="IMediaResolver"/>, <see cref="IHelixClient"/>) have no infrastructure-free default,
+/// so they are substituted unconfigured here purely to satisfy DI validation, same reason as
+/// <see cref="IActionStore"/> itself. Every route is operator-only — deliberately NOT on
+/// <c>DashboardTokenMiddleware.OverlayPaths</c>.
 /// </summary>
 public sealed class ActionsControllerTests
 {
   private const string OperatorToken = "op-token";
 
-  private static (HttpClient Client, IActionStore Store) BuildOperatorClient()
+  private static (HttpClient Client, IActionStore Store, IActionExecutor Executor) BuildOperatorClient()
   {
     var store = Substitute.For<IActionStore>();
+    var executor = Substitute.For<IActionExecutor>();
 
     var client = new WebApplicationFactory<Program>()
       .WithWebHostBuilder(b =>
@@ -47,6 +56,7 @@ public sealed class ActionsControllerTests
         _ = b.ConfigureTestServices(services =>
         {
           _ = services.AddSingleton(store);
+          _ = services.AddSingleton(executor);
           _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
           _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
           _ = services.AddSingleton(Substitute.For<IChatStore>());
@@ -54,12 +64,14 @@ public sealed class ActionsControllerTests
           _ = services.AddSingleton(Substitute.For<IViewerStore>());
           _ = services.AddSingleton(Substitute.For<IAutomodStore>());
           _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaResolver>());
+          _ = services.AddSingleton(Substitute.For<IHelixClient>());
         });
       })
       .CreateClient();
 
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", OperatorToken);
-    return (client, store);
+    return (client, store, executor);
   }
 
   private static AutomationAction BuildAction(
@@ -84,7 +96,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task GetAllReturnsABareArrayOfTheStoresActions()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     var action = BuildAction();
     _ = store.GetAllAsync(Arg.Any<CancellationToken>()).Returns([action]);
 
@@ -99,7 +111,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task GetAllIsForbiddenWithAnOverlayToken()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     var overlay = OverlayToken.Derive(OperatorToken);
     client.DefaultRequestHeaders.Authorization = null;
 
@@ -116,7 +128,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task CreateSuccessReturns201WithTheCreatedAction()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     var created = BuildAction();
     _ = store.CreateAsync(Arg.Any<ActionUpsert>(), Arg.Any<CancellationToken>()).Returns(Result.Ok(created));
 
@@ -132,7 +144,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task CreateValidationFailureReturns400WithTheErrorMessage()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     _ = store.CreateAsync(Arg.Any<ActionUpsert>(), Arg.Any<CancellationToken>())
       .Returns(Result.Fail<AutomationAction>("At least one step is required."));
 
@@ -146,7 +158,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task CreateDuplicateNameReturns409()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     _ = store.CreateAsync(Arg.Any<ActionUpsert>(), Arg.Any<CancellationToken>())
       .Returns(Result.Fail<AutomationAction>(new DuplicateActionNameError("Hype Train")));
 
@@ -166,7 +178,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task UpdateUnknownIdReturns404()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     var id = Guid.NewGuid();
     _ = store.UpdateAsync(id, Arg.Any<ActionUpsert>(), Arg.Any<CancellationToken>())
       .Returns((Result<AutomationAction>?)null);
@@ -179,7 +191,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task UpdateValidationFailureReturns400()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     var id = Guid.NewGuid();
     _ = store.UpdateAsync(id, Arg.Any<ActionUpsert>(), Arg.Any<CancellationToken>())
       .Returns(Result.Fail<AutomationAction>("Action name is required."));
@@ -192,7 +204,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task UpdateDuplicateNameReturns409()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     var id = Guid.NewGuid();
     _ = store.UpdateAsync(id, Arg.Any<ActionUpsert>(), Arg.Any<CancellationToken>())
       .Returns(Result.Fail<AutomationAction>(new DuplicateActionNameError("Taken")));
@@ -205,7 +217,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task UpdateSuccessReturns200WithTheUpdatedAction()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     var id = Guid.NewGuid();
     var updated = BuildAction(id: id, name: "Renamed");
     _ = store.UpdateAsync(id, Arg.Any<ActionUpsert>(), Arg.Any<CancellationToken>()).Returns(Result.Ok(updated));
@@ -224,7 +236,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task DeleteUnknownIdReturns404()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     var id = Guid.NewGuid();
     _ = store.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(false);
 
@@ -236,7 +248,7 @@ public sealed class ActionsControllerTests
   [Fact]
   public async Task DeleteKnownIdReturns204()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, _) = BuildOperatorClient();
     var id = Guid.NewGuid();
     _ = store.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(true);
 
@@ -246,30 +258,87 @@ public sealed class ActionsControllerTests
   }
 
   // ---------------------------------------------------------------------------------------
-  // POST /api/actions/{id}/run — wired in Phase 4 Task 3; for now, 404 or 501
+  // POST /api/actions/{id}/run — wired in Phase 4 Task 3. Bypasses the (Task 6) trigger
+  // dispatcher entirely: no cooldown, no dedup, not logged to automation_runs.
   // ---------------------------------------------------------------------------------------
 
+  private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
+
+  private static readonly string[] ExpectedBareBodyArgs = ["a", "b"];
+
   [Fact]
-  public async Task RunUnknownActionReturns404()
+  public async Task RunUnknownActionReturns404AndNeverCallsTheExecutor()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, executor) = BuildOperatorClient();
     var id = Guid.NewGuid();
     _ = store.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns((AutomationAction?)null);
 
     var response = await client.PostAsync($"/api/actions/{id}/run", content: null);
 
     Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    _ = await executor.DidNotReceive().RunActionAsync(Arg.Any<Guid>(), Arg.Any<TemplateContext>(), Arg.Any<CancellationToken>());
   }
 
   [Fact]
-  public async Task RunKnownActionReturns501NotImplemented()
+  public async Task RunKnownActionReturns200WithTheExecutorResult()
   {
-    var (client, store) = BuildOperatorClient();
+    var (client, store, executor) = BuildOperatorClient();
     var id = Guid.NewGuid();
     _ = store.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(BuildAction(id: id));
+    var runResult = new ActionRunResult(id, ActionRunStatus.Succeeded, [], DateTimeOffset.UtcNow);
+    _ = executor.RunActionAsync(id, Arg.Any<TemplateContext>(), Arg.Any<CancellationToken>()).Returns(runResult);
 
     var response = await client.PostAsync($"/api/actions/{id}/run", content: null);
 
-    Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
+    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    var body = await response.Content.ReadAsStringAsync();
+    Assert.Contains("\"status\":\"succeeded\"", body);
+  }
+
+  [Fact]
+  public async Task RunWithNoBodyPassesAnEmptyTemplateContext()
+  {
+    var (client, store, executor) = BuildOperatorClient();
+    var id = Guid.NewGuid();
+    _ = store.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(BuildAction(id: id));
+    _ = executor.RunActionAsync(id, Arg.Any<TemplateContext>(), Arg.Any<CancellationToken>())
+      .Returns(new ActionRunResult(id, ActionRunStatus.Skipped, [], DateTimeOffset.UtcNow));
+
+    _ = await client.PostAsync($"/api/actions/{id}/run", content: null);
+
+    _ = await executor.Received(1).RunActionAsync(
+      id, Arg.Is<TemplateContext>(c => c.Actor == null && c.Args.Count == 0), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task RunAcceptsTheBareBodyAsTheTemplateContext()
+  {
+    var (client, store, executor) = BuildOperatorClient();
+    var id = Guid.NewGuid();
+    _ = store.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(BuildAction(id: id));
+    _ = executor.RunActionAsync(id, Arg.Any<TemplateContext>(), Arg.Any<CancellationToken>())
+      .Returns(new ActionRunResult(id, ActionRunStatus.Skipped, [], DateTimeOffset.UtcNow));
+
+    _ = await client.PostAsync($"/api/actions/{id}/run", JsonBody("""{"actor":"Sorlus","args":["a","b"]}"""));
+
+    _ = await executor.Received(1).RunActionAsync(
+      id,
+      Arg.Is<TemplateContext>(c => c.Actor == "Sorlus" && c.Args.SequenceEqual(ExpectedBareBodyArgs)),
+      Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task RunAcceptsAWrappedContextBody()
+  {
+    var (client, store, executor) = BuildOperatorClient();
+    var id = Guid.NewGuid();
+    _ = store.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(BuildAction(id: id));
+    _ = executor.RunActionAsync(id, Arg.Any<TemplateContext>(), Arg.Any<CancellationToken>())
+      .Returns(new ActionRunResult(id, ActionRunStatus.Skipped, [], DateTimeOffset.UtcNow));
+
+    _ = await client.PostAsync($"/api/actions/{id}/run", JsonBody("""{"context":{"login":"sorlus"}}"""));
+
+    _ = await executor.Received(1).RunActionAsync(
+      id, Arg.Is<TemplateContext>(c => c.Login == "sorlus"), Arg.Any<CancellationToken>());
   }
 }

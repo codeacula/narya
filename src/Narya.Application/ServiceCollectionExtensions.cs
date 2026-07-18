@@ -3,6 +3,7 @@ using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
+using Narya.Application.Actions;
 using Narya.Application.Behaviors;
 using Narya.Core.Dashboard;
 using Narya.Core.Media;
@@ -66,6 +67,30 @@ public static class ServiceCollectionExtensions
     // ships only this default (Phase 5 owns the real filesystem/companion catalog, registered
     // with a plain AddSingleton that always wins over this TryAddSingleton).
     services.TryAddSingleton<IMediaFileCatalog, NullMediaFileCatalog>();
+
+    // Phase 4 Task 3: no-op defaults for capabilities not built yet (Phase 5's TTS/OBS
+    // companion, Phase 8's LLM, Phase 4 Task 4's real media-mute store) plus the real
+    // (non-infrastructure) implementations of ActionExecutor's delay/random-selection
+    // testability seams — TryAddSingleton for the same reason as every other default on this
+    // page: ActionExecutor is registered unconditionally below, so any host composing
+    // AddNaryaApplication (including a WebApplicationFactory test under
+    // Narya:SkipInfrastructure) needs something to resolve for these constructor
+    // dependencies. See IActionStepPorts.cs's top-of-file doc comment.
+    services.TryAddSingleton<ITtsPort, NoopTtsPort>();
+    services.TryAddSingleton<ILlmPort, NoopLlmPort>();
+    services.TryAddSingleton<IObsPort, NoopObsPort>();
+    services.TryAddSingleton<IMediaMuteGate, NoopMediaMuteGate>();
+    services.TryAddSingleton<IActionDelay, SystemActionDelay>();
+    services.TryAddSingleton<IRandomIndexSource, SystemRandomIndexSource>();
+
+    // Plain AddSingleton, unlike the defaults above: the executor itself needs no
+    // infrastructure — only some of ITS OWN dependencies do (IActionStore, IMediaResolver,
+    // IHelixClient have real implementations only once AddNaryaDatabase/AddNaryaTwitch compose,
+    // and deliberately have no Null default — see the Phase 4 Task 3 report). A host that skips
+    // those (a WebApplicationFactory test under Narya:SkipInfrastructure) must substitute all
+    // three directly, the same way ActionsControllerTests/AutomodControllerTests already
+    // substitute IActionStore/IHelixClient.
+    _ = services.AddSingleton<IActionExecutor, ActionExecutor>();
 
     return services;
   }

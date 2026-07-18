@@ -1,7 +1,10 @@
+using System.Text.Json;
+
 using FluentResults;
 
 using Microsoft.AspNetCore.Mvc;
 
+using Narya.Application.Actions;
 using Narya.Core.Actions;
 
 namespace Narya.Api.Controllers;
@@ -22,7 +25,7 @@ namespace Narya.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api")]
-public sealed class ActionsController(IActionStore store) : ControllerBase
+public sealed class ActionsController(IActionStore store, IActionExecutor executor) : ControllerBase
 {
   [HttpGet("actions")]
   public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
@@ -60,13 +63,13 @@ public sealed class ActionsController(IActionStore store) : ControllerBase
   }
 
   /// <summary>
-  /// Wired in Phase 4 Task 3, once the executor exists. An unknown id still 404s here (rather
-  /// than the whole route 404ing, which would be indistinguishable from "no such route") so a
-  /// caller can tell "this Action doesn't exist" apart from "running Actions isn't implemented
-  /// yet".
+  /// Bypasses <c>Narya.Application.Automation.ITriggerDispatcher</c> (Phase 4 Task 6) entirely —
+  /// no cooldown, no dedup, no <c>automation_runs</c> row — matching legacy's manual-run route,
+  /// which calls <c>executor.runAction</c> directly. An unknown id 404s here (rather than the
+  /// whole route 404ing, which would be indistinguishable from "no such route").
   /// </summary>
   [HttpPost("actions/{id:guid}/run")]
-  public async Task<IActionResult> Run(Guid id, CancellationToken cancellationToken)
+  public async Task<IActionResult> Run(Guid id, [FromBody] JsonElement? body, CancellationToken cancellationToken)
   {
     var action = await store.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
     if (action is null)
@@ -74,7 +77,32 @@ public sealed class ActionsController(IActionStore store) : ControllerBase
       return NotFound(new { error = "Action not found." });
     }
 
-    return StatusCode(StatusCodes.Status501NotImplemented, new { error = "Running an Action is not wired up yet." });
+    var result = await executor.RunActionAsync(id, NormalizeRunContext(body), cancellationToken).ConfigureAwait(false);
+    return Ok(result);
+  }
+
+  private static readonly JsonSerializerOptions RunContextJsonOptions = new(JsonSerializerDefaults.Web);
+
+  /// <summary>
+  /// A port of legacy's <c>normalizeRunContext</c>: the request body may either wrap the context
+  /// under a <c>"context"</c> property (<c>{ "context": { "actor": "..." } }</c>) or BE the
+  /// context directly (<c>{ "actor": "..." }</c>) — both shapes are accepted so a caller posting a
+  /// bare invocation payload does not need to know about the wrapper. An absent/non-object body
+  /// (including no body at all, which every existing manual-run test sends) normalizes to an
+  /// empty <see cref="TemplateContext"/>.
+  /// </summary>
+  private static TemplateContext NormalizeRunContext(JsonElement? body)
+  {
+    if (body is not { ValueKind: JsonValueKind.Object } value)
+    {
+      return new TemplateContext();
+    }
+
+    var source = value.TryGetProperty("context", out var contextProperty) && contextProperty.ValueKind == JsonValueKind.Object
+      ? contextProperty
+      : value;
+
+    return JsonSerializer.Deserialize<TemplateContext>(source.GetRawText(), RunContextJsonOptions) ?? new TemplateContext();
   }
 
   /// <summary>

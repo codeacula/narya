@@ -7,16 +7,17 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
-using NSubstitute;
-
+using Narya.Core.Actions;
 using Narya.Core.AppConfig;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
-using Narya.Core.Actions;
 using Narya.Core.Media;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
+using Narya.Twitch.Helix;
+
+using NSubstitute;
 
 namespace Narya.Api.Tests.Auth;
 
@@ -59,7 +60,9 @@ public sealed class DashboardTokenMiddlewareTests
         // that depend on IAutomodStore, and (Phase 4 Task 1/2) MediaAssetsController/ActionsController
         // themselves, which depend on IMediaAssetStore/IActionStore directly. Unconfigured
         // substitutes are enough to satisfy that — their methods are never invoked by any test in
-        // this class.
+        // this class. Phase 4 Task 3: ActionExecutor (a real, unguarded AddSingleton) hard-depends
+        // on IMediaResolver/IHelixClient, neither of which has an infrastructure-free default —
+        // both need an unconfigured substitute here too.
         _ = b.ConfigureTestServices(services =>
         {
           _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
@@ -70,6 +73,8 @@ public sealed class DashboardTokenMiddlewareTests
           _ = services.AddSingleton(Substitute.For<IAutomodStore>());
           _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
           _ = services.AddSingleton(Substitute.For<IActionStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaResolver>());
+          _ = services.AddSingleton(Substitute.For<IHelixClient>());
         });
 
         if (injectRemoteIp)

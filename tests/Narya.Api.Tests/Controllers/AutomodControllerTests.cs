@@ -7,8 +7,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
-using NSubstitute;
-
 using Narya.Api.Auth;
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
@@ -19,6 +17,8 @@ using Narya.Core.Media;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
 using Narya.Twitch.Helix;
+
+using NSubstitute;
 
 using DomainConfig = Narya.Domain.AppConfig.AppConfig;
 
@@ -66,6 +66,7 @@ public sealed class AutomodControllerTests
           _ = services.AddSingleton(Substitute.For<IViewerStore>());
           _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
           _ = services.AddSingleton(Substitute.For<IActionStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaResolver>());
         });
       })
       .CreateClient();

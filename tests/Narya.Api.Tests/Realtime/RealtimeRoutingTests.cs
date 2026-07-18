@@ -7,7 +7,7 @@ namespace Narya.Api.Tests.Realtime;
 /// <see cref="RealtimeRouting.GroupsFor"/> is the pure decision
 /// <see cref="RealtimeBroadcastService"/> forwards each Redis envelope through — extracted
 /// specifically so the operator/overlay routing rule is testable without a live SignalR
-/// hub connection or a Redis subscription. <see cref="Narya.Core.Realtime.RealtimeEventNames.OverlayAllowlist"/>
+/// hub connection or a Redis subscription. <see cref="RealtimeEventNames.OverlayAllowlist"/>
 /// was empty in Phase 1, so every real event routed to the operator group only; Phase 2 Task 6
 /// populates it with the four EventSub-sourced events an overlay actually renders
 /// (<c>chat:message</c>, <c>chat:moderated</c>, <c>stream:event</c>, <c>stream:event:update</c>),
@@ -104,6 +104,35 @@ public sealed class RealtimeRoutingTests
   public void DashboardStatusRoutesToTheOperatorGroupOnlyAgainstTheRealAllowlist()
   {
     var groups = RealtimeRouting.GroupsFor("dashboard:status");
+
+    Assert.Equal([RealtimeHub.OperatorGroup], groups);
+  }
+
+  /// <summary>
+  /// Phase 4 Task 3: <c>Narya.Application.Actions.ActionExecutor</c>'s <c>play_media</c>/
+  /// <c>show_text</c> step broadcasts must reach an overlay browser source — <c>/overlay/clips</c>
+  /// and <c>/overlay/text</c> are exactly what render them.
+  /// </summary>
+  [Theory]
+  [InlineData("media:play")]
+  [InlineData("overlay:text")]
+  public void ActionExecutorBroadcastsRouteToBothGroupsAgainstTheRealAllowlist(string eventName)
+  {
+    var groups = RealtimeRouting.GroupsFor(eventName);
+
+    Assert.Equal([RealtimeHub.OperatorGroup, RealtimeHub.OverlayGroup], groups);
+  }
+
+  /// <summary>
+  /// The master media-mute switch (Phase 4 Task 4) is an operator-only control — an overlay
+  /// browser source has no use for it and must never toggle it, so it is deliberately absent from
+  /// <see cref="RealtimeEventNames.OverlayAllowlist"/>, same rationale as
+  /// <see cref="WhisperMessageRoutesToTheOperatorGroupOnlyAgainstTheRealAllowlist"/>.
+  /// </summary>
+  [Fact]
+  public void MediaMuteRoutesToTheOperatorGroupOnlyAgainstTheRealAllowlist()
+  {
+    var groups = RealtimeRouting.GroupsFor("media:mute");
 
     Assert.Equal([RealtimeHub.OperatorGroup], groups);
   }

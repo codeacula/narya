@@ -8,8 +8,6 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 
-using NSubstitute;
-
 using Narya.Api.Auth;
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
@@ -21,8 +19,11 @@ using Narya.Core.Sessions;
 using Narya.Core.Viewers;
 using Narya.Twitch;
 using Narya.Twitch.EventSub;
+using Narya.Twitch.Helix;
 using Narya.Twitch.Oauth;
 using Narya.Twitch.Tokens;
+
+using NSubstitute;
 
 using DomainConfig = Narya.Domain.AppConfig.AppConfig;
 
@@ -95,6 +96,8 @@ public sealed class TwitchAuthControllerTests
           _ = services.AddSingleton(Substitute.For<IAutomodStore>());
           _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
           _ = services.AddSingleton(Substitute.For<IActionStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaResolver>());
+          _ = services.AddSingleton(Substitute.For<IHelixClient>());
         });
       });
 

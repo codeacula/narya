@@ -3,6 +3,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Narya.Core\Narya.Core.csproj" />
     <ProjectReference Include="..\Narya.Domain\Narya.Domain.csproj" />
+    <!-- Phase 4 Task 3: ActionExecutor takes Narya.Twitch.Helix.IHelixClient directly as an
+         injected port (moderation/chat/shoutout/whisper) rather than a Narya.Core-level
+         abstraction over it — see ActionExecutor's doc comment. Safe: Narya.Twitch references
+         Core/Domain/Database/Cache but never Application, so this does not create a cycle. -->
+    <ProjectReference Include="..\Narya.Twitch\Narya.Twitch.csproj" />
   </ItemGroup>
 
   <ItemGroup>

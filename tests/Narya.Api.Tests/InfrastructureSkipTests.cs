@@ -4,18 +4,19 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
-using NSubstitute;
-
-using StackExchange.Redis;
-
+using Narya.Core.Actions;
 using Narya.Core.AppConfig;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
-using Narya.Core.Actions;
 using Narya.Core.Media;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
+using Narya.Twitch.Helix;
+
+using NSubstitute;
+
+using StackExchange.Redis;
 
 namespace Narya.Api.Tests;
 
@@ -62,7 +63,10 @@ public sealed class InfrastructureSkipTests
   /// between — see those controllers' doc comments) — unconfigured substitutes are enough to
   /// satisfy that. <see cref="IMediaFileCatalog"/> needs no substitute here: its default
   /// <c>NullMediaFileCatalog</c> is registered unconditionally via <c>TryAddSingleton</c> in
-  /// <c>AddNaryaApplication</c>, so it resolves even under SkipInfrastructure.
+  /// <c>AddNaryaApplication</c>, so it resolves even under SkipInfrastructure. Phase 4 Task 3:
+  /// <c>Narya.Application.Actions.ActionExecutor</c> is a real, unguarded <c>AddSingleton</c> and
+  /// hard-depends on <see cref="IMediaResolver"/>/<see cref="IHelixClient"/>, neither of which has
+  /// an infrastructure-free default — both need an unconfigured substitute here too.
   /// </summary>
   private static WebApplicationFactory<Program> BuildFactory() =>
     new WebApplicationFactory<Program>()
@@ -80,6 +84,8 @@ public sealed class InfrastructureSkipTests
           _ = services.AddSingleton(Substitute.For<IAutomodStore>());
           _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
           _ = services.AddSingleton(Substitute.For<IActionStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaResolver>());
+          _ = services.AddSingleton(Substitute.For<IHelixClient>());
         });
       });
 
