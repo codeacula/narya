@@ -434,6 +434,12 @@ public sealed class TwitchAuthControllerTests
 
     _ = await test.TokenStore.Received(1).DeleteAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>());
     await test.EventSource.Received(1).StopAsync();
+
+    // Symmetric with the OAuth callback. Deleting the token does NOT evict the identity derived
+    // from it: TwitchCredentials' app token is minted from client credentials and keeps working,
+    // and its cached broadcaster id has nothing that ever evicts it — so without this,
+    // Helix calls keep succeeding against the channel the operator just disconnected.
+    await test.IdentityInvalidator.Received(1).InvalidateAsync(Arg.Any<CancellationToken>());
   }
 
   [Fact]
@@ -448,6 +454,14 @@ public sealed class TwitchAuthControllerTests
     Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     _ = await test.TokenStore.Received(1).DeleteAsync(TwitchProvider.Bot, Arg.Any<CancellationToken>());
     await test.EventSource.DidNotReceive().StopAsync();
+
+    // The security-relevant half. TwitchEventSubService's bot-loop guard suppresses any chat
+    // message whose author matches the cached bot login, and that cache outlives the token. A
+    // sign-out that skips this keeps filtering messages from the disconnected bot's login — so a
+    // VIEWER who happens to use that name goes silently missing, with nothing logged to explain
+    // it. TwitchEventSubServiceIdentityInvalidationTests covers what InvalidateAsync then does;
+    // this covers the call the controller was missing.
+    await test.IdentityInvalidator.Received(1).InvalidateAsync(Arg.Any<CancellationToken>());
   }
 
   [Fact]

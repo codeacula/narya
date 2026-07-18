@@ -213,6 +213,36 @@ public sealed partial class TwitchAuthController(
       }
     }
 
+    // SYMMETRIC WITH THE CALLBACK, and for the same reasons — deleting the token is not what
+    // makes the identity stale, it is what makes the CACHED identity a lie. Every cache below
+    // outlives the token it was derived from:
+    //
+    // - TwitchEventSubService._cachedBotLogin. The security-relevant one, and the reason this is
+    //   a defect rather than a tidiness issue: the bot-loop guard suppresses any chat message
+    //   whose author matches that login. After disconnecting the bot, a stale value keeps
+    //   silently filtering messages from that login — so a VIEWER who happens to use the
+    //   disconnected bot's name is invisible, with no error anywhere to explain it.
+    // - HelixClient._authenticatedUserIds / _cachedBroadcasterId and
+    //   TwitchCredentials._appToken / _cachedBroadcasterId. The app token is minted from
+    //   client credentials, not from the deleted user token, so it keeps working: Helix calls
+    //   keep succeeding against a channel the operator believes they disconnected.
+    //
+    // Both providers, not just the one signed out — same as the callback. The two caches are not
+    // partitioned by provider (one broadcaster id, one app token, one bot login), so there is no
+    // narrower invalidation to make.
+    //
+    // Best-effort: the token is already deleted, so a failure here must never turn a successful
+    // sign-out into a 500. The invalidator swallows and logs per-cache failures itself; this
+    // catch is the outer backstop for anything it cannot.
+    try
+    {
+      await identityInvalidator.InvalidateAsync(cancellationToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventSubReconnectFailed(logger, ex);
+    }
+
     var statusResult = await BuildStatusAsync(cancellationToken).ConfigureAwait(false);
     if (statusResult.IsFailed)
     {
