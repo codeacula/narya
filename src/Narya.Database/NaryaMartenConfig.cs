@@ -2,8 +2,10 @@ using Marten;
 using Marten.Events.Projections;
 
 using Narya.Database.AppConfig;
+using Narya.Database.Chat;
 using Narya.Database.Common;
 using Narya.Database.Sessions;
+using Narya.Database.Viewers;
 
 namespace Narya.Database;
 
@@ -28,5 +30,19 @@ public static class NaryaMartenConfig
       .Index(x => x.EndedAt);
     _ = options.Schema.For<StreamSessionChatterDocument>()
       .Index(x => x.SessionId);
+
+    // Chat dual-layer persistence (Phase 3 Task 1) — see ChatMessageDocument/ChatEventDocument's
+    // doc comments. ChatMessageDocument is indexed on Username (Task 5's per-viewer-messages
+    // query scans by it) and ReceivedAt (GetRecentMessagesAsync); ChatEventDocument on
+    // OccurredAt (GetRecentEventsAsync). ChatterDocument has no separate Id property — Login
+    // itself is the identity, configured explicitly since it's the one document in this
+    // project without a convention-matching Id.
+    _ = options.Schema.For<ChatMessageDocument>()
+      .Index(x => x.Username)
+      .Index(x => x.ReceivedAt);
+    _ = options.Schema.For<ChatEventDocument>()
+      .Index(x => x.OccurredAt);
+    _ = options.Schema.For<ChatterDocument>()
+      .Identity(x => x.Login);
   }
 }

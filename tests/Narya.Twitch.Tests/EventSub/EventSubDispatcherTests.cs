@@ -12,8 +12,9 @@ using TwitchLib.EventSub.Core.SubscriptionTypes.Channel;
 
 // TwitchLib.EventSub.Core.Models.Chat.ChatMessage/ChatBadge and
 // TwitchLib.EventSub.Core.Models.Whisper.WhisperMessage share their simple names with our own
-// domain types (Narya.Twitch.Chat.ChatMessage and Narya.Twitch.EventSub.Notifications.WhisperMessage) —
-// same collision EventSubDispatcher.cs itself documents; aliased here for the same reason.
+// domain types (Narya.Core.Chat.ChatMessage — moved here from Narya.Twitch.Chat in Phase 3 — and
+// Narya.Twitch.EventSub.Notifications.WhisperMessage) — same collision EventSubDispatcher.cs
+// itself documents; aliased here for the same reason.
 using TwitchChatBadge = TwitchLib.EventSub.Core.Models.Chat.ChatBadge;
 using TwitchChatMessage = TwitchLib.EventSub.Core.Models.Chat.ChatMessage;
 using TwitchWhisperMessage = TwitchLib.EventSub.Core.Models.Whisper.WhisperMessage;

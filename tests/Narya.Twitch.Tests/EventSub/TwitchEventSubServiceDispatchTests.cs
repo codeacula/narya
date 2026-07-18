@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 using NSubstitute;
 
+using Narya.Core.Chat;
 using Narya.Twitch.EventSub;
 using Narya.Twitch.EventSub.Notifications;
 using Narya.Twitch.Helix;
@@ -61,7 +62,7 @@ public sealed class TwitchEventSubServiceDispatchTests
     await f.Service.OnChatMessageAsync(sender: null, args);
 
     await f.Mediator.Received(1).Publish(
-      Arg.Is<ChatMessageReceivedNotification>(n => n.Message.Username == "someviewer"), Arg.Any<CancellationToken>());
+      Arg.Is<ChatMessageIngestedNotification>(n => n.Message.Username == "someviewer"), Arg.Any<CancellationToken>());
   }
 
   [Fact]
@@ -74,7 +75,7 @@ public sealed class TwitchEventSubServiceDispatchTests
 
     await f.Service.OnChatMessageAsync(sender: null, args);
 
-    await f.Mediator.DidNotReceive().Publish(Arg.Any<ChatMessageReceivedNotification>(), Arg.Any<CancellationToken>());
+    await f.Mediator.DidNotReceive().Publish(Arg.Any<ChatMessageIngestedNotification>(), Arg.Any<CancellationToken>());
   }
 
   [Fact]

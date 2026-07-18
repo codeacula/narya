@@ -20,8 +20,10 @@ namespace Narya.Twitch.EventSub.Notifications;
 /// is a pure translation with no database access, so Phase 2 cannot know the active session —
 /// this record simply has nowhere to put one yet. This is the actual, deliberate Phase 2 shape,
 /// not an oversight: Phase 3's session-scoping restructure (see
-/// <see cref="Narya.Twitch.Chat.ChatMessage"/>'s doc comment for the parallel chat-side gap and
-/// the planned ingested/broadcast notification split) is what will add it.
+/// <see cref="Narya.Core.Chat.ChatMessage"/>'s doc comment for the parallel chat-side gap,
+/// already resolved there via the ingested/broadcast notification split — the same split
+/// <see cref="StreamEventOccurredNotification"/> and <see cref="StreamEventUpdatedNotification"/>
+/// will need for session stamping, deferred to Task 4) is what will add it.
 /// </summary>
 public sealed record StreamEvent(
   string Id,

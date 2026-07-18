@@ -6,7 +6,6 @@ using NSubstitute;
 
 using Narya.Application;
 using Narya.Core.Realtime;
-using Narya.Twitch.Chat;
 using Narya.Twitch.EventSub.Notifications;
 
 namespace Narya.Twitch.Tests.EventSub;
@@ -18,15 +17,24 @@ namespace Narya.Twitch.Tests.EventSub;
 /// <c>Narya.Application.Realtime.RealtimeBridgeHandler&lt;T&gt;</c>? Yes — proven empirically
 /// here rather than assumed. <c>RealtimeBridgeHandler&lt;T&gt;</c> is registered as an OPEN
 /// generic (<c>typeof(INotificationHandler&lt;&gt;)</c> → <c>typeof(RealtimeBridgeHandler&lt;&gt;)</c>)
-/// by that assembly scan; resolving a CLOSED <c>INotificationHandler&lt;ChatMessageReceivedNotification&gt;</c>
+/// by that assembly scan; resolving a CLOSED <c>INotificationHandler&lt;StreamEventOccurredNotification&gt;</c>
 /// at publish time only requires the .NET DI container to construct
-/// <c>RealtimeBridgeHandler&lt;ChatMessageReceivedNotification&gt;</c> via reflection — which
-/// needs <c>ChatMessageReceivedNotification</c> to satisfy the handler's type constraint
+/// <c>RealtimeBridgeHandler&lt;StreamEventOccurredNotification&gt;</c> via reflection — which
+/// needs <c>StreamEventOccurredNotification</c> to satisfy the handler's type constraint
 /// (<see cref="IRealtimeNotification"/> + <see cref="INotification"/>), NOT to live in an
 /// assembly MediatR scanned. No second <c>AddMediatR</c> call registering
 /// <c>Narya.Twitch</c>'s assembly, and no direct <see cref="IRealtimePublisher"/> call from the
 /// dispatch handlers, was needed — <c>AddNaryaApplication()</c> alone is sufficient, exactly as
 /// it already is for every notification Narya.Application itself defines.
+///
+/// Originally exercised this with <c>ChatMessageReceivedNotification</c> (Phase 2); repointed at
+/// <see cref="StreamEventOccurredNotification"/> in Phase 3 once chat's ingested→broadcast split
+/// moved and renamed that type to <c>Narya.Core.Chat.ChatMessageIngestedNotification</c> — a
+/// plain <see cref="INotification"/>, no longer an <see cref="IRealtimeNotification"/>, so it can
+/// no longer stand in for "a Narya.Twitch-defined realtime notification" here.
+/// <see cref="StreamEventOccurredNotification"/> still is one (Task 4 gives stream events the
+/// same split later), so the underlying open-generic-resolution mechanism this test documents
+/// remains covered.
 ///
 /// This test project referencing <c>Narya.Application</c> is test-only (see
 /// <c>Narya.Twitch.Tests.csproj</c>'s comment) — production <c>Narya.Twitch</c> has no
@@ -46,13 +54,12 @@ public sealed class RealtimeBridgeCrossAssemblyTests
     await using var provider = services.BuildServiceProvider();
     var mediator = provider.GetRequiredService<IMediator>();
 
-    var message = new ChatMessage(
-      Id: "msg-1", Channel: "codeacula", Username: "viewer", DisplayName: "Viewer",
-      Color: null, Message: "hi", ReceivedAt: DateTimeOffset.UtcNow, Badges: null, ChatterUserId: "viewer-id-1");
+    var streamEvent = new StreamEvent(
+      Id: "event-1", Kind: "follow", Actor: "viewer", Detail: "followed", Tone: "silver", ReceivedAt: DateTimeOffset.UtcNow);
 
-    await mediator.Publish(new ChatMessageReceivedNotification(message));
+    await mediator.Publish(new StreamEventOccurredNotification(streamEvent));
 
-    await publisher.Received(1).PublishAsync("chat:message", message, Arg.Any<CancellationToken>());
+    await publisher.Received(1).PublishAsync("stream:event", streamEvent, Arg.Any<CancellationToken>());
   }
 
   [Fact]
@@ -64,7 +71,7 @@ public sealed class RealtimeBridgeCrossAssemblyTests
     _ = services.AddSingleton(Substitute.For<IRealtimePublisher>());
 
     using var provider = services.BuildServiceProvider();
-    var handlers = provider.GetServices<INotificationHandler<ChatMessageReceivedNotification>>();
+    var handlers = provider.GetServices<INotificationHandler<StreamEventOccurredNotification>>();
 
     _ = Assert.Single(handlers);
   }

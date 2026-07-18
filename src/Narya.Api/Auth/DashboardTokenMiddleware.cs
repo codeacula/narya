@@ -24,17 +24,21 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, DashboardToke
   public const string OverlayRole = DashboardTokenAuthenticator.OverlayRole;
 
   /// <summary>
-  /// Everything an overlay browser source is allowed to GET. Phase 1 ships only
-  /// <c>/api/health</c>; the full legacy allowlist (<c>OVERLAY_PATHS</c> in
-  /// legacy/src/server/auth.ts) is reproduced here so later phases add to this
-  /// set as each endpoint ships, rather than re-deriving it:
-  ///   /api/chat/recent, /api/emotes, /api/music/current, /api/sounds, /api/clips,
+  /// Everything an overlay browser source is allowed to GET. Phase 1 shipped only
+  /// <c>/api/health</c>; Phase 3 Task 1 adds <c>/api/chat/recent</c> (the chat overlay seeds
+  /// itself from it before <c>chat:message</c> broadcasts start arriving — matches legacy's
+  /// <c>OVERLAY_PATHS</c> in legacy/src/server/auth.ts). The rest of the full legacy allowlist
+  /// is reproduced here so later phases add to this set as each endpoint ships, rather than
+  /// re-deriving it:
+  ///   /api/emotes, /api/music/current, /api/sounds, /api/clips,
   ///   /api/stream-status, /api/dashboard/session-shoutouts, /api/overlay/placeholders
-  /// <c>/api/config</c> is deliberately never on this list.
+  /// <c>/api/config</c> and <c>/api/chat/events/recent</c> (raw event payloads, including
+  /// moderation reasons) are deliberately never on this list.
   /// </summary>
   public static readonly HashSet<string> OverlayPaths = new(StringComparer.Ordinal)
   {
     "/api/health",
+    "/api/chat/recent",
   };
 
   /// <summary>

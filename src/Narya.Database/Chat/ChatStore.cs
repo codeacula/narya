@@ -1,0 +1,181 @@
+using System.Text.Json;
+
+using Marten;
+
+using Narya.Core.Chat;
+using Narya.Database.Viewers;
+
+namespace Narya.Database.Chat;
+
+public sealed class ChatStore(IDocumentStore store) : IChatStore
+{
+  public async Task<ChatEventAppendResult> AppendChatEventAsync(
+    string type,
+    string channel,
+    string payloadJson,
+    string? messageId,
+    string? username,
+    DateTimeOffset occurredAt,
+    CancellationToken cancellationToken)
+  {
+    var doc = new ChatEventDocument
+    {
+      Id = Guid.NewGuid(),
+      Type = type,
+      Channel = channel,
+      MessageId = messageId,
+      Username = username,
+      PayloadJson = payloadJson,
+      OccurredAt = occurredAt,
+    };
+
+    await using var session = store.LightweightSession();
+    session.Insert(doc);
+    await session.SaveChangesAsync(cancellationToken);
+
+    return new ChatEventAppendResult(doc.Id, doc.OccurredAt);
+  }
+
+  public async Task<bool> TryInsertMessageAsync(ChatMessage message, CancellationToken cancellationToken)
+  {
+    await using var session = store.LightweightSession();
+
+    var existing = await session.LoadAsync<ChatMessageDocument>(message.Id, cancellationToken);
+    if (existing is not null)
+    {
+      return false;
+    }
+
+    var doc = new ChatMessageDocument
+    {
+      Id = message.Id,
+      Channel = message.Channel,
+      Username = message.Username,
+      DisplayName = message.DisplayName,
+      Color = message.Color,
+      Message = message.Message,
+      ReceivedAt = message.ReceivedAt,
+      DeletedAt = null,
+      DeletedReason = null,
+      ModerationEventId = null,
+      BadgesJson = SerializeBadges(message.Badges),
+      EmotesJson = null,
+      StreamSessionId = message.SessionId,
+      IsFirstInSession = message.IsFirstThisSession,
+      IsFirstEver = message.IsFirstEver,
+      ChatterUserId = message.ChatterUserId,
+    };
+
+    session.Insert(doc);
+    await session.SaveChangesAsync(cancellationToken);
+
+    return true;
+  }
+
+  public async Task<bool> HasSeenChatterBeforeAsync(string login, CancellationToken cancellationToken)
+  {
+    await using var session = store.QuerySession();
+    var existing = await session.LoadAsync<ChatterDocument>(login.ToLowerInvariant(), cancellationToken);
+    return existing is not null;
+  }
+
+  public async Task UpsertChatterAsync(
+    string login,
+    DateTimeOffset occurredAt,
+    string displayName,
+    string? color,
+    IReadOnlyDictionary<string, string>? badges,
+    CancellationToken cancellationToken)
+  {
+    var loginKey = login.ToLowerInvariant();
+    var badgesJson = SerializeBadges(badges);
+
+    await using var session = store.LightweightSession();
+    var existing = await session.LoadAsync<ChatterDocument>(loginKey, cancellationToken);
+
+    var updated = existing is null
+      ? new ChatterDocument
+      {
+        Login = loginKey,
+        FirstSeenAt = occurredAt,
+        MessageCount = 1,
+        LastSeenAt = occurredAt,
+        LastDisplayName = displayName,
+        LastColor = color,
+        LastBadgesJson = badgesJson,
+      }
+      : existing with
+      {
+        MessageCount = existing.MessageCount + 1,
+        LastSeenAt = occurredAt,
+        LastDisplayName = displayName,
+        LastColor = color,
+        LastBadgesJson = badgesJson,
+      };
+
+    session.Store(updated);
+    await session.SaveChangesAsync(cancellationToken);
+  }
+
+  public async Task<IReadOnlyList<ChatMessage>> GetRecentMessagesAsync(int limit, CancellationToken cancellationToken)
+  {
+    await using var session = store.QuerySession();
+    var docs = await session.Query<ChatMessageDocument>()
+      .OrderByDescending(m => m.ReceivedAt)
+      .Take(limit)
+      .ToListAsync(cancellationToken);
+
+    // docs is the `limit` most-recent rows, newest-first; re-sort ascending for the oldest→newest
+    // response shape (matches legacy's SQL-desc-then-JS-.reverse() — see IChatStore's doc comment).
+    return [.. docs.OrderBy(m => m.ReceivedAt).Select(ToChatMessage)];
+  }
+
+  public async Task<IReadOnlyList<ChatEvent>> GetRecentEventsAsync(int limit, CancellationToken cancellationToken)
+  {
+    await using var session = store.QuerySession();
+    var docs = await session.Query<ChatEventDocument>()
+      .OrderByDescending(e => e.OccurredAt)
+      .Take(limit)
+      .ToListAsync(cancellationToken);
+
+    return [.. docs.OrderBy(e => e.OccurredAt).Select(ToChatEvent)];
+  }
+
+  private static string? SerializeBadges(IReadOnlyDictionary<string, string>? badges) =>
+    badges is null ? null : JsonSerializer.Serialize(badges);
+
+  /// <summary>
+  /// <see cref="ChatMessage.SessionId"/> is always <see langword="null"/> here — see
+  /// <see cref="IChatStore.GetRecentMessagesAsync"/>'s doc comment for why this route
+  /// deliberately omits it, matching legacy. <see cref="ChatMessage.IsFirstTimer"/> mirrors
+  /// <see cref="ChatMessageDocument.IsFirstEver"/> — there is no separate stored column for it,
+  /// same as legacy's read-time derivation.
+  /// </summary>
+  private static ChatMessage ToChatMessage(ChatMessageDocument doc)
+  {
+    var badges = doc.BadgesJson is null
+      ? null
+      : JsonSerializer.Deserialize<Dictionary<string, string>>(doc.BadgesJson);
+
+    return new ChatMessage(
+      Id: doc.Id,
+      Channel: doc.Channel,
+      Username: doc.Username,
+      DisplayName: doc.DisplayName,
+      Color: doc.Color,
+      Message: doc.Message,
+      ReceivedAt: doc.ReceivedAt,
+      Badges: badges,
+      ChatterUserId: doc.ChatterUserId,
+      IsFirstTimer: doc.IsFirstEver,
+      IsFirstThisSession: doc.IsFirstInSession,
+      IsFirstEver: doc.IsFirstEver,
+      SessionId: null);
+  }
+
+  private static ChatEvent ToChatEvent(ChatEventDocument doc)
+  {
+    using var parsed = JsonDocument.Parse(doc.PayloadJson);
+    return new ChatEvent(doc.Id, doc.Type, doc.Channel, doc.MessageId, doc.Username, parsed.RootElement.Clone(), doc.OccurredAt);
+  }
+}

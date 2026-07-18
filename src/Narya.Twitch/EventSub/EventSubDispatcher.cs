@@ -1,5 +1,5 @@
+using Narya.Core.Chat;
 using Narya.Core.Sessions;
-using Narya.Twitch.Chat;
 using Narya.Twitch.EventSub.Notifications;
 
 using TwitchLib.EventSub.Core.EventArgs.Automod;
@@ -8,8 +8,9 @@ using TwitchLib.EventSub.Core.EventArgs.Stream;
 using TwitchLib.EventSub.Core.EventArgs.User;
 
 // TwitchLib.EventSub.Core.Models.Chat.ChatMessage/ChatBadge share their simple names with our
-// own Narya.Twitch.Chat.ChatMessage and would collide under a plain `using` — the same
-// EventSubSubscription collision Phase 2 Task 5 already worked around (see that task's report).
+// own Narya.Core.Chat.ChatMessage (moved here from Narya.Twitch.Chat in Phase 3 — see that
+// record's doc comment) and would collide under a plain `using` — the same EventSubSubscription
+// collision Phase 2 Task 5 already worked around (see that task's report).
 // Every other TwitchLib model this file touches (WhisperMessage, RedemptionReward, Ban,
 // Timeout, Delete, Message, AutomodData, SubscriptionMessage, ...) is reached purely through
 // property-chain access (`e.Reward.Title`, `e.Ban.UserLogin`, ...) with the type name never
@@ -81,7 +82,7 @@ public static class EventSubDispatcher
   /// <paramref name="now"/> is supplied by the caller rather than read from a clock in here,
   /// keeping this method a pure function of its inputs.
   /// </summary>
-  public static ChatMessageReceivedNotification? DispatchChatMessage(
+  public static ChatMessageIngestedNotification? DispatchChatMessage(
     ChannelChatMessageArgs args, string? botLogin, DateTimeOffset now)
   {
     var e = args.Payload.Event;
@@ -103,7 +104,7 @@ public static class EventSubDispatcher
       Badges: ToBadgeDictionary(e.Badges),
       ChatterUserId: e.ChatterUserId);
 
-    return new ChatMessageReceivedNotification(message);
+    return new ChatMessageIngestedNotification(message);
   }
 
   public static ChatModeratedNotification DispatchChatMessageDelete(ChannelChatMessageDeleteArgs args, DateTimeOffset now)

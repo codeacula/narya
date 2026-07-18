@@ -3,8 +3,10 @@ using Marten;
 using Microsoft.Extensions.DependencyInjection;
 
 using Narya.Core.AppConfig;
+using Narya.Core.Chat;
 using Narya.Core.Sessions;
 using Narya.Database.AppConfig;
+using Narya.Database.Chat;
 using Narya.Database.Sessions;
 
 namespace Narya.Database;
@@ -23,6 +25,7 @@ public static class ServiceCollectionExtensions
 
     _ = services.AddSingleton<IAppConfigStore, AppConfigStore>();
     _ = services.AddSingleton<IStreamSessionStore, StreamSessionStore>();
+    _ = services.AddSingleton<IChatStore, ChatStore>();
 
     return services;
   }

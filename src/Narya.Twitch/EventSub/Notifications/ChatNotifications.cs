@@ -1,22 +1,9 @@
 using MediatR;
 
+using Narya.Core.Chat;
 using Narya.Core.Realtime;
-using Narya.Twitch.Chat;
 
 namespace Narya.Twitch.EventSub.Notifications;
-
-/// <summary>
-/// Published whenever <see cref="EventSubDispatcher.DispatchChatMessage"/> returns non-null
-/// (i.e. the message was not the bot's own — see that method's bot-loop guard). Broadcasts as
-/// <c>chat:message</c>, allowlisted for overlays (<see cref="RealtimeEventNames.OverlayAllowlist"/>)
-/// — the legacy chat overlay renders these directly.
-/// </summary>
-public sealed record ChatMessageReceivedNotification(ChatMessage Message) : INotification, IRealtimeNotification
-{
-  public string EventName => "chat:message";
-
-  public object Payload => Message;
-}
 
 /// <summary>
 /// Published for a moderation action affecting chat: a single message delete
@@ -27,6 +14,12 @@ public sealed record ChatMessageReceivedNotification(ChatMessage Message) : INot
 /// table). Broadcasts as <c>chat:moderated</c>, allowlisted for overlays — the
 /// overlay hides moderated messages entirely rather than showing the reason (legacy's
 /// <c>compact</c> <c>ChatPanel</c> behavior).
+///
+/// <c>ChatMessageReceivedNotification</c> (the <c>chat:message</c> counterpart to this type)
+/// moved to <c>Narya.Core.Chat.ChatMessageIngestedNotification</c> in Phase 3, split into an
+/// ingested/broadcast pair — see that type's doc comment. This type is unaffected: Task 2 will
+/// give moderation the same persistence-before-broadcast treatment, at which point this record
+/// will likely move too.
 /// </summary>
 public sealed record ChatModeratedNotification(ChatModerationEvent ModerationEvent) : INotification, IRealtimeNotification
 {
