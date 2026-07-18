@@ -120,7 +120,16 @@ public sealed class ActionStore(IDocumentStore store, TimeProvider timeProvider)
   {
     await using var connection = store.Storage.Database.CreateConnection();
     await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-    await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+    // READ COMMITTED explicitly, for the same reason AutomationRunStore.TryClaimAsync passes it:
+    // the reference read below is only meaningful because it takes a FRESH snapshot after
+    // pg_advisory_xact_lock returned, and so observes whatever the previous lock holder
+    // committed. Under REPEATABLE READ or SERIALIZABLE this transaction would be pinned to a
+    // snapshot taken at the lock acquisition itself, so a concurrently-created trigger would be
+    // invisible to the read and this delete would orphan it.
+    await using var transaction = await connection
+      .BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken)
+      .ConfigureAwait(false);
     await ActionReferenceLock.TakeAsync(transaction, id, cancellationToken).ConfigureAwait(false);
 
     // ForTransaction enlists Marten in the transaction we own, so the session borrows THIS

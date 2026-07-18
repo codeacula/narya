@@ -82,9 +82,21 @@ public sealed class AutomationRunStore(IDocumentStore store) : IAutomationRunSto
     // on it, inside one transaction. SessionOptions.ForTransaction enlists Marten in the
     // externally-owned transaction, so the session borrows THIS connection instead of renting a
     // second one, and leaves the commit to us.
+    //
+    // READ COMMITTED is passed EXPLICITLY, not inherited. The whole gate depends on the cooldown
+    // read seeing the winner's just-committed claim row, and only READ COMMITTED takes a fresh
+    // snapshot per statement — the read runs AFTER pg_advisory_xact_lock returns, so it sees
+    // everything the previous holder committed on its way out. Under REPEATABLE READ or
+    // SERIALIZABLE the transaction is instead pinned to a snapshot taken at its FIRST statement,
+    // which is the lock acquisition itself: every waiter would then read a snapshot from before
+    // the winner committed, miss the claim row, and insert its own — silently reopening the exact
+    // TOCTOU this lock exists to close, on any deployment whose
+    // default_transaction_isolation is hardened away from the Postgres default.
     await using var connection = store.Storage.Database.CreateConnection();
     await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-    await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+    await using var transaction = await connection
+      .BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken)
+      .ConfigureAwait(false);
     await TakeAdvisoryLockAsync(transaction, AdvisoryLockKey(triggerId), cancellationToken).ConfigureAwait(false);
 
     await using var session = store.LightweightSession(SessionOptions.ForTransaction(transaction));
