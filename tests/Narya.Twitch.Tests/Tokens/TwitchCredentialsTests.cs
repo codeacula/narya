@@ -327,4 +327,87 @@ public sealed class TwitchCredentialsTests
     Assert.Equal("app-token-2", second.Value);
     _ = await f.OAuthClient.Received(2).ClientCredentialsAsync(Arg.Any<CancellationToken>());
   }
+
+  // ---------------------------------------------------------------------
+  // Invalidation racing an in-flight resolution
+  // ---------------------------------------------------------------------
+
+  [Fact]
+  public async Task InvalidateDuringAnInFlightBroadcasterResolutionIsNotOverwrittenByTheOldId()
+  {
+    // The window this closes: InvalidateAsync clears _cachedBroadcasterId without taking a lock,
+    // so a GetActionCredentialsAsync that was already awaiting the resolver would write the OLD
+    // id straight back into the just-cleared field — and nothing else ever clears it, so every
+    // later call keeps targeting the previous channel until the process restarts.
+    var f = Build();
+    var stored = new TwitchToken
+    {
+      AccessToken = "broadcaster-access",
+      Scopes = Scopes.Broadcaster,
+      ExpiresAt = Now + TimeSpan.FromHours(1),
+    };
+    _ = f.TokenStore.GetAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>())
+      .Returns(Result.Ok<TwitchToken?>(stored));
+    _ = f.AppConfigStore.GetAsync(Arg.Any<CancellationToken>())
+      .Returns(Result.Ok(new DomainConfig { TwitchClientId = "the-client-id" }));
+
+    var resolutionStarted = new TaskCompletionSource();
+    var releaseResolution = new TaskCompletionSource();
+    _ = f.BroadcasterIdResolver.GetBroadcasterIdAsync(Arg.Any<CancellationToken>())
+      .Returns(
+        async _ =>
+        {
+          resolutionStarted.SetResult();
+          await releaseResolution.Task;
+          return Result.Ok("broadcaster-old");
+        },
+        _ => Task.FromResult(Result.Ok("broadcaster-new")));
+
+    var inFlight = f.Credentials.GetActionCredentialsAsync(["user:read:chat"], CancellationToken.None);
+    await resolutionStarted.Task;
+
+    // The operator saves a new channel while that resolution is still awaiting Helix.
+    await f.Credentials.InvalidateAsync(CancellationToken.None);
+    releaseResolution.SetResult();
+    _ = await inFlight;
+
+    var after = await f.Credentials.GetActionCredentialsAsync(["user:read:chat"], CancellationToken.None);
+
+    Assert.True(after.IsSuccess);
+    // The load-bearing assertion: without the generation guard the in-flight resolution has
+    // re-cached "broadcaster-old" and this stays "broadcaster-old" forever.
+    Assert.Equal("broadcaster-new", after.Value.BroadcasterId);
+  }
+
+  [Fact]
+  public async Task InvalidateDuringAnInFlightAppTokenMintIsNotOverwrittenByTheOldApplicationsToken()
+  {
+    // Same window on the app token, and worse: it is minted from the client id/secret, so a
+    // re-cached one belongs to a DIFFERENT Twitch application and survives its full hour.
+    var f = Build();
+    var mintStarted = new TaskCompletionSource();
+    var releaseMint = new TaskCompletionSource();
+    _ = f.OAuthClient.ClientCredentialsAsync(Arg.Any<CancellationToken>())
+      .Returns(
+        async _ =>
+        {
+          mintStarted.SetResult();
+          await releaseMint.Task;
+          return Result.Ok(new TwitchTokenResponse { AccessToken = "app-token-old", ExpiresIn = 3600 });
+        },
+        _ => Task.FromResult(Result.Ok(new TwitchTokenResponse { AccessToken = "app-token-new", ExpiresIn = 3600 })));
+
+    var inFlight = f.Credentials.GetAppAccessTokenAsync(CancellationToken.None);
+    await mintStarted.Task;
+
+    await f.Credentials.InvalidateAsync(CancellationToken.None);
+    releaseMint.SetResult();
+    _ = await inFlight;
+
+    var after = await f.Credentials.GetAppAccessTokenAsync(CancellationToken.None);
+
+    Assert.True(after.IsSuccess);
+    Assert.Equal("app-token-new", after.Value);
+    _ = await f.OAuthClient.Received(2).ClientCredentialsAsync(Arg.Any<CancellationToken>());
+  }
 }

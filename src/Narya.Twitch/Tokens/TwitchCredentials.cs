@@ -37,6 +37,14 @@ public sealed partial class TwitchCredentials(
   private string? _cachedBroadcasterId;
 
   /// <summary>
+  /// Bumped by <see cref="InvalidateAsync"/>; snapshotted before, and re-read after, every
+  /// round trip whose result would be cached, so a mint or a broadcaster-id resolution that was
+  /// already in flight when the invalidation landed cannot write the OLD identity back into the
+  /// just-cleared field. See <see cref="InvalidateAsync"/>.
+  /// </summary>
+  private int _identityGeneration;
+
+  /// <summary>
   /// Resolves a valid access token for <paramref name="provider"/>, refreshing it first when it
   /// is inside <see cref="TokenExpiryRefreshBuffer"/> of expiring. Single-flight, mirroring
   /// <see cref="GetAppAccessTokenAsync"/>'s lock-below pattern: Twitch rotates the refresh token
@@ -164,6 +172,7 @@ public sealed partial class TwitchCredentials(
         return Result.Ok(lockedToken);
       }
 
+      var generation = Volatile.Read(ref _identityGeneration);
       var result = await oauthClient.ClientCredentialsAsync(cancellationToken).ConfigureAwait(false);
       if (result.IsFailed || string.IsNullOrEmpty(result.Value?.AccessToken))
       {
@@ -175,8 +184,17 @@ public sealed partial class TwitchCredentials(
 
       var response = result.Value;
       var expiresAt = timeProvider.GetUtcNow() + TimeSpan.FromSeconds(Math.Max(60, response.ExpiresIn ?? 3600));
-      _appToken = (response.AccessToken!, expiresAt);
-      return Result.Ok(_appToken.Value.Token);
+
+      // An InvalidateAsync during the client_credentials round trip means the client id/secret
+      // this token was minted from is no longer the configured one. Caching it would pin the
+      // OLD application for the token's full hour; hand it back to this caller but let the next
+      // one re-mint.
+      if (Volatile.Read(ref _identityGeneration) == generation)
+      {
+        _appToken = (response.AccessToken!, expiresAt);
+      }
+
+      return Result.Ok(response.AccessToken!);
     }
     finally
     {
@@ -225,22 +243,32 @@ public sealed partial class TwitchCredentials(
       return Result.Fail<TwitchActionCredentials>(accessTokenResult.Errors);
     }
 
-    if (_cachedBroadcasterId is null)
+    var broadcasterId = _cachedBroadcasterId;
+    if (broadcasterId is null)
     {
+      // Snapshot the generation before the resolution: an InvalidateAsync that lands while the
+      // resolver is awaiting Helix must not have the OLD broadcaster id written back into the
+      // field it just cleared — nothing else ever clears it, so that id would be permanent.
+      var generation = Volatile.Read(ref _identityGeneration);
+
       var broadcasterIdResult = await broadcasterIdResolver.GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
       if (broadcasterIdResult.IsFailed)
       {
         return Result.Fail<TwitchActionCredentials>(broadcasterIdResult.Errors);
       }
 
-      _cachedBroadcasterId = broadcasterIdResult.Value;
+      broadcasterId = broadcasterIdResult.Value;
+      if (Volatile.Read(ref _identityGeneration) == generation)
+      {
+        _cachedBroadcasterId = broadcasterId;
+      }
     }
 
     return Result.Ok(new TwitchActionCredentials
     {
       ClientId = configResult.Value.TwitchClientId,
       AccessToken = accessTokenResult.Value,
-      BroadcasterId = _cachedBroadcasterId,
+      BroadcasterId = broadcasterId,
     });
   }
 
@@ -254,13 +282,19 @@ public sealed partial class TwitchCredentials(
   /// without any invalidation here.
   ///
   /// Not taking <see cref="_appTokenLock"/>, for the same reason
-  /// <see cref="Helix.HelixClient.InvalidateAsync"/> does not take its own lock: the writes are
-  /// atomic reference assignments, and blocking behind an in-flight <c>client_credentials</c>
-  /// round trip would buy nothing — the next caller after it re-mints against the new secret
-  /// regardless.
+  /// <see cref="Helix.HelixClient.InvalidateAsync"/> does not take its own lock: blocking behind
+  /// an in-flight <c>client_credentials</c> round trip would only serialize an operator save
+  /// behind a Twitch call. Clearing the fields is not enough on its own — a mint or a
+  /// broadcaster-id resolution already in flight would write the OLD identity straight back into
+  /// the cleared field, where the app token's hour-long lifetime (and, for the broadcaster id,
+  /// nothing at all) would evict it. <see cref="_identityGeneration"/> is bumped here so those
+  /// in-flight commits are discarded instead.
   /// </summary>
   public Task InvalidateAsync(CancellationToken cancellationToken)
   {
+    // Bump FIRST, so a resolution that starts after this point re-reads the new config and any
+    // resolution already running observes the change before it commits.
+    _ = Interlocked.Increment(ref _identityGeneration);
     _appToken = null;
     _cachedBroadcasterId = null;
     return Task.CompletedTask;

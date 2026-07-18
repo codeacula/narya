@@ -255,6 +255,101 @@ public sealed class HelixClientTests
       Arg.Is<string>(s => s == "bot-token"), Arg.Any<CancellationToken>());
   }
 
+  [Fact]
+  public async Task InvalidateDuringAnInFlightResolutionIsNotOverwrittenByTheOldBroadcasterId()
+  {
+    // InvalidateAsync deliberately does not take _broadcasterIdLock, so a resolution that was
+    // already awaiting Helix when the operator saved a new channel would otherwise write the OLD
+    // broadcaster id back into the just-cleared cache. GetBroadcasterIdAsync returns early on any
+    // non-null cache and nothing else ever clears it, so that stale id would then be permanent —
+    // the operator changes A -> B -> C in quick succession and every Helix call, and every
+    // EventSub subscription condition, targets B until the process restarts.
+    var f = Build();
+    _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>())
+      .Returns(Result.Ok("broadcaster-token"));
+
+    var resolutionStarted = new TaskCompletionSource();
+    var releaseResolution = new TaskCompletionSource();
+    _ = f.HelixApi.GetUsersAsync(
+        Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(ThechannelLogin)), "broadcaster-token", Arg.Any<CancellationToken>())
+      .Returns(async _ =>
+      {
+        resolutionStarted.SetResult();
+        await releaseResolution.Task;
+        return UsersResponse(("bid-1", "thechannel"));
+      });
+    _ = f.HelixApi.GetUsersAsync(
+        Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(OtherchannelLogin)), "broadcaster-token", Arg.Any<CancellationToken>())
+      .Returns(UsersResponse(("bid-2", "otherchannel")));
+
+    var inFlight = f.Client.GetBroadcasterIdAsync(CancellationToken.None);
+    await resolutionStarted.Task;
+
+    // The operator saves the new channel while the first resolution is still awaiting Helix.
+    _ = f.AppConfigStore.GetAsync(Arg.Any<CancellationToken>())
+      .Returns(Result.Ok(Config with { TwitchChannel = "otherchannel" }));
+    await f.Client.InvalidateAsync(CancellationToken.None);
+    releaseResolution.SetResult();
+
+    var raced = await inFlight;
+    var after = await f.Client.GetBroadcasterIdAsync(CancellationToken.None);
+
+    // The raced call re-resolves rather than returning the id it had already fetched for the
+    // channel the operator just replaced...
+    Assert.True(raced.IsSuccess);
+    Assert.Equal("bid-2", raced.Value);
+    // ...and the load-bearing assertion: the cache holds the NEW id. Without the generation
+    // guard both of these are "bid-1", permanently.
+    Assert.True(after.IsSuccess);
+    Assert.Equal("bid-2", after.Value);
+  }
+
+  [Fact]
+  public async Task InvalidateDuringAnInFlightBotUserResolutionIsNotOverwrittenByTheOldBotId()
+  {
+    // Same window on the authenticated-user id cache, which is the bot's identity: a reauth that
+    // lands while the bot user lookup is in flight would re-cache the PREVIOUS bot's id into the
+    // dictionary InvalidateAsync just cleared, and nothing else ever evicts it.
+    var f = Build();
+    _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Bot, Arg.Any<CancellationToken>()).Returns(Result.Ok("bot-token"));
+    _ = f.Credentials.GetAccessTokenAsync(TwitchProvider.Broadcaster, Arg.Any<CancellationToken>()).Returns(Result.Ok("broadcaster-token"));
+    _ = f.HelixApi.GetUsersAsync(
+        Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(ThechannelLogin)), "broadcaster-token", Arg.Any<CancellationToken>())
+      .Returns(UsersResponse(("bid-1", "thechannel")));
+    _ = f.HelixApi.SendChatMessageAsync(
+        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+      .Returns(ChatResponse("msg-1", isSent: true));
+
+    var lookupStarted = new TaskCompletionSource();
+    var releaseLookup = new TaskCompletionSource();
+    _ = f.HelixApi.GetUsersAsync(null, "bot-token", Arg.Any<CancellationToken>())
+      .Returns(
+        async _ =>
+        {
+          lookupStarted.SetResult();
+          await releaseLookup.Task;
+          return UsersResponse(("bot-1", "oldbot"));
+        },
+        _ => Task.FromResult(UsersResponse(("bot-2", "newbot"))));
+
+    var inFlight = f.Client.SendChatMessageAsync(TwitchProvider.Bot, "before", cancellationToken: CancellationToken.None);
+    await lookupStarted.Task;
+
+    // The operator reconnects a different bot account mid-lookup.
+    await f.Client.InvalidateAsync(CancellationToken.None);
+    releaseLookup.SetResult();
+    _ = await inFlight;
+
+    var second = await f.Client.SendChatMessageAsync(TwitchProvider.Bot, "after", cancellationToken: CancellationToken.None);
+
+    Assert.True(second.IsSuccess);
+    // Without the generation guard the raced lookup re-cached "bot-1" and this send still claims
+    // to come from the old bot — which is exactly what the bot-loop guard compares against.
+    _ = await f.HelixApi.Received(1).SendChatMessageAsync(
+      Arg.Any<string>(), Arg.Is<string>(s => s == "bot-2"), Arg.Any<string>(), Arg.Any<string?>(),
+      Arg.Is<string>(s => s == "bot-token"), Arg.Any<CancellationToken>());
+  }
+
   // ---------------------------------------------------------------------
   // ResolveUserIdAsync
   // ---------------------------------------------------------------------

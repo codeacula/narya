@@ -34,12 +34,29 @@ internal sealed class HelixClient(
   public const int DefaultTimeoutSeconds = 600;
   public const int MaxTimeoutSeconds = 1_209_600;
 
+  /// <summary>
+  /// How many times <see cref="GetBroadcasterIdAsync"/> re-resolves when an invalidation lands
+  /// while its Helix round trip is in flight. Each retry needs another invalidation to race it,
+  /// and invalidations are operator-driven (a config save or an OAuth reauth), so exhausting
+  /// this means the identity is genuinely still churning — better to fail this call than to
+  /// return, or worse cache, an id resolved against a channel the operator has already replaced.
+  /// </summary>
+  private const int MaxBroadcasterIdResolveAttempts = 3;
+
   private readonly HelixCaches _caches = new(timeProvider);
   private readonly SemaphoreSlim _broadcasterIdLock = new(1, 1);
   private readonly ConcurrentDictionary<TwitchProvider, string> _authenticatedUserIds = new();
   private readonly Lock _commercialLock = new();
 
   private string? _cachedBroadcasterId;
+
+  /// <summary>
+  /// Bumped by <see cref="InvalidateAsync"/>; read before and after every identity resolution so
+  /// a resolution that was already in flight when the invalidation landed cannot commit its
+  /// (now stale) result. See <see cref="InvalidateAsync"/> for why this exists instead of a lock.
+  /// </summary>
+  private int _identityGeneration;
+
   private Task<Result<HelixCommercialResult>>? _inFlightCommercial;
 
   public async Task<Result<HelixUser>> GetAuthenticatedUserAsync(TwitchProvider provider, CancellationToken cancellationToken)
@@ -60,50 +77,73 @@ internal sealed class HelixClient(
     await _broadcasterIdLock.WaitAsync(cancellationToken).ConfigureAwait(false);
     try
     {
-      // Re-check inside the lock: a concurrent caller may have already resolved it while this
-      // call was waiting for the lock.
-      if (_cachedBroadcasterId is { } lockedCached)
+      for (var attempt = 1; attempt <= MaxBroadcasterIdResolveAttempts; attempt++)
       {
-        return Result.Ok(lockedCached);
+        // Re-check inside the lock: a concurrent caller may have already resolved it while this
+        // call was waiting for the lock.
+        if (_cachedBroadcasterId is { } lockedCached)
+        {
+          return Result.Ok(lockedCached);
+        }
+
+        // Read the generation BEFORE the config read and the Helix round trip, so an
+        // InvalidateAsync that lands at any point during them is observable below.
+        var generation = Volatile.Read(ref _identityGeneration);
+
+        var resolved = await ResolveBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
+        if (resolved.IsFailed)
+        {
+          return resolved;
+        }
+
+        if (Volatile.Read(ref _identityGeneration) == generation)
+        {
+          _cachedBroadcasterId = resolved.Value;
+          return resolved;
+        }
+
+        // Invalidated mid-resolution: this id describes the identity the operator just replaced.
+        // Neither cache nor return it — loop and resolve again against the current config.
       }
 
-      var configResult = await appConfigStore.GetAsync(cancellationToken).ConfigureAwait(false);
-      if (configResult.IsFailed)
-      {
-        return Result.Fail<string>(configResult.Errors);
-      }
-
-      if (string.IsNullOrWhiteSpace(configResult.Value.TwitchChannel))
-      {
-        return Result.Fail<string>("Twitch channel is not configured.");
-      }
-
-      var tokenResult = await ResolveBroadcasterOrAppAccessTokenAsync(cancellationToken).ConfigureAwait(false);
-      if (tokenResult.IsFailed)
-      {
-        return Result.Fail<string>(tokenResult.Errors);
-      }
-
-      var usersResult = await ExecuteAsync(() =>
-        helixApi.GetUsersAsync([configResult.Value.TwitchChannel], tokenResult.Value, cancellationToken)).ConfigureAwait(false);
-      if (usersResult.IsFailed)
-      {
-        return Result.Fail<string>(usersResult.Errors);
-      }
-
-      var id = FirstOrNull(usersResult.Value.Users)?.Id;
-      if (string.IsNullOrEmpty(id))
-      {
-        return Result.Fail<string>($"Could not resolve the Twitch broadcaster id for \"{configResult.Value.TwitchChannel}\".");
-      }
-
-      _cachedBroadcasterId = id;
-      return Result.Ok(id);
+      return Result.Fail<string>("The Twitch identity changed while resolving the broadcaster id; retry.");
     }
     finally
     {
       _ = _broadcasterIdLock.Release();
     }
+  }
+
+  private async Task<Result<string>> ResolveBroadcasterIdAsync(CancellationToken cancellationToken)
+  {
+    var configResult = await appConfigStore.GetAsync(cancellationToken).ConfigureAwait(false);
+    if (configResult.IsFailed)
+    {
+      return Result.Fail<string>(configResult.Errors);
+    }
+
+    if (string.IsNullOrWhiteSpace(configResult.Value.TwitchChannel))
+    {
+      return Result.Fail<string>("Twitch channel is not configured.");
+    }
+
+    var tokenResult = await ResolveBroadcasterOrAppAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+    if (tokenResult.IsFailed)
+    {
+      return Result.Fail<string>(tokenResult.Errors);
+    }
+
+    var usersResult = await ExecuteAsync(() =>
+      helixApi.GetUsersAsync([configResult.Value.TwitchChannel], tokenResult.Value, cancellationToken)).ConfigureAwait(false);
+    if (usersResult.IsFailed)
+    {
+      return Result.Fail<string>(usersResult.Errors);
+    }
+
+    var id = FirstOrNull(usersResult.Value.Users)?.Id;
+    return string.IsNullOrEmpty(id)
+      ? Result.Fail<string>($"Could not resolve the Twitch broadcaster id for \"{configResult.Value.TwitchChannel}\".")
+      : Result.Ok(id);
   }
 
   public async Task<Result<string>> ResolveUserIdAsync(string login, CancellationToken cancellationToken)
@@ -531,14 +571,18 @@ internal sealed class HelixClient(
   /// Deliberately not taking <see cref="_broadcasterIdLock"/>: a concurrent
   /// <see cref="GetBroadcasterIdAsync"/> already holding that lock is mid-resolution against
   /// the config it read, and blocking here to overwrite its result would only serialize this
-  /// call behind a Helix round trip. The reference assignment is atomic, so the worst case is
-  /// that one in-flight resolution finishes and re-populates the field — the next call after
-  /// that still re-resolves, because that resolution reads the NEW channel from
-  /// <see cref="IAppConfigStore"/>, which has already committed by the time anything calls
-  /// this.
+  /// call behind a Helix round trip. Clearing the fields alone would NOT be safe — a resolution
+  /// that was already awaiting Helix when this ran would write the OLD broadcaster id back into
+  /// an empty cache, permanently, since <see cref="GetBroadcasterIdAsync"/> returns early on any
+  /// non-null cache and nothing else ever clears it. Bumping <see cref="_identityGeneration"/>
+  /// closes that window: every resolution snapshots the generation before its round trip and
+  /// discards its result if this ran in the meantime.
   /// </summary>
   public Task InvalidateAsync(CancellationToken cancellationToken)
   {
+    // Bump FIRST: a resolution that reads the new generation after this point but before the
+    // clears below still re-reads config, so it can only over-clear, never over-cache.
+    _ = Interlocked.Increment(ref _identityGeneration);
     _cachedBroadcasterId = null;
     _authenticatedUserIds.Clear();
     _caches.Clear();
@@ -588,13 +632,22 @@ internal sealed class HelixClient(
       return Result.Ok(cachedId);
     }
 
+    // Same in-flight window as GetBroadcasterIdAsync, and the same fix: a reauth that lands
+    // while this round trip is outstanding must not have the PREVIOUS account's user id written
+    // back into the just-cleared dictionary, where nothing would ever evict it again.
+    var generation = Volatile.Read(ref _identityGeneration);
+
     var userResult = await GetAuthenticatedUserCoreAsync(provider, accessToken, cancellationToken).ConfigureAwait(false);
     if (userResult.IsFailed)
     {
       return Result.Fail<string>(userResult.Errors);
     }
 
-    _authenticatedUserIds[provider] = userResult.Value.Id;
+    if (Volatile.Read(ref _identityGeneration) == generation)
+    {
+      _authenticatedUserIds[provider] = userResult.Value.Id;
+    }
+
     return Result.Ok(userResult.Value.Id);
   }
 
