@@ -372,7 +372,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .msg-user:hover { border-bottom-color: currentColor; }
 .msg-user::after { content: ":"; color: var(--fg-3); font-weight: 400; margin-right: 5px; }
-.msg-text { color: var(--ivory-100); }
+/* overflow-wrap: a pasted URL is one unbroken token and would otherwise push the
+   chat column wider than the panel. */
+.msg-text { color: var(--ivory-100); overflow-wrap: anywhere; }
+.msg-text .chatLink {
+  color: var(--fg-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--fg-accent) 45%, transparent);
+}
+.msg-text .chatLink:hover { text-decoration-color: currentColor; }
 /* Inline chat emotes (Twitch + BTTV/7TV) sized for the dense dashboard list;
    the overlay's larger .chatEmote base is overridden here by higher specificity. */
 .msg-text .chatEmote { height: 22px; width: auto; vertical-align: middle; margin: 0 1px; }
@@ -2024,6 +2033,14 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   display: flex;
   flex-direction: column;
   gap: 7px;
+}
+/* Explanatory line under an input — why a field can be left blank, what it falls
+   back to. Sits below the control, so the -3px pulls it inside the .field gap. */
+.field-note {
+  margin-top: -3px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--fg-3);
 }
 .field > span {
   font-family: var(--font-mono);

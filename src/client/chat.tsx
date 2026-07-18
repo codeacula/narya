@@ -2,6 +2,7 @@ import React from 'react';
 import { OVERLAY_CHAT_EXPIRE_MS, OVERLAY_CHAT_FADE_MS } from '../shared/constants';
 import { getRoleFromBadges, type Role } from '../shared/roles';
 import type { ChatMessage, ChatModerationEvent } from '../shared/api';
+import { parseLinkToken } from './chatText';
 import { useSocket } from './realtime';
 import { getEmotes, getHealth, getRecentChat } from './services/dashboard';
 
@@ -20,13 +21,39 @@ export function renderWords(
   emoteMap: Record<string, string>,
   baseKey: number,
 ): React.ReactNode[] {
-  return text.split(/(\s+)/).map((part, i) =>
-    emoteMap[part] ? (
-      <img key={`bttv-${baseKey}-${i}`} className="chatEmote" src={emoteMap[part]} alt={part} title={part} />
-    ) : (
-      part
-    ),
-  );
+  const nodes: React.ReactNode[] = [];
+
+  text.split(/(\s+)/).forEach((part, i) => {
+    const emote = emoteMap[part];
+    if (emote) {
+      nodes.push(<img key={`bttv-${baseKey}-${i}`} className="chatEmote" src={emote} alt={part} title={part} />);
+      return;
+    }
+
+    // Emote codes win over URLs: a code is an exact whole-token match, so it can
+    // only collide with a link if the operator has an emote literally named after
+    // one, and in that case the emote is what chat meant.
+    const link = parseLinkToken(part);
+    if (link) {
+      nodes.push(
+        <a
+          key={`url-${baseKey}-${i}`}
+          className="chatLink"
+          href={link.href}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+        >
+          {link.label}
+        </a>,
+      );
+      if (link.trailing) nodes.push(link.trailing);
+      return;
+    }
+
+    nodes.push(part);
+  });
+
+  return nodes;
 }
 
 export function renderContent(

@@ -229,6 +229,14 @@ nav {
   line-height: 1.5;
 }
 
+/* Links are anchors on every chat surface, but nothing can click one inside an OBS
+   browser source — so on the overlay a URL stays plain text visually. The dashboard
+   overrides this to look (and behave) like a link. */
+.chatMessage .chatLink {
+  color: inherit;
+  text-decoration: none;
+}
+
 .chatMessage em {
   color: var(--silver-400);
   font-size: 12px;
