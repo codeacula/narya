@@ -34,7 +34,7 @@ import { registerStreamCategoryRoutes } from './streamCategories';
 import { registerStreamStatusRoutes } from './streamStatus';
 import { pruneAutomationRuns } from './triggerDispatcher';
 import { hydrateTwitchAuthState, registerTwitchAuthRoutes } from './twitch/auth';
-import { registerTwitchApiRoutes } from './twitch/api';
+import { fetchAuthenticatedTwitchUser, registerTwitchApiRoutes } from './twitch/api';
 import { registerViewerRewardRoutes } from './viewerRewards';
 import { registerViewerRoleRoutes } from './viewers';
 
@@ -118,6 +118,14 @@ registerTwitchAuthRoutes({
   state: runtimeState,
   connectEventSub: () => { void connectEventSub(runtimeState); },
   disconnectEventSub: () => disconnectEventSub(runtimeState),
+  resolveAccountIdentity: fetchAuthenticatedTwitchUser,
+  // Logging in or out moves the derived channel, which is the same blast radius as
+  // editing the channel in Settings — so it goes through the same reconcile path.
+  // EventSub is left to the caller, which already reconnects it around a login.
+  onResolvedChannelChanged: () => {
+    runtimeState.clearTwitchChannelState();
+    void applyTwitchChannel();
+  },
 });
 registerTwitchApiRoutes(app, runtimeState);
 registerViewerRewardRoutes(app, runtimeState);

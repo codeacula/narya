@@ -508,6 +508,8 @@ const allowedMigrationTables = new Set([
   'actions',
 ]);
 const allowedMigrationColumns = new Set([
+  'account_user_id',
+  'account_login',
   'deleted_at',
   'deleted_reason',
   'moderation_event_id',
@@ -538,6 +540,8 @@ const allowedMigrationColumns = new Set([
   'quick_disable',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
+  account_user_id: 'text',
+  account_login: 'text',
   deleted_at: 'text',
   deleted_reason: 'text',
   moderation_event_id: 'text',
@@ -592,6 +596,10 @@ export function addColumnIfMissing(table: string, column: string, definition: st
   }
 }
 
+// Who each OAuth token belongs to. Recorded at login so the operator's channel can
+// be derived from the account they signed in with instead of typed a second time.
+addColumnIfMissing('twitch_oauth', 'account_user_id', 'text');
+addColumnIfMissing('twitch_oauth', 'account_login', 'text');
 addColumnIfMissing('chat_messages', 'deleted_at', 'text');
 addColumnIfMissing('chat_messages', 'deleted_reason', 'text');
 addColumnIfMissing('chat_messages', 'moderation_event_id', 'text');

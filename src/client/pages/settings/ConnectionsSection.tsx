@@ -5,6 +5,8 @@ import { getAppConfig, updateAppConfig } from '../../services/dashboard';
 
 type AppConfigForm = {
   twitchChannel: string;
+  /** Read-only: the login the operator signed in with, used as the channel placeholder. */
+  twitchChannelFromLogin: string;
   twitchClientId: string;
   twitchClientSecret: string;
   twitchClientSecretConfigured: boolean;
@@ -26,6 +28,7 @@ type AppConfigForm = {
 function appConfigToForm(config: AppConfig): AppConfigForm {
   return {
     twitchChannel: config.twitchChannel,
+    twitchChannelFromLogin: config.twitchChannelFromLogin,
     twitchClientId: config.twitchClientId,
     twitchClientSecret: '',
     twitchClientSecretConfigured: config.twitchClientSecretConfigured,
@@ -47,6 +50,7 @@ function appConfigToForm(config: AppConfig): AppConfigForm {
 
 const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   twitchChannel: '',
+  twitchChannelFromLogin: '',
   twitchClientId: '',
   twitchClientSecret: '',
   twitchClientSecretConfigured: false,
@@ -161,9 +165,16 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
           <input
             value={appConfigForm.twitchChannel}
             disabled={appConfigLoading || appConfigSaving}
-            placeholder="codeacula"
+            placeholder={appConfigForm.twitchChannelFromLogin || 'Sign in above, or type a channel'}
             onChange={event => setAppConfigForm(current => ({ ...current, twitchChannel: event.target.value }))}
           />
+          <small className="field-note">
+            {appConfigForm.twitchChannelFromLogin
+              ? appConfigForm.twitchChannel
+                ? `Overriding your signed-in channel (${appConfigForm.twitchChannelFromLogin}). Clear this field to use it again.`
+                : `Using ${appConfigForm.twitchChannelFromLogin} from your Twitch login. Only fill this in to operate a different channel.`
+              : 'Taken from your Twitch login once you sign in above.'}
+          </small>
         </label>
 
         <div className="connections-2col">

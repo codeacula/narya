@@ -559,7 +559,13 @@ export type TtsPlayback = {
 // Secrets are never returned to the client; instead a `*Configured` boolean reports
 // whether a value is set (mirrors the LlmSettings.apiKeyConfigured pattern).
 export type AppConfig = {
+  // The operator's stored override. Empty is the normal case: the channel is then
+  // the login they signed in with (twitchChannelFromLogin), so Settings renders
+  // this field empty with that login as the placeholder.
   twitchChannel: string;
+  // Login of the authenticated Twitch account, or '' when nobody is signed in.
+  // Read-only — it comes from the OAuth token, not from anything the client sends.
+  twitchChannelFromLogin: string;
   twitchClientId: string;
   twitchClientSecretConfigured: boolean;
   obsUrl: string;

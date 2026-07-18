@@ -2042,6 +2042,14 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   flex-direction: column;
   gap: 7px;
 }
+/* Explanatory line under an input — why a field can be left blank, what it falls
+   back to. Sits below the control, so the -3px pulls it inside the .field gap. */
+.field-note {
+  margin-top: -3px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--fg-3);
+}
 .field > span {
   font-family: var(--font-mono);
   font-size: 10px;
