@@ -453,6 +453,10 @@ public sealed partial class TwitchEventSubService : BackgroundService
     {
       var notification = EventSubDispatcher.DispatchFollow(e, _timeProvider.GetUtcNow());
       await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+
+      // Phase 4 Task 6: the automation signal, published alongside (never instead of) the
+      // stream-event notification above — see EventSubDispatcher's Automation signals region.
+      await PublishNotificationAsync(EventSubDispatcher.DispatchFollowSignal(e), _stoppingToken).ConfigureAwait(false);
     }
     catch (Exception ex)
     {
@@ -517,6 +521,11 @@ public sealed partial class TwitchEventSubService : BackgroundService
       }
 
       await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+
+      // Phase 4 Task 6: only reached from the genuine "new sub" path — never for a gift
+      // recipient (returned above) or a subscribe skipped in favor of an already-merged
+      // subscription.message (also returned above).
+      await PublishNotificationAsync(EventSubDispatcher.DispatchSubscribeSignal(e), _stoppingToken).ConfigureAwait(false);
     }
     catch (Exception ex)
     {
@@ -546,6 +555,13 @@ public sealed partial class TwitchEventSubService : BackgroundService
       var key = SubscriptionMergeKey(e.Payload.Event.UserId, e.Payload.Event.UserName);
       INotification? notification;
 
+      // Phase 4 Task 6: the automation signal fires ONLY for the fresh (no-merge) branch below —
+      // never for the merge-update branch (which only refines an existing alert's text; the
+      // subscribe side already fired the signal) or the duplicate-redelivery branch (which
+      // publishes nothing at all). See EventSubDispatcher.DispatchSubscriptionMessageSignal's
+      // doc comment.
+      var isFreshSubscription = false;
+
       lock (_subMergeLock)
       {
         var pending = _pendingSubscriptions.TryGetValue(key, out var existing)
@@ -571,12 +587,18 @@ public sealed partial class TwitchEventSubService : BackgroundService
           var fresh = EventSubDispatcher.DispatchSubscriptionMessageAsNewEvent(e, now);
           _pendingSubscriptions[key] = new PendingSubscription(fresh.Event.Id, now, HasMessage: true);
           notification = fresh;
+          isFreshSubscription = true;
         }
       }
 
       if (notification is not null)
       {
         await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+      }
+
+      if (isFreshSubscription)
+      {
+        await PublishNotificationAsync(EventSubDispatcher.DispatchSubscriptionMessageSignal(e), _stoppingToken).ConfigureAwait(false);
       }
     }
     catch (Exception ex)
@@ -591,6 +613,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     {
       var notification = EventSubDispatcher.DispatchGift(e, _timeProvider.GetUtcNow());
       await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+      await PublishNotificationAsync(EventSubDispatcher.DispatchGiftSignal(e), _stoppingToken).ConfigureAwait(false);
     }
     catch (Exception ex)
     {
@@ -604,6 +627,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     {
       var notification = EventSubDispatcher.DispatchCheer(e, _timeProvider.GetUtcNow());
       await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+      await PublishNotificationAsync(EventSubDispatcher.DispatchCheerSignal(e), _stoppingToken).ConfigureAwait(false);
     }
     catch (Exception ex)
     {
@@ -617,6 +641,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     {
       var notification = EventSubDispatcher.DispatchRaid(e, _timeProvider.GetUtcNow());
       await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+      await PublishNotificationAsync(EventSubDispatcher.DispatchRaidSignal(e), _stoppingToken).ConfigureAwait(false);
     }
     catch (Exception ex)
     {
@@ -630,6 +655,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     {
       var notification = EventSubDispatcher.DispatchRedemption(e, _timeProvider.GetUtcNow());
       await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+      await PublishNotificationAsync(EventSubDispatcher.DispatchRedemptionSignal(e), _stoppingToken).ConfigureAwait(false);
     }
     catch (Exception ex)
     {

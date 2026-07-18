@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Narya.Api.Auth;
 using Narya.Application.Actions;
+using Narya.Application.Automation;
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
 using Narya.Core.Automation;
@@ -63,6 +64,7 @@ public sealed class AutomationTriggersControllerTests
           _ = services.AddSingleton(Substitute.For<IActionStore>());
           _ = services.AddSingleton(Substitute.For<IActionExecutor>());
           _ = services.AddSingleton(Substitute.For<IMediaMuteStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationRunStore>());
         });
       })
       .CreateClient();
@@ -341,5 +343,105 @@ public sealed class AutomationTriggersControllerTests
 
     Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     _ = await store.DidNotReceive().DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // POST /api/automation/triggers/{id}/run — needs a controlled ITriggerDispatcher, unlike the
+  // CRUD routes above which only need IAutomationTriggerStore, so this uses its own builder.
+  // ---------------------------------------------------------------------------------------
+
+  private static (HttpClient Client, ITriggerDispatcher Dispatcher) BuildOperatorClientWithDispatcher()
+  {
+    var dispatcher = Substitute.For<ITriggerDispatcher>();
+
+    var client = new WebApplicationFactory<Program>()
+      .WithWebHostBuilder(b =>
+      {
+        _ = b.UseSetting("Narya:DashboardToken", OperatorToken);
+        _ = b.UseSetting("Narya:SkipInfrastructure", "true");
+
+        _ = b.ConfigureTestServices(services =>
+        {
+          _ = services.AddSingleton(dispatcher);
+          _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
+          _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
+          _ = services.AddSingleton(Substitute.For<IChatStore>());
+          _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
+          _ = services.AddSingleton(Substitute.For<IViewerStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomodStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaResolver>());
+          _ = services.AddSingleton(Substitute.For<IHelixClient>());
+          _ = services.AddSingleton(Substitute.For<IActionStore>());
+          _ = services.AddSingleton(Substitute.For<IActionExecutor>());
+          _ = services.AddSingleton(Substitute.For<IMediaMuteStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationTriggerStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationRunStore>());
+        });
+      })
+      .CreateClient();
+
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", OperatorToken);
+    return (client, dispatcher);
+  }
+
+  [Fact]
+  public async Task RunUnknownIdReturns404()
+  {
+    var (client, dispatcher) = BuildOperatorClientWithDispatcher();
+    var id = Guid.NewGuid();
+    _ = dispatcher.RunTriggerManuallyAsync(id, Arg.Any<TemplateContext>(), Arg.Any<CancellationToken>()).Returns((ActionRunResult?)null);
+
+    var response = await client.PostAsJsonAsync($"/api/automation/triggers/{id}/run", new { });
+
+    Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+  }
+
+  [Fact]
+  public async Task RunSuccessReturns200WithTheActionRunResult()
+  {
+    var (client, dispatcher) = BuildOperatorClientWithDispatcher();
+    var id = Guid.NewGuid();
+    var result = new ActionRunResult(Guid.NewGuid(), ActionRunStatus.Succeeded, [], DateTimeOffset.UtcNow);
+    _ = dispatcher.RunTriggerManuallyAsync(id, Arg.Any<TemplateContext>(), Arg.Any<CancellationToken>()).Returns(result);
+
+    var response = await client.PostAsJsonAsync($"/api/automation/triggers/{id}/run", new { actor = "someviewer" });
+
+    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    var body = await response.Content.ReadAsStringAsync();
+    Assert.Contains("\"status\":\"succeeded\"", body, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task RunBindsAWrappedContextPropertyIntoTheTemplateContext()
+  {
+    var (client, dispatcher) = BuildOperatorClientWithDispatcher();
+    var id = Guid.NewGuid();
+    TemplateContext? captured = null;
+    _ = dispatcher.RunTriggerManuallyAsync(id, Arg.Any<TemplateContext>(), Arg.Any<CancellationToken>())
+      .Returns(callInfo =>
+      {
+        captured = callInfo.Arg<TemplateContext>();
+        return new ActionRunResult(Guid.NewGuid(), ActionRunStatus.Succeeded, [], DateTimeOffset.UtcNow);
+      });
+
+    _ = await client.PostAsJsonAsync($"/api/automation/triggers/{id}/run", new { context = new { actor = "someviewer" } });
+
+    Assert.NotNull(captured);
+    Assert.Equal("someviewer", captured!.Actor);
+  }
+
+  [Fact]
+  public async Task RunIsForbiddenWithAnOverlayToken()
+  {
+    var (client, dispatcher) = BuildOperatorClientWithDispatcher();
+    var overlay = OverlayToken.Derive(OperatorToken);
+    client.DefaultRequestHeaders.Authorization = null;
+    var id = Guid.NewGuid();
+
+    var response = await client.PostAsJsonAsync($"/api/automation/triggers/{id}/run?token={overlay}", new { });
+
+    Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    _ = await dispatcher.DidNotReceive().RunTriggerManuallyAsync(Arg.Any<Guid>(), Arg.Any<TemplateContext>(), Arg.Any<CancellationToken>());
   }
 }

@@ -106,5 +106,29 @@ public static class NaryaMartenConfig
     // The one-shot seed ledger (Phase 4 Task 5) — see SeedLedgerDocument's doc comment. No index:
     // every read/write is a point lookup by Id (the seed key itself).
     _ = options.Schema.For<SeedLedgerDocument>();
+
+    // The automation invocation/dedupe log (Phase 4 Task 6) — see AutomationRunDocument's doc
+    // comment. DedupeKey gets a PARTIAL UNIQUE index: unique only where the computed JSONB path is
+    // non-null, so a manual/module-lifecycle run's null DedupeKey is exempt (Postgres already
+    // treats every NULL as distinct for a plain unique index, but the explicit predicate also keeps
+    // the index small — it only ever covers rows that actually carry a source event id) while two
+    // inserts for the SAME "{triggerId}:{eventId}" collide, and the second insert's exception is
+    // IAutomationRunStore.TryClaimAsync's dedup signal. Predicate syntax confirmed against Marten
+    // 8.37.4's own computed-index docs: the predicate is raw SQL over the same
+    // `data ->> 'PropertyName'` expression the index itself is built from. (TriggerId, RanAt) and
+    // (TriggerId, ActorLogin, RanAt) serve the dispatcher's global/user cooldown reads
+    // (GetLastRunAtAsync/GetLastUserRunAtAsync) — legacy's idx_automation_runs_cooldown/
+    // idx_automation_runs_user_cooldown.
+    _ = options.Schema.For<AutomationRunDocument>()
+      .Index(x => x.DedupeKey, i =>
+      {
+        i.IsUnique = true;
+        i.Predicate = "(data ->> 'DedupeKey') is not null";
+      })
+      .Index([x => x.TriggerId, x => x.RanAt])
+      // ActorLogin is nullable (a manual/module-lifecycle run has no actor) — the null-forgiving
+      // operator only silences the boxing-to-object warning below; Marten's index only cares
+      // about the property path, not this expression's static nullability.
+      .Index([x => x.TriggerId, x => x.ActorLogin!, x => x.RanAt]);
   }
 }

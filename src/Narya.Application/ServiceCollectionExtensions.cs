@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Application.Actions;
+using Narya.Application.Automation;
 using Narya.Application.Behaviors;
 using Narya.Core.Dashboard;
 using Narya.Core.Media;
@@ -91,6 +92,21 @@ public static class ServiceCollectionExtensions
     // three directly, the same way ActionsControllerTests/AutomodControllerTests already
     // substitute IActionStore/IHelixClient.
     _ = services.AddSingleton<IActionExecutor, ActionExecutor>();
+
+    // Phase 4 Task 6: same rationale as IActionExecutor immediately above — the dispatcher
+    // itself needs no infrastructure, only its own dependencies do. IAutomationTriggerStore and
+    // IAutomationRunStore have real implementations only once AddNaryaDatabase composes and
+    // deliberately have no Null default (a WebApplicationFactory test under
+    // Narya:SkipInfrastructure must substitute both directly, the same way it already substitutes
+    // IActionStore/IMediaResolver/IHelixClient) — this is what turns "ChatMessageTriggerHandler
+    // depends on ITriggerDispatcher" into every WAF test needing those two stores substituted,
+    // not just AutomationTriggersControllerTests.
+    _ = services.AddSingleton<ITriggerDispatcher, TriggerDispatcher>();
+
+    // TryAddSingleton: Phase 8 owns the real category-module coordinator; until then every
+    // module-scoped trigger stays dormant (never armed) — see IActiveModuleProvider's doc
+    // comment, same no-op-default family as ITtsPort/ILlmPort/IObsPort above.
+    services.TryAddSingleton<IActiveModuleProvider, NullActiveModuleProvider>();
 
     return services;
   }

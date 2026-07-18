@@ -65,6 +65,8 @@ public sealed class MediaMuteControllerTests
           _ = services.AddSingleton(Substitute.For<IActionStore>());
           _ = services.AddSingleton(Substitute.For<IMediaResolver>());
           _ = services.AddSingleton(Substitute.For<IHelixClient>());
+          _ = services.AddSingleton(Substitute.For<IAutomationTriggerStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationRunStore>());
         });
       })
       .CreateClient();

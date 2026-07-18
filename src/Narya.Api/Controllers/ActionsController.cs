@@ -77,32 +77,8 @@ public sealed class ActionsController(IActionStore store, IActionExecutor execut
       return NotFound(new { error = "Action not found." });
     }
 
-    var result = await executor.RunActionAsync(id, NormalizeRunContext(body), cancellationToken).ConfigureAwait(false);
+    var result = await executor.RunActionAsync(id, RunContextBinder.Normalize(body), cancellationToken).ConfigureAwait(false);
     return Ok(result);
-  }
-
-  private static readonly JsonSerializerOptions RunContextJsonOptions = new(JsonSerializerDefaults.Web);
-
-  /// <summary>
-  /// A port of legacy's <c>normalizeRunContext</c>: the request body may either wrap the context
-  /// under a <c>"context"</c> property (<c>{ "context": { "actor": "..." } }</c>) or BE the
-  /// context directly (<c>{ "actor": "..." }</c>) — both shapes are accepted so a caller posting a
-  /// bare invocation payload does not need to know about the wrapper. An absent/non-object body
-  /// (including no body at all, which every existing manual-run test sends) normalizes to an
-  /// empty <see cref="TemplateContext"/>.
-  /// </summary>
-  private static TemplateContext NormalizeRunContext(JsonElement? body)
-  {
-    if (body is not { ValueKind: JsonValueKind.Object } value)
-    {
-      return new TemplateContext();
-    }
-
-    var source = value.TryGetProperty("context", out var contextProperty) && contextProperty.ValueKind == JsonValueKind.Object
-      ? contextProperty
-      : value;
-
-    return JsonSerializer.Deserialize<TemplateContext>(source.GetRawText(), RunContextJsonOptions) ?? new TemplateContext();
   }
 
   /// <summary>

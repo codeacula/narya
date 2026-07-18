@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 using NSubstitute;
 
+using Narya.Core.Automation;
 using Narya.Core.Chat;
 using Narya.Core.Events;
 using Narya.Twitch.EventSub;
@@ -15,6 +16,7 @@ using Narya.Twitch.Helix;
 
 using TwitchLib.EventSub.Core.EventArgs.Channel;
 using TwitchLib.EventSub.Core.Models;
+using TwitchLib.EventSub.Core.Models.ChannelPoints;
 using TwitchLib.EventSub.Core.SubscriptionTypes.Channel;
 using TwitchLib.EventSub.Websockets;
 
@@ -213,6 +215,178 @@ public sealed class TwitchEventSubServiceDispatchTests
     await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
 
     await f.Mediator.Received(1).Publish(Arg.Any<StreamEventUpdateIngestedNotification>(), Arg.Any<CancellationToken>());
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Automation signals (Phase 4 Task 6) — published ALONGSIDE the stream-event notifications
+  // above, never instead of them; see EventSubDispatcher's "Automation signals" region comment
+  // for exactly which subscribe/subscription.message branches publish one.
+  // ---------------------------------------------------------------------------------------
+
+  [Fact]
+  public async Task OnChannelFollowAsyncPublishesTheAutomationSignalAlongsideTheStreamEvent()
+  {
+    var f = Build();
+    var args = new ChannelFollowArgs
+    {
+      Payload = new EventSubNotificationPayload<ChannelFollow> { Event = new ChannelFollow { UserName = "NewFollower", UserLogin = "newfollower" } },
+    };
+
+    await f.Service.OnChannelFollowAsync(sender: null, args);
+
+    await f.Mediator.Received(1).Publish(Arg.Any<StreamEventIngestedNotification>(), Arg.Any<CancellationToken>());
+    await f.Mediator.Received(1).Publish(
+      Arg.Is<TwitchEventSignalNotification>(n => n.Kind == TwitchAlertEventKind.Follow && n.Actor == "NewFollower"), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task OnChannelSubscribeAsyncPublishesTheAutomationSignalForAGenuineNewSub()
+  {
+    var f = Build();
+    var args = SubscribeArgs(userId: "1", userName: "NewSubscriber", tier: "1000");
+
+    await f.Service.OnChannelSubscribeAsync(sender: null, args);
+
+    await f.Mediator.Received(1).Publish(
+      Arg.Is<TwitchEventSignalNotification>(n => n.Kind == TwitchAlertEventKind.Sub && n.Months == 1), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task OnChannelSubscribeAsyncNeverPublishesTheAutomationSignalForAGiftedSub()
+  {
+    var f = Build();
+    var args = SubscribeArgs(userId: "2", userName: "GiftRecipient", tier: "1000", isGift: true);
+
+    await f.Service.OnChannelSubscribeAsync(sender: null, args);
+
+    await f.Mediator.DidNotReceive().Publish(Arg.Any<TwitchEventSignalNotification>(), Arg.Any<CancellationToken>());
+  }
+
+  /// <summary>A subscribe skipped because a subscription.message already merged must not publish a SECOND automation signal — only the message's fresh-event branch did.</summary>
+  [Fact]
+  public async Task OnChannelSubscribeAsyncNeverPublishesASecondSignalWhenSkippedForAnAlreadyMergedMessage()
+  {
+    var f = Build();
+    var messageArgs = SubscriptionMessageArgs(userId: "42", userName: "Resubber", tier: "1000", cumulativeMonths: 3);
+    var subscribeArgs = SubscribeArgs(userId: "42", userName: "Resubber", tier: "1000");
+
+    await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
+    await f.Service.OnChannelSubscribeAsync(sender: null, subscribeArgs);
+
+    await f.Mediator.Received(1).Publish(Arg.Any<TwitchEventSignalNotification>(), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task OnChannelSubscriptionMessageAsyncPublishesTheAutomationSignalOnlyForAFreshEventNotAMerge()
+  {
+    var f = Build();
+    var subscribeArgs = SubscribeArgs(userId: "42", userName: "Resubber", tier: "1000");
+    var messageArgs = SubscriptionMessageArgs(userId: "42", userName: "Resubber", tier: "1000", cumulativeMonths: 3);
+
+    await f.Service.OnChannelSubscribeAsync(sender: null, subscribeArgs);
+    await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
+
+    // Exactly one TwitchEventSignalNotification across BOTH calls — the subscribe branch fired
+    // it; the merge-update branch must not fire a second one for the same subscription.
+    await f.Mediator.Received(1).Publish(Arg.Any<TwitchEventSignalNotification>(), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task OnChannelSubscriptionMessageAsyncPublishesTheAutomationSignalForAMonthlyResubWithNoPrecedingSubscribe()
+  {
+    var f = Build();
+    var messageArgs = SubscriptionMessageArgs(userId: "77", userName: "MonthlyResubber", tier: "1000", cumulativeMonths: 6);
+
+    await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
+
+    await f.Mediator.Received(1).Publish(
+      Arg.Is<TwitchEventSignalNotification>(n => n.Kind == TwitchAlertEventKind.Sub && n.Months == 6), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task ADuplicateSubscriptionMessageRedeliveryPublishesNoAdditionalAutomationSignal()
+  {
+    var f = Build();
+    var subscribeArgs = SubscribeArgs(userId: "42", userName: "Resubber", tier: "1000");
+    var messageArgs = SubscriptionMessageArgs(userId: "42", userName: "Resubber", tier: "1000", cumulativeMonths: 3);
+
+    await f.Service.OnChannelSubscribeAsync(sender: null, subscribeArgs);
+    await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
+    await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
+
+    await f.Mediator.Received(1).Publish(Arg.Any<TwitchEventSignalNotification>(), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task OnChannelSubscriptionGiftAsyncPublishesTheAutomationSignalWithTotalAsAmount()
+  {
+    var f = Build();
+    var args = new ChannelSubscriptionGiftArgs
+    {
+      Payload = new EventSubNotificationPayload<ChannelSubscriptionGift> { Event = new ChannelSubscriptionGift { UserName = "Gifter", UserLogin = "gifter", Total = 5 } },
+    };
+
+    await f.Service.OnChannelSubscriptionGiftAsync(sender: null, args);
+
+    await f.Mediator.Received(1).Publish(
+      Arg.Is<TwitchEventSignalNotification>(n => n.Kind == TwitchAlertEventKind.Gift && n.Amount == 5), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task OnChannelCheerAsyncPublishesTheAutomationSignalWithBitsAsAmount()
+  {
+    var f = Build();
+    var args = new ChannelCheerArgs
+    {
+      Payload = new EventSubNotificationPayload<ChannelCheer> { Event = new ChannelCheer { UserName = "Cheerer", UserLogin = "cheerer", Bits = 500 } },
+    };
+
+    await f.Service.OnChannelCheerAsync(sender: null, args);
+
+    await f.Mediator.Received(1).Publish(
+      Arg.Is<TwitchEventSignalNotification>(n => n.Kind == TwitchAlertEventKind.Cheer && n.Amount == 500), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task OnChannelRaidAsyncPublishesTheAutomationSignalWithViewersAsAmount()
+  {
+    var f = Build();
+    var args = new ChannelRaidArgs
+    {
+      Payload = new EventSubNotificationPayload<ChannelRaid>
+      {
+        Event = new ChannelRaid { FromBroadcasterUserName = "Raider", FromBroadcasterUserLogin = "raider", Viewers = 12 },
+      },
+    };
+
+    await f.Service.OnChannelRaidAsync(sender: null, args);
+
+    await f.Mediator.Received(1).Publish(
+      Arg.Is<TwitchEventSignalNotification>(n => n.Kind == TwitchAlertEventKind.Raid && n.Amount == 12), Arg.Any<CancellationToken>());
+  }
+
+  [Fact]
+  public async Task OnChannelPointsCustomRewardRedemptionAddAsyncPublishesTheRewardRedeemedSignal()
+  {
+    var f = Build();
+    var args = new ChannelPointsCustomRewardRedemptionArgs
+    {
+      Payload = new EventSubNotificationPayload<ChannelPointsCustomRewardRedemption>
+      {
+        Event = new ChannelPointsCustomRewardRedemption
+        {
+          UserName = "Redeemer",
+          UserLogin = "redeemer",
+          Reward = new RedemptionReward { Id = "reward-abc", Title = "Play a sound" },
+        },
+      },
+    };
+
+    await f.Service.OnChannelPointsCustomRewardRedemptionAddAsync(sender: null, args);
+
+    await f.Mediator.Received(1).Publish(Arg.Any<StreamEventIngestedNotification>(), Arg.Any<CancellationToken>());
+    await f.Mediator.Received(1).Publish(
+      Arg.Is<RewardRedeemedSignalNotification>(n => n.RewardId == "reward-abc" && n.RewardTitle == "Play a sound"), Arg.Any<CancellationToken>());
   }
 
   private static ChannelChatMessageArgs ChatMessageArgs(string chatterLogin) => new()

@@ -68,6 +68,8 @@ public sealed class MediaAssetsControllerTests
           _ = services.AddSingleton(Substitute.For<IMediaResolver>());
           _ = services.AddSingleton(Substitute.For<IHelixClient>());
           _ = services.AddSingleton(Substitute.For<IMediaMuteStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationTriggerStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationRunStore>());
         });
       })
       .CreateClient();

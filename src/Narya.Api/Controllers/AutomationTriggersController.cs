@@ -1,16 +1,19 @@
+using System.Text.Json;
+
 using Microsoft.AspNetCore.Mvc;
 
+using Narya.Application.Automation;
 using Narya.Core.Automation;
 
 namespace Narya.Api.Controllers;
 
 /// <summary>
 /// <c>/api/automation/triggers</c> (CRUD) — a port of legacy's <c>registerAutomationTriggerRoutes</c>
-/// (<c>legacy/src/server/automationTriggers.ts</c>), minus <c>POST /:id/run</c> and
-/// <c>POST /api/automation/slash</c> (Phase 4 Task 6 — both need
-/// <c>Narya.Application.Automation.ITriggerDispatcher</c>, which does not exist yet). Deliberately
-/// absent from <see cref="Narya.Api.Auth.DashboardTokenMiddleware.OverlayPaths"/> — trigger
-/// configuration is operator-only, mirroring <c>ActionsController</c>.
+/// (<c>legacy/src/server/automationTriggers.ts</c>), plus <c>POST /:id/run</c> (Phase 4 Task 6 —
+/// <c>POST /api/automation/slash</c> lives on <see cref="AutomationController"/> instead, since it
+/// is not scoped to a single trigger id). Deliberately absent from
+/// <see cref="Narya.Api.Auth.DashboardTokenMiddleware.OverlayPaths"/> — trigger configuration is
+/// operator-only, mirroring <c>ActionsController</c>.
 ///
 /// <para>
 /// Talks directly to <see cref="IAutomationTriggerStore"/> rather than routing through MediatR —
@@ -21,7 +24,7 @@ namespace Narya.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/automation/triggers")]
-public sealed class AutomationTriggersController(IAutomationTriggerStore store) : ControllerBase
+public sealed class AutomationTriggersController(IAutomationTriggerStore store, ITriggerDispatcher dispatcher) : ControllerBase
 {
   [HttpGet]
   public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
@@ -58,5 +61,18 @@ public sealed class AutomationTriggersController(IAutomationTriggerStore store) 
   {
     var deleted = await store.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
     return deleted ? NoContent() : NotFound(new { error = "Trigger not found." });
+  }
+
+  /// <summary>
+  /// The operator's explicit "run this trigger now" — bypasses cooldowns and arming
+  /// (<c>ITriggerDispatcher.RunTriggerManuallyAsync</c>'s <c>EnforceGates: false</c>) but still
+  /// dedup-claims an <c>automation_runs</c> row, unlike <c>ActionsController.Run</c>, which bypasses
+  /// the dispatcher (and therefore logging) entirely. An unknown id 404s here.
+  /// </summary>
+  [HttpPost("{id:guid}/run")]
+  public async Task<IActionResult> Run(Guid id, [FromBody] JsonElement? body, CancellationToken cancellationToken)
+  {
+    var result = await dispatcher.RunTriggerManuallyAsync(id, RunContextBinder.Normalize(body), cancellationToken).ConfigureAwait(false);
+    return result is null ? NotFound(new { error = "Trigger not found." }) : Ok(result);
   }
 }

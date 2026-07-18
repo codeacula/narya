@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Marten;
 
 using Narya.Api.Auth;
+using Narya.Api.Automation;
 using Narya.Api.Dashboard;
 using Narya.Api.Realtime;
 using Narya.Application;
@@ -81,6 +82,11 @@ if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
   // a snapshot from — kept inside this same guard so a WebApplicationFactory test never starts
   // the heartbeat loop, the same way it never opens a live Redis subscription.
   _ = builder.Services.AddHostedService<DashboardHeartbeatService>();
+
+  // Phase 4 Task 6: needs a live IAutomationRunStore from a real Marten composition — kept inside
+  // this same guard so a WebApplicationFactory test (SkipInfrastructure=true) never starts the
+  // prune loop, the same way it never starts the dashboard heartbeat.
+  _ = builder.Services.AddHostedService<AutomationRunPruneService>();
 }
 
 var app = builder.Build();

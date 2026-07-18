@@ -1,3 +1,4 @@
+using Narya.Core.Automation;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
@@ -8,6 +9,8 @@ using TwitchLib.EventSub.Core.EventArgs.Automod;
 using TwitchLib.EventSub.Core.EventArgs.Channel;
 using TwitchLib.EventSub.Core.EventArgs.Stream;
 using TwitchLib.EventSub.Core.EventArgs.User;
+using TwitchLib.EventSub.Core.Models;
+using TwitchLib.EventSub.Websockets.Core.Models;
 
 // TwitchLib.EventSub.Core.Models.Chat.ChatMessage/ChatBadge share their simple names with our
 // own Narya.Core.Chat.ChatMessage (moved here from Narya.Twitch.Chat in Phase 3 — see that
@@ -233,6 +236,87 @@ public static class EventSubDispatcher
     var streamEvent = new StreamEvent(e.Id, "redeem", e.UserName, detail, "info", now, ActorLogin: e.UserLogin);
     return new StreamEventIngestedNotification(streamEvent);
   }
+
+  // ---------------------------------------------------------------------------------------
+  // Automation signals (Phase 4 Task 6). Published ALONGSIDE (never instead of) the
+  // stream-event notifications above — see TwitchEventSignalNotification/
+  // RewardRedeemedSignalNotification's doc comments. Each carries the EventSub websocket
+  // message id (via MessageIdOf, below) as the dedupe key ITriggerDispatcher.InvokeAsync uses,
+  // which StreamEvent.Id deliberately does not (a merged resub reuses/updates one
+  // StreamEvent.Id across two different EventSub messages).
+  //
+  // DispatchSubscribeSignal/DispatchSubscriptionMessageSignal deliberately do NOT cover every
+  // branch DispatchSubscribe/DispatchSubscriptionMessageAsNewEvent/DispatchSubscriptionMessageAsMerge
+  // do — TwitchEventSubService only calls a *Signal method from the exact branches that publish a
+  // StreamEventIngestedNotification (a genuine new "sub" alert), never from the merge-update
+  // branch (which only refines an existing alert's text) or the gift/duplicate-redelivery
+  // branches (which publish nothing at all) — see that type's OnChannelSubscribeAsync/
+  // OnChannelSubscriptionMessageAsync doc comments.
+  // ---------------------------------------------------------------------------------------
+
+  public static TwitchEventSignalNotification DispatchFollowSignal(ChannelFollowArgs args)
+  {
+    var e = args.Payload.Event;
+    return new TwitchEventSignalNotification(TwitchAlertEventKind.Follow, MessageIdOf(args.Metadata), e.UserName, e.UserLogin, null, null, null);
+  }
+
+  /// <summary><c>months: 1</c> is a fixed literal, matching legacy — <c>channel.subscribe</c> carries no cumulative-months field at all.</summary>
+  public static TwitchEventSignalNotification DispatchSubscribeSignal(ChannelSubscribeArgs args)
+  {
+    var e = args.Payload.Event;
+    return new TwitchEventSignalNotification(TwitchAlertEventKind.Sub, MessageIdOf(args.Metadata), e.UserName, e.UserLogin, null, TierLabel(e.Tier), 1);
+  }
+
+  /// <summary>Only for the "fresh" (no-merge) branch — see this file's Automation signals region comment.</summary>
+  public static TwitchEventSignalNotification DispatchSubscriptionMessageSignal(ChannelSubscriptionMessageArgs args)
+  {
+    var e = args.Payload.Event;
+    var months = e.CumulativeMonths > 0 ? e.CumulativeMonths : 1;
+    return new TwitchEventSignalNotification(TwitchAlertEventKind.Sub, MessageIdOf(args.Metadata), e.UserName, e.UserLogin, null, TierLabel(e.Tier), months);
+  }
+
+  public static TwitchEventSignalNotification DispatchGiftSignal(ChannelSubscriptionGiftArgs args)
+  {
+    var e = args.Payload.Event;
+    var gifter = string.IsNullOrEmpty(e.UserName) ? "Anonymous" : e.UserName;
+    return new TwitchEventSignalNotification(TwitchAlertEventKind.Gift, MessageIdOf(args.Metadata), gifter, e.UserLogin, e.Total, null, null);
+  }
+
+  public static TwitchEventSignalNotification DispatchCheerSignal(ChannelCheerArgs args)
+  {
+    var e = args.Payload.Event;
+    var cheerer = string.IsNullOrEmpty(e.UserName) ? "Anonymous" : e.UserName;
+    return new TwitchEventSignalNotification(TwitchAlertEventKind.Cheer, MessageIdOf(args.Metadata), cheerer, e.UserLogin, e.Bits, null, null);
+  }
+
+  public static TwitchEventSignalNotification DispatchRaidSignal(ChannelRaidArgs args)
+  {
+    var e = args.Payload.Event;
+    return new TwitchEventSignalNotification(
+      TwitchAlertEventKind.Raid, MessageIdOf(args.Metadata), e.FromBroadcasterUserName, e.FromBroadcasterUserLogin, e.Viewers, null, null);
+  }
+
+  public static RewardRedeemedSignalNotification DispatchRedemptionSignal(ChannelPointsCustomRewardRedemptionArgs args)
+  {
+    var e = args.Payload.Event;
+    var userInput = string.IsNullOrEmpty(e.UserInput) ? null : e.UserInput;
+    return new RewardRedeemedSignalNotification(MessageIdOf(args.Metadata), e.Reward.Id, e.Reward.Title, e.UserName, e.UserLogin, userInput);
+  }
+
+  /// <summary>
+  /// The EventSub websocket message id — Twitch's own redelivery unit, and the dedupe key
+  /// <c>ITriggerDispatcher.InvokeAsync</c> claims against. TwitchLib.EventSub.Core's
+  /// <c>*Args.Metadata</c> is statically typed as the (property-less) base
+  /// <c>EventSubMetadata</c>; TwitchLib.EventSub.Websockets populates it at runtime with a
+  /// <see cref="WebsocketEventSubMetadata"/>, the concrete subtype that actually carries
+  /// <c>MessageId</c> — confirmed by decompiling both assemblies (TwitchLib.EventSub.Core 3.0.0,
+  /// TwitchLib.EventSub.Websockets 0.8.0), since no public API surface documents this. Returns
+  /// null for a hand-built test fixture that never set <c>Metadata</c> (every existing
+  /// <c>EventSubDispatcherTests</c> canned <c>*Args</c> omits it) — a null eventId makes
+  /// <c>ITriggerDispatcher.InvokeAsync</c> dedupe-exempt rather than throw.
+  /// </summary>
+  private static string? MessageIdOf(EventSubMetadata? metadata) =>
+    metadata is WebsocketEventSubMetadata { MessageId.Length: > 0 } websocketMetadata ? websocketMetadata.MessageId : null;
 
   public static StreamEventIngestedNotification DispatchAdBreak(ChannelAdBreakBeginArgs args, DateTimeOffset now)
   {

@@ -81,6 +81,8 @@ public sealed class DashboardControllerTests
           _ = services.AddSingleton(Substitute.For<IMediaResolver>());
           _ = services.AddSingleton(Substitute.For<IHelixClient>());
           _ = services.AddSingleton(Substitute.For<IMediaMuteStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationTriggerStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationRunStore>());
         });
       })
       .CreateClient();
@@ -313,6 +315,8 @@ public sealed class DashboardControllerTests
           _ = services.AddSingleton(Substitute.For<IMediaResolver>());
           _ = services.AddSingleton(Substitute.For<IHelixClient>());
           _ = services.AddSingleton(Substitute.For<IMediaMuteStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationTriggerStore>());
+          _ = services.AddSingleton(Substitute.For<IAutomationRunStore>());
         });
       })
       .CreateClient();
