@@ -63,6 +63,7 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
   public static readonly TimeSpan MaxBackoffDelay = TimeSpan.FromMinutes(2);
 
   private readonly EventSubWebsocketClient _client;
+  private readonly IEventSubSocket _socket;
   private readonly IHelixClient _helixClient;
   private readonly IServiceScopeFactory _scopeFactory;
   private readonly TimeProvider _timeProvider;
@@ -127,16 +128,25 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
   internal int _reconnecting;
 
   /// <summary>
-  /// Count of <see cref="ReconnectWithBackoffAsync"/> ENTRIES, incremented before the
-  /// <see cref="_reconnecting"/> guard is consulted, so a request that the guard collapses into
-  /// an already-running loop still counts. Exists purely as a test seam: the real
-  /// <see cref="EventSubWebsocketClient"/> has no virtual members (see
-  /// <see cref="_reconnecting"/>'s doc comment), so "did an invalidation actually ask for a
-  /// reconnect?" is otherwise unobservable without opening a socket to Twitch — and a test that
-  /// asserts only on <see cref="_reconnecting"/> cannot tell "the guard was respected" apart
-  /// from "no reconnect was ever requested". Nothing in production reads it.
+  /// Set by <see cref="InvalidateAsync"/> BEFORE it asks for a reconnect, and drained by
+  /// <see cref="ReconnectWithBackoffAsync"/>'s loop. Production state, not a test seam: it is
+  /// what stops an invalidation that arrives while a drop-triggered reconnect is in its tail
+  /// from being swallowed by the <see cref="_reconnecting"/> guard and leaving every
+  /// subscription bound to the PREVIOUS broadcaster. See
+  /// <see cref="ReconnectWithBackoffAsync"/>'s release-then-recheck comment for the ordering
+  /// argument.
+  ///
+  /// <para>
+  /// Deliberately specific to invalidation rather than a general "another reconnect was
+  /// requested" flag. A duplicate DISCONNECT arriving mid-loop genuinely is redundant and should
+  /// collapse into the running loop; forcing an extra pass for it would reconnect an
+  /// already-healthy socket and land a second session, which is the double-subscribe
+  /// <see cref="_reconnecting"/> exists to prevent. An invalidation is different in kind: it says
+  /// the CURRENT subscriptions are bound to the wrong channel, which no in-flight reconnect
+  /// started before it can be assumed to have fixed.
+  /// </para>
   /// </summary>
-  internal int _reconnectRequests;
+  private int _pendingInvalidation;
 
   /// <summary>
   /// Set once, at the top of <see cref="ExecuteAsync"/>, before the first
@@ -153,12 +163,14 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
 
   public TwitchEventSubService(
     EventSubWebsocketClient client,
+    IEventSubSocket socket,
     IHelixClient helixClient,
     IServiceScopeFactory scopeFactory,
     TimeProvider timeProvider,
     ILogger<TwitchEventSubService> logger)
   {
     _client = client;
+    _socket = socket;
     _helixClient = helixClient;
     _scopeFactory = scopeFactory;
     _timeProvider = timeProvider;
@@ -250,7 +262,7 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
     var connected = false;
     try
     {
-      connected = await _client.ConnectAsync().ConfigureAwait(false);
+      connected = await _socket.ConnectAsync().ConfigureAwait(false);
     }
     catch (OperationCanceledException)
     {
@@ -284,7 +296,7 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
     {
       try
       {
-        _ = await _client.DisconnectAsync().ConfigureAwait(false);
+        _ = await _socket.DisconnectAsync().ConfigureAwait(false);
       }
       catch (Exception ex)
       {
@@ -293,9 +305,12 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
     }
   }
 
-  private async Task OnWebsocketConnectedAsync(object? sender, WebsocketConnectedArgs e)
+  /// <remarks><c>internal</c> so tests can drive the connect path — resolve the broadcaster and
+  /// create subscriptions — without a live socket, which is what makes "an invalidation actually
+  /// resubscribes against the NEW broadcaster" an assertable outcome rather than a counter.</remarks>
+  internal async Task OnWebsocketConnectedAsync(object? sender, WebsocketConnectedArgs e)
   {
-    var sessionId = _client.SessionId;
+    var sessionId = _socket.SessionId;
 
     if (e.IsRequestedReconnect)
     {
@@ -829,11 +844,27 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
   /// Fire-and-forget for the same reason <see cref="OnWebsocketDisconnectedAsync"/> is: the loop
   /// runs until it succeeds, and no caller of this method — a config save, an OAuth callback —
   /// has any business awaiting a Twitch round trip before returning its own response.
+  ///
+  /// <para>
+  /// <see cref="_reconnecting"/> collapsing repeated invalidations into one loop is only safe
+  /// because of <see cref="_pendingInvalidation"/>. The guard alone would DROP an invalidation
+  /// that arrives while a drop-triggered reconnect is in its tail — after
+  /// <see cref="IEventSubSocket.ReconnectAsync"/> returned but before
+  /// <see cref="OnWebsocketConnectedAsync"/> has resubscribed — leaving every subscription bound
+  /// to the previous broadcaster until the next drop. Raising the flag first turns "collapse"
+  /// into "defer", which is what the doc comment above always claimed.
+  /// </para>
   /// </summary>
   public Task InvalidateAsync(CancellationToken cancellationToken)
   {
     _cachedBotLogin = null;
     _lastSubscribedSessionId = null;
+
+    // Raised BEFORE the reconnect request, and with release semantics, so that a loop already in
+    // flight is guaranteed to observe it when it re-checks after releasing the guard. If this
+    // were set after the call below, an invalidation the guard bounced would be lost outright —
+    // see ReconnectWithBackoffAsync.
+    _ = Interlocked.Exchange(ref _pendingInvalidation, 1);
     _ = ReconnectWithBackoffAsync(_stoppingToken);
     return Task.CompletedTask;
   }
@@ -885,55 +916,104 @@ public sealed partial class TwitchEventSubService : BackgroundService, ITwitchId
   /// </summary>
   internal async Task ReconnectWithBackoffAsync(CancellationToken cancellationToken)
   {
-    _ = Interlocked.Increment(ref _reconnectRequests);
     if (Interlocked.CompareExchange(ref _reconnecting, 1, 0) != 0)
     {
+      // A loop already owns the reconnect. For a duplicate DISCONNECT that is the whole point —
+      // collapsing into the running loop is exactly right. For an INVALIDATION it is not enough
+      // on its own, which is why InvalidateAsync raises _pendingInvalidation BEFORE it calls
+      // this: the owning loop drains that flag below, so the request is deferred, never dropped.
       return;
     }
 
-    try
+    while (true)
     {
-      foreach (var delay in BackoffDelays())
+      // Consume BEFORE attempting. Anything that lands after this read cannot be assumed to have
+      // been served by the attempt below, so it re-arms the flag and the recheck at the bottom
+      // runs another pass. The cost of getting this wrong in the safe direction is one redundant
+      // reconnect; the cost in the other direction is subscriptions stuck on the old channel.
+      _ = Interlocked.Exchange(ref _pendingInvalidation, 0);
+
+      await AttemptReconnectWithBackoffAsync(cancellationToken).ConfigureAwait(false);
+
+      _ = Interlocked.Exchange(ref _reconnecting, 0);
+
+      // RELEASE, THEN RE-CHECK — this is the fix for the swallowed-invalidation defect.
+      //
+      // The guard used to clear the instant _socket.ReconnectAsync() returned true, but the
+      // re-subscription it triggers does not happen here: OnWebsocketConnectedAsync runs LATER,
+      // asynchronously, off the WebsocketConnected event. An invalidation landing in that tail
+      // window — after ReconnectAsync returned, before the guard cleared — hit the guard above
+      // and returned having done nothing, while the already-in-flight reconnect went on to
+      // resubscribe against the broadcaster it resolved BEFORE the invalidation. The
+      // subscriptions then stayed bound to the PREVIOUS channel until the next socket drop or a
+      // process restart.
+      //
+      // The two writes interlock to make that unreachable: InvalidateAsync sets
+      // _pendingInvalidation before it CASes _reconnecting, and this clears _reconnecting before
+      // it reads _pendingInvalidation. Both pairs are Interlocked/Volatile, so whichever side
+      // runs second is guaranteed to observe the other's write — either the invalidation
+      // acquires a free guard and runs its own loop, or this loop sees the flag and runs another
+      // pass for it. There is no interleaving in which both conclude the other is handling it.
+      if (Volatile.Read(ref _pendingInvalidation) == 0 || cancellationToken.IsCancellationRequested)
       {
-        if (cancellationToken.IsCancellationRequested)
-        {
-          return;
-        }
+        return;
+      }
 
-        try
-        {
-          if (await _client.ReconnectAsync().ConfigureAwait(false))
-          {
-            // Success — OnWebsocketConnectedAsync (wired in the constructor, onto this
-            // same client) takes it from here: it reads the new SessionId and decides
-            // whether to re-subscribe.
-            return;
-          }
-
-          LogReconnectAttemptFailed(_logger, null);
-        }
-        catch (OperationCanceledException)
-        {
-          return;
-        }
-        catch (Exception ex)
-        {
-          LogReconnectAttemptFailed(_logger, ex);
-        }
-
-        try
-        {
-          await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-          return;
-        }
+      if (Interlocked.CompareExchange(ref _reconnecting, 1, 0) != 0)
+      {
+        // Another loop acquired the guard in between and will drain the flag itself. Returning
+        // is correct: re-entering here would be the second concurrent loop the guard exists to
+        // prevent.
+        return;
       }
     }
-    finally
+  }
+
+  /// <summary>
+  /// One reconnect campaign: retry <see cref="IEventSubSocket.ReconnectAsync"/> on the
+  /// <see cref="BackoffDelays"/> sequence until it succeeds or
+  /// <paramref name="cancellationToken"/> fires. Returns rather than throws on every path — the
+  /// caller is fire-and-forget, so an escaping exception would become an unobserved task
+  /// exception.
+  /// </summary>
+  private async Task AttemptReconnectWithBackoffAsync(CancellationToken cancellationToken)
+  {
+    foreach (var delay in BackoffDelays())
     {
-      _ = Interlocked.Exchange(ref _reconnecting, 0);
+      if (cancellationToken.IsCancellationRequested)
+      {
+        return;
+      }
+
+      try
+      {
+        if (await _socket.ReconnectAsync().ConfigureAwait(false))
+        {
+          // Success — OnWebsocketConnectedAsync (wired in the constructor, onto this
+          // same client) takes it from here: it reads the new SessionId and decides
+          // whether to re-subscribe.
+          return;
+        }
+
+        LogReconnectAttemptFailed(_logger, null);
+      }
+      catch (OperationCanceledException)
+      {
+        return;
+      }
+      catch (Exception ex)
+      {
+        LogReconnectAttemptFailed(_logger, ex);
+      }
+
+      try
+      {
+        await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        return;
+      }
     }
   }
 

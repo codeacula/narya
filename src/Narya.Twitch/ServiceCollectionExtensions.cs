@@ -153,6 +153,13 @@ public static class ServiceCollectionExtensions
   {
     _ = services.AddTwitchLibEventSubWebsockets();
 
+    // The imperative half of the socket, behind IEventSubSocket so TwitchEventSubService's
+    // reconnect machinery is testable at all (the TwitchLib client is concrete with no virtual
+    // members — see IEventSubSocket's doc comment). Resolves the SAME EventSubWebsocketClient
+    // singleton the service wires its event handlers onto, so driving and observing the socket
+    // can never diverge onto two instances.
+    _ = services.AddSingleton<IEventSubSocket, EventSubSocket>();
+
     // Registered as itself, not just as IHostedService: TwitchEventSource (below) needs the
     // SAME singleton instance to read Status from — AddHostedService<T> alone only exposes T
     // through IHostedService, which is not resolvable by its concrete type. The factory

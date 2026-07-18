@@ -31,6 +31,7 @@ public sealed class TwitchEventSubServiceCreateSubscriptionsTests
 {
   private static TwitchEventSubService BuildService(IHelixClient helixClient) => new(
     new EventSubWebsocketClient(),
+    Substitute.For<IEventSubSocket>(),
     helixClient,
     Substitute.For<IServiceScopeFactory>(),
     TimeProvider.System,

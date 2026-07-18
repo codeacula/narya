@@ -49,7 +49,8 @@ public sealed class TwitchEventSubServiceDispatchTests
     _ = scopeFactory.CreateScope().Returns(scope);
 
     var service = new TwitchEventSubService(
-      new EventSubWebsocketClient(), helixClient, scopeFactory, TimeProvider.System, NullLogger<TwitchEventSubService>.Instance);
+      new EventSubWebsocketClient(), Substitute.For<IEventSubSocket>(), helixClient, scopeFactory,
+      TimeProvider.System, NullLogger<TwitchEventSubService>.Instance);
 
     return new Fixture(service, helixClient, mediator);
   }

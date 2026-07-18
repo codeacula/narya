@@ -30,8 +30,9 @@ namespace Narya.Twitch.Tests.EventSub;
 /// </summary>
 public sealed class TwitchEventSubServiceReconnectGuardTests
 {
-  private static TwitchEventSubService BuildService() => new(
+  private static TwitchEventSubService BuildService(IEventSubSocket? socket = null) => new(
     new EventSubWebsocketClient(),
+    socket ?? Substitute.For<IEventSubSocket>(),
     Substitute.For<IHelixClient>(),
     Substitute.For<IServiceScopeFactory>(),
     TimeProvider.System,
