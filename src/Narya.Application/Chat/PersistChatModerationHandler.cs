@@ -63,7 +63,7 @@ public sealed class PersistChatModerationHandler(IChatStore chatStore, IMediator
       case "user.ban":
         if (moderationEvent.Username is not null)
         {
-          _ = await chatStore.MarkUserMessagesDeletedAsync(
+          await chatStore.MarkUserMessagesDeletedAsync(
             moderationEvent.Channel, moderationEvent.Username, appended.OccurredAt, deletedReason, appended.Id, cancellationToken)
             .ConfigureAwait(false);
         }
@@ -71,7 +71,7 @@ public sealed class PersistChatModerationHandler(IChatStore chatStore, IMediator
         break;
 
       case "chat.clear":
-        _ = await chatStore.MarkChannelMessagesDeletedAsync(
+        await chatStore.MarkChannelMessagesDeletedAsync(
           moderationEvent.Channel, appended.OccurredAt, deletedReason, appended.Id, cancellationToken)
           .ConfigureAwait(false);
         break;

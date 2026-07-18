@@ -81,6 +81,9 @@ public sealed class AutomodControllerTests
   {
     var (client, store, _) = BuildOperatorClient();
     var queue = new AutomodQueue([BuildHold()], []);
+    // GetAutomodQueueQueryHandler sweeps first — an empty sweep here means the real handler
+    // publishes nothing and just returns the stubbed queue below.
+    _ = store.SweepExpiredHoldsAsync(Arg.Any<CancellationToken>()).Returns([]);
     _ = store.GetQueueAsync(Arg.Any<CancellationToken>()).Returns(queue);
 
     var response = await client.GetAsync("/api/automod/queue");

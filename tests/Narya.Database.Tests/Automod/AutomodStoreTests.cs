@@ -214,7 +214,13 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
     _ = await store.RecordHoldAsync(BuildHold(id: "stale-1", heldAt: now.AddHours(-3)), CancellationToken.None);
     _ = await store.RecordHoldAsync(BuildHold(id: "fresh-1", heldAt: now.AddMinutes(-5)), CancellationToken.None);
 
-    await store.SweepExpiredHoldsAsync(CancellationToken.None);
+    var swept = await store.SweepExpiredHoldsAsync(CancellationToken.None);
+
+    // The return value is what GetAutomodQueueQueryHandler broadcasts one automod:resolved for
+    // per entry — must be exactly the holds this call actually swept, not the fresh one.
+    var sweptHold = Assert.Single(swept);
+    Assert.Equal("stale-1", sweptHold.Id);
+    Assert.Equal("expired", sweptHold.Resolution);
 
     var stale = await store.GetHoldAsync("stale-1", CancellationToken.None);
     Assert.Equal("expired", stale!.Resolution);
@@ -235,7 +241,7 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
     var store = new AutomodStore(documentStore, chatStore, clock);
     _ = await store.RecordHoldAsync(BuildHold(id: "stale-1", heldAt: now.AddHours(-3)), CancellationToken.None);
 
-    await store.SweepExpiredHoldsAsync(CancellationToken.None);
+    _ = await store.SweepExpiredHoldsAsync(CancellationToken.None);
     var overturned = await store.ResolveHoldAsync("stale-1", "denied", "codeacula", authoritative: true, CancellationToken.None);
 
     Assert.True(overturned.Changed);
@@ -246,8 +252,15 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
   // GetQueueAsync
   // ---------------------------------------------------------------------------------------
 
+  /// <summary>
+  /// <see cref="AutomodStore.GetQueueAsync"/> no longer sweeps internally (see its doc comment on
+  /// <see cref="IAutomodStore"/>) — the caller (<c>GetAutomodQueueQueryHandler</c>) is responsible
+  /// for calling <see cref="AutomodStore.SweepExpiredHoldsAsync"/> first so it can broadcast the
+  /// swept holds before asking for the queue. This test drives that exact two-call sequence to
+  /// prove the end result still matches legacy's sweep-then-list behavior.
+  /// </summary>
   [Fact]
-  public async Task GetQueueSweepsFirstSoAStaleHoldNeverAppearsInPending()
+  public async Task SweepThenGetQueueKeepsAStaleHoldOutOfPendingAndInRecentlyResolved()
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var chatStore = new ChatStore(documentStore);
@@ -257,12 +270,35 @@ public sealed class AutomodStoreTests(PostgresFixture fixture)
     _ = await store.RecordHoldAsync(BuildHold(id: "stale-1", heldAt: now.AddHours(-3)), CancellationToken.None);
     _ = await store.RecordHoldAsync(BuildHold(id: "fresh-1", heldAt: now.AddMinutes(-5)), CancellationToken.None);
 
+    _ = await store.SweepExpiredHoldsAsync(CancellationToken.None);
     var queue = await store.GetQueueAsync(CancellationToken.None);
 
     var pendingIds = queue.Pending.Select(h => h.Id).ToList();
     Assert.DoesNotContain("stale-1", pendingIds);
     Assert.Contains("fresh-1", pendingIds);
     Assert.Contains(queue.RecentlyResolved, h => h.Id == "stale-1" && h.Resolution == "expired");
+  }
+
+  /// <summary>
+  /// The flip side of the test above: <see cref="AutomodStore.GetQueueAsync"/> called WITHOUT a
+  /// preceding sweep still lists a stale, unresolved hold in <see cref="AutomodQueue.Pending"/> —
+  /// proving the store really doesn't sweep on its own any more, rather than this being an
+  /// untested assumption.
+  /// </summary>
+  [Fact]
+  public async Task GetQueueAloneDoesNotSweepAndStillListsAStaleHoldAsPending()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var chatStore = new ChatStore(documentStore);
+    var now = DateTimeOffset.UtcNow;
+    var clock = new ManualTimeProvider(now);
+    var store = new AutomodStore(documentStore, chatStore, clock);
+    _ = await store.RecordHoldAsync(BuildHold(id: "stale-1", heldAt: now.AddHours(-3)), CancellationToken.None);
+
+    var queue = await store.GetQueueAsync(CancellationToken.None);
+
+    Assert.Contains(queue.Pending, h => h.Id == "stale-1");
+    Assert.DoesNotContain(queue.RecentlyResolved, h => h.Id == "stale-1");
   }
 
   [Fact]

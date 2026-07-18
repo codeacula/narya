@@ -70,7 +70,7 @@ public sealed class PersistChatModerationHandlerTests
 
     await f.Handler.Handle(new ChatModeratedNotification(moderationEvent), CancellationToken.None);
 
-    _ = await f.ChatStore.Received(1).MarkUserMessagesDeletedAsync(
+    await f.ChatStore.Received(1).MarkUserMessagesDeletedAsync(
       "codeacula", "rowdyviewer", Arg.Any<DateTimeOffset>(), "timeout: no reason provided", Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     await f.Mediator.Received(1).Publish(
       Arg.Is<ChatModeratedBroadcastNotification>(n => n.ModerationEvent.DeletedReason == "timeout: no reason provided"),
@@ -86,7 +86,7 @@ public sealed class PersistChatModerationHandlerTests
 
     await f.Handler.Handle(new ChatModeratedNotification(moderationEvent), CancellationToken.None);
 
-    _ = await f.ChatStore.Received(1).MarkUserMessagesDeletedAsync(
+    await f.ChatStore.Received(1).MarkUserMessagesDeletedAsync(
       "codeacula", "spammer", Arg.Any<DateTimeOffset>(), "ban: no reason provided", Arg.Any<Guid>(), Arg.Any<CancellationToken>());
   }
 
@@ -99,7 +99,7 @@ public sealed class PersistChatModerationHandlerTests
 
     await f.Handler.Handle(new ChatModeratedNotification(moderationEvent), CancellationToken.None);
 
-    _ = await f.ChatStore.Received(1).MarkChannelMessagesDeletedAsync(
+    await f.ChatStore.Received(1).MarkChannelMessagesDeletedAsync(
       "codeacula", Arg.Any<DateTimeOffset>(), "chat cleared", Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     await f.Mediator.Received(1).Publish(
       Arg.Is<ChatModeratedBroadcastNotification>(n => n.ModerationEvent.DeletedReason == "chat cleared"),
@@ -141,7 +141,7 @@ public sealed class PersistChatModerationHandlerTests
 
     await handler.Handle(new ChatModeratedNotification(moderationEvent), CancellationToken.None);
 
-    _ = await chatStore.Received(1).MarkChannelMessagesDeletedAsync(
+    await chatStore.Received(1).MarkChannelMessagesDeletedAsync(
       "codeacula", persistedOccurredAt, Arg.Any<string>(), persistedEventId, Arg.Any<CancellationToken>());
     await mediator.Received(1).Publish(
       Arg.Is<ChatModeratedBroadcastNotification>(n => n.ModerationEvent.DeletedAt == persistedOccurredAt),

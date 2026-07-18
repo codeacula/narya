@@ -256,10 +256,8 @@ public sealed class ChatStoreTests(PostgresFixture fixture)
     var deletedAt = DateTimeOffset.UtcNow;
     var moderationEventId = Guid.NewGuid();
 
-    var affected = await store.MarkUserMessagesDeletedAsync(
+    await store.MarkUserMessagesDeletedAsync(
       "codeacula", "RowdyViewer", deletedAt, "timeout: no reason provided", moderationEventId, CancellationToken.None);
-
-    Assert.Equal(2, affected);
 
     await using var query = documentStore.QuerySession();
     var msg1 = await query.LoadAsync<ChatMessageDocument>("msg-1");
@@ -289,10 +287,10 @@ public sealed class ChatStoreTests(PostgresFixture fixture)
 
     var redeliveredDeletedAt = DateTimeOffset.UtcNow;
     var redeliveredEventId = Guid.NewGuid();
-    var affected = await store.MarkUserMessagesDeletedAsync(
+    // Only msg-2 should be touched — msg-1 was already deleted, so the DeletedAt == null filter
+    // built into the underlying Patch skips it.
+    await store.MarkUserMessagesDeletedAsync(
       "codeacula", "rowdyviewer", redeliveredDeletedAt, "timeout: no reason provided", redeliveredEventId, CancellationToken.None);
-
-    Assert.Equal(1, affected); // only msg-2 — msg-1 was already deleted, so the filter skips it
 
     await using var query = documentStore.QuerySession();
     var msg1 = await query.LoadAsync<ChatMessageDocument>("msg-1");
@@ -318,10 +316,8 @@ public sealed class ChatStoreTests(PostgresFixture fixture)
     var deletedAt = DateTimeOffset.UtcNow;
     var moderationEventId = Guid.NewGuid();
 
-    var affected = await store.MarkChannelMessagesDeletedAsync(
+    await store.MarkChannelMessagesDeletedAsync(
       "codeacula", deletedAt, "chat cleared", moderationEventId, CancellationToken.None);
-
-    Assert.Equal(2, affected);
 
     await using var query = documentStore.QuerySession();
     var msg1 = await query.LoadAsync<ChatMessageDocument>("msg-1");
@@ -345,16 +341,18 @@ public sealed class ChatStoreTests(PostgresFixture fixture)
     _ = await store.MarkMessageDeletedAsync(
       "msg-1", DateTimeOffset.UtcNow.AddMinutes(-1), "message deleted by moderator", earlierEventId, CancellationToken.None);
 
-    var affected = await store.MarkChannelMessagesDeletedAsync(
+    // Only msg-2 should be touched — msg-1 was already deleted.
+    await store.MarkChannelMessagesDeletedAsync(
       "codeacula", DateTimeOffset.UtcNow, "chat cleared", Guid.NewGuid(), CancellationToken.None);
-
-    Assert.Equal(1, affected); // only msg-2 — msg-1 was already deleted
 
     await using var query = documentStore.QuerySession();
     var msg1 = await query.LoadAsync<ChatMessageDocument>("msg-1");
+    var msg2 = await query.LoadAsync<ChatMessageDocument>("msg-2");
 
     Assert.Equal("message deleted by moderator", msg1!.DeletedReason); // untouched by the rerun
     Assert.Equal(earlierEventId.ToString(), msg1.ModerationEventId);
+    _ = Assert.NotNull(msg2!.DeletedAt); // msg-2 is the one actually touched by this rerun
+    Assert.Equal("chat cleared", msg2.DeletedReason);
   }
 
   [Fact]

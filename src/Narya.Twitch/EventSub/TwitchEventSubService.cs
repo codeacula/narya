@@ -678,7 +678,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     }
   }
 
-  /// <summary>No-op today — Phase 3 wires a consumer for stream-session tracking.</summary>
+  /// <summary>Consumed by <c>Narya.Application.Sessions.StreamOnlineHandler</c> for stream-session tracking.</summary>
   internal async Task OnStreamOnlineAsync(object? sender, StreamOnlineArgs e)
   {
     try
@@ -692,7 +692,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
     }
   }
 
-  /// <summary>No-op today — Phase 3 wires a consumer for stream-session tracking.</summary>
+  /// <summary>Consumed by <c>Narya.Application.Sessions.StreamOfflineHandler</c> for stream-session tracking.</summary>
   internal async Task OnStreamOfflineAsync(object? sender, StreamOfflineArgs e)
   {
     try

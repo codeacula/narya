@@ -11,8 +11,10 @@ namespace Narya.Api.Dashboard;
 
 /// <summary>
 /// A port of legacy's <c>startDashboardHeartbeat</c> (<c>legacy/src/server/dashboard/status.ts</c>):
-/// every <see cref="Interval"/>, if at least one SignalR client is connected
-/// (<see cref="RealtimeConnectionTracker.Count"/> — the port of legacy's <c>getSocketCount()</c>),
+/// every <see cref="Interval"/>, if at least one OPERATOR SignalR client is connected
+/// (<see cref="RealtimeConnectionTracker.OperatorCount"/> — the port of legacy's
+/// <c>getSocketCount()</c>, refined to exclude overlay connections — see that property's doc
+/// comment for why <c>dashboard:status</c> being operator-only makes this the right count),
 /// computes the current <c>DashboardStatus</c> snapshot and broadcasts it as <c>dashboard:status</c>.
 /// Registered <c>AddHostedService&lt;DashboardHeartbeatService&gt;</c> in <c>Narya.Api.Program</c>
 /// inside the same <c>Narya:SkipInfrastructure</c> guard as <c>AddSignalR</c>/
@@ -44,8 +46,14 @@ public sealed partial class DashboardHeartbeatService(
     }
   }
 
-  /// <summary>Pure decision: broadcast only when somebody could actually receive it — mirrors legacy's <c>if (getSocketCount() === 0) return;</c>.</summary>
-  public static bool ShouldBroadcast(int connectionCount) => connectionCount > 0;
+  /// <summary>
+  /// Pure decision: broadcast only when somebody who could actually receive it is connected —
+  /// mirrors legacy's <c>if (getSocketCount() === 0) return;</c>. <paramref name="operatorConnectionCount"/>
+  /// must be <see cref="RealtimeConnectionTracker.OperatorCount"/>, not
+  /// <see cref="RealtimeConnectionTracker.Count"/> — <c>dashboard:status</c> is operator-only, so
+  /// an overlay-only connection must not keep this returning <see langword="true"/>.
+  /// </summary>
+  public static bool ShouldBroadcast(int operatorConnectionCount) => operatorConnectionCount > 0;
 
   /// <summary>
   /// One heartbeat tick: skip-check, then (if due) resolve a fresh <see cref="IMediator"/> from a
@@ -62,7 +70,7 @@ public sealed partial class DashboardHeartbeatService(
   /// </summary>
   internal async Task TickAsync(CancellationToken cancellationToken)
   {
-    if (!ShouldBroadcast(connectionTracker.Count))
+    if (!ShouldBroadcast(connectionTracker.OperatorCount))
     {
       return;
     }

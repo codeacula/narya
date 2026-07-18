@@ -109,9 +109,16 @@ public interface IChatStore
   /// null</c>). The <c>DeletedAt is null</c> filter is load-bearing for idempotency: a
   /// redelivered <c>user.timeout</c>/<c>user.ban</c> for the same user only touches rows a prior
   /// call left untouched, rather than re-stamping (and losing) an earlier, more specific
-  /// soft-delete reason. Returns the number of rows updated.
+  /// soft-delete reason.
+  ///
+  /// Implemented as a single server-side Marten <c>Patch</c> (a filtered SQL <c>UPDATE</c>), not
+  /// a load-every-matching-row-then-<c>Store</c> loop — the prior implementation's cost grew with
+  /// the number of matching rows rather than staying constant, which for an active chatter's
+  /// history was needless. Returns no count: a <c>Patch</c> has no synchronous affected-row
+  /// count, and the one caller (<c>Narya.Application.Chat.PersistChatModerationHandler</c>)
+  /// already discarded it.
   /// </summary>
-  Task<int> MarkUserMessagesDeletedAsync(
+  Task MarkUserMessagesDeletedAsync(
     string channel,
     string username,
     DateTimeOffset deletedAt,
@@ -122,10 +129,12 @@ public interface IChatStore
   /// <summary>
   /// Soft-deletes every currently-undeleted message in <paramref name="channel"/> — a port of
   /// legacy's <c>markChannelMessagesDeleted</c> (<c>... where channel = ? and deleted_at is
-  /// null</c>). Same idempotency rationale as <see cref="MarkUserMessagesDeletedAsync"/>. Returns
-  /// the number of rows updated.
+  /// null</c>). Same idempotency rationale, same server-side <c>Patch</c> implementation (a
+  /// `chat.clear` is exactly the case where loading every matching row first would be
+  /// unbounded — the channel's entire undeleted history), and same no-count return as
+  /// <see cref="MarkUserMessagesDeletedAsync"/>.
   /// </summary>
-  Task<int> MarkChannelMessagesDeletedAsync(
+  Task MarkChannelMessagesDeletedAsync(
     string channel,
     DateTimeOffset deletedAt,
     string deletedReason,

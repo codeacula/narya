@@ -33,12 +33,12 @@ public sealed class RealtimeHub(DashboardTokenAuthenticator authenticator, Realt
         // to the operator group, so this alone already means "operators see everything" —
         // also joining the overlay group would double-deliver every allowlisted event.
         await Groups.AddToGroupAsync(Context.ConnectionId, OperatorGroup).ConfigureAwait(false);
-        connectionTracker.Add(Context.ConnectionId);
+        connectionTracker.Add(Context.ConnectionId, isOperator: true);
         break;
 
       case DashboardTokenAuthenticator.OverlayRole:
         await Groups.AddToGroupAsync(Context.ConnectionId, OverlayGroup).ConfigureAwait(false);
-        connectionTracker.Add(Context.ConnectionId);
+        connectionTracker.Add(Context.ConnectionId, isOperator: false);
         break;
 
       default:

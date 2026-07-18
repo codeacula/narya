@@ -44,8 +44,16 @@ public interface IAutomodStore
   /// On an actual write, also appends an <c>automod.resolve</c> row to the <c>chat_events</c>
   /// ledger via the injected <c>Narya.Core.Chat.IChatStore</c> — same "the store does its own
   /// audit trail" pattern as <see cref="RecordHoldAsync"/>. The load-check-then-conditionally-write
-  /// happens inside a single Marten session, so the idempotency decision and the write it gates
-  /// are atomic — a caller cannot observe (or race) a state between them.
+  /// happens inside a single Marten <c>IDocumentSession</c>, so the idempotency decision and the
+  /// write it gates are atomic WITHIN that session — no other operation on the SAME session can
+  /// observe a state between them. That is not the same as unraceable: a lightweight session is a
+  /// unit of work, not a read-locked transaction, so two DIFFERENT sessions (e.g. the HTTP
+  /// allow/deny route and a concurrent EventSub dispatch) can each load the hold as unresolved
+  /// before either calls <c>SaveChangesAsync</c>, and both then write. The three-way idempotency
+  /// rule above still leaves the system in a sane end state when that happens (whichever save
+  /// lands last simply overwrites with an equivalent resolution, since both derive from the same
+  /// underlying Helix action) — but it is a benign accident of both callers agreeing on the
+  /// outcome, not a guarantee this method enforces across sessions.
   /// </summary>
   Task<AutomodResolveResult> ResolveHoldAsync(
     string id, string resolution, string? resolvedBy, bool authoritative, CancellationToken cancellationToken);
@@ -60,19 +68,43 @@ public interface IAutomodStore
   /// once. Mirrors legacy's <c>sweepExpiredHolds</c>: Twitch auto-expires held messages well
   /// inside an hour, so this is a conservative safety net for a hold whose <c>update</c> event
   /// this process missed (a socket drop, or downtime), reusing <see cref="ResolveHoldAsync"/> so
-  /// each swept hold still gets its own audit-trail row and idempotency guarantees. Called at the
-  /// top of <see cref="GetQueueAsync"/>.
+  /// each swept hold still gets its own audit-trail row and idempotency guarantees.
+  ///
+  /// <para>
+  /// Returns exactly the holds this call actually swept to <c>"expired"</c> (never one that a
+  /// concurrent, separate session resolved first — see <see cref="ResolveHoldAsync"/>'s doc
+  /// comment on why two sessions can race). This store is deliberately mediator-free (see this
+  /// interface's class doc comment), so it CANNOT broadcast <c>automod:resolved</c> itself for a
+  /// hold it silently expires — the caller, <c>Narya.Application.Automod.GetAutomodQueueQueryHandler</c>,
+  /// calls this FIRST and publishes one <c>AutomodResolvedBroadcastNotification</c> per returned
+  /// hold before calling <see cref="GetQueueAsync"/>. Without that, a second operator client would
+  /// keep showing a swept hold as pending forever — it would only learn otherwise the next time
+  /// IT happens to call <see cref="GetQueueAsync"/> and notices the hold missing from
+  /// <see cref="AutomodQueue.Pending"/>, which never fell out and instead moved to
+  /// <see cref="AutomodQueue.RecentlyResolved"/>. Deliberately NOT called from inside
+  /// <see cref="GetQueueAsync"/> any more (the reverse of legacy's <c>getAutomodQueue</c>, which
+  /// swept in-place) — see <see cref="GetQueueAsync"/>'s doc comment.
+  /// </para>
   /// </summary>
-  Task SweepExpiredHoldsAsync(CancellationToken cancellationToken);
+  Task<IReadOnlyList<AutomodHold>> SweepExpiredHoldsAsync(CancellationToken cancellationToken);
 
   /// <summary>
-  /// Sweeps expired holds first (see <see cref="SweepExpiredHoldsAsync"/>), then returns:
-  /// <see cref="AutomodQueue.Pending"/> — the 200 NEWEST unresolved holds, re-sorted oldest-first
-  /// for display (selecting oldest-first and capping would drop the newest holds during a spam
-  /// wave — the exact ones a moderator needs); <see cref="AutomodQueue.RecentlyResolved"/> — up
-  /// to 20 holds resolved within the last 15 minutes, newest-resolved first. Mirrors legacy's
+  /// Returns: <see cref="AutomodQueue.Pending"/> — the 200 NEWEST unresolved holds, re-sorted
+  /// oldest-first for display (selecting oldest-first and capping would drop the newest holds
+  /// during a spam wave — the exact ones a moderator needs); <see cref="AutomodQueue.RecentlyResolved"/> —
+  /// up to 20 holds resolved within the last 15 minutes, newest-resolved first. Mirrors legacy's
   /// <c>getAutomodQueue</c> constants (<c>PENDING_LIMIT</c>/<c>RESOLVED_HISTORY_LIMIT</c>/
   /// <c>RESOLVED_HISTORY_WINDOW_MS</c>) exactly.
+  ///
+  /// <para>
+  /// Deliberately does NOT sweep expired holds itself — a caller that wants a fresh queue with no
+  /// stale pending holds must call <see cref="SweepExpiredHoldsAsync"/> first (see its doc
+  /// comment for why: this store cannot broadcast the sweep's resolutions, so the caller needs
+  /// the swept list back before it asks for the queue). <c>GetAutomodQueueQueryHandler</c> is the
+  /// only production caller and always does both, in that order, so from the API's perspective
+  /// <c>GET /api/automod/queue</c> still behaves exactly like legacy's sweep-then-list — this is a
+  /// caller-ordering change, not a behavior change.
+  /// </para>
   /// </summary>
   Task<AutomodQueue> GetQueueAsync(CancellationToken cancellationToken);
 }

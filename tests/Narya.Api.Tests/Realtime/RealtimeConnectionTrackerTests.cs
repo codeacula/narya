@@ -17,8 +17,8 @@ public sealed class RealtimeConnectionTrackerTests
   {
     var tracker = new RealtimeConnectionTracker();
 
-    tracker.Add("conn-1");
-    tracker.Add("conn-2");
+    tracker.Add("conn-1", isOperator: true);
+    tracker.Add("conn-2", isOperator: false);
 
     Assert.Equal(2, tracker.Count);
   }
@@ -28,8 +28,8 @@ public sealed class RealtimeConnectionTrackerTests
   {
     var tracker = new RealtimeConnectionTracker();
 
-    tracker.Add("conn-1");
-    tracker.Add("conn-1");
+    tracker.Add("conn-1", isOperator: true);
+    tracker.Add("conn-1", isOperator: true);
 
     Assert.Equal(1, tracker.Count);
   }
@@ -38,8 +38,8 @@ public sealed class RealtimeConnectionTrackerTests
   public void RemoveDecrementsCount()
   {
     var tracker = new RealtimeConnectionTracker();
-    tracker.Add("conn-1");
-    tracker.Add("conn-2");
+    tracker.Add("conn-1", isOperator: true);
+    tracker.Add("conn-2", isOperator: false);
 
     tracker.Remove("conn-1");
 
@@ -55,10 +55,62 @@ public sealed class RealtimeConnectionTrackerTests
   public void RemovingAnUnknownConnectionIdIsANoOp()
   {
     var tracker = new RealtimeConnectionTracker();
-    tracker.Add("conn-1");
+    tracker.Add("conn-1", isOperator: true);
 
     tracker.Remove("never-added");
 
     Assert.Equal(1, tracker.Count);
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // OperatorCount — see the class's doc comment for why DashboardHeartbeatService gates on
+  // this, not Count: dashboard:status is operator-only, so an overlay connection must not
+  // keep the heartbeat awake.
+  // ---------------------------------------------------------------------------------------
+
+  [Fact]
+  public void OperatorCountStartsAtZero()
+  {
+    var tracker = new RealtimeConnectionTracker();
+
+    Assert.Equal(0, tracker.OperatorCount);
+  }
+
+  [Fact]
+  public void OperatorCountIgnoresOverlayOnlyConnections()
+  {
+    var tracker = new RealtimeConnectionTracker();
+
+    tracker.Add("overlay-1", isOperator: false);
+    tracker.Add("overlay-2", isOperator: false);
+
+    Assert.Equal(2, tracker.Count);
+    Assert.Equal(0, tracker.OperatorCount);
+  }
+
+  [Fact]
+  public void OperatorCountCountsOnlyOperatorConnectionsAmongAMix()
+  {
+    var tracker = new RealtimeConnectionTracker();
+
+    tracker.Add("overlay-1", isOperator: false);
+    tracker.Add("operator-1", isOperator: true);
+    tracker.Add("operator-2", isOperator: true);
+
+    Assert.Equal(3, tracker.Count);
+    Assert.Equal(2, tracker.OperatorCount);
+  }
+
+  [Fact]
+  public void RemovingAnOperatorConnectionDecrementsOperatorCount()
+  {
+    var tracker = new RealtimeConnectionTracker();
+    tracker.Add("operator-1", isOperator: true);
+    tracker.Add("overlay-1", isOperator: false);
+
+    tracker.Remove("operator-1");
+
+    Assert.Equal(1, tracker.Count);
+    Assert.Equal(0, tracker.OperatorCount);
   }
 }

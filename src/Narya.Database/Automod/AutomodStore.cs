@@ -148,7 +148,7 @@ public sealed class AutomodStore(IDocumentStore store, IChatStore chatStore, Tim
     return doc is null ? null : ToAutomodHold(doc);
   }
 
-  public async Task SweepExpiredHoldsAsync(CancellationToken cancellationToken)
+  public async Task<IReadOnlyList<AutomodHold>> SweepExpiredHoldsAsync(CancellationToken cancellationToken)
   {
     var cutoff = timeProvider.GetUtcNow() - HoldExpiryWindow;
 
@@ -159,17 +159,25 @@ public sealed class AutomodStore(IDocumentStore store, IChatStore chatStore, Tim
 
     // Reuses ResolveHoldAsync (each a separate session/transaction) so every swept hold still
     // gets its own audit-trail row and the same idempotency guarantee — matches legacy's
-    // sweepExpiredHolds, which loops calling resolveAutomodHold per stale id.
+    // sweepExpiredHolds, which loops calling resolveAutomodHold per stale id. Collects only the
+    // holds THIS call actually changed to expired (Changed: true) — a stale doc that a concurrent
+    // session already resolved out from under this sweep is silently skipped rather than reported
+    // as swept, since this store has no mediator to broadcast a resolution that didn't happen here.
+    var swept = new List<AutomodHold>(stale.Count);
     foreach (var doc in stale)
     {
-      _ = await ResolveHoldAsync(doc.Id, "expired", null, authoritative: false, cancellationToken).ConfigureAwait(false);
+      var result = await ResolveHoldAsync(doc.Id, "expired", null, authoritative: false, cancellationToken).ConfigureAwait(false);
+      if (result is { Changed: true, Hold: not null })
+      {
+        swept.Add(result.Hold);
+      }
     }
+
+    return swept;
   }
 
   public async Task<AutomodQueue> GetQueueAsync(CancellationToken cancellationToken)
   {
-    await SweepExpiredHoldsAsync(cancellationToken).ConfigureAwait(false);
-
     var cutoff = timeProvider.GetUtcNow() - ResolvedHistoryWindow;
 
     await using var session = store.QuerySession();

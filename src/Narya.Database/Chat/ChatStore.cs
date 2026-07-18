@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using Marten;
+using Marten.Patching;
 
 using Narya.Core.Chat;
 using Narya.Database.Viewers;
@@ -166,7 +167,7 @@ public sealed class ChatStore(IDocumentStore store) : IChatStore
     return 1;
   }
 
-  public async Task<int> MarkUserMessagesDeletedAsync(
+  public async Task MarkUserMessagesDeletedAsync(
     string channel,
     string username,
     DateTimeOffset deletedAt,
@@ -175,52 +176,42 @@ public sealed class ChatStore(IDocumentStore store) : IChatStore
     CancellationToken cancellationToken)
   {
     var loginKey = username.ToLowerInvariant();
+    var moderationEventIdText = moderationEventId.ToString();
 
     await using var session = store.LightweightSession();
-    var undeleted = await session.Query<ChatMessageDocument>()
-      .Where(m => m.Channel == channel && m.Username == loginKey && m.DeletedAt == null)
-      .ToListAsync(cancellationToken);
 
-    foreach (var doc in undeleted)
-    {
-      session.Store(doc with
-      {
-        DeletedAt = deletedAt,
-        DeletedReason = deletedReason,
-        ModerationEventId = moderationEventId.ToString(),
-      });
-    }
+    // Server-side patch (a single SQL UPDATE ... WHERE), not load-then-store: the prior
+    // implementation loaded every one of this user's undeleted rows into memory and re-Store()'d
+    // each one, which for a `chat.clear` (MarkChannelMessagesDeletedAsync below) meant loading the
+    // channel's ENTIRE undeleted history — unbounded cost that only grows with time. The
+    // `DeletedAt == null` filter is what makes a redelivery a no-op — see this method's
+    // IChatStore doc comment.
+    _ = session.Patch<ChatMessageDocument>(m => m.Channel == channel && m.Username == loginKey && m.DeletedAt == null)
+      .Set(m => m.DeletedAt, deletedAt)
+      .Set(m => m.DeletedReason, deletedReason)
+      .Set(m => m.ModerationEventId, moderationEventIdText);
 
     await session.SaveChangesAsync(cancellationToken);
-
-    return undeleted.Count;
   }
 
-  public async Task<int> MarkChannelMessagesDeletedAsync(
+  public async Task MarkChannelMessagesDeletedAsync(
     string channel,
     DateTimeOffset deletedAt,
     string deletedReason,
     Guid moderationEventId,
     CancellationToken cancellationToken)
   {
-    await using var session = store.LightweightSession();
-    var undeleted = await session.Query<ChatMessageDocument>()
-      .Where(m => m.Channel == channel && m.DeletedAt == null)
-      .ToListAsync(cancellationToken);
+    var moderationEventIdText = moderationEventId.ToString();
 
-    foreach (var doc in undeleted)
-    {
-      session.Store(doc with
-      {
-        DeletedAt = deletedAt,
-        DeletedReason = deletedReason,
-        ModerationEventId = moderationEventId.ToString(),
-      });
-    }
+    await using var session = store.LightweightSession();
+
+    // Same server-side patch as MarkUserMessagesDeletedAsync above — see that method's comment.
+    _ = session.Patch<ChatMessageDocument>(m => m.Channel == channel && m.DeletedAt == null)
+      .Set(m => m.DeletedAt, deletedAt)
+      .Set(m => m.DeletedReason, deletedReason)
+      .Set(m => m.ModerationEventId, moderationEventIdText);
 
     await session.SaveChangesAsync(cancellationToken);
-
-    return undeleted.Count;
   }
 
   public async Task<IReadOnlyList<ChatMessage>> GetMessagesByUsernameAsync(

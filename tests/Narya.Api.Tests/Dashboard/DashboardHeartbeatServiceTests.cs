@@ -64,7 +64,7 @@ public sealed class DashboardHeartbeatServiceTests
   public async Task TickBuildsAndBroadcastsTheSnapshotWhenAtLeastOneClientIsConnected()
   {
     var f = Build();
-    f.Tracker.Add("conn-1");
+    f.Tracker.Add("conn-1", isOperator: true);
     var status = new DashboardStatus
     {
       Channel = "codeacula",
@@ -91,7 +91,7 @@ public sealed class DashboardHeartbeatServiceTests
   public async Task TickSwallowsAFailureRatherThanThrowing()
   {
     var f = Build();
-    f.Tracker.Add("conn-1");
+    f.Tracker.Add("conn-1", isOperator: true);
     _ = f.Mediator.Send(Arg.Any<GetDashboardStatusQuery>(), Arg.Any<CancellationToken>())
       .ThrowsAsync(new InvalidOperationException("boom"));
 
@@ -99,5 +99,54 @@ public sealed class DashboardHeartbeatServiceTests
     await f.Service.TickAsync(CancellationToken.None);
 
     await f.Mediator.DidNotReceive().Publish(Arg.Any<DashboardStatusBroadcastNotification>(), Arg.Any<CancellationToken>());
+  }
+
+  /// <summary>
+  /// <c>dashboard:status</c> is operator-only — an overlay browser source connected for the whole
+  /// stream must not defeat the "nobody's listening" skip. Before <see cref="RealtimeConnectionTracker.OperatorCount"/>
+  /// existed, <see cref="RealtimeConnectionTracker.Count"/> counted both roles, so this exact case
+  /// kept the heartbeat awake (a status query plus a broadcast publish every 5 seconds) with zero
+  /// receivers who could ever see the result.
+  /// </summary>
+  [Fact]
+  public async Task TickSkipsWhenOnlyOverlayConnectionsArePresent()
+  {
+    var f = Build();
+    f.Tracker.Add("overlay-1", isOperator: false);
+    f.Tracker.Add("overlay-2", isOperator: false);
+
+    await f.Service.TickAsync(CancellationToken.None);
+
+    _ = await f.Mediator.DidNotReceive().Send(Arg.Any<GetDashboardStatusQuery>(), Arg.Any<CancellationToken>());
+    await f.Mediator.DidNotReceive().Publish(Arg.Any<DashboardStatusBroadcastNotification>(), Arg.Any<CancellationToken>());
+  }
+
+  /// <summary>A single operator connection, even alongside overlay connections, is enough to broadcast.</summary>
+  [Fact]
+  public async Task TickBroadcastsWhenAnOperatorConnectionIsPresentAlongsideOverlayConnections()
+  {
+    var f = Build();
+    f.Tracker.Add("overlay-1", isOperator: false);
+    f.Tracker.Add("operator-1", isOperator: true);
+    var status = new DashboardStatus
+    {
+      Channel = "codeacula",
+      ChatConnection = "OPEN",
+      EventSubConnected = true,
+      TwitchAuthenticated = false,
+      TwitchMissingScopes = [],
+      TwitchBotAuthenticated = false,
+      TwitchBotMissingScopes = [],
+      ActiveChatters = 1,
+      SessionChatters = 1,
+      KnownChatters = 1,
+    };
+    _ = f.Mediator.Send(Arg.Any<GetDashboardStatusQuery>(), Arg.Any<CancellationToken>()).Returns(status);
+
+    await f.Service.TickAsync(CancellationToken.None);
+
+    _ = await f.Mediator.Received(1).Send(Arg.Any<GetDashboardStatusQuery>(), Arg.Any<CancellationToken>());
+    await f.Mediator.Received(1).Publish(
+      Arg.Is<DashboardStatusBroadcastNotification>(n => ReferenceEquals(n.Status, status)), Arg.Any<CancellationToken>());
   }
 }
