@@ -123,6 +123,23 @@ public sealed class AutomationTriggerValidationTests
     Assert.Contains(result.Errors, e => e.Message.Contains("Twitch event kind", StringComparison.Ordinal));
   }
 
+  /// <summary>
+  /// Regression for a review finding: <see cref="TwitchEventTriggerConfig.EventKind"/> used to be a
+  /// non-nullable enum, so an absent JSON <c>eventKind</c> silently bound to
+  /// <see cref="TwitchAlertEventKind.Sub"/> (the zero member) instead of failing — a
+  /// <c>POST /api/automation/triggers</c> with <c>config:{type:"twitch_event"}</c> and no
+  /// <c>eventKind</c> would have created a Sub trigger instead of a 400. It is now nullable so a
+  /// missing value reaches this method as <see langword="null"/> and is rejected explicitly.
+  /// </summary>
+  [Fact]
+  public void TwitchEventWithAnAbsentEventKindFails()
+  {
+    var result = AutomationTriggerValidation.Normalize(Upsert(new TwitchEventTriggerConfig { EventKind = null }));
+
+    Assert.True(result.IsFailed);
+    Assert.Contains(result.Errors, e => e.Message.Contains("eventKind is required.", StringComparison.Ordinal));
+  }
+
   [Theory]
   [InlineData(TwitchAlertEventKind.Sub)]
   [InlineData(TwitchAlertEventKind.Gift)]
@@ -157,6 +174,22 @@ public sealed class AutomationTriggerValidationTests
 
     Assert.True(result.IsFailed);
     Assert.Contains(result.Errors, e => e.Message.Contains("match", StringComparison.Ordinal));
+  }
+
+  /// <summary>
+  /// Regression for a review finding: <see cref="ChatPhraseTriggerConfig.Match"/> used to be a
+  /// non-nullable enum, so an absent JSON <c>match</c> silently bound to
+  /// <see cref="ChatPhraseMatch.Exact"/> (the zero member) instead of failing. It is now nullable
+  /// so a missing value reaches this method as <see langword="null"/> and is rejected explicitly —
+  /// see <see cref="TwitchEventWithAnAbsentEventKindFails"/> for the sibling case.
+  /// </summary>
+  [Fact]
+  public void ChatPhraseWithAnAbsentMatchFails()
+  {
+    var result = AutomationTriggerValidation.Normalize(Upsert(new ChatPhraseTriggerConfig { Phrase = "hype", Match = null }));
+
+    Assert.True(result.IsFailed);
+    Assert.Contains(result.Errors, e => e.Message.Contains("match is required.", StringComparison.Ordinal));
   }
 
   [Fact]

@@ -171,6 +171,86 @@ public sealed class AutomationTriggersControllerTests
   }
 
   // ---------------------------------------------------------------------------------------
+  // POST /api/automation/triggers — absent/out-of-range required enum fields on twitch_event
+  // and chat_phrase configs. These route the model-bound upsert through the REAL
+  // AutomationTriggerValidation.Normalize (rather than a canned Result) to prove the whole
+  // pipeline — ASP.NET's System.Text.Json model binding leaving an omitted eventKind/match as
+  // null (not defaulting to the enum's zero member) AND Normalize rejecting that null — same
+  // "bind real JSON, run real validation" shape as
+  // MediaAssetsControllerTests.CreateBindsTheEnumFieldsFromLowercaseJsonStrings.
+  // ---------------------------------------------------------------------------------------
+
+  [Fact]
+  public async Task CreateWithATwitchEventConfigMissingEventKindReturns400WithTheEventKindMessage()
+  {
+    var (client, store) = BuildOperatorClient();
+    _ = store.CreateAsync(Arg.Any<AutomationTriggerUpsert>(), Arg.Any<CancellationToken>())
+      .Returns(callInfo => Result.Fail<AutomationTrigger>(AutomationTriggerValidation.Normalize(callInfo.Arg<AutomationTriggerUpsert>()).Errors));
+
+    var response = await client.PostAsJsonAsync(
+      "/api/automation/triggers",
+      new { actionId = Guid.NewGuid(), config = new { type = "twitch_event" } });
+
+    Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    var body = await response.Content.ReadAsStringAsync();
+    Assert.Contains("eventKind is required.", body, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task CreateWithAChatPhraseConfigMissingMatchReturns400WithTheMatchMessage()
+  {
+    var (client, store) = BuildOperatorClient();
+    _ = store.CreateAsync(Arg.Any<AutomationTriggerUpsert>(), Arg.Any<CancellationToken>())
+      .Returns(callInfo => Result.Fail<AutomationTrigger>(AutomationTriggerValidation.Normalize(callInfo.Arg<AutomationTriggerUpsert>()).Errors));
+
+    var response = await client.PostAsJsonAsync(
+      "/api/automation/triggers",
+      new { actionId = Guid.NewGuid(), config = new { type = "chat_phrase", phrase = "hype" } });
+
+    Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    var body = await response.Content.ReadAsStringAsync();
+    Assert.Contains("match is required.", body, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task CreateWithATwitchEventConfigOutOfRangeEventKindReturns400()
+  {
+    var (client, store) = BuildOperatorClient();
+    _ = store.CreateAsync(Arg.Any<AutomationTriggerUpsert>(), Arg.Any<CancellationToken>())
+      .Returns(callInfo => Result.Fail<AutomationTrigger>(AutomationTriggerValidation.Normalize(callInfo.Arg<AutomationTriggerUpsert>()).Errors));
+
+    var response = await client.PostAsJsonAsync(
+      "/api/automation/triggers",
+      new { actionId = Guid.NewGuid(), config = new { type = "twitch_event", eventKind = 999 } });
+
+    Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    var body = await response.Content.ReadAsStringAsync();
+    Assert.Contains("Unsupported Twitch event kind", body, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task CreateWithAValidTwitchEventConfigReturns201AndRoundTripsTheEventKind()
+  {
+    var (client, store) = BuildOperatorClient();
+    var created = BuildTrigger(config: new TwitchEventTriggerConfig { EventKind = TwitchAlertEventKind.Raid });
+    _ = store.CreateAsync(Arg.Any<AutomationTriggerUpsert>(), Arg.Any<CancellationToken>())
+      .Returns(callInfo =>
+      {
+        var normalized = AutomationTriggerValidation.Normalize(callInfo.Arg<AutomationTriggerUpsert>());
+        Assert.True(normalized.IsSuccess);
+        return Result.Ok(created);
+      });
+
+    var response = await client.PostAsJsonAsync(
+      "/api/automation/triggers",
+      new { actionId = created.ActionId, config = new { type = "twitch_event", eventKind = "raid" } });
+
+    Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    var body = await response.Content.ReadAsStringAsync();
+    Assert.Contains("\"eventKind\":\"raid\"", body, StringComparison.Ordinal);
+  }
+
+  // ---------------------------------------------------------------------------------------
   // PUT /api/automation/triggers/{id}
   // ---------------------------------------------------------------------------------------
 

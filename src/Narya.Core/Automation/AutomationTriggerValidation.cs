@@ -111,15 +111,20 @@ public static partial class AutomationTriggerValidation
   }
 
   /// <summary>
-  /// <see cref="Enum.IsDefined(Enum)"/> guards a caller constructing an out-of-range cast value
-  /// directly (e.g. tests) — an unrecognized JSON string for <see cref="TwitchEventTriggerConfig.EventKind"/>
-  /// fails ASP.NET model binding (400) before this method ever runs, same reasoning as
-  /// <c>Narya.Core.Actions.ActionValidation</c>'s "Enum defaulting note".
+  /// Unlike <c>Narya.Core.Actions.ActionValidation</c>'s "Enum defaulting note" cases,
+  /// <see cref="TwitchEventTriggerConfig.EventKind"/> is a nullable enum specifically so an omitted
+  /// JSON property binds to <see langword="null"/> rather than silently defaulting to
+  /// <see cref="TwitchAlertEventKind.Sub"/> — so the null check below is reached by a real request,
+  /// not just a test. <see cref="Enum.IsDefined(Enum)"/> still guards a caller constructing an
+  /// out-of-range cast value directly (e.g. tests) or supplying a numeric JSON value outside the
+  /// enum's range (which, unlike an unrecognized string, does not fail model binding).
   /// </summary>
-  private static Result<TriggerConfig> NormalizeTwitchEvent(TwitchEventTriggerConfig config) =>
-    Enum.IsDefined(config.EventKind)
-      ? Result.Ok<TriggerConfig>(config)
-      : Result.Fail<TriggerConfig>($"Unsupported Twitch event kind: {config.EventKind}.");
+  private static Result<TriggerConfig> NormalizeTwitchEvent(TwitchEventTriggerConfig config) => config.EventKind switch
+  {
+    null => Result.Fail<TriggerConfig>("eventKind is required."),
+    { } kind when !Enum.IsDefined(kind) => Result.Fail<TriggerConfig>($"Unsupported Twitch event kind: {kind}."),
+    _ => Result.Ok<TriggerConfig>(config),
+  };
 
   private static Result<TriggerConfig> NormalizeChatPhrase(ChatPhraseTriggerConfig config)
   {
@@ -134,7 +139,12 @@ public static partial class AutomationTriggerValidation
       return Result.Fail<TriggerConfig>($"A chat phrase trigger needs a phrase — {MaxPhraseLength} characters or fewer.");
     }
 
-    if (!Enum.IsDefined(config.Match))
+    if (config.Match is null)
+    {
+      return Result.Fail<TriggerConfig>("match is required.");
+    }
+
+    if (!Enum.IsDefined(config.Match.Value))
     {
       return Result.Fail<TriggerConfig>($"Unsupported phrase match mode: {config.Match}.");
     }

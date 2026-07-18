@@ -52,9 +52,15 @@ public interface IActionStore
   /// <summary>
   /// Hard-deletes <paramref name="id"/> and its embedded steps. Returns <see langword="false"/>
   /// for an unknown id (the caller 404s), <see langword="true"/> otherwise. Legacy also cascades
-  /// <c>automation_triggers</c> that reference the Action — Phase 4 Task 5/6 owns the trigger
-  /// repository, so that cascade does not exist yet; nothing before Task 5 can create a trigger
-  /// referencing an Action, so there is nothing to orphan in the meantime.
+  /// <c>automation_triggers</c> that reference the Action; this method does not — as of Task 5,
+  /// <c>Narya.Database.Automation.AutomationTriggerStore</c> stores triggers that reference
+  /// <see cref="AutomationAction"/> ids, but this <c>DeleteAsync</c> performs no reference check
+  /// and no cascade, so deleting an Action referenced by a trigger CAN orphan it. An orphaned
+  /// trigger is safe at runtime — Task 6's dispatcher looks up the trigger's Action by id, gets
+  /// <see langword="null"/>, and never fires it — but it remains visible in the trigger list as
+  /// broken (its Action no longer resolves) until edited or deleted. Whether deletion should
+  /// instead cascade or block on referencing triggers is deferred to Task 6, which owns the
+  /// dispatcher and is better positioned to judge the operator-facing tradeoff.
   /// </summary>
   Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken);
 }

@@ -72,7 +72,14 @@ public sealed record RewardTriggerConfig : TriggerConfig
 
 public sealed record TwitchEventTriggerConfig : TriggerConfig
 {
-  public TwitchAlertEventKind EventKind { get; init; }
+  /// <summary>
+  /// Nullable — unlike <c>Narya.Core.Actions.ActionValidation</c>'s "Enum defaulting note" cases,
+  /// an omitted <c>eventKind</c> must not silently bind to <see cref="TwitchAlertEventKind.Sub"/>
+  /// (the zero member): a missing value here is a routing footgun, not an acceptable default. See
+  /// <see cref="AutomationTriggerValidation.NormalizeTwitchEvent"/>, which fails a <see langword="null"/>
+  /// value explicitly.
+  /// </summary>
+  public TwitchAlertEventKind? EventKind { get; init; }
 }
 
 /// <summary><see cref="Roles"/> empty means "all viewers" — see <see cref="AutomationTriggerValidation"/>.</summary>
@@ -80,7 +87,8 @@ public sealed record ChatPhraseTriggerConfig : TriggerConfig
 {
   public string Phrase { get; init; } = string.Empty;
 
-  public ChatPhraseMatch Match { get; init; }
+  /// <summary>Nullable for the same reason as <see cref="TwitchEventTriggerConfig.EventKind"/> — see its doc comment.</summary>
+  public ChatPhraseMatch? Match { get; init; }
 
   public IReadOnlyList<TriggerRole> Roles { get; init; } = [];
 }
