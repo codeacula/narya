@@ -40,6 +40,17 @@ public static class StartupBindingGuard
   /// <summary>
   /// Explicit opt-in to running with no operator token at all. Its absence is what makes an
   /// unconfigured deployment refuse to start.
+  ///
+  /// <para>
+  /// It is set ONLY in <c>Properties/launchSettings.json</c> (as the
+  /// <c>Narya__AllowLoopbackOperatorWithoutToken</c> environment variable), deliberately NOT in
+  /// <c>appsettings.Development.json</c>. An <c>appsettings.{Environment}.json</c> file is loaded
+  /// by environment NAME and ships in the publish output, so a deployment that merely sets
+  /// <c>ASPNETCORE_ENVIRONMENT=Development</c> would inherit the opt-in and reopen the exact
+  /// reverse-proxy bypass this guard closes — and nothing at runtime can tell that host apart from
+  /// a developer's machine. <c>launchSettings.json</c> is read only by <c>dotnet run</c>/the IDE
+  /// and is never published, so the opt-in cannot be inherited by any deployed host.
+  /// </para>
   /// </summary>
   public const string AllowLoopbackOperatorWithoutTokenConfigKey =
     "Narya:AllowLoopbackOperatorWithoutToken";
