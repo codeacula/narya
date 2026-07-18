@@ -242,7 +242,7 @@ public sealed class ActionsControllerTests
   {
     var (client, store, _) = BuildOperatorClient();
     var id = Guid.NewGuid();
-    _ = store.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(false);
+    _ = store.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(Result.Ok(false));
 
     var response = await client.DeleteAsync($"/api/actions/{id}");
 
@@ -254,12 +254,48 @@ public sealed class ActionsControllerTests
   {
     var (client, store, _) = BuildOperatorClient();
     var id = Guid.NewGuid();
-    _ = store.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+    _ = store.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(Result.Ok(true));
 
     var response = await client.DeleteAsync($"/api/actions/{id}");
 
     Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
   }
+
+  /// <summary>
+  /// Review fix (Task D): an Action still referenced by triggers is NOT deleted and NOT cascaded —
+  /// the route 409s and hands the operator the blocking triggers so they can repoint them.
+  /// </summary>
+  [Fact]
+  public async Task DeleteReturns409WithTheReferencingTriggersWhenTheActionIsInUse()
+  {
+    var (client, store, _) = BuildOperatorClient();
+    var id = Guid.NewGuid();
+    var triggerId = Guid.NewGuid();
+    _ = store.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(
+      Result.Fail<bool>(new ActionInUseError(
+        "Hype Train",
+        [new ActionTriggerReference(triggerId, "!hype", AutomationTriggerKind.ViewerCommand)])));
+
+    var response = await client.DeleteAsync($"/api/actions/{id}");
+
+    Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    var body = await response.Content.ReadFromJsonAsync<DeleteConflictBody>();
+    Assert.NotNull(body);
+    Assert.Contains("Hype Train", body!.Error, StringComparison.Ordinal);
+    var trigger = Assert.Single(body.Triggers);
+    Assert.Equal(triggerId, trigger.Id);
+    Assert.Equal("!hype", trigger.Name);
+    Assert.Equal("viewerCommand", trigger.Kind);
+  }
+
+  /// <summary>
+  /// The 409 body's wire shape, deserialized structurally rather than string-matched — <c>kind</c>
+  /// is a string because <c>Program.cs</c>'s global
+  /// <c>JsonStringEnumConverter(JsonNamingPolicy.CamelCase)</c> serializes every enum that way.
+  /// </summary>
+  private sealed record DeleteConflictBody(string Error, IReadOnlyList<ConflictTrigger> Triggers);
+
+  private sealed record ConflictTrigger(Guid Id, string Name, string Kind);
 
   // ---------------------------------------------------------------------------------------
   // POST /api/actions/{id}/run — wired in Phase 4 Task 3. Bypasses the (Task 6) trigger

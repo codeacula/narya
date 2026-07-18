@@ -50,17 +50,31 @@ public interface IActionStore
   Task<Result<AutomationAction>?> UpdateAsync(Guid id, ActionUpsert upsert, CancellationToken cancellationToken);
 
   /// <summary>
-  /// Hard-deletes <paramref name="id"/> and its embedded steps. Returns <see langword="false"/>
-  /// for an unknown id (the caller 404s), <see langword="true"/> otherwise. Legacy also cascades
-  /// <c>automation_triggers</c> that reference the Action; this method does not — as of Task 5,
-  /// <c>Narya.Database.Automation.AutomationTriggerStore</c> stores triggers that reference
-  /// <see cref="AutomationAction"/> ids, but this <c>DeleteAsync</c> performs no reference check
-  /// and no cascade, so deleting an Action referenced by a trigger CAN orphan it. An orphaned
-  /// trigger is safe at runtime — Task 6's dispatcher looks up the trigger's Action by id, gets
-  /// <see langword="null"/>, and never fires it — but it remains visible in the trigger list as
-  /// broken (its Action no longer resolves) until edited or deleted. Whether deletion should
-  /// instead cascade or block on referencing triggers is deferred to Task 6, which owns the
-  /// dispatcher and is better positioned to judge the operator-facing tradeoff.
+  /// Hard-deletes <paramref name="id"/> and its embedded steps, REFUSING the delete while any
+  /// <c>Narya.Core.Automation.AutomationTrigger</c> still references it.
+  ///
+  /// <para>
+  /// Three outcomes, all expected — none of them exceptional:
+  /// <list type="bullet">
+  ///   <item><c>Ok(false)</c> — no such Action (the caller 404s).</item>
+  ///   <item><c>Ok(true)</c> — deleted.</item>
+  ///   <item>
+  ///     Failed with <see cref="ActionInUseError"/> — one or more triggers reference it, and the
+  ///     error carries them (id, name, kind) so the caller can 409 with the list and the operator
+  ///     can repoint or delete them first. Nothing is written.
+  ///   </item>
+  /// </list>
+  /// Disabled triggers count: a disabled trigger is still operator-authored configuration that can
+  /// be re-enabled later, and silently orphaning it is exactly the loss this refusal prevents.
+  /// Legacy instead CASCADED (<c>legacy/src/server/db.ts:397</c>) — see
+  /// <see cref="ActionInUseError"/> for why this codebase does not.
+  /// </para>
+  ///
+  /// <para>
+  /// The reference check and the delete are atomic with respect to a trigger being created or
+  /// repointed concurrently — see <c>Narya.Database.Actions.ActionStore.DeleteAsync</c> for the
+  /// mechanism.
+  /// </para>
   /// </summary>
-  Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken);
+  Task<Result<bool>> DeleteAsync(Guid id, CancellationToken cancellationToken);
 }

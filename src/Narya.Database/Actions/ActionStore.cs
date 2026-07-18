@@ -1,8 +1,11 @@
 using FluentResults;
 
 using Marten;
+using Marten.Services;
 
 using Narya.Core.Actions;
+using Narya.Database.Automation;
+using Narya.Database.Common;
 
 using Npgsql;
 
@@ -95,18 +98,55 @@ public sealed class ActionStore(IDocumentStore store, TimeProvider timeProvider)
     return saveResult.IsFailed ? Result.Fail<AutomationAction>(saveResult.Errors) : Result.Ok(ToAction(updated));
   }
 
-  public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
+  /// <summary>
+  /// Refuses the delete while any trigger — enabled or disabled — still references the Action, and
+  /// reports the blockers instead of cascading (see
+  /// <see cref="Narya.Core.Actions.ActionInUseError"/>).
+  ///
+  /// <para>
+  /// <b>Mechanism: the per-action advisory lock in
+  /// <see cref="Narya.Database.Common.ActionReferenceLock"/></b>, taken before the reference read
+  /// and released only by this transaction's COMMIT/ROLLBACK. The reference read, the existence
+  /// load and the delete all run on that ONE connection inside that ONE transaction, and
+  /// <c>AutomationTriggerStore</c>'s create/update take the same lock around their own
+  /// action-exists check and trigger write — so a trigger created concurrently with a delete
+  /// either commits first (and this read sees it and refuses) or waits and then finds the Action
+  /// already gone (and fails with "Action not found."). There is no interleaving that leaves an
+  /// orphan. See <see cref="Narya.Database.Common.ActionReferenceLock"/> for why neither a unique
+  /// index nor optimistic concurrency can express this constraint.
+  /// </para>
+  /// </summary>
+  public async Task<Result<bool>> DeleteAsync(Guid id, CancellationToken cancellationToken)
   {
-    await using var session = store.LightweightSession();
-    var existing = await session.LoadAsync<ActionDocument>(id, cancellationToken);
+    await using var connection = store.Storage.Database.CreateConnection();
+    await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+    await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+    await ActionReferenceLock.TakeAsync(transaction, id, cancellationToken).ConfigureAwait(false);
+
+    // ForTransaction enlists Marten in the transaction we own, so the session borrows THIS
+    // connection rather than renting a second one, and leaves the commit to us.
+    await using var session = store.LightweightSession(SessionOptions.ForTransaction(transaction));
+
+    var existing = await session.LoadAsync<ActionDocument>(id, cancellationToken).ConfigureAwait(false);
     if (existing is null)
     {
-      return false;
+      // Roll back explicitly rather than letting disposal do it: nothing was written, but the
+      // ROLLBACK is what ends the transaction and so releases the lock for the next waiter.
+      await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+      return Result.Ok(false);
+    }
+
+    var referencing = await AutomationTriggerQueries.ByActionIdAsync(session, id, cancellationToken).ConfigureAwait(false);
+    if (referencing.Count > 0)
+    {
+      await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+      return Result.Fail<bool>(new ActionInUseError(existing.Name, [.. referencing.Select(ActionTriggerReference.From)]));
     }
 
     session.Delete<ActionDocument>(id);
-    await session.SaveChangesAsync(cancellationToken);
-    return true;
+    await session.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    return Result.Ok(true);
   }
 
   /// <summary>

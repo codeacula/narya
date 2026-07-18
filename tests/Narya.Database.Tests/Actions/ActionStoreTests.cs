@@ -1,7 +1,9 @@
 using Marten;
 
 using Narya.Core.Actions;
+using Narya.Core.Automation;
 using Narya.Database.Actions;
+using Narya.Database.Automation;
 using Narya.Database.Tests.Fixtures;
 
 namespace Narya.Database.Tests.Actions;
@@ -422,7 +424,8 @@ public sealed class ActionStoreTests(PostgresFixture fixture)
 
     var deleted = await store.DeleteAsync(Guid.NewGuid(), CancellationToken.None);
 
-    Assert.False(deleted);
+    Assert.True(deleted.IsSuccess);
+    Assert.False(deleted.Value);
   }
 
   [Fact]
@@ -434,8 +437,109 @@ public sealed class ActionStoreTests(PostgresFixture fixture)
 
     var deleted = await store.DeleteAsync(created.Value.Id, CancellationToken.None);
 
-    Assert.True(deleted);
+    Assert.True(deleted.IsSuccess);
+    Assert.True(deleted.Value);
     var fetched = await store.GetByIdAsync(created.Value.Id, CancellationToken.None);
     Assert.Null(fetched);
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Delete refuses while triggers still reference the Action (review fix, Task D). Legacy
+  // cascaded and silently destroyed the operator's trigger configuration; this store refuses
+  // and reports the blockers instead.
+  // ---------------------------------------------------------------------------------------
+
+  private static async Task<Guid> CreateTriggerAsync(
+    IDocumentStore documentStore, Guid actionId, bool enabled, string phrase)
+  {
+    var triggerStore = new AutomationTriggerStore(documentStore, TimeProvider.System);
+    var created = await triggerStore.CreateAsync(
+      new AutomationTriggerUpsert
+      {
+        ActionId = actionId,
+        Enabled = enabled,
+        Config = new ChatPhraseTriggerConfig { Phrase = phrase, Match = ChatPhraseMatch.Contains },
+      },
+      CancellationToken.None);
+
+    Assert.True(created.IsSuccess);
+    return created.Value.Id;
+  }
+
+  [Fact]
+  public async Task DeleteIsRefusedWhileAnEnabledTriggerReferencesTheActionAndReportsIt()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ActionStore(documentStore, TimeProvider.System);
+    var action = await store.CreateAsync(BuildUpsert(), CancellationToken.None);
+    var triggerId = await CreateTriggerAsync(documentStore, action.Value.Id, enabled: true, "hype");
+
+    var deleted = await store.DeleteAsync(action.Value.Id, CancellationToken.None);
+
+    Assert.True(deleted.IsFailed);
+    var error = Assert.Single(deleted.Errors.OfType<ActionInUseError>());
+    var reference = Assert.Single(error.Triggers);
+    Assert.Equal(triggerId, reference.Id);
+    Assert.Equal("hype", reference.Name);
+    Assert.Equal(AutomationTriggerKind.ChatPhrase, reference.Kind);
+
+    // Nothing was written: the Action survives the refusal.
+    Assert.NotNull(await store.GetByIdAsync(action.Value.Id, CancellationToken.None));
+  }
+
+  [Fact]
+  public async Task DeleteIsRefusedByADisabledTriggerToo()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ActionStore(documentStore, TimeProvider.System);
+    var action = await store.CreateAsync(BuildUpsert(), CancellationToken.None);
+    _ = await CreateTriggerAsync(documentStore, action.Value.Id, enabled: false, "quiet");
+
+    var deleted = await store.DeleteAsync(action.Value.Id, CancellationToken.None);
+
+    Assert.True(deleted.IsFailed);
+    _ = Assert.Single(Assert.Single(deleted.Errors.OfType<ActionInUseError>()).Triggers);
+    Assert.NotNull(await store.GetByIdAsync(action.Value.Id, CancellationToken.None));
+  }
+
+  [Fact]
+  public async Task DeleteSucceedsOnceTheReferencingTriggersAreGone()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ActionStore(documentStore, TimeProvider.System);
+    var triggerStore = new AutomationTriggerStore(documentStore, TimeProvider.System);
+    var action = await store.CreateAsync(BuildUpsert(), CancellationToken.None);
+    var first = await CreateTriggerAsync(documentStore, action.Value.Id, enabled: true, "hype");
+    var second = await CreateTriggerAsync(documentStore, action.Value.Id, enabled: false, "quiet");
+
+    // Still blocked while ONE of the two remains.
+    Assert.True(await triggerStore.DeleteAsync(first, CancellationToken.None));
+    Assert.True((await store.DeleteAsync(action.Value.Id, CancellationToken.None)).IsFailed);
+
+    Assert.True(await triggerStore.DeleteAsync(second, CancellationToken.None));
+    var deleted = await store.DeleteAsync(action.Value.Id, CancellationToken.None);
+
+    Assert.True(deleted.IsSuccess);
+    Assert.True(deleted.Value);
+    Assert.Null(await store.GetByIdAsync(action.Value.Id, CancellationToken.None));
+  }
+
+  /// <summary>
+  /// A trigger pointed at a DIFFERENT action never blocks this one — the refusal is scoped to real
+  /// references, not to "any trigger exists".
+  /// </summary>
+  [Fact]
+  public async Task DeleteIgnoresTriggersThatReferenceAnotherAction()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ActionStore(documentStore, TimeProvider.System);
+    var target = await store.CreateAsync(BuildUpsert("Target"), CancellationToken.None);
+    var other = await store.CreateAsync(BuildUpsert("Other"), CancellationToken.None);
+    _ = await CreateTriggerAsync(documentStore, other.Value.Id, enabled: true, "elsewhere");
+
+    var deleted = await store.DeleteAsync(target.Value.Id, CancellationToken.None);
+
+    Assert.True(deleted.IsSuccess);
+    Assert.True(deleted.Value);
   }
 }

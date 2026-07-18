@@ -55,11 +55,25 @@ public sealed class ActionsController(IActionStore store, IActionExecutor execut
     };
   }
 
+  /// <summary>
+  /// 204 when the Action is gone, 404 when there was none, and 409 when triggers still reference
+  /// it — the 409 body carries the blocking triggers (<see cref="ActionTriggerReference"/>) so the
+  /// dashboard can say "used by N triggers" and link the operator to them, rather than cascading
+  /// the way legacy did. See <see cref="IActionStore.DeleteAsync"/>.
+  /// </summary>
   [HttpDelete("actions/{id:guid}")]
   public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
   {
-    var deleted = await store.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
-    return deleted ? NoContent() : NotFound(new { error = "Action not found." });
+    var result = await store.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+    if (result.IsFailed)
+    {
+      var inUse = result.Errors.OfType<ActionInUseError>().FirstOrDefault();
+      return inUse is null
+        ? ToFailureResult(result)
+        : Conflict(new { error = inUse.Message, triggers = inUse.Triggers });
+    }
+
+    return result.Value ? NoContent() : NotFound(new { error = "Action not found." });
   }
 
   /// <summary>

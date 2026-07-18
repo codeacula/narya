@@ -30,6 +30,14 @@ public interface IAutomationTriggerStore
   Task<IReadOnlyList<AutomationTrigger>> GetEnabledByKindAsync(AutomationTriggerKind kind, CancellationToken cancellationToken);
 
   /// <summary>
+  /// Every trigger — enabled OR DISABLED — that fires the Action <paramref name="actionId"/>, in
+  /// creation order. This is the referential-integrity read behind
+  /// <c>Narya.Core.Actions.IActionStore.DeleteAsync</c>'s refusal: a disabled trigger still counts,
+  /// because it is configuration the operator can re-enable and would otherwise lose track of.
+  /// </summary>
+  Task<IReadOnlyList<AutomationTrigger>> GetByActionIdAsync(Guid actionId, CancellationToken cancellationToken);
+
+  /// <summary>
   /// Validates <paramref name="upsert"/> (via <see cref="AutomationTriggerValidation.Normalize"/>,
   /// then confirms <see cref="AutomationTriggerUpsert.ActionId"/> exists) and inserts it. A
   /// validation failure never persists anything. Every failure here is a plain validation

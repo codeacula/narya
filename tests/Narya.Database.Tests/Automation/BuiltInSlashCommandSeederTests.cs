@@ -32,7 +32,7 @@ public sealed class BuiltInSlashCommandSeederTests(PostgresFixture fixture)
 
     await BuiltInSlashCommandSeeder.SeedAsync(documentStore, TimeProvider.System, CancellationToken.None);
 
-    var triggerStore = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var triggerStore = new AutomationTriggerStore(documentStore, TimeProvider.System);
     var triggers = await triggerStore.GetEnabledByKindAsync(AutomationTriggerKind.DashboardSlash, CancellationToken.None);
     Assert.Equal(4, triggers.Count);
 
@@ -70,7 +70,7 @@ public sealed class BuiltInSlashCommandSeederTests(PostgresFixture fixture)
 
     await BuiltInSlashCommandSeeder.SeedAsync(documentStore, TimeProvider.System, CancellationToken.None);
 
-    var triggerStore = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var triggerStore = new AutomationTriggerStore(documentStore, TimeProvider.System);
     var triggers = await triggerStore.GetEnabledByKindAsync(AutomationTriggerKind.DashboardSlash, CancellationToken.None);
     var timeoutTrigger = triggers.Single(t => ((DashboardSlashTriggerConfig)t.Config).Command == "/timeout");
 
@@ -92,7 +92,7 @@ public sealed class BuiltInSlashCommandSeederTests(PostgresFixture fixture)
     await BuiltInSlashCommandSeeder.SeedAsync(documentStore, TimeProvider.System, CancellationToken.None);
     await BuiltInSlashCommandSeeder.SeedAsync(documentStore, TimeProvider.System, CancellationToken.None);
 
-    var triggerStore = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var triggerStore = new AutomationTriggerStore(documentStore, TimeProvider.System);
     var triggers = await triggerStore.GetEnabledByKindAsync(AutomationTriggerKind.DashboardSlash, CancellationToken.None);
     Assert.Equal(4, triggers.Count);
 
@@ -117,7 +117,7 @@ public sealed class BuiltInSlashCommandSeederTests(PostgresFixture fixture)
     Assert.Contains(allActions, a => a.Name == "Shoutout"); // the operator's original, untouched
     Assert.Contains(allActions, a => a.Name == "Shoutout (2)"); // the seeded one, renamed to avoid the collision
 
-    var triggerStore = new AutomationTriggerStore(documentStore, actionStore, TimeProvider.System);
+    var triggerStore = new AutomationTriggerStore(documentStore, TimeProvider.System);
     var triggers = await triggerStore.GetEnabledByKindAsync(AutomationTriggerKind.DashboardSlash, CancellationToken.None);
     Assert.Equal(4, triggers.Count);
   }

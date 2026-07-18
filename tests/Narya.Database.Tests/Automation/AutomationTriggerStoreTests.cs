@@ -46,7 +46,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var created = await store.CreateAsync(Upsert(actionId, new RewardTriggerConfig { RewardId = "reward-42" }), CancellationToken.None);
     Assert.True(created.IsSuccess);
@@ -63,7 +63,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var created = await store.CreateAsync(Upsert(actionId, new TwitchEventTriggerConfig { EventKind = TwitchAlertEventKind.Raid }), CancellationToken.None);
     Assert.True(created.IsSuccess);
@@ -80,7 +80,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var created = await store.CreateAsync(
       Upsert(actionId, new ChatPhraseTriggerConfig { Phrase = "hype", Match = ChatPhraseMatch.StartsWith, Roles = [TriggerRole.Mod, TriggerRole.Vip] }),
@@ -101,7 +101,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var created = await store.CreateAsync(
       Upsert(actionId, new ViewerCommandTriggerConfig { Command = "!quack", Aliases = ["!duck"], Roles = [TriggerRole.Sub] }),
@@ -122,7 +122,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var created = await store.CreateAsync(
       Upsert(actionId, new DashboardSlashTriggerConfig { Command = "/shoutout", Aliases = ["/so"] }),
@@ -142,7 +142,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var created = await store.CreateAsync(Upsert(actionId, new ManualTriggerConfig { Label = "Intermission" }), CancellationToken.None);
     Assert.True(created.IsSuccess);
@@ -159,7 +159,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
     var moduleId = Guid.NewGuid(); // unvalidated until Phase 8 — see AutomationTrigger's doc comment
 
     var created = await store.CreateAsync(Upsert(actionId, new ModuleActivateTriggerConfig(), moduleId), CancellationToken.None);
@@ -177,7 +177,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var created = await store.CreateAsync(Upsert(actionId, new ModuleDeactivateTriggerConfig()), CancellationToken.None);
     Assert.True(created.IsSuccess);
@@ -196,7 +196,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   public async Task CreateWithAnUnknownActionIdFails()
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var result = await store.CreateAsync(Upsert(Guid.NewGuid(), new ManualTriggerConfig { Label = "x" }), CancellationToken.None);
 
@@ -211,7 +211,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
     var created = await store.CreateAsync(Upsert(actionId, new ManualTriggerConfig { Label = "Original" }), CancellationToken.None);
 
     var result = await store.UpdateAsync(created.Value.Id, Upsert(Guid.NewGuid(), new ManualTriggerConfig { Label = "New" }), CancellationToken.None);
@@ -232,7 +232,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var result = await store.CreateAsync(Upsert(actionId, new ManualTriggerConfig { Label = "" }), CancellationToken.None);
 
@@ -244,7 +244,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   public async Task GetByIdReturnsNullForAnUnknownId()
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     Assert.Null(await store.GetByIdAsync(Guid.NewGuid(), CancellationToken.None));
   }
@@ -254,7 +254,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var result = await store.UpdateAsync(Guid.NewGuid(), Upsert(actionId, new ManualTriggerConfig { Label = "x" }), CancellationToken.None);
 
@@ -266,7 +266,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
     var created = await store.CreateAsync(Upsert(actionId, new ManualTriggerConfig { Label = "Intermission" }), CancellationToken.None);
 
     var updated = await store.UpdateAsync(
@@ -284,7 +284,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   public async Task DeleteOnAnUnknownIdReturnsFalse()
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     Assert.False(await store.DeleteAsync(Guid.NewGuid(), CancellationToken.None));
   }
@@ -294,7 +294,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
     var created = await store.CreateAsync(Upsert(actionId, new ManualTriggerConfig { Label = "x" }), CancellationToken.None);
 
     Assert.True(await store.DeleteAsync(created.Value.Id, CancellationToken.None));
@@ -306,7 +306,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
     var first = await store.CreateAsync(Upsert(actionId, new ManualTriggerConfig { Label = "first" }), CancellationToken.None);
     var second = await store.CreateAsync(Upsert(actionId, new ManualTriggerConfig { Label = "second" }), CancellationToken.None);
 
@@ -324,7 +324,7 @@ public sealed class AutomationTriggerStoreTests(PostgresFixture fixture)
   {
     await using var documentStore = await BuildCleanDocumentStoreAsync();
     var actionId = await CreateActionAsync(documentStore);
-    var store = new AutomationTriggerStore(documentStore, new ActionStore(documentStore, TimeProvider.System), TimeProvider.System);
+    var store = new AutomationTriggerStore(documentStore, TimeProvider.System);
 
     var enabledChatPhrase = await store.CreateAsync(
       Upsert(actionId, new ChatPhraseTriggerConfig { Phrase = "hype", Match = ChatPhraseMatch.Contains }),

@@ -138,10 +138,13 @@ public static class NaryaMartenConfig
     // compound index on (Kind, Enabled) serves GetEnabledByKindAsync (the dispatcher's, Task 6,
     // read path — legacy's idx_automation_triggers_kind); ModuleId gets its own index for the
     // Phase 8 coordinator's future "triggers scoped to this module" lookup (legacy's
-    // idx_automation_triggers_module).
+    // idx_automation_triggers_module). ActionId gets its own index for the referential-integrity
+    // read behind ActionStore.DeleteAsync's refusal (AutomationTriggerQueries.ByActionIdAsync) —
+    // it runs while an advisory lock is held, so it should not be a sequential scan.
     _ = options.Schema.For<AutomationTriggerDocument>()
       .Index([x => x.Kind, x => x.Enabled])
-      .Index(x => x.ModuleId);
+      .Index(x => x.ModuleId)
+      .Index(x => x.ActionId);
 
     // The one-shot seed ledger (Phase 4 Task 5) — see SeedLedgerDocument's doc comment. No index:
     // every read/write is a point lookup by Id (the seed key itself).

@@ -1,9 +1,13 @@
 using FluentResults;
 
 using Marten;
+using Marten.Services;
 
-using Narya.Core.Actions;
 using Narya.Core.Automation;
+using Narya.Database.Actions;
+using Narya.Database.Common;
+
+using Npgsql;
 
 namespace Narya.Database.Automation;
 
@@ -15,10 +19,15 @@ namespace Narya.Database.Automation;
 /// <para>
 /// <b>Field-shape validation lives in <see cref="AutomationTriggerValidation"/>, not here.</b> This
 /// store adds the one check that needs I/O: <see cref="AutomationTriggerUpsert.ActionId"/> must
-/// reference an existing <c>Narya.Core.Actions.AutomationAction</c> (via the injected
-/// <see cref="IActionStore"/> — never a raw Marten query against
-/// <c>Narya.Database.Actions.ActionDocument</c>, so this store depends only on the Narya.Core
-/// contract, same reference discipline as everywhere else in this codebase). A missing Action
+/// reference an existing <c>Narya.Core.Actions.AutomationAction</c>. That check is a raw load of
+/// <c>Narya.Database.Actions.ActionDocument</c> rather than a call through
+/// <c>Narya.Core.Actions.IActionStore</c> — deliberately, and reversing an earlier choice here: the
+/// check and the trigger write must share ONE advisory-locked transaction (see
+/// <see cref="Narya.Database.Common.ActionReferenceLock"/> and
+/// <c>Narya.Database.Actions.ActionStore.DeleteAsync</c>), or a concurrent Action delete can slip
+/// between them and orphan the trigger. Going through the port would open a second session on a
+/// second connection outside that transaction, which is exactly the window being closed. Both types
+/// live in Narya.Database, so nothing about the layering rules changes. A missing Action
 /// fails with the plain string "Action not found." (the caller 400s), matching legacy's
 /// <c>HttpRouteError(400, 'Action not found.')</c> — legacy also 400s a missing action rather than
 /// 404ing, since the id lives inside the trigger BODY, not the route.
@@ -32,7 +41,7 @@ namespace Narya.Database.Automation;
 /// unvalidated id that simply does nothing until Phase 8 ships.
 /// </para>
 /// </summary>
-public sealed class AutomationTriggerStore(IDocumentStore store, IActionStore actionStore, TimeProvider timeProvider) : IAutomationTriggerStore
+public sealed class AutomationTriggerStore(IDocumentStore store, TimeProvider timeProvider) : IAutomationTriggerStore
 {
   public async Task<IReadOnlyList<AutomationTrigger>> GetAllAsync(CancellationToken cancellationToken)
   {
@@ -58,18 +67,22 @@ public sealed class AutomationTriggerStore(IDocumentStore store, IActionStore ac
     return [.. docs.Select(ToTrigger).OrderBy(t => t.CreatedAt)];
   }
 
+  public async Task<IReadOnlyList<AutomationTrigger>> GetByActionIdAsync(Guid actionId, CancellationToken cancellationToken)
+  {
+    await using var session = store.QuerySession();
+    return await AutomationTriggerQueries.ByActionIdAsync(session, actionId, cancellationToken).ConfigureAwait(false);
+  }
+
+  /// <summary>
+  /// The action-exists check and the insert run inside one advisory-locked transaction — see this
+  /// type's doc comment and <see cref="Narya.Database.Common.ActionReferenceLock"/>.
+  /// </summary>
   public async Task<Result<AutomationTrigger>> CreateAsync(AutomationTriggerUpsert upsert, CancellationToken cancellationToken)
   {
     var normalized = AutomationTriggerValidation.Normalize(upsert);
     if (normalized.IsFailed)
     {
       return Result.Fail<AutomationTrigger>(normalized.Errors);
-    }
-
-    var actionExistsResult = await EnsureActionExistsAsync(normalized.Value.ActionId, cancellationToken).ConfigureAwait(false);
-    if (actionExistsResult.IsFailed)
-    {
-      return Result.Fail<AutomationTrigger>(actionExistsResult.Errors);
     }
 
     var now = timeProvider.GetUtcNow();
@@ -87,31 +100,53 @@ public sealed class AutomationTriggerStore(IDocumentStore store, IActionStore ac
       UpdatedAt = now,
     };
 
-    await using var session = store.LightweightSession();
-    session.Insert(doc);
-    await session.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    await using var scope = await LockedScope.OpenAsync(store, normalized.Value.ActionId, cancellationToken).ConfigureAwait(false);
+
+    if (!await ActionExistsAsync(scope.Session, normalized.Value.ActionId, cancellationToken).ConfigureAwait(false))
+    {
+      await scope.RollbackAsync(cancellationToken).ConfigureAwait(false);
+      return Result.Fail<AutomationTrigger>("Action not found.");
+    }
+
+    scope.Session.Insert(doc);
+    await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
     return Result.Ok(ToTrigger(doc));
   }
 
+  /// <summary>
+  /// Same locked scope as <see cref="CreateAsync"/>, keyed on the NEW
+  /// <see cref="AutomationTriggerUpsert.ActionId"/> — the only one that can be orphaned by a
+  /// concurrent delete. Dropping a reference to the OLD action needs no lock: removing a reference
+  /// never creates an orphan.
+  /// </summary>
   public async Task<Result<AutomationTrigger>?> UpdateAsync(Guid id, AutomationTriggerUpsert upsert, CancellationToken cancellationToken)
   {
-    await using var session = store.LightweightSession();
-    var existing = await session.LoadAsync<AutomationTriggerDocument>(id, cancellationToken).ConfigureAwait(false);
+    var normalized = AutomationTriggerValidation.Normalize(upsert);
+
+    // The unknown-id 404 outranks a validation 400 (same load-then-branch order as before), so the
+    // existence load happens first — but it must happen inside the locked transaction, which needs
+    // the normalized ActionId as its key. A validation failure therefore takes the lock, loads, and
+    // rolls back having written nothing.
+    var lockKey = normalized.IsSuccess ? normalized.Value.ActionId : upsert.ActionId;
+    await using var scope = await LockedScope.OpenAsync(store, lockKey, cancellationToken).ConfigureAwait(false);
+
+    var existing = await scope.Session.LoadAsync<AutomationTriggerDocument>(id, cancellationToken).ConfigureAwait(false);
     if (existing is null)
     {
+      await scope.RollbackAsync(cancellationToken).ConfigureAwait(false);
       return null;
     }
 
-    var normalized = AutomationTriggerValidation.Normalize(upsert);
     if (normalized.IsFailed)
     {
+      await scope.RollbackAsync(cancellationToken).ConfigureAwait(false);
       return Result.Fail<AutomationTrigger>(normalized.Errors);
     }
 
-    var actionExistsResult = await EnsureActionExistsAsync(normalized.Value.ActionId, cancellationToken).ConfigureAwait(false);
-    if (actionExistsResult.IsFailed)
+    if (!await ActionExistsAsync(scope.Session, normalized.Value.ActionId, cancellationToken).ConfigureAwait(false))
     {
-      return Result.Fail<AutomationTrigger>(actionExistsResult.Errors);
+      await scope.RollbackAsync(cancellationToken).ConfigureAwait(false);
+      return Result.Fail<AutomationTrigger>("Action not found.");
     }
 
     var updated = existing with
@@ -126,8 +161,8 @@ public sealed class AutomationTriggerStore(IDocumentStore store, IActionStore ac
       UpdatedAt = timeProvider.GetUtcNow(),
     };
 
-    session.Store(updated);
-    await session.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    scope.Session.Store(updated);
+    await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
     return Result.Ok(ToTrigger(updated));
   }
 
@@ -145,21 +180,57 @@ public sealed class AutomationTriggerStore(IDocumentStore store, IActionStore ac
     return true;
   }
 
-  private async Task<Result> EnsureActionExistsAsync(Guid actionId, CancellationToken cancellationToken)
-  {
-    var action = await actionStore.GetByIdAsync(actionId, cancellationToken).ConfigureAwait(false);
-    return action is null ? Result.Fail("Action not found.") : Result.Ok();
-  }
+  private static async Task<bool> ActionExistsAsync(IQuerySession session, Guid actionId, CancellationToken cancellationToken) =>
+    await session.LoadAsync<ActionDocument>(actionId, cancellationToken).ConfigureAwait(false) is not null;
 
-  private static AutomationTrigger ToTrigger(AutomationTriggerDocument doc) => new(
-    Id: doc.Id,
-    Kind: doc.Kind,
-    ActionId: doc.ActionId,
-    ModuleId: doc.ModuleId,
-    Enabled: doc.Enabled,
-    GlobalCooldownMs: doc.GlobalCooldownMs,
-    UserCooldownMs: doc.UserCooldownMs,
-    Config: doc.Config,
-    CreatedAt: doc.CreatedAt,
-    UpdatedAt: doc.UpdatedAt);
+  private static AutomationTrigger ToTrigger(AutomationTriggerDocument doc) => AutomationTriggerQueries.ToTrigger(doc);
+
+  /// <summary>
+  /// One pooled connection, one transaction, one <see cref="ActionReferenceLock"/> held for its
+  /// lifetime, and a Marten session enlisted in it. Every exit path must call
+  /// <see cref="CommitAsync"/> or <see cref="RollbackAsync"/> explicitly — disposal alone would
+  /// roll back correctly, but only at the END of the caller's scope, holding the lock against every
+  /// waiter for longer than necessary.
+  /// </summary>
+  private sealed class LockedScope : IAsyncDisposable
+  {
+    private readonly NpgsqlConnection connection;
+    private readonly NpgsqlTransaction transaction;
+
+    private LockedScope(NpgsqlConnection connection, NpgsqlTransaction transaction, IDocumentSession session)
+    {
+      this.connection = connection;
+      this.transaction = transaction;
+      Session = session;
+    }
+
+    public IDocumentSession Session { get; }
+
+    public static async Task<LockedScope> OpenAsync(IDocumentStore store, Guid actionId, CancellationToken cancellationToken)
+    {
+      var connection = store.Storage.Database.CreateConnection();
+      await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+      var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+      await ActionReferenceLock.TakeAsync(transaction, actionId, cancellationToken).ConfigureAwait(false);
+
+      // ForTransaction enlists Marten in the transaction we own: the session borrows THIS
+      // connection instead of renting a second one, and leaves the commit to us.
+      return new LockedScope(connection, transaction, store.LightweightSession(SessionOptions.ForTransaction(transaction)));
+    }
+
+    public async Task CommitAsync(CancellationToken cancellationToken)
+    {
+      await Session.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+      await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task RollbackAsync(CancellationToken cancellationToken) => transaction.RollbackAsync(cancellationToken);
+
+    public async ValueTask DisposeAsync()
+    {
+      await Session.DisposeAsync().ConfigureAwait(false);
+      await transaction.DisposeAsync().ConfigureAwait(false);
+      await connection.DisposeAsync().ConfigureAwait(false);
+    }
+  }
 }
