@@ -35,6 +35,16 @@ if (trustedProxies.Length > 0)
     options => TrustedProxies.Configure(options, trustedProxies));
 }
 
+// Refuses to start an unsafe no-token deployment. Registered as an IStartupFilter, not run after
+// app.StartAsync(), so the check happens while the pipeline is being built and the listening
+// socket is still closed — see StartupBindingGuardFilter's doc comment. Skipped under
+// SkipInfrastructure, where WebApplicationFactory binds an ephemeral test server with no token by
+// design; the guard itself is covered directly by StartupBindingGuardTests.
+if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
+{
+  _ = builder.Services.AddSingleton<IStartupFilter, StartupBindingGuardFilter>();
+}
+
 // Registered unconditionally (not inside the SkipInfrastructure guard below): RealtimeHub
 // depends on it regardless of which mode is active, and it holds no infrastructure connection
 // of its own — just an in-memory connection-id set (see RealtimeConnectionTracker's doc
@@ -169,26 +179,6 @@ app.MapFallback(async context =>
   await context.Response.SendFileAsync(indexPath).ConfigureAwait(false);
 });
 
-// Deliberately StartAsync + WaitForShutdownAsync rather than Run(): the bound addresses only
-// become readable from IServerAddressesFeature once the server has started (a --urls argument or
-// ASPNETCORE_URLS is applied at start, so reading configuration instead would miss both). The
-// guard therefore runs immediately after start and stops the host again before serving anything
-// meaningful if the deployment is unsafe. Skipped under SkipInfrastructure, where the test host
-// binds an ephemeral non-loopback-looking address with no token by design — the guard itself is
-// covered directly by StartupBindingGuardTests.
-await app.StartAsync().ConfigureAwait(false);
-
-if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
-{
-  try
-  {
-    StartupBindingGuard.Validate(app.Services, builder.Configuration["Narya:DashboardToken"]);
-  }
-  catch (InvalidOperationException)
-  {
-    await app.StopAsync().ConfigureAwait(false);
-    throw;
-  }
-}
-
-await app.WaitForShutdownAsync().ConfigureAwait(false);
+// StartupBindingGuardFilter (registered above) throws from inside the pipeline build that
+// app.Run() triggers, before Kestrel binds — so an unsafe deployment never listens at all.
+await app.RunAsync().ConfigureAwait(false);

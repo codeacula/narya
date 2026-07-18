@@ -21,6 +21,8 @@ public sealed class DashboardTokenAuthenticator(IOptions<NaryaAuthOptions> optio
 
   private readonly string _dashboardToken = options.Value.DashboardToken;
 
+  private readonly bool _allowLoopbackOperatorWithoutToken = options.Value.AllowLoopbackOperatorWithoutToken;
+
   private readonly string? _overlayToken = string.IsNullOrEmpty(options.Value.DashboardToken)
     ? null
     : OverlayToken.Derive(options.Value.DashboardToken);
@@ -36,20 +38,30 @@ public sealed class DashboardTokenAuthenticator(IOptions<NaryaAuthOptions> optio
   /// The "no token configured, so this deployment is loopback-only" fallback, shared by
   /// <see cref="DashboardTokenMiddleware"/> and <see cref="Narya.Api.Realtime.RealtimeHub"/> so
   /// the HTTP and SignalR paths cannot drift on it. Returns <see cref="OperatorRole"/> only when
-  /// no dashboard token is configured AND <paramref name="remoteIp"/> is a verified loopback
-  /// address; null otherwise.
+  /// no dashboard token is configured AND
+  /// <see cref="NaryaAuthOptions.AllowLoopbackOperatorWithoutToken"/> was explicitly opted into
+  /// AND <paramref name="remoteIp"/> is a verified loopback address; null otherwise.
+  ///
+  /// <para>
+  /// The opt-in is what keeps the SHIPPED DEFAULT (nothing configured) fail-closed: without it a
+  /// deployment that set no token at all would hand full operator access to every loopback peer,
+  /// and behind a same-host reverse proxy every peer is loopback.
+  /// </para>
   ///
   /// <para>
   /// Fails CLOSED on a null <paramref name="remoteIp"/> (e.g. Kestrel over a Unix domain socket):
   /// null is not loopback. What makes this fallback safe at all is
-  /// <see cref="StartupBindingGuard"/> — with no token configured the process refuses to bind
-  /// anything but loopback, so a loopback peer here really is a local caller and not a reverse
-  /// proxy relaying the internet. <see cref="TrustedProxies"/> covers the remaining case where a
-  /// proxy is deliberately allowlisted.
+  /// <see cref="StartupBindingGuard"/> — with no token configured the process refuses to start
+  /// unless the opt-in is set, refuses to bind anything but loopback, and refuses to run with a
+  /// <see cref="TrustedProxies"/> allowlist declared, so a loopback peer reaching here really is
+  /// a local caller and not a reverse proxy relaying the internet.
   /// </para>
   /// </summary>
   public string? ResolveLoopbackRole(IPAddress? remoteIp) =>
-    !HasDashboardToken && remoteIp is not null && IPAddress.IsLoopback(remoteIp)
+    !HasDashboardToken
+    && _allowLoopbackOperatorWithoutToken
+    && remoteIp is not null
+    && IPAddress.IsLoopback(remoteIp)
       ? OperatorRole
       : null;
 

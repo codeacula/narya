@@ -33,9 +33,15 @@ public sealed class DashboardTokenMiddlewareTests
   /// </summary>
   private const string TestRemoteIpHeader = "X-Test-Remote-Ip";
 
+  /// <summary>
+  /// Defaults to FALSE, matching the shipped <c>appsettings.json</c>: the no-token loopback
+  /// operator path is an explicit opt-in, so a test that wants it must say so. See
+  /// <see cref="NoTokenConfiguredLoopbackCallerWithoutTheOptInIsForbidden"/>.
+  /// </summary>
   private static HttpClient BuildClient(
     string configuredToken,
     bool injectRemoteIp = false,
+    bool allowLoopbackOperatorWithoutToken = false,
     params string[] trustedProxies) =>
     new WebApplicationFactory<Program>()
       .WithWebHostBuilder(b =>
@@ -55,6 +61,9 @@ public sealed class DashboardTokenMiddlewareTests
         // visible at that read; AddInMemoryCollection is not, so the guard silently never
         // engaged and these tests exercised a live Marten/Redis connection.
         _ = b.UseSetting("Narya:DashboardToken", configuredToken);
+        _ = b.UseSetting(
+          StartupBindingGuard.AllowLoopbackOperatorWithoutTokenConfigKey,
+          allowLoopbackOperatorWithoutToken ? "true" : "false");
         _ = b.UseSetting("Narya:SkipInfrastructure", "true"); // Program.cs guard: no Marten/Redis in these tests
 
         // Under SkipInfrastructure, AddNaryaDatabase (the only source of IAppConfigStore,
@@ -215,7 +224,7 @@ public sealed class DashboardTokenMiddlewareTests
     // an explicit loopback caller so it keeps testing what it says it tests —
     // an operator with no token configured hitting the overlay-token
     // endpoint — rather than depending on the fail-open bug fixed below.
-    var client = BuildClient(string.Empty, injectRemoteIp: true);
+    var client = BuildClient(string.Empty, injectRemoteIp: true, allowLoopbackOperatorWithoutToken: true);
     client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "127.0.0.1");
     var response = await client.GetAsync("/api/auth/overlay-token");
     Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -224,16 +233,35 @@ public sealed class DashboardTokenMiddlewareTests
   [Fact]
   public async Task NoTokenConfiguredLoopbackCallerIsOperator()
   {
-    var client = BuildClient(string.Empty, injectRemoteIp: true);
+    var client = BuildClient(string.Empty, injectRemoteIp: true, allowLoopbackOperatorWithoutToken: true);
     client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "127.0.0.1");
     var response = await client.GetAsync("/api/health");
     Assert.Equal(HttpStatusCode.OK, response.StatusCode);
   }
 
+  /// <summary>
+  /// The shipped default. Without the explicit opt-in the loopback fallback does not exist at
+  /// all, so even a genuine local caller is refused — the request-time half of making
+  /// "operator configured nothing" fail closed. In a real host
+  /// <see cref="StartupBindingGuard"/> refuses to start this configuration outright
+  /// (<c>StartupBindingGuardTests.LoopbackBindingWithNoTokenAndNoOptInThrows</c>); this asserts
+  /// the middleware does not grant operator access even if it is somehow reached.
+  /// </summary>
+  [Fact]
+  public async Task NoTokenConfiguredLoopbackCallerWithoutTheOptInIsForbidden()
+  {
+    var client = BuildClient(string.Empty, injectRemoteIp: true);
+    client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "127.0.0.1");
+
+    var response = await client.GetAsync("/api/health");
+
+    Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+  }
+
   [Fact]
   public async Task NoTokenConfiguredNonLoopbackCallerIsForbidden()
   {
-    var client = BuildClient(string.Empty, injectRemoteIp: true);
+    var client = BuildClient(string.Empty, injectRemoteIp: true, allowLoopbackOperatorWithoutToken: true);
     client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "203.0.113.5");
     var response = await client.GetAsync("/api/health");
     Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
@@ -246,7 +274,7 @@ public sealed class DashboardTokenMiddlewareTests
     // null here, exactly as it would be for Kestrel over a Unix domain
     // socket. This is the direct regression test for the fail-open bug: null
     // must not be treated as loopback.
-    var client = BuildClient(string.Empty);
+    var client = BuildClient(string.Empty, allowLoopbackOperatorWithoutToken: true);
     var response = await client.GetAsync("/api/health");
     Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
   }
@@ -259,7 +287,7 @@ public sealed class DashboardTokenMiddlewareTests
   [Fact]
   public async Task UntrustedPeerCannotSpoofLoopbackViaForwardedFor()
   {
-    var client = BuildClient(string.Empty, injectRemoteIp: true);
+    var client = BuildClient(string.Empty, injectRemoteIp: true, allowLoopbackOperatorWithoutToken: true);
     client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "203.0.113.5");
     client.DefaultRequestHeaders.Add("X-Forwarded-For", "127.0.0.1");
 
@@ -269,15 +297,22 @@ public sealed class DashboardTokenMiddlewareTests
   }
 
   /// <summary>
-  /// THE regression test for the reverse-proxy bypass. With the same-host proxy allowlisted, a
-  /// request it forwards is judged against the REAL client address — so an internet client
-  /// reaching a no-token deployment through the proxy is rejected, even though the proxy's own
-  /// peer address is loopback.
+  /// With the same-host proxy allowlisted, a request it forwards is judged against the REAL
+  /// client address — so an internet client reaching a no-token deployment through the proxy is
+  /// rejected, even though the proxy's own peer address is loopback.
+  ///
+  /// <para>
+  /// This combination (a declared proxy and no token) can no longer start a real host at all:
+  /// <c>StartupBindingGuardTests.LoopbackBindingBehindADeclaredProxyWithNoTokenThrows</c> is the
+  /// primary defence. These tests run under <c>SkipInfrastructure</c>, where the guard is not
+  /// registered, and pin the request-time behaviour behind it.
+  /// </para>
   /// </summary>
   [Fact]
   public async Task ForwardedNonLoopbackClientThroughATrustedProxyIsForbidden()
   {
-    var client = BuildClient(string.Empty, injectRemoteIp: true, trustedProxies: "127.0.0.1");
+    var client = BuildClient(
+      string.Empty, injectRemoteIp: true, allowLoopbackOperatorWithoutToken: true, trustedProxies: "127.0.0.1");
     client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "127.0.0.1");
     client.DefaultRequestHeaders.Add("X-Forwarded-For", "198.51.100.7");
 
@@ -294,9 +329,33 @@ public sealed class DashboardTokenMiddlewareTests
   [Fact]
   public async Task ForwardedLoopbackClientThroughATrustedProxyIsOperator()
   {
-    var client = BuildClient(string.Empty, injectRemoteIp: true, trustedProxies: "127.0.0.1");
+    var client = BuildClient(
+      string.Empty, injectRemoteIp: true, allowLoopbackOperatorWithoutToken: true, trustedProxies: "127.0.0.1");
     client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "127.0.0.1");
     client.DefaultRequestHeaders.Add("X-Forwarded-For", "127.0.0.1");
+
+    var response = await client.GetAsync("/api/health");
+
+    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+  }
+
+  /// <summary>
+  /// Pins the hazard that motivated requiring a token whenever a proxy is declared:
+  /// <c>ForwardedHeadersMiddleware</c> leaves <c>RemoteIpAddress</c> ALONE when
+  /// <c>X-Forwarded-For</c> is absent, and nginx omits that header unless
+  /// <c>proxy_set_header X-Forwarded-For</c> is configured — the omission is the nginx default,
+  /// not an exotic mistake. So the peer address falls through to the proxy's own loopback
+  /// address and, at this layer, still resolves to the operator role. That is why this
+  /// configuration must never be startable, which
+  /// <c>StartupBindingGuardTests.LoopbackBindingBehindADeclaredProxyWithNoTokenThrows</c>
+  /// enforces. If this assertion ever has to change, the guard is what to check first.
+  /// </summary>
+  [Fact]
+  public async Task TrustedProxyPeerWithNoForwardedForHeaderFallsBackToThePeerAddress()
+  {
+    var client = BuildClient(
+      string.Empty, injectRemoteIp: true, allowLoopbackOperatorWithoutToken: true, trustedProxies: "127.0.0.1");
+    client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "127.0.0.1");
 
     var response = await client.GetAsync("/api/health");
 
@@ -307,7 +366,8 @@ public sealed class DashboardTokenMiddlewareTests
   [Fact]
   public async Task TrustedProxyCidrRangeIsHonoured()
   {
-    var client = BuildClient(string.Empty, injectRemoteIp: true, trustedProxies: "10.0.0.0/8");
+    var client = BuildClient(
+      string.Empty, injectRemoteIp: true, allowLoopbackOperatorWithoutToken: true, trustedProxies: "10.0.0.0/8");
     client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "10.1.2.3");
     client.DefaultRequestHeaders.Add("X-Forwarded-For", "127.0.0.1");
 

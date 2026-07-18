@@ -32,13 +32,22 @@ public sealed class RealtimeHubAuthTests
     public HttpContext? HttpContext { get; set; }
   }
 
+  /// <summary>
+  /// <paramref name="allowLoopbackOperatorWithoutToken"/> defaults to true because these tests
+  /// are about hub/middleware PARITY on the loopback decision, so the opt-in that decision
+  /// depends on has to be on for all but the test that covers the opt-in itself.
+  /// </summary>
   private static (RealtimeHub Hub, HubCallerContext Context, RealtimeConnectionTracker Tracker) BuildHub(
     string configuredToken,
     IPAddress? remoteIp,
-    string? accessToken = null)
+    string? accessToken = null,
+    bool allowLoopbackOperatorWithoutToken = true)
   {
-    var authenticator = new DashboardTokenAuthenticator(
-      Options.Create(new NaryaAuthOptions { DashboardToken = configuredToken }));
+    var authenticator = new DashboardTokenAuthenticator(Options.Create(new NaryaAuthOptions
+    {
+      DashboardToken = configuredToken,
+      AllowLoopbackOperatorWithoutToken = allowLoopbackOperatorWithoutToken,
+    }));
     var tracker = new RealtimeConnectionTracker();
 
     var httpContext = new DefaultHttpContext();
@@ -121,6 +130,23 @@ public sealed class RealtimeHubAuthTests
   public async Task TokenConfiguredLoopbackConnectionWithoutATokenIsStillAborted()
   {
     var (hub, context, tracker) = BuildHub("op-token", IPAddress.Loopback);
+
+    await hub.OnConnectedAsync();
+
+    context.Received(1).Abort();
+    Assert.Equal(0, tracker.Count);
+  }
+
+  /// <summary>
+  /// Parity with <c>DashboardTokenMiddlewareTests.NoTokenConfiguredLoopbackCallerWithoutTheOptInIsForbidden</c>:
+  /// the loopback fallback is an explicit opt-in on both paths, so the shipped default of
+  /// configuring nothing aborts the connection rather than granting the operator role.
+  /// </summary>
+  [Fact]
+  public async Task NoTokenConfiguredLoopbackConnectionWithoutTheOptInIsAborted()
+  {
+    var (hub, context, tracker) = BuildHub(
+      string.Empty, IPAddress.Loopback, allowLoopbackOperatorWithoutToken: false);
 
     await hub.OnConnectedAsync();
 
