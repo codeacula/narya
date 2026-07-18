@@ -13,6 +13,7 @@ using Narya.Core.AppConfig;
 using Narya.Core.Chat;
 using Narya.Core.Events;
 using Narya.Core.Sessions;
+using Narya.Core.Viewers;
 
 namespace Narya.Api.Tests.Controllers;
 
@@ -20,9 +21,9 @@ namespace Narya.Api.Tests.Controllers;
 /// Exercises <c>/api/chat/recent</c> and <c>/api/chat/events/recent</c> through the real MediatR
 /// pipeline — only <see cref="IChatStore"/> is substituted (via <c>ConfigureTestServices</c>),
 /// since <c>AddNaryaDatabase</c> is skipped under <c>Narya:SkipInfrastructure=true</c>.
-/// <see cref="IAppConfigStore"/>/<see cref="IStreamSessionStore"/>/<see cref="IStreamEventStore"/>
-/// are also substituted (unconfigured — nothing here exercises them), same reason as
-/// <c>ConfigControllerTests</c>.
+/// <see cref="IAppConfigStore"/>/<see cref="IStreamSessionStore"/>/<see cref="IStreamEventStore"/>/
+/// <see cref="IViewerStore"/> are also substituted (unconfigured — nothing here exercises them),
+/// same reason as <c>ConfigControllerTests</c>.
 /// </summary>
 public sealed class ChatControllerTests
 {
@@ -42,6 +43,7 @@ public sealed class ChatControllerTests
           _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
           _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
+          _ = services.AddSingleton(Substitute.For<IViewerStore>());
         });
       })
       .CreateClient();

@@ -223,6 +223,33 @@ public sealed class ChatStore(IDocumentStore store) : IChatStore
     return undeleted.Count;
   }
 
+  public async Task<IReadOnlyList<ChatMessage>> GetMessagesByUsernameAsync(
+    string username, string? beforeId, int limit, CancellationToken cancellationToken)
+  {
+    var loginKey = username.ToLowerInvariant();
+    await using var session = store.QuerySession();
+
+    var filtered = session.Query<ChatMessageDocument>().Where(m => m.Username == loginKey);
+
+    if (beforeId is not null)
+    {
+      var anchor = await session.LoadAsync<ChatMessageDocument>(beforeId, cancellationToken);
+      if (anchor is not null)
+      {
+        filtered = filtered.Where(m => m.ReceivedAt < anchor.ReceivedAt);
+      }
+    }
+
+    var docs = await filtered
+      .OrderByDescending(m => m.ReceivedAt)
+      .Take(limit)
+      .ToListAsync(cancellationToken);
+
+    // Reversed to oldest→newest, same convention as GetRecentMessagesAsync — but, unlike that
+    // route, SessionId travels with each message (see this method's IChatStore doc comment).
+    return [.. docs.OrderBy(m => m.ReceivedAt).Select(ToChatMessageWithSession)];
+  }
+
   private static string? SerializeBadges(IReadOnlyDictionary<string, string>? badges) =>
     badges is null ? null : JsonSerializer.Serialize(badges);
 
@@ -253,6 +280,36 @@ public sealed class ChatStore(IDocumentStore store) : IChatStore
       IsFirstThisSession: doc.IsFirstInSession,
       IsFirstEver: doc.IsFirstEver,
       SessionId: null,
+      DeletedAt: doc.DeletedAt,
+      DeletedReason: doc.DeletedReason);
+  }
+
+  /// <summary>
+  /// Like <see cref="ToChatMessage"/>, but carries <see cref="ChatMessageDocument.StreamSessionId"/>
+  /// through as <see cref="ChatMessage.SessionId"/> instead of nulling it — used only by
+  /// <see cref="GetMessagesByUsernameAsync"/>, whose legacy route (<c>GET
+  /// /api/viewers/:login/messages</c>) includes <c>sessionId</c>, unlike <c>GET /api/chat/recent</c>.
+  /// </summary>
+  private static ChatMessage ToChatMessageWithSession(ChatMessageDocument doc)
+  {
+    var badges = doc.BadgesJson is null
+      ? null
+      : JsonSerializer.Deserialize<Dictionary<string, string>>(doc.BadgesJson);
+
+    return new ChatMessage(
+      Id: doc.Id,
+      Channel: doc.Channel,
+      Username: doc.Username,
+      DisplayName: doc.DisplayName,
+      Color: doc.Color,
+      Message: doc.Message,
+      ReceivedAt: doc.ReceivedAt,
+      Badges: badges,
+      ChatterUserId: doc.ChatterUserId,
+      IsFirstTimer: doc.IsFirstEver,
+      IsFirstThisSession: doc.IsFirstInSession,
+      IsFirstEver: doc.IsFirstEver,
+      SessionId: doc.StreamSessionId,
       DeletedAt: doc.DeletedAt,
       DeletedReason: doc.DeletedReason);
   }

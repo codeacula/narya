@@ -6,10 +6,12 @@ using Narya.Core.AppConfig;
 using Narya.Core.Chat;
 using Narya.Core.Events;
 using Narya.Core.Sessions;
+using Narya.Core.Viewers;
 using Narya.Database.AppConfig;
 using Narya.Database.Chat;
 using Narya.Database.Events;
 using Narya.Database.Sessions;
+using Narya.Database.Viewers;
 
 namespace Narya.Database;
 
@@ -29,6 +31,7 @@ public static class ServiceCollectionExtensions
     _ = services.AddSingleton<IStreamSessionStore, StreamSessionStore>();
     _ = services.AddSingleton<IChatStore, ChatStore>();
     _ = services.AddSingleton<IStreamEventStore, StreamEventStore>();
+    _ = services.AddSingleton<IViewerStore, ViewerStore>();
 
     return services;
   }

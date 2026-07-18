@@ -12,6 +12,7 @@ using Narya.Core.AppConfig;
 using Narya.Core.Chat;
 using Narya.Core.Events;
 using Narya.Core.Sessions;
+using Narya.Core.Viewers;
 
 namespace Narya.Api.Tests;
 
@@ -46,9 +47,11 @@ public sealed class InfrastructureSkipTests
   /// <c>StreamOnlineHandler</c>/<c>StreamOfflineHandler</c> that depend on
   /// <see cref="IStreamSessionStore"/>, the chat <c>PersistChatMessageHandler</c>/
   /// <c>GetRecentChatMessagesQueryHandler</c>/<c>GetRecentChatEventsQueryHandler</c> that depend
-  /// on <see cref="IChatStore"/>, and the Events <c>PersistStreamEventHandler</c>/
+  /// on <see cref="IChatStore"/>, the Events <c>PersistStreamEventHandler</c>/
   /// <c>UpdateStreamEventHandler</c>/<c>GetRecentStreamEventsQueryHandler</c> that depend on
-  /// <see cref="IStreamEventStore"/> — unconfigured substitutes are enough to satisfy that.
+  /// <see cref="IStreamEventStore"/>, and the Viewers <c>UpdateViewerProfileCommandHandler</c>/
+  /// <c>GetRosterQueryHandler</c>/<c>GetRecentViewersQueryHandler</c> that depend on
+  /// <see cref="IViewerStore"/> — unconfigured substitutes are enough to satisfy that.
   /// </summary>
   private static WebApplicationFactory<Program> BuildFactory() =>
     new WebApplicationFactory<Program>()
@@ -62,6 +65,7 @@ public sealed class InfrastructureSkipTests
           _ = services.AddSingleton(Substitute.For<IStreamSessionStore>());
           _ = services.AddSingleton(Substitute.For<IChatStore>());
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
+          _ = services.AddSingleton(Substitute.For<IViewerStore>());
         });
       });
 

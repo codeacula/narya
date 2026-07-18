@@ -50,5 +50,10 @@ public static class NaryaMartenConfig
     // Indexed on ReceivedAt (GetRecentAsync's ordering).
     _ = options.Schema.For<StreamEventDocument>()
       .Index(x => x.ReceivedAt);
+
+    // Viewer profiles (Phase 3 Task 5) — see ViewerProfileDocument's doc comment. Login itself
+    // is the identity, same no-separate-Id pattern as ChatterDocument.
+    _ = options.Schema.For<ViewerProfileDocument>()
+      .Identity(x => x.Login);
   }
 }

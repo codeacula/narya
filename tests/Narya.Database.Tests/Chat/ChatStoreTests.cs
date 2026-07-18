@@ -356,4 +356,79 @@ public sealed class ChatStoreTests(PostgresFixture fixture)
     Assert.Equal("message deleted by moderator", msg1!.DeletedReason); // untouched by the rerun
     Assert.Equal(earlierEventId.ToString(), msg1.ModerationEventId);
   }
+
+  [Fact]
+  public async Task GetMessagesByUsernameReturnsOnlyThatUsersMessagesOldestToNewest()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    var start = DateTimeOffset.UtcNow;
+
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "a-1", username: "alice", receivedAt: start), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "b-1", username: "bob", receivedAt: start.AddSeconds(1)), CancellationToken.None);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "a-2", username: "alice", receivedAt: start.AddSeconds(2)), CancellationToken.None);
+
+    var page = await store.GetMessagesByUsernameAsync("alice", null, 80, CancellationToken.None);
+
+    // Not leaked: bob's message never appears on alice's page.
+    Assert.Equal(["a-1", "a-2"], page.Select(m => m.Id));
+  }
+
+  [Fact]
+  public async Task GetMessagesByUsernameIsCaseInsensitive()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-1", username: "alice"), CancellationToken.None);
+
+    var page = await store.GetMessagesByUsernameAsync("ALICE", null, 80, CancellationToken.None);
+
+    _ = Assert.Single(page);
+  }
+
+  [Fact]
+  public async Task GetMessagesByUsernamePaginatesStrictlyBeforeTheAnchor()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    var start = DateTimeOffset.UtcNow;
+
+    for (var i = 0; i < 5; i++)
+    {
+      _ = await store.TryInsertMessageAsync(
+        BuildMessage(id: $"msg-{i}", username: "alice", receivedAt: start.AddSeconds(i)), CancellationToken.None);
+    }
+
+    var firstPage = await store.GetMessagesByUsernameAsync("alice", null, 3, CancellationToken.None);
+    Assert.Equal(["msg-2", "msg-3", "msg-4"], firstPage.Select(m => m.Id));
+
+    var secondPage = await store.GetMessagesByUsernameAsync("alice", "msg-2", 3, CancellationToken.None);
+    Assert.Equal(["msg-0", "msg-1"], secondPage.Select(m => m.Id));
+  }
+
+  [Fact]
+  public async Task GetMessagesByUsernameWithAnUnknownBeforeIdReturnsTheNewestPage()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    _ = await store.TryInsertMessageAsync(BuildMessage(id: "msg-1", username: "alice"), CancellationToken.None);
+
+    var page = await store.GetMessagesByUsernameAsync("alice", "does-not-exist", 80, CancellationToken.None);
+
+    _ = Assert.Single(page);
+  }
+
+  [Fact]
+  public async Task GetMessagesByUsernameIncludesSessionIdUnlikeGetRecentMessages()
+  {
+    await using var documentStore = await BuildCleanDocumentStoreAsync();
+    var store = new ChatStore(documentStore);
+    var withSession = BuildMessage(id: "msg-1", username: "alice") with { SessionId = "session-1" };
+    _ = await store.TryInsertMessageAsync(withSession, CancellationToken.None);
+
+    var page = await store.GetMessagesByUsernameAsync("alice", null, 80, CancellationToken.None);
+
+    var stored = Assert.Single(page);
+    Assert.Equal("session-1", stored.SessionId);
+  }
 }

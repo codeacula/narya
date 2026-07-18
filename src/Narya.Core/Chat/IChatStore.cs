@@ -131,4 +131,30 @@ public interface IChatStore
     string deletedReason,
     Guid moderationEventId,
     CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Keyset pagination over ONE user's <c>chat_messages</c>, newest-first internally then
+  /// reversed to oldest→newest on return (same shape convention as
+  /// <see cref="GetRecentMessagesAsync"/>) — a port of legacy's <c>GET /api/viewers/:login/messages</c>
+  /// (Phase 3 Task 5). Scoped by <paramref name="username"/> (case-insensitive) so a page can
+  /// never leak another viewer's rows — unlike <see cref="GetRecentMessagesAsync"/>, this
+  /// includes <see cref="ChatMessage.SessionId"/> on every returned message, matching that
+  /// route's distinct legacy projection.
+  ///
+  /// <paramref name="beforeId"/> <see langword="null"/> fetches the newest page for this user.
+  /// Otherwise the anchor is the message with that id, and the page is every one of this user's
+  /// rows strictly older than it. Legacy's SQL keys the boundary on the composite
+  /// <c>(received_at, id) &lt; (anchor.received_at, anchor.id)</c> to break ties between
+  /// same-instant messages; this port boundaries on <c>ReceivedAt</c> alone — Postgres
+  /// timestamps carry microsecond resolution (legacy's SQLite ISO-string timestamps are
+  /// millisecond), so an exact tie is already vanishingly rare, and Marten's LINQ provider has
+  /// no first-class support for the string-inequality half of a tuple comparison. The anchor
+  /// lookup is by id alone, not scoped to <paramref name="username"/> — mirrors legacy's SQLite
+  /// subquery (<c>select received_at, id from chat_messages where id = ?</c>), which carries no
+  /// username filter either. A <paramref name="beforeId"/> that does not exist (never ingested)
+  /// returns the newest page, same as omitting it — legacy's subquery silently yields no rows
+  /// for the boundary in that case, so no filter is applied.
+  /// </summary>
+  Task<IReadOnlyList<ChatMessage>> GetMessagesByUsernameAsync(
+    string username, string? beforeId, int limit, CancellationToken cancellationToken);
 }
