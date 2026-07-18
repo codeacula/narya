@@ -67,12 +67,6 @@ public sealed class AutomationTriggerStore(IDocumentStore store, TimeProvider ti
     return [.. docs.Select(ToTrigger).OrderBy(t => t.CreatedAt)];
   }
 
-  public async Task<IReadOnlyList<AutomationTrigger>> GetByActionIdAsync(Guid actionId, CancellationToken cancellationToken)
-  {
-    await using var session = store.QuerySession();
-    return await AutomationTriggerQueries.ByActionIdAsync(session, actionId, cancellationToken).ConfigureAwait(false);
-  }
-
   /// <summary>
   /// The action-exists check and the insert run inside one advisory-locked transaction — see this
   /// type's doc comment and <see cref="Narya.Database.Common.ActionReferenceLock"/>.
@@ -219,7 +213,14 @@ public sealed class AutomationTriggerStore(IDocumentStore store, TimeProvider ti
       {
         connection = store.Storage.Database.CreateConnection();
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        // READ COMMITTED explicitly — the action-exists check inside this scope is only correct
+        // because it takes a fresh snapshot AFTER the advisory lock was granted, and so sees a
+        // concurrent delete that already committed. A pinned (REPEATABLE READ / SERIALIZABLE)
+        // snapshot taken at lock acquisition would let this write a trigger against an action
+        // the delete already removed. See ActionStore.DeleteAsync for the mirror image.
+        transaction = await connection
+          .BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken)
+          .ConfigureAwait(false);
         await ActionReferenceLock.TakeAsync(transaction, actionId, cancellationToken).ConfigureAwait(false);
 
         // ForTransaction enlists Marten in the transaction we own: the session borrows THIS

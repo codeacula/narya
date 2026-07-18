@@ -10,11 +10,13 @@ namespace Narya.Database.Automation;
 /// <para>
 /// <c>Narya.Database.Actions.ActionStore.DeleteAsync</c> must run
 /// <see cref="ByActionIdAsync"/> inside its own advisory-locked transaction (see
-/// <c>Narya.Database.Common.ActionReferenceLock</c>) — going through
-/// <see cref="IAutomationTriggerStore.GetByActionIdAsync"/> would open a second session, and
-/// therefore rent a second pooled connection while holding the lock on the first. Taking the
-/// session as a parameter is what lets both callers share one query and one connection instead of
-/// duplicating the LINQ and the document→domain mapping.
+/// <c>Narya.Database.Common.ActionReferenceLock</c>). Taking the session as a PARAMETER — rather
+/// than exposing this read on <see cref="IAutomationTriggerStore"/> — is the whole point: a port
+/// method would have to open its own session, and therefore rent a second pooled connection while
+/// the caller still holds the advisory lock on the first, which is exactly the pool inversion
+/// <c>AutomationRunStore.TryClaimAsync</c> documents. There was such a port method
+/// (<c>GetByActionIdAsync</c>); it had no callers and no tests, and was removed rather than left
+/// as a correct-looking trap for the next caller who needs this read under a lock.
 /// </para>
 /// </summary>
 internal static class AutomationTriggerQueries
