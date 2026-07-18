@@ -86,12 +86,27 @@ public sealed partial class TwitchEventSubService : BackgroundService
   /// their lowercased username when Twitch omits the id — matches legacy's <c>subMergeKey</c>).
   /// A <see cref="ConcurrentDictionary{TKey,TValue}"/> rather than a plain dictionary because
   /// <c>ChannelSubscribe</c>/<c>ChannelSubscriptionMessage</c> notifications can arrive on
-  /// different threads. Entries are never proactively swept — matching legacy's own
-  /// check-on-read cleanup (<c>deleteExpiredSubs</c> runs only inside <c>takeRecentSub</c>, never
-  /// on a timer) — bounded by "one entry per user who has ever subscribed this process's
-  /// uptime", which is not a Phase 2 concern.
+  /// different threads — but a thread-safe map is not, on its own, enough: both handlers below
+  /// do a read-then-decide-then-write against this map (is there a pending entry, is it within
+  /// the window, does it already have a message), and that compound operation needs
+  /// <see cref="_subMergeLock"/> to be atomic, or a concurrent redelivery of either event (an
+  /// EventSub reconnect can redeliver) could race two threads past the same decision and
+  /// double-publish. Entries are never proactively swept — matching legacy's own check-on-read
+  /// cleanup (<c>deleteExpiredSubs</c> runs only inside <c>takeRecentSub</c>, never on a timer)
+  /// — bounded by "one entry per user who has ever subscribed this process's uptime", which is
+  /// not a Phase 2 concern.
   /// </summary>
   private readonly ConcurrentDictionary<string, PendingSubscription> _pendingSubscriptions = new(StringComparer.Ordinal);
+
+  /// <summary>
+  /// Guards the compound read-decide-write against <see cref="_pendingSubscriptions"/> in
+  /// <see cref="OnChannelSubscribeAsync"/> and <see cref="OnChannelSubscriptionMessageAsync"/> —
+  /// see that field's doc comment for why the map's own thread safety is not sufficient on its
+  /// own. Event volume here is low (subs, not chat messages), so a plain lock around the whole
+  /// decision is simpler than threading <c>AddOrUpdate</c>/<c>GetOrAdd</c> callbacks through two
+  /// different notification types.
+  /// </summary>
+  private readonly Lock _subMergeLock = new();
 
   /// <summary>
   /// Reentrancy guard for <see cref="ReconnectWithBackoffAsync"/>: 0 = no loop running, 1 = a
@@ -145,11 +160,12 @@ public sealed partial class TwitchEventSubService : BackgroundService
 
     // The dispatch handlers (Phase 2 Task 6): each wraps a pure EventSubDispatcher call and
     // publishes the result through a freshly scoped IMediator — see PublishNotificationAsync's
-    // doc comment for why a scope is created per event rather than resolving IMediator once
-    // (this service is a singleton; IMediator's default registration is scoped). Every handler
-    // catches broadly and logs rather than throws: TwitchLib awaits each AsyncEventHandler in
-    // turn before resuming its own receive loop, so one bad event (a null-forgiving field that
-    // turned out null, a downstream MediatR handler that threw) must never take the socket down.
+    // doc comment for why a scope is created per event even though IMediator itself would
+    // resolve fine from the root container (MediatR 13 registers it Transient by default, and
+    // nothing here overrides that lifetime). Every handler catches broadly and logs rather than
+    // throws: TwitchLib awaits each AsyncEventHandler in turn before resuming its own receive
+    // loop, so one bad event (a null-forgiving field that turned out null, a downstream MediatR
+    // handler that threw) must never take the socket down.
     _client.ChannelChatMessage += OnChatMessageAsync;
     _client.ChannelChatMessageDelete += OnChatMessageDeleteAsync;
     _client.ChannelChatClear += OnChatClearAsync;
@@ -438,10 +454,20 @@ public sealed partial class TwitchEventSubService : BackgroundService
   }
 
   /// <summary>
-  /// Remembers this subscribe in <see cref="_pendingSubscriptions"/> BEFORE publishing, so a
-  /// <c>channel.subscription.message</c> that arrives while the publish is still in flight
-  /// (MediatR handlers run synchronously relative to this await, but a future handler could
-  /// yield) still finds the pending entry — see <see cref="OnChannelSubscriptionMessageAsync"/>.
+  /// Two-way subscribe/subscription.message merge (twitchlib-spec.md §3.5), the subscribe side.
+  /// Twitch does NOT guarantee <c>channel.subscribe</c> arrives before
+  /// <c>channel.subscription.message</c> for a resub (legacy's <c>eventsub.ts</c> documents this
+  /// and consults its merge state from both branches), so this must also handle a
+  /// <c>channel.subscription.message</c> that already landed for this chatter — see
+  /// <see cref="EventSubDispatcher.ShouldSkipSubscribeForPendingMessage"/>, the pure decision
+  /// this method's lookup feeds. The whole read-decide-write against
+  /// <see cref="_pendingSubscriptions"/> runs under <see cref="_subMergeLock"/> so a concurrent
+  /// redelivery cannot race two threads past that decision (twitchlib-spec.md's "a redelivered
+  /// subscription.message doesn't double-fire" invariant, extended to this side of the merge).
+  /// When it does NOT skip, this remembers the subscribe in <see cref="_pendingSubscriptions"/>
+  /// BEFORE publishing, so a <c>channel.subscription.message</c> that arrives while the publish
+  /// is still in flight still finds the pending entry — see
+  /// <see cref="OnChannelSubscriptionMessageAsync"/>.
   /// </summary>
   internal async Task OnChannelSubscribeAsync(object? sender, ChannelSubscribeArgs e)
   {
@@ -456,7 +482,32 @@ public sealed partial class TwitchEventSubService : BackgroundService
       }
 
       var key = SubscriptionMergeKey(e.Payload.Event.UserId, e.Payload.Event.UserName);
-      _pendingSubscriptions[key] = new PendingSubscription(notification.Event.Id, now, HasMessage: false);
+      bool skip;
+
+      lock (_subMergeLock)
+      {
+        var pending = _pendingSubscriptions.TryGetValue(key, out var existing)
+          ? (PendingSubscription?)existing
+          : null;
+        skip = EventSubDispatcher.ShouldSkipSubscribeForPendingMessage(pending, now);
+
+        if (skip)
+        {
+          // The subscription.message already published the richer resub event; this "new
+          // sub" notification adds nothing. Consume the pending entry so an unrelated later
+          // subscribe for the same user does not find a stale "already merged" marker.
+          _ = _pendingSubscriptions.TryRemove(key, out _);
+        }
+        else
+        {
+          _pendingSubscriptions[key] = new PendingSubscription(notification.Event.Id, now, HasMessage: false);
+        }
+      }
+
+      if (skip)
+      {
+        return;
+      }
 
       await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
     }
@@ -467,14 +518,18 @@ public sealed partial class TwitchEventSubService : BackgroundService
   }
 
   /// <summary>
-  /// The subscribe/subscription.message merge (twitchlib-spec.md §3.5): looks up
-  /// <see cref="_pendingSubscriptions"/> for this subscriber and, if a subscribe landed within
-  /// <see cref="EventSubDispatcher.SubscriptionMergeWindow"/> (the pure decision is
+  /// Two-way subscribe/subscription.message merge (twitchlib-spec.md §3.5), the message side:
+  /// looks up <see cref="_pendingSubscriptions"/> for this subscriber and, if a subscribe landed
+  /// within <see cref="EventSubDispatcher.SubscriptionMergeWindow"/> (the pure decision is
   /// <see cref="EventSubDispatcher.ShouldMergeSubscriptionMessage"/>) and has not already been
-  /// merged into once, updates that stream event instead of emitting a second one. Otherwise —
-  /// no pending entry, the window lapsed, or this is a duplicate message notification for a
-  /// resub already merged — falls through to a brand-new stream event (the monthly-resub case,
-  /// where Twitch never fires <c>channel.subscribe</c> at all).
+  /// merged into, updates that stream event instead of emitting a second one. If a pending entry
+  /// exists but IS already merged (<c>HasMessage</c> true), this is a duplicate redelivery of
+  /// this same notification and is dropped outright — nothing is published. Otherwise — no
+  /// pending entry, or the window lapsed — falls through to a brand-new stream event (the
+  /// monthly-resub case, where Twitch never fires <c>channel.subscribe</c> at all). The whole
+  /// read-decide-write runs under <see cref="_subMergeLock"/> for the same reason
+  /// <see cref="OnChannelSubscribeAsync"/>'s does: a concurrent redelivery must not race two
+  /// threads past the <c>HasMessage</c> guard and double-publish an update.
   /// </summary>
   internal async Task OnChannelSubscriptionMessageAsync(object? sender, ChannelSubscriptionMessageArgs e)
   {
@@ -482,25 +537,40 @@ public sealed partial class TwitchEventSubService : BackgroundService
     {
       var now = _timeProvider.GetUtcNow();
       var key = SubscriptionMergeKey(e.Payload.Event.UserId, e.Payload.Event.UserName);
+      INotification? notification;
 
-      if (_pendingSubscriptions.TryGetValue(key, out var pending)
-        && EventSubDispatcher.ShouldMergeSubscriptionMessage(pending.SubscribedAt, now))
+      lock (_subMergeLock)
       {
-        if (pending.HasMessage)
-        {
-          // A duplicate subscription.message notification for a resub already merged.
-          return;
-        }
+        var pending = _pendingSubscriptions.TryGetValue(key, out var existing)
+          ? (PendingSubscription?)existing
+          : null;
 
-        var update = EventSubDispatcher.DispatchSubscriptionMessageAsMerge(e, pending.StreamEventId);
-        _pendingSubscriptions[key] = pending with { HasMessage = true };
-        await PublishNotificationAsync(update, _stoppingToken).ConfigureAwait(false);
-        return;
+        if (pending is { } value && EventSubDispatcher.ShouldMergeSubscriptionMessage(value.SubscribedAt, now))
+        {
+          if (value.HasMessage)
+          {
+            // A duplicate subscription.message redelivery for a resub already merged.
+            notification = null;
+          }
+          else
+          {
+            var update = EventSubDispatcher.DispatchSubscriptionMessageAsMerge(e, value.StreamEventId);
+            _pendingSubscriptions[key] = value with { HasMessage = true };
+            notification = update;
+          }
+        }
+        else
+        {
+          var fresh = EventSubDispatcher.DispatchSubscriptionMessageAsNewEvent(e, now);
+          _pendingSubscriptions[key] = new PendingSubscription(fresh.Event.Id, now, HasMessage: true);
+          notification = fresh;
+        }
       }
 
-      var notification = EventSubDispatcher.DispatchSubscriptionMessageAsNewEvent(e, now);
-      _pendingSubscriptions[key] = new PendingSubscription(notification.Event.Id, now, HasMessage: true);
-      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+      if (notification is not null)
+      {
+        await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+      }
     }
     catch (Exception ex)
     {
@@ -682,13 +752,16 @@ public sealed partial class TwitchEventSubService : BackgroundService
   }
 
   /// <summary>
-  /// This service is a registered singleton (one instance for the process lifetime), but
-  /// <see cref="IMediator"/>'s default MediatR registration is scoped — resolving it once in
-  /// the constructor and holding onto it would either fail outright or (depending on how the
-  /// root container is configured) silently capture a scope that outlives every request it was
-  /// ever meant to be scoped to. A fresh <see cref="IServiceScope"/> per event keeps every
-  /// downstream MediatR handler (and anything scoped it resolves, e.g. a scoped DbContext a
-  /// later phase's handler might need) on the same footing as a normal HTTP request.
+  /// This service is a registered singleton (one instance for the process lifetime). Resolving
+  /// <see cref="IMediator"/> once in the constructor and holding onto it would not actually fail:
+  /// MediatR 13 registers <see cref="IMediator"/> <c>Transient</c> by default
+  /// (<c>MediatRServiceConfiguration.Lifetime</c>), not <c>Scoped</c>, and nothing in this
+  /// solution overrides that. A fresh <see cref="IServiceScope"/> per event is still the right
+  /// call regardless: it is good practice for a singleton to avoid holding a service resolved
+  /// from the root container, and it isolates every downstream MediatR handler on the same
+  /// footing as a normal HTTP request — including any later phase's handler that resolves an
+  /// actually-scoped dependency (e.g. a scoped DbContext), which a root-resolved
+  /// <see cref="IMediator"/> would otherwise hand a stale or captive scope.
   /// </summary>
   private async Task PublishNotificationAsync(INotification notification, CancellationToken cancellationToken)
   {

@@ -167,6 +167,52 @@ public sealed class TwitchEventSubServiceDispatchTests
     await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventUpdatedNotification>(), Arg.Any<CancellationToken>());
   }
 
+  /// <summary>
+  /// Twitch does NOT guarantee <c>channel.subscribe</c> arrives before
+  /// <c>channel.subscription.message</c> — legacy's <c>eventsub.ts</c> handles both orders. This
+  /// is the order the pre-fix code got wrong: a <c>channel.subscription.message</c> that lands
+  /// FIRST already publishes the full resub stream event, so the <c>channel.subscribe</c> that
+  /// follows within the merge window must be skipped rather than publishing a second, duplicate
+  /// "new sub" alert for the same subscription.
+  /// </summary>
+  [Fact]
+  public async Task MessageThenSubscribeWithinTheWindowPublishesExactlyOneAlertNotADuplicate()
+  {
+    var f = Build();
+    var messageArgs = SubscriptionMessageArgs(userId: "42", userName: "Resubber", tier: "1000", cumulativeMonths: 3);
+    var subscribeArgs = SubscribeArgs(userId: "42", userName: "Resubber", tier: "1000");
+
+    await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
+    await f.Service.OnChannelSubscribeAsync(sender: null, subscribeArgs);
+
+    // Exactly one alert total: the resub the message published. The later subscribe must not
+    // add a second "new sub" StreamEventOccurredNotification, and must not touch the update
+    // notification either.
+    await f.Mediator.Received(1).Publish(
+      Arg.Is<StreamEventOccurredNotification>(n => n.Event.Detail == "resub · Tier 1 · 3 months"), Arg.Any<CancellationToken>());
+    await f.Mediator.DidNotReceive().Publish(Arg.Any<StreamEventUpdatedNotification>(), Arg.Any<CancellationToken>());
+  }
+
+  /// <summary>
+  /// A redelivered <c>channel.subscription.message</c> for a resub already merged (e.g. an
+  /// EventSub reconnect redelivering the same notification) must be dropped outright — not
+  /// published as a second <see cref="StreamEventUpdatedNotification"/>.
+  /// </summary>
+  [Fact]
+  public async Task ADuplicateSubscriptionMessageRedeliveryIsDroppedNotPublishedAgain()
+  {
+    var f = Build();
+    var subscribeArgs = SubscribeArgs(userId: "42", userName: "Resubber", tier: "1000");
+    var messageArgs = SubscriptionMessageArgs(userId: "42", userName: "Resubber", tier: "1000", cumulativeMonths: 3);
+
+    await f.Service.OnChannelSubscribeAsync(sender: null, subscribeArgs);
+    await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
+    // The same subscription.message redelivered.
+    await f.Service.OnChannelSubscriptionMessageAsync(sender: null, messageArgs);
+
+    await f.Mediator.Received(1).Publish(Arg.Any<StreamEventUpdatedNotification>(), Arg.Any<CancellationToken>());
+  }
+
   private static ChannelChatMessageArgs ChatMessageArgs(string chatterLogin) => new()
   {
     Payload = new EventSubNotificationPayload<ChannelChatMessage>

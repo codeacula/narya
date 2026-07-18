@@ -15,6 +15,14 @@ namespace Narya.Twitch.Chat;
 /// active stream session. Phase 3's persistence handler fills these in before broadcasting to
 /// clients; the values here are what the dispatcher itself can know from the EventSub payload
 /// alone.
+///
+/// <see cref="ChatterUserId"/> is Twitch's stable numeric user id for the chatter — distinct
+/// from <see cref="Username"/>, which is the login and can be reused if an account is renamed.
+/// The spec's dispatch table lists it because Phase 3 needs a stable key for persistence, dedup,
+/// and viewer lookups; <see cref="EventSub.EventSubDispatcher.DispatchChatMessage"/> is what
+/// populates it, straight from the EventSub payload's <c>chatter_user_id</c>. Message
+/// fragments/emotes (TwitchLib's <c>Message.Fragments</c>) are deliberately not captured here —
+/// left for a later phase.
 /// </summary>
 public sealed record ChatMessage(
   string Id,
@@ -25,6 +33,7 @@ public sealed record ChatMessage(
   string Message,
   DateTimeOffset ReceivedAt,
   IReadOnlyDictionary<string, string>? Badges,
+  string ChatterUserId,
   bool IsFirstTimer = false,
   bool IsFirstThisSession = false,
   bool IsFirstEver = false,

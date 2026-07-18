@@ -48,7 +48,7 @@ public sealed class RealtimeBridgeCrossAssemblyTests
 
     var message = new ChatMessage(
       Id: "msg-1", Channel: "codeacula", Username: "viewer", DisplayName: "Viewer",
-      Color: null, Message: "hi", ReceivedAt: DateTimeOffset.UtcNow, Badges: null);
+      Color: null, Message: "hi", ReceivedAt: DateTimeOffset.UtcNow, Badges: null, ChatterUserId: "viewer-id-1");
 
     await mediator.Publish(new ChatMessageReceivedNotification(message));
 

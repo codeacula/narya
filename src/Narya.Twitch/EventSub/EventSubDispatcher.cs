@@ -47,10 +47,30 @@ public static class EventSubDispatcher
   /// subscribe for this chatter in its own in-memory map (necessarily stateful — a pure
   /// function has nowhere to remember "did I already see a subscribe for this user" between
   /// calls). Given the pending entry's timestamp, this is what actually decides "in window or
-  /// not", kept pure and separately testable from the stateful lookup around it.
+  /// not", kept pure and separately testable from the stateful lookup around it. This is the
+  /// message-arrives side of the merge; <see cref="ShouldSkipSubscribeForPendingMessage"/> is
+  /// its symmetric counterpart for the subscribe-arrives side.
   /// </summary>
   public static bool ShouldMergeSubscriptionMessage(DateTimeOffset pendingSubscribedAt, DateTimeOffset now) =>
     now >= pendingSubscribedAt && now - pendingSubscribedAt <= SubscriptionMergeWindow;
+
+  /// <summary>
+  /// The symmetric merge decision for the OTHER delivery order: Twitch does not guarantee
+  /// <c>channel.subscribe</c> arrives before <c>channel.subscription.message</c> for a resub
+  /// (legacy's <c>eventsub.ts</c> documents this and handles both — its <c>takeRecentSub</c> is
+  /// consulted from both the subscribe AND the message branch). True when a
+  /// <c>channel.subscription.message</c> already landed for this chatter within
+  /// <see cref="SubscriptionMergeWindow"/> — <paramref name="pending"/> has a value and its
+  /// <c>HasMessage</c> is set — meaning the richer resub stream event it already published makes
+  /// this "new sub" notification redundant, so <see cref="TwitchEventSubService.OnChannelSubscribeAsync"/>
+  /// must skip publishing rather than emit a duplicate on-screen alert. A pending entry that is
+  /// still a plain, not-yet-merged subscribe (<c>HasMessage</c> false) does not trigger a skip —
+  /// that is a different subscribe, not the other half of an in-flight merge. <c>internal</c>
+  /// (rather than <c>public</c>) because <see cref="TwitchEventSubService.PendingSubscription"/>
+  /// is itself <c>internal</c>.
+  /// </summary>
+  internal static bool ShouldSkipSubscribeForPendingMessage(TwitchEventSubService.PendingSubscription? pending, DateTimeOffset now) =>
+    pending is { HasMessage: true } value && ShouldMergeSubscriptionMessage(value.SubscribedAt, now);
 
   /// <summary>
   /// Bot-loop guard: a message whose <c>chatter_user_login</c> matches
@@ -79,7 +99,8 @@ public static class EventSubDispatcher
       Color: string.IsNullOrEmpty(e.Color) ? null : e.Color,
       Message: e.Message.Text,
       ReceivedAt: now,
-      Badges: ToBadgeDictionary(e.Badges));
+      Badges: ToBadgeDictionary(e.Badges),
+      ChatterUserId: e.ChatterUserId);
 
     return new ChatMessageReceivedNotification(message);
   }

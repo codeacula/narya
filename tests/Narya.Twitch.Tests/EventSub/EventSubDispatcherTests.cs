@@ -66,6 +66,7 @@ public sealed class EventSubDispatcherTests
     Assert.Equal("msg-1", message.Id);
     Assert.Equal("codeacula", message.Channel);
     Assert.Equal("viewerone", message.Username);
+    Assert.Equal("12345", message.ChatterUserId);
     Assert.Equal("ViewerOne", message.DisplayName);
     Assert.Equal("#1E90FF", message.Color);
     Assert.Equal("hello chat", message.Message);
@@ -475,6 +476,37 @@ public sealed class EventSubDispatcherTests
     var justOverAMinuteLater = Now + EventSubDispatcher.SubscriptionMergeWindow + TimeSpan.FromSeconds(1);
 
     Assert.False(EventSubDispatcher.ShouldMergeSubscriptionMessage(subscribedAt, justOverAMinuteLater));
+  }
+
+  [Fact]
+  public void ShouldSkipSubscribeForPendingMessageIsTrueWhenAMessageAlreadyLandedWithinTheWindow()
+  {
+    var pending = new TwitchEventSubService.PendingSubscription("event-1", Now, HasMessage: true);
+
+    Assert.True(EventSubDispatcher.ShouldSkipSubscribeForPendingMessage(pending, Now.AddSeconds(30)));
+  }
+
+  [Fact]
+  public void ShouldSkipSubscribeForPendingMessageIsFalseWhenThePendingEntryIsAPlainSubscribeNotYetMerged()
+  {
+    var pending = new TwitchEventSubService.PendingSubscription("event-1", Now, HasMessage: false);
+
+    Assert.False(EventSubDispatcher.ShouldSkipSubscribeForPendingMessage(pending, Now.AddSeconds(30)));
+  }
+
+  [Fact]
+  public void ShouldSkipSubscribeForPendingMessageIsFalseWhenThereIsNoPendingEntry()
+  {
+    Assert.False(EventSubDispatcher.ShouldSkipSubscribeForPendingMessage(pending: null, Now));
+  }
+
+  [Fact]
+  public void ShouldSkipSubscribeForPendingMessageIsFalseOutsideTheWindowEvenWithAMessage()
+  {
+    var pending = new TwitchEventSubService.PendingSubscription("event-1", Now, HasMessage: true);
+    var justOverAMinuteLater = Now + EventSubDispatcher.SubscriptionMergeWindow + TimeSpan.FromSeconds(1);
+
+    Assert.False(EventSubDispatcher.ShouldSkipSubscribeForPendingMessage(pending, justOverAMinuteLater));
   }
 
   [Fact]
