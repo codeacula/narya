@@ -24,6 +24,16 @@ export function playTone(freq: number, durationMs: number, volume: number) {
   osc.onended = () => void ctx.close();
 }
 
+/**
+ * Two-note rise for "chat is talking to you". Louder and longer than the whisper
+ * cue (520→660) it sits next to, because a mention is the one chat event the
+ * operator is expected to answer — but still short enough not to talk over them.
+ */
+export function playMentionAlert() {
+  playTone(660, 110, 0.34);
+  setTimeout(() => playTone(988, 190, 0.3), 105);
+}
+
 /** Rising three-note chime, distinct from the two-note mention and whisper cues. */
 export function playAttentionChime() {
   playTone(784, 90, 0.22);

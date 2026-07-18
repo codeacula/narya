@@ -394,6 +394,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .msg.hl-sub { border-left-color: var(--gold-500); background: rgba(255,184,108,0.10); }
 .msg.hl-mod { border-left-color: var(--success-base); background: rgba(80,250,123,0.09); }
 .msg.hl-vip { border-left-color: var(--note-base); background: rgba(159,110,235,0.11); }
+/* Someone said your name — the visual half of the ping cue, gold to match the
+   overlay's .chatMessage.mention. Placed after the hl- tints deliberately: at equal
+   specificity the later rule wins, so "they're talking to you" outranks the role
+   colour of whoever said it. */
+.msg.msg--mention {
+  border-left-color: var(--gold-500);
+  background: rgba(255,184,108,0.16);
+}
 .msg.hl-mod .hl-tag { color: var(--success-fg); border: 1px solid var(--success-border); background: var(--success-bg); }
 .msg.hl-vip .hl-tag { color: var(--note-fg); border: 1px solid var(--note-border); background: var(--note-bg); }
 .msg .hl-tag {
@@ -2033,14 +2041,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   display: flex;
   flex-direction: column;
   gap: 7px;
-}
-/* Explanatory line under an input — why a field can be left blank, what it falls
-   back to. Sits below the control, so the -3px pulls it inside the .field gap. */
-.field-note {
-  margin-top: -3px;
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--fg-3);
 }
 .field > span {
   font-family: var(--font-mono);

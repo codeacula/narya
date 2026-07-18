@@ -2,7 +2,7 @@ import React from 'react';
 import { OVERLAY_CHAT_EXPIRE_MS, OVERLAY_CHAT_FADE_MS } from '../shared/constants';
 import { getRoleFromBadges, type Role } from '../shared/roles';
 import type { ChatMessage, ChatModerationEvent } from '../shared/api';
-import { parseLinkToken } from './chatText';
+import { isMentionOf, parseLinkToken } from './chatText';
 import { useSocket } from './realtime';
 import { getEmotes, getHealth, getRecentChat } from './services/dashboard';
 
@@ -209,7 +209,7 @@ export function ChatPanel({ compact = false }: { compact?: boolean }) {
       ) : null}
       {visibleMessages.map(message => {
         const role = getRole(message.badges);
-        const isMention = channel ? message.message.toLowerCase().includes(channel) : false;
+        const isMention = isMentionOf(message.message, channel);
         const classes = [
           'chatMessage',
           message.deletedAt ? 'moderated' : '',
