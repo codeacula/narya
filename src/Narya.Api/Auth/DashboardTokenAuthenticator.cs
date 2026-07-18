@@ -1,3 +1,4 @@
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -25,14 +26,32 @@ public sealed class DashboardTokenAuthenticator(IOptions<NaryaAuthOptions> optio
     : OverlayToken.Derive(options.Value.DashboardToken);
 
   /// <summary>
-  /// False means no dashboard token is configured at all. <see cref="ResolveRole"/>
-  /// always returns null in that state — callers that need the "no token configured"
-  /// loopback fallback (currently only <see cref="DashboardTokenMiddleware"/>) check this
-  /// first and apply their own fallback; a SignalR connection has no comparable notion of
-  /// "loopback caller" to fall back to, so <see cref="Narya.Api.Realtime.RealtimeHub"/>
-  /// treats a null role as unauthenticated outright.
+  /// False means no dashboard token is configured at all. <see cref="ResolveRole"/> always
+  /// returns null in that state; <see cref="ResolveLoopbackRole"/> is the fallback both the
+  /// HTTP middleware and the SignalR hub apply in that case.
   /// </summary>
   public bool HasDashboardToken => !string.IsNullOrEmpty(_dashboardToken);
+
+  /// <summary>
+  /// The "no token configured, so this deployment is loopback-only" fallback, shared by
+  /// <see cref="DashboardTokenMiddleware"/> and <see cref="Narya.Api.Realtime.RealtimeHub"/> so
+  /// the HTTP and SignalR paths cannot drift on it. Returns <see cref="OperatorRole"/> only when
+  /// no dashboard token is configured AND <paramref name="remoteIp"/> is a verified loopback
+  /// address; null otherwise.
+  ///
+  /// <para>
+  /// Fails CLOSED on a null <paramref name="remoteIp"/> (e.g. Kestrel over a Unix domain socket):
+  /// null is not loopback. What makes this fallback safe at all is
+  /// <see cref="StartupBindingGuard"/> — with no token configured the process refuses to bind
+  /// anything but loopback, so a loopback peer here really is a local caller and not a reverse
+  /// proxy relaying the internet. <see cref="TrustedProxies"/> covers the remaining case where a
+  /// proxy is deliberately allowlisted.
+  /// </para>
+  /// </summary>
+  public string? ResolveLoopbackRole(IPAddress? remoteIp) =>
+    !HasDashboardToken && remoteIp is not null && IPAddress.IsLoopback(remoteIp)
+      ? OperatorRole
+      : null;
 
   /// <summary>
   /// Resolves <paramref name="provided"/> against the configured operator/overlay tokens

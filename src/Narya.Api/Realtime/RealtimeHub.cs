@@ -14,8 +14,11 @@ namespace Narya.Api.Realtime;
 /// SignalR has no request headers to piggyback auth on the way the HTTP middleware does
 /// (a browser <c>EventSource</c>/WebSocket upgrade can't set an Authorization header), so
 /// the token travels as the <c>access_token</c> query-string parameter — the standard
-/// SignalR convention for this exact situation. Only that token is trusted; no header is
-/// consulted for role or client IP.
+/// SignalR convention for this exact situation. No request header is trusted for the role. The
+/// connection's peer address is consulted only for the no-token-configured loopback fallback
+/// (<see cref="DashboardTokenAuthenticator.ResolveLoopbackRole"/>), and only after
+/// <c>UseForwardedHeaders</c> has resolved it against the <see cref="TrustedProxies"/>
+/// allowlist — a client-supplied <c>X-Forwarded-For</c> from an untrusted peer is ignored.
 /// </summary>
 public sealed class RealtimeHub(DashboardTokenAuthenticator authenticator, RealtimeConnectionTracker connectionTracker) : Hub
 {
@@ -24,9 +27,17 @@ public sealed class RealtimeHub(DashboardTokenAuthenticator authenticator, Realt
 
   public override async Task OnConnectedAsync()
   {
-    var token = Context.GetHttpContext()?.Request.Query["access_token"].ToString();
+    var httpContext = Context.GetHttpContext();
+    var token = httpContext?.Request.Query["access_token"].ToString();
 
-    switch (authenticator.ResolveRole(string.IsNullOrEmpty(token) ? null : token))
+    var role = authenticator.ResolveRole(string.IsNullOrEmpty(token) ? null : token)
+      // Loopback parity with DashboardTokenMiddleware. Without it the local no-token dashboard
+      // could load REST data but never receive a single realtime update or heartbeat, because
+      // ResolveRole always returns null when no token is configured. Same shared decision, so
+      // the HTTP and SignalR paths cannot drift.
+      ?? authenticator.ResolveLoopbackRole(httpContext?.Connection.RemoteIpAddress);
+
+    switch (role)
     {
       case DashboardTokenAuthenticator.OperatorRole:
         // Operators join ONLY the operator group. RealtimeBroadcastService always sends
@@ -42,9 +53,9 @@ public sealed class RealtimeHub(DashboardTokenAuthenticator authenticator, Realt
         break;
 
       default:
-        // Reject unauthenticated. No token, an unrecognized token, or no dashboard
-        // token configured at all (HasDashboardToken == false) all resolve to a null
-        // role here — none of them get a connection. Deliberately NOT added to
+        // Reject unauthenticated. No token, an unrecognized token, or no dashboard token
+        // configured at all with a non-loopback (or unknown) peer address all resolve to a
+        // null role here — none of them get a connection. Deliberately NOT added to
         // connectionTracker — see that class's doc comment for why OnDisconnectedAsync
         // removing an id that was never added is still safe.
         Context.Abort();

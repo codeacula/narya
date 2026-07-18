@@ -1,5 +1,3 @@
-using System.Net;
-
 namespace Narya.Api.Auth;
 
 /// <summary>
@@ -12,10 +10,21 @@ namespace Narya.Api.Auth;
 /// credential, so it must not be able to reach anything beyond what an overlay
 /// needs to render itself.
 ///
-/// Token→role resolution itself lives in <see cref="DashboardTokenAuthenticator"/>
-/// (shared with <see cref="Narya.Api.Realtime.RealtimeHub"/>) — this class owns only the
-/// HTTP-specific concerns: extracting the token from the request, the loopback fallback
-/// when no token is configured, the overlay path allowlist, and the response shapes.
+/// Token→role resolution — including the no-token loopback fallback
+/// (<see cref="DashboardTokenAuthenticator.ResolveLoopbackRole"/>) — lives in
+/// <see cref="DashboardTokenAuthenticator"/> (shared with
+/// <see cref="Narya.Api.Realtime.RealtimeHub"/>); this class owns only the HTTP-specific
+/// concerns: extracting the token from the request, the overlay path allowlist, and the
+/// response shapes.
+///
+/// <para>
+/// This middleware does NOT by itself reproduce legacy's rule that a non-loopback deployment
+/// must have a token. Legacy enforced that by refusing to BIND at startup, and a per-request
+/// peer-address check cannot substitute for it: behind a same-host reverse proxy every
+/// forwarded request has a loopback peer address. <see cref="StartupBindingGuard"/> is what
+/// ports the startup rule, and <see cref="TrustedProxies"/> is what makes the peer address
+/// reflect the real client. All three are required together.
+/// </para>
 /// </summary>
 public sealed class DashboardTokenMiddleware(RequestDelegate next, DashboardTokenAuthenticator authenticator)
 {
@@ -72,10 +81,9 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, DashboardToke
 
     if (!_authenticator.HasDashboardToken)
     {
-      // No token configured: the deployment is assumed loopback-only (the
-      // legacy server refuses to bind non-loopback with no token at startup;
-      // here we enforce the same intent per-request instead).
-      if (IsLoopback(context))
+      // No token configured: StartupBindingGuard has already proven the process is bound to
+      // loopback only, so a loopback caller here is a genuinely local one.
+      if (_authenticator.ResolveLoopbackRole(context.Connection.RemoteIpAddress) == OperatorRole)
       {
         context.Items[RoleItemKey] = OperatorRole;
         await _next(context).ConfigureAwait(false);
@@ -136,16 +144,6 @@ public sealed class DashboardTokenMiddleware(RequestDelegate next, DashboardToke
 
     var queryToken = request.Query["token"].ToString();
     return string.IsNullOrEmpty(queryToken) ? null : queryToken;
-  }
-
-  private static bool IsLoopback(HttpContext context)
-  {
-    var remoteIp = context.Connection.RemoteIpAddress;
-    // Fail CLOSED: a null remote address (e.g. Kestrel over a Unix domain
-    // socket behind a reverse proxy — a common deployment) must NOT be
-    // treated as loopback. Only a genuine, verified loopback address grants
-    // operator access when no token is configured.
-    return remoteIp is not null && IPAddress.IsLoopback(remoteIp);
   }
 
   private static Task WriteUnauthorized(HttpContext context)

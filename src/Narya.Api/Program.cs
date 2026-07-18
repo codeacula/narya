@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 
 using Marten;
 
+using Microsoft.AspNetCore.HttpOverrides;
+
 using Narya.Api.Auth;
 using Narya.Api.Automation;
 using Narya.Api.Dashboard;
@@ -19,6 +21,19 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<NaryaAuthOptions>(builder.Configuration.GetSection("Narya"));
 builder.Services.AddSingleton<DashboardTokenAuthenticator>();
+
+// Narya is hosted behind a same-host reverse proxy, so DashboardTokenMiddleware's loopback
+// decision would otherwise be made against the proxy's loopback peer address for every request
+// on the internet. Narya:TrustedProxies is the explicit allowlist that makes RemoteIpAddress the
+// real client instead. It defaults to EMPTY and empty means TRUST NO PROXY — which, per
+// TrustedProxies' doc comment, has to be expressed by leaving the middleware uninstalled rather
+// than by configuring it with empty Known* lists (ASP.NET reads those as "trust everyone").
+var trustedProxies = TrustedProxies.Read(builder.Configuration);
+if (trustedProxies.Length > 0)
+{
+  _ = builder.Services.Configure<ForwardedHeadersOptions>(
+    options => TrustedProxies.Configure(options, trustedProxies));
+}
 
 // Registered unconditionally (not inside the SkipInfrastructure guard below): RealtimeHub
 // depends on it regardless of which mode is active, and it holds no infrastructure connection
@@ -91,6 +106,15 @@ if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
 
 var app = builder.Build();
 
+// MUST be the first middleware: everything downstream that reads RemoteIpAddress — above all
+// DashboardTokenMiddleware's loopback fallback — has to see the real client, not the proxy.
+// Installed only when an allowlist exists; with none, an X-Forwarded-For header is never
+// consulted at all and the peer address stands as-is.
+if (trustedProxies.Length > 0)
+{
+  _ = app.UseForwardedHeaders();
+}
+
 // Static SPA assets (wwwroot) are never gated by the dashboard token — only
 // /api is, mirroring legacy's `app.use('/api', requireDashboardToken)`. wwwroot
 // may not exist yet at this phase; UseStaticFiles is a no-op file-not-found in
@@ -145,4 +169,26 @@ app.MapFallback(async context =>
   await context.Response.SendFileAsync(indexPath).ConfigureAwait(false);
 });
 
-app.Run();
+// Deliberately StartAsync + WaitForShutdownAsync rather than Run(): the bound addresses only
+// become readable from IServerAddressesFeature once the server has started (a --urls argument or
+// ASPNETCORE_URLS is applied at start, so reading configuration instead would miss both). The
+// guard therefore runs immediately after start and stops the host again before serving anything
+// meaningful if the deployment is unsafe. Skipped under SkipInfrastructure, where the test host
+// binds an ephemeral non-loopback-looking address with no token by design — the guard itself is
+// covered directly by StartupBindingGuardTests.
+await app.StartAsync().ConfigureAwait(false);
+
+if (!builder.Configuration.GetValue<bool>("Narya:SkipInfrastructure"))
+{
+  try
+  {
+    StartupBindingGuard.Validate(app.Services, builder.Configuration["Narya:DashboardToken"]);
+  }
+  catch (InvalidOperationException)
+  {
+    await app.StopAsync().ConfigureAwait(false);
+    throw;
+  }
+}
+
+await app.WaitForShutdownAsync().ConfigureAwait(false);

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
+using Narya.Api.Auth;
 using Narya.Core.Actions;
 using Narya.Core.AppConfig;
 using Narya.Core.Automation;
@@ -32,10 +33,21 @@ public sealed class DashboardTokenMiddlewareTests
   /// </summary>
   private const string TestRemoteIpHeader = "X-Test-Remote-Ip";
 
-  private static HttpClient BuildClient(string configuredToken, bool injectRemoteIp = false) =>
+  private static HttpClient BuildClient(
+    string configuredToken,
+    bool injectRemoteIp = false,
+    params string[] trustedProxies) =>
     new WebApplicationFactory<Program>()
       .WithWebHostBuilder(b =>
       {
+        // Program.cs reads Narya:TrustedProxies as an array; UseSetting writes the indexed
+        // child keys the array binder consumes. Passing none leaves the allowlist empty, which
+        // is the production default and the fail-closed case.
+        for (var i = 0; i < trustedProxies.Length; i++)
+        {
+          _ = b.UseSetting($"{TrustedProxies.ConfigKey}:{i}", trustedProxies[i]);
+        }
+
         // UseSetting (not ConfigureAppConfiguration+AddInMemoryCollection) — Program.cs
         // reads Narya:SkipInfrastructure in top-level code via
         // builder.Configuration.GetValue<bool>(...), which runs BEFORE
@@ -237,5 +249,70 @@ public sealed class DashboardTokenMiddlewareTests
     var client = BuildClient(string.Empty);
     var response = await client.GetAsync("/api/health");
     Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+  }
+
+  /// <summary>
+  /// Fails closed with an unconfigured allowlist: the peer is not a trusted proxy, so its
+  /// <c>X-Forwarded-For</c> claim of being loopback must be ignored and the real (non-loopback)
+  /// peer address must be what the middleware judges.
+  /// </summary>
+  [Fact]
+  public async Task UntrustedPeerCannotSpoofLoopbackViaForwardedFor()
+  {
+    var client = BuildClient(string.Empty, injectRemoteIp: true);
+    client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "203.0.113.5");
+    client.DefaultRequestHeaders.Add("X-Forwarded-For", "127.0.0.1");
+
+    var response = await client.GetAsync("/api/health");
+
+    Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+  }
+
+  /// <summary>
+  /// THE regression test for the reverse-proxy bypass. With the same-host proxy allowlisted, a
+  /// request it forwards is judged against the REAL client address — so an internet client
+  /// reaching a no-token deployment through the proxy is rejected, even though the proxy's own
+  /// peer address is loopback.
+  /// </summary>
+  [Fact]
+  public async Task ForwardedNonLoopbackClientThroughATrustedProxyIsForbidden()
+  {
+    var client = BuildClient(string.Empty, injectRemoteIp: true, trustedProxies: "127.0.0.1");
+    client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "127.0.0.1");
+    client.DefaultRequestHeaders.Add("X-Forwarded-For", "198.51.100.7");
+
+    var response = await client.GetAsync("/api/health");
+
+    Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+  }
+
+  /// <summary>
+  /// The positive control for the test above — without it, that test would pass even if
+  /// <c>UseForwardedHeaders</c> were never wired up at all. A genuinely local client relayed by
+  /// the allowlisted proxy still resolves to loopback, hence operator.
+  /// </summary>
+  [Fact]
+  public async Task ForwardedLoopbackClientThroughATrustedProxyIsOperator()
+  {
+    var client = BuildClient(string.Empty, injectRemoteIp: true, trustedProxies: "127.0.0.1");
+    client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "127.0.0.1");
+    client.DefaultRequestHeaders.Add("X-Forwarded-For", "127.0.0.1");
+
+    var response = await client.GetAsync("/api/health");
+
+    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+  }
+
+  /// <summary>A CIDR entry in the allowlist is honoured the same way a bare address is.</summary>
+  [Fact]
+  public async Task TrustedProxyCidrRangeIsHonoured()
+  {
+    var client = BuildClient(string.Empty, injectRemoteIp: true, trustedProxies: "10.0.0.0/8");
+    client.DefaultRequestHeaders.Add(TestRemoteIpHeader, "10.1.2.3");
+    client.DefaultRequestHeaders.Add("X-Forwarded-For", "127.0.0.1");
+
+    var response = await client.GetAsync("/api/health");
+
+    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
   }
 }
