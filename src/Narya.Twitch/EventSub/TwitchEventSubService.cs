@@ -1,8 +1,18 @@
+using System.Collections.Concurrent;
+
+using MediatR;
+
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+using Narya.Twitch.EventSub.Notifications;
 using Narya.Twitch.Helix;
 
+using TwitchLib.EventSub.Core.EventArgs.Automod;
+using TwitchLib.EventSub.Core.EventArgs.Channel;
+using TwitchLib.EventSub.Core.EventArgs.Stream;
+using TwitchLib.EventSub.Core.EventArgs.User;
 using TwitchLib.EventSub.Websockets;
 using TwitchLib.EventSub.Websockets.Core.EventArgs;
 
@@ -52,12 +62,36 @@ public sealed partial class TwitchEventSubService : BackgroundService
 
   private readonly EventSubWebsocketClient _client;
   private readonly IHelixClient _helixClient;
+  private readonly IServiceScopeFactory _scopeFactory;
   private readonly TimeProvider _timeProvider;
   private readonly ILogger<TwitchEventSubService> _logger;
   private readonly Lock _statusLock = new();
 
   private EventSubStatus _status = EventSubStatus.Initial;
   private string? _lastSubscribedSessionId;
+
+  /// <summary>
+  /// Resolved once via <see cref="IHelixClient.GetAuthenticatedUserAsync"/> and cached for the
+  /// process lifetime — see <see cref="GetBotLoginAsync"/>. A failed resolution (bot account not
+  /// configured yet) is NOT cached, so the very next chat message tries again rather than
+  /// disabling the bot-loop guard forever because the operator connected the bot account after
+  /// this service had already started.
+  /// </summary>
+  private string? _cachedBotLogin;
+
+  /// <summary>
+  /// The subscribe/subscription.message merge state <see cref="EventSubDispatcher"/> cannot own
+  /// itself (twitchlib-spec.md §3.5: "keep a small in-memory 60s dedup map keyed by user id in
+  /// the SERVICE"). Keyed by <see cref="SubscriptionMergeKey"/> (the subscriber's user id, or
+  /// their lowercased username when Twitch omits the id — matches legacy's <c>subMergeKey</c>).
+  /// A <see cref="ConcurrentDictionary{TKey,TValue}"/> rather than a plain dictionary because
+  /// <c>ChannelSubscribe</c>/<c>ChannelSubscriptionMessage</c> notifications can arrive on
+  /// different threads. Entries are never proactively swept — matching legacy's own
+  /// check-on-read cleanup (<c>deleteExpiredSubs</c> runs only inside <c>takeRecentSub</c>, never
+  /// on a timer) — bounded by "one entry per user who has ever subscribed this process's
+  /// uptime", which is not a Phase 2 concern.
+  /// </summary>
+  private readonly ConcurrentDictionary<string, PendingSubscription> _pendingSubscriptions = new(StringComparer.Ordinal);
 
   /// <summary>
   /// Reentrancy guard for <see cref="ReconnectWithBackoffAsync"/>: 0 = no loop running, 1 = a
@@ -88,11 +122,13 @@ public sealed partial class TwitchEventSubService : BackgroundService
   public TwitchEventSubService(
     EventSubWebsocketClient client,
     IHelixClient helixClient,
+    IServiceScopeFactory scopeFactory,
     TimeProvider timeProvider,
     ILogger<TwitchEventSubService> logger)
   {
     _client = client;
     _helixClient = helixClient;
+    _scopeFactory = scopeFactory;
     _timeProvider = timeProvider;
     _logger = logger;
 
@@ -106,6 +142,33 @@ public sealed partial class TwitchEventSubService : BackgroundService
     _client.WebsocketReconnected += OnWebsocketReconnectedAsync;
     _client.ErrorOccurred += OnErrorOccurredAsync;
     _client.Revocation += OnRevocationAsync;
+
+    // The dispatch handlers (Phase 2 Task 6): each wraps a pure EventSubDispatcher call and
+    // publishes the result through a freshly scoped IMediator — see PublishNotificationAsync's
+    // doc comment for why a scope is created per event rather than resolving IMediator once
+    // (this service is a singleton; IMediator's default registration is scoped). Every handler
+    // catches broadly and logs rather than throws: TwitchLib awaits each AsyncEventHandler in
+    // turn before resuming its own receive loop, so one bad event (a null-forgiving field that
+    // turned out null, a downstream MediatR handler that threw) must never take the socket down.
+    _client.ChannelChatMessage += OnChatMessageAsync;
+    _client.ChannelChatMessageDelete += OnChatMessageDeleteAsync;
+    _client.ChannelChatClear += OnChatClearAsync;
+    _client.ChannelChatClearUserMessages += OnChatClearUserMessagesAsync;
+    _client.ChannelModerateV2 += OnChannelModerateAsync;
+    _client.ChannelFollow += OnChannelFollowAsync;
+    _client.ChannelSubscribe += OnChannelSubscribeAsync;
+    _client.ChannelSubscriptionMessage += OnChannelSubscriptionMessageAsync;
+    _client.ChannelSubscriptionGift += OnChannelSubscriptionGiftAsync;
+    _client.ChannelCheer += OnChannelCheerAsync;
+    _client.ChannelRaid += OnChannelRaidAsync;
+    _client.ChannelPointsCustomRewardRedemptionAdd += OnChannelPointsCustomRewardRedemptionAddAsync;
+    _client.ChannelAdBreakBegin += OnChannelAdBreakBeginAsync;
+    _client.UserWhisperMessage += OnUserWhisperMessageAsync;
+    _client.ChannelUpdate += OnChannelUpdateAsync;
+    _client.StreamOnline += OnStreamOnlineAsync;
+    _client.StreamOffline += OnStreamOfflineAsync;
+    _client.AutomodMessageHoldV2 += OnAutomodMessageHoldAsync;
+    _client.AutomodMessageUpdateV2 += OnAutomodMessageUpdateAsync;
   }
 
   /// <summary>Snapshot of the current connection state — see <see cref="EventSubStatus"/>.</summary>
@@ -277,6 +340,374 @@ public sealed partial class TwitchEventSubService : BackgroundService
     LogRevocation(_logger, subscription?.Type ?? "unknown", subscription?.Status ?? "unknown");
     return Task.CompletedTask;
   }
+
+  // ---------------------------------------------------------------------------------------
+  // Dispatch handlers (Phase 2 Task 6). Each is a thin shell around a pure
+  // EventSubDispatcher call: build `now`, call the dispatcher, publish the result (if any —
+  // several dispatch methods return null for "nothing to publish", e.g. the chat bot-loop
+  // guard or a gift subscribe) through PublishNotificationAsync. `internal` (rather than
+  // `private`) for the same reason as ReconnectWithBackoffAsync/CreateSubscriptionsAsync
+  // above: EventSubWebsocketClient has no virtual members, so a test cannot raise a real
+  // ChannelChatMessage event on it — invoking these handlers directly, with a canned *Args
+  // POCO and a substituted IServiceScopeFactory, is the only way to exercise the wiring.
+  // ---------------------------------------------------------------------------------------
+
+  internal async Task OnChatMessageAsync(object? sender, ChannelChatMessageArgs e)
+  {
+    try
+    {
+      var botLogin = await GetBotLoginAsync(_stoppingToken).ConfigureAwait(false);
+      var notification = EventSubDispatcher.DispatchChatMessage(e, botLogin, _timeProvider.GetUtcNow());
+      if (notification is not null)
+      {
+        await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+      }
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChatMessageAsync), ex);
+    }
+  }
+
+  internal async Task OnChatMessageDeleteAsync(object? sender, ChannelChatMessageDeleteArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchChatMessageDelete(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChatMessageDeleteAsync), ex);
+    }
+  }
+
+  internal async Task OnChatClearAsync(object? sender, ChannelChatClearArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchChatClear(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChatClearAsync), ex);
+    }
+  }
+
+  internal async Task OnChatClearUserMessagesAsync(object? sender, ChannelChatClearUserMessagesArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchChatClearUserMessages(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChatClearUserMessagesAsync), ex);
+    }
+  }
+
+  internal async Task OnChannelModerateAsync(object? sender, ChannelModerateV2Args e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchModerate(e, _timeProvider.GetUtcNow());
+      if (notification is not null)
+      {
+        await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+      }
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelModerateAsync), ex);
+    }
+  }
+
+  internal async Task OnChannelFollowAsync(object? sender, ChannelFollowArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchFollow(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelFollowAsync), ex);
+    }
+  }
+
+  /// <summary>
+  /// Remembers this subscribe in <see cref="_pendingSubscriptions"/> BEFORE publishing, so a
+  /// <c>channel.subscription.message</c> that arrives while the publish is still in flight
+  /// (MediatR handlers run synchronously relative to this await, but a future handler could
+  /// yield) still finds the pending entry — see <see cref="OnChannelSubscriptionMessageAsync"/>.
+  /// </summary>
+  internal async Task OnChannelSubscribeAsync(object? sender, ChannelSubscribeArgs e)
+  {
+    try
+    {
+      var now = _timeProvider.GetUtcNow();
+      var notification = EventSubDispatcher.DispatchSubscribe(e, now);
+      if (notification is null)
+      {
+        // Gift-sub recipient — channel.subscription.gift is the notification for this.
+        return;
+      }
+
+      var key = SubscriptionMergeKey(e.Payload.Event.UserId, e.Payload.Event.UserName);
+      _pendingSubscriptions[key] = new PendingSubscription(notification.Event.Id, now, HasMessage: false);
+
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelSubscribeAsync), ex);
+    }
+  }
+
+  /// <summary>
+  /// The subscribe/subscription.message merge (twitchlib-spec.md §3.5): looks up
+  /// <see cref="_pendingSubscriptions"/> for this subscriber and, if a subscribe landed within
+  /// <see cref="EventSubDispatcher.SubscriptionMergeWindow"/> (the pure decision is
+  /// <see cref="EventSubDispatcher.ShouldMergeSubscriptionMessage"/>) and has not already been
+  /// merged into once, updates that stream event instead of emitting a second one. Otherwise —
+  /// no pending entry, the window lapsed, or this is a duplicate message notification for a
+  /// resub already merged — falls through to a brand-new stream event (the monthly-resub case,
+  /// where Twitch never fires <c>channel.subscribe</c> at all).
+  /// </summary>
+  internal async Task OnChannelSubscriptionMessageAsync(object? sender, ChannelSubscriptionMessageArgs e)
+  {
+    try
+    {
+      var now = _timeProvider.GetUtcNow();
+      var key = SubscriptionMergeKey(e.Payload.Event.UserId, e.Payload.Event.UserName);
+
+      if (_pendingSubscriptions.TryGetValue(key, out var pending)
+        && EventSubDispatcher.ShouldMergeSubscriptionMessage(pending.SubscribedAt, now))
+      {
+        if (pending.HasMessage)
+        {
+          // A duplicate subscription.message notification for a resub already merged.
+          return;
+        }
+
+        var update = EventSubDispatcher.DispatchSubscriptionMessageAsMerge(e, pending.StreamEventId);
+        _pendingSubscriptions[key] = pending with { HasMessage = true };
+        await PublishNotificationAsync(update, _stoppingToken).ConfigureAwait(false);
+        return;
+      }
+
+      var notification = EventSubDispatcher.DispatchSubscriptionMessageAsNewEvent(e, now);
+      _pendingSubscriptions[key] = new PendingSubscription(notification.Event.Id, now, HasMessage: true);
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelSubscriptionMessageAsync), ex);
+    }
+  }
+
+  internal async Task OnChannelSubscriptionGiftAsync(object? sender, ChannelSubscriptionGiftArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchGift(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelSubscriptionGiftAsync), ex);
+    }
+  }
+
+  internal async Task OnChannelCheerAsync(object? sender, ChannelCheerArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchCheer(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelCheerAsync), ex);
+    }
+  }
+
+  internal async Task OnChannelRaidAsync(object? sender, ChannelRaidArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchRaid(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelRaidAsync), ex);
+    }
+  }
+
+  internal async Task OnChannelPointsCustomRewardRedemptionAddAsync(object? sender, ChannelPointsCustomRewardRedemptionArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchRedemption(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelPointsCustomRewardRedemptionAddAsync), ex);
+    }
+  }
+
+  internal async Task OnChannelAdBreakBeginAsync(object? sender, ChannelAdBreakBeginArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchAdBreak(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelAdBreakBeginAsync), ex);
+    }
+  }
+
+  /// <summary>Operator-only — <see cref="WhisperReceivedNotification"/>'s doc comment covers why this never reaches an overlay.</summary>
+  internal async Task OnUserWhisperMessageAsync(object? sender, UserWhisperMessageArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchWhisper(e, _timeProvider.GetUtcNow());
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnUserWhisperMessageAsync), ex);
+    }
+  }
+
+  /// <summary>No-op today — <see cref="CategorySignalNotification"/>'s doc comment covers why (Phase 8 wires a consumer).</summary>
+  internal async Task OnChannelUpdateAsync(object? sender, ChannelUpdateArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchChannelUpdate(e);
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnChannelUpdateAsync), ex);
+    }
+  }
+
+  /// <summary>No-op today — Phase 3 wires a consumer for stream-session tracking.</summary>
+  internal async Task OnStreamOnlineAsync(object? sender, StreamOnlineArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchStreamOnline(e);
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnStreamOnlineAsync), ex);
+    }
+  }
+
+  /// <summary>No-op today — Phase 3 wires a consumer for stream-session tracking.</summary>
+  internal async Task OnStreamOfflineAsync(object? sender, StreamOfflineArgs e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchStreamOffline(e);
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnStreamOfflineAsync), ex);
+    }
+  }
+
+  /// <summary>No-op today — Phase 3 wires a consumer for the AutoMod held-message queue.</summary>
+  internal async Task OnAutomodMessageHoldAsync(object? sender, AutomodMessageHoldV2Args e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchAutomodHold(e);
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnAutomodMessageHoldAsync), ex);
+    }
+  }
+
+  /// <summary>No-op today — Phase 3 wires a consumer for the AutoMod held-message queue.</summary>
+  internal async Task OnAutomodMessageUpdateAsync(object? sender, AutomodMessageUpdateV2Args e)
+  {
+    try
+    {
+      var notification = EventSubDispatcher.DispatchAutomodUpdate(e);
+      await PublishNotificationAsync(notification, _stoppingToken).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      LogEventHandlerFailed(_logger, nameof(OnAutomodMessageUpdateAsync), ex);
+    }
+  }
+
+  /// <summary>
+  /// Resolves the bot account's login once via Helix and caches it for the process lifetime —
+  /// see <see cref="_cachedBotLogin"/>'s doc comment for why a failed resolution is not cached.
+  /// Used only for <see cref="OnChatMessageAsync"/>'s bot-loop guard; a bot token that is never
+  /// configured means this simply never short-circuits (every chat message is treated as a
+  /// viewer's), matching "no bot configured" degrading safely rather than silently.
+  /// </summary>
+  internal async Task<string?> GetBotLoginAsync(CancellationToken cancellationToken)
+  {
+    if (!string.IsNullOrEmpty(_cachedBotLogin))
+    {
+      return _cachedBotLogin;
+    }
+
+    var result = await _helixClient.GetAuthenticatedUserAsync(TwitchProvider.Bot, cancellationToken).ConfigureAwait(false);
+    if (result.IsFailed)
+    {
+      return null;
+    }
+
+    _cachedBotLogin = result.Value.Login.ToLowerInvariant();
+    return _cachedBotLogin;
+  }
+
+  /// <summary>
+  /// This service is a registered singleton (one instance for the process lifetime), but
+  /// <see cref="IMediator"/>'s default MediatR registration is scoped — resolving it once in
+  /// the constructor and holding onto it would either fail outright or (depending on how the
+  /// root container is configured) silently capture a scope that outlives every request it was
+  /// ever meant to be scoped to. A fresh <see cref="IServiceScope"/> per event keeps every
+  /// downstream MediatR handler (and anything scoped it resolves, e.g. a scoped DbContext a
+  /// later phase's handler might need) on the same footing as a normal HTTP request.
+  /// </summary>
+  private async Task PublishNotificationAsync(INotification notification, CancellationToken cancellationToken)
+  {
+    using var scope = _scopeFactory.CreateScope();
+    var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+    await mediator.Publish(notification, cancellationToken).ConfigureAwait(false);
+  }
+
+  /// <summary>Matches legacy's <c>subMergeKey</c>: prefer the subscriber's user id, falling back to their lowercased username when Twitch omits it.</summary>
+  private static string SubscriptionMergeKey(string userId, string userName) =>
+    !string.IsNullOrEmpty(userId) ? userId : userName.ToLowerInvariant();
+
+  /// <summary>
+  /// <paramref name="HasMessage"/> mirrors legacy's <c>sub_merge_state.has_message</c>: distinguishes
+  /// "a subscribe is waiting for its resub message" from "already merged once" so a genuine
+  /// duplicate <c>channel.subscription.message</c> redelivery for the same resub is dropped
+  /// rather than updating the same stream event's detail a second time.
+  /// </summary>
+  internal readonly record struct PendingSubscription(string StreamEventId, DateTimeOffset SubscribedAt, bool HasMessage);
 
   /// <summary>
   /// Never a manual <c>DisconnectAsync</c>+<c>ConnectAsync</c> pair — TwitchLib.EventSub.Websockets
@@ -457,4 +888,7 @@ public sealed partial class TwitchEventSubService : BackgroundService
 
   [LoggerMessage(Level = LogLevel.Warning, Message = "Twitch EventSub subscription {Type} v{Version} failed: {Reason}")]
   private static partial void LogSubscriptionCreateFailed(ILogger logger, string type, string version, string reason);
+
+  [LoggerMessage(Level = LogLevel.Warning, Message = "Twitch EventSub dispatch handler {Handler} failed while processing an event")]
+  private static partial void LogEventHandlerFailed(ILogger logger, string handler, Exception exception);
 }

@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="FluentResults" />
+    <PackageReference Include="MediatR" />
     <PackageReference Include="TwitchLib.Api" />
     <PackageReference Include="TwitchLib.EventSub.Websockets" />
     <PackageReference Include="TwitchLib.EventSub.Core" />

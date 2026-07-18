@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Core.AppConfig;
+using Narya.Twitch.Chat;
 using Narya.Twitch.EventSub;
 using Narya.Twitch.Helix;
 using Narya.Twitch.Oauth;
@@ -79,6 +80,14 @@ public static class ServiceCollectionExtensions
     // host that opts in — TryAdd here means a host that registers its own
     // ITwitchEventSource first (e.g. a test) is never overridden by this default.
     services.TryAddSingleton<ITwitchEventSource, NoopTwitchEventSource>();
+
+    // Stateless (every member is a pure function of its arguments — see ChatRoleResolver's doc
+    // comment), so a singleton is safe. Nothing in Phase 2 resolves this via DI yet —
+    // EventSubDispatcher calls ChatRoleResolver's static methods directly, since it must stay a
+    // pure, DI-free static class — but a future phase (a viewer-command role check, a dashboard
+    // viewer-roster column) needs it injectable, and registering it now means that phase needs
+    // no DI change of its own.
+    _ = services.AddSingleton<IChatRoleResolver, ChatRoleResolver>();
 
     return services;
   }

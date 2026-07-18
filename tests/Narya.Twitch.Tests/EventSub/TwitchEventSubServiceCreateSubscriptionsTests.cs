@@ -1,5 +1,6 @@
 using FluentResults;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using NSubstitute;
@@ -31,6 +32,7 @@ public sealed class TwitchEventSubServiceCreateSubscriptionsTests
   private static TwitchEventSubService BuildService(IHelixClient helixClient) => new(
     new EventSubWebsocketClient(),
     helixClient,
+    Substitute.For<IServiceScopeFactory>(),
     TimeProvider.System,
     NullLogger<TwitchEventSubService>.Instance);
 

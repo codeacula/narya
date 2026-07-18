@@ -26,6 +26,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Narya.Twitch\Narya.Twitch.csproj" />
     <ProjectReference Include="..\..\src\Narya.Database\Narya.Database.csproj" />
+    <!-- Test-only: verifies a Narya.Twitch-defined IRealtimeNotification reaches the Phase 1
+         RealtimeBridgeHandler<T> (Narya.Application) purely via MediatR's open-generic
+         resolution, with no production dependency from Narya.Twitch on Narya.Application. -->
+    <ProjectReference Include="..\..\src\Narya.Application\Narya.Application.csproj" />
   </ItemGroup>
 
 </Project>

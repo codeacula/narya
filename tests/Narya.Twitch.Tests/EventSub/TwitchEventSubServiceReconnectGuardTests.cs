@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using NSubstitute;
@@ -32,6 +33,7 @@ public sealed class TwitchEventSubServiceReconnectGuardTests
   private static TwitchEventSubService BuildService() => new(
     new EventSubWebsocketClient(),
     Substitute.For<IHelixClient>(),
+    Substitute.For<IServiceScopeFactory>(),
     TimeProvider.System,
     NullLogger<TwitchEventSubService>.Instance);
 
