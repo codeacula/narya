@@ -15,6 +15,7 @@ using Narya.Core.AppConfig;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
+using Narya.Core.Media;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
 using Narya.Twitch;
@@ -91,6 +92,7 @@ public sealed class TwitchAuthControllerTests
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
           _ = services.AddSingleton(Substitute.For<IViewerStore>());
           _ = services.AddSingleton(Substitute.For<IAutomodStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
         });
       });
 

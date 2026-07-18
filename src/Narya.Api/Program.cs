@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 using Narya.Api.Auth;
 using Narya.Api.Dashboard;
 using Narya.Api.Realtime;
@@ -18,7 +21,14 @@ builder.Services.AddSingleton<DashboardTokenAuthenticator>();
 // mapped/instantiated in that mode; registering the tracker either way is harmless.
 builder.Services.AddSingleton<RealtimeConnectionTracker>();
 
-builder.Services.AddControllers();
+// Narya.Core.Media.MediaKind/MediaSourceType (Phase 4 Task 1) are the first enums the API
+// surfaces — without this, System.Text.Json's default enum handling would serialize them as
+// integers, silently breaking every consumer that expects legacy's lowercase string literals
+// ("audio"/"video", "local"/"remote"). CamelCase turns each single-word member name lowercase
+// on both read (request-body binding) and write (response serialization).
+builder.Services.AddControllers()
+  .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(
+    new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
 
 builder.Services.AddNaryaApplication();
 

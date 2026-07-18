@@ -14,6 +14,7 @@ using Narya.Core.AppConfig;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
+using Narya.Core.Media;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
 using Narya.Twitch.Helix;
@@ -62,6 +63,7 @@ public sealed class AutomodControllerTests
           _ = services.AddSingleton(Substitute.For<IChatStore>());
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
           _ = services.AddSingleton(Substitute.For<IViewerStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
         });
       })
       .CreateClient();

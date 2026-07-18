@@ -6,6 +6,7 @@ using Narya.Database.Automod;
 using Narya.Database.Chat;
 using Narya.Database.Common;
 using Narya.Database.Events;
+using Narya.Database.Media;
 using Narya.Database.Sessions;
 using Narya.Database.Viewers;
 
@@ -65,5 +66,10 @@ public static class NaryaMartenConfig
     _ = options.Schema.For<AutomodHoldDocument>()
       .Index(x => x.ResolvedAt)
       .Index(x => x.HeldAt);
+
+    // The configured media catalog (Phase 4 Task 1) — see MediaAssetDocument's doc comment.
+    // Indexed on Label (MediaAssetStore.GetAllAsync's ordering).
+    _ = options.Schema.For<MediaAssetDocument>()
+      .Index(x => x.Label);
   }
 }

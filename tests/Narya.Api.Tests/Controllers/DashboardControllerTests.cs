@@ -15,6 +15,7 @@ using Narya.Core.AppConfig;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
+using Narya.Core.Media;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
 
@@ -72,6 +73,7 @@ public sealed class DashboardControllerTests
           _ = services.AddSingleton(sessionStore);
           _ = services.AddSingleton(Substitute.For<IChatStore>());
           _ = services.AddSingleton(Substitute.For<IAutomodStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
         });
       })
       .CreateClient();
@@ -299,6 +301,7 @@ public sealed class DashboardControllerTests
           _ = services.AddSingleton(BuildDefaultAppConfigStore());
           _ = services.AddSingleton(Substitute.For<IChatStore>());
           _ = services.AddSingleton(Substitute.For<IAutomodStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
         });
       })
       .CreateClient();

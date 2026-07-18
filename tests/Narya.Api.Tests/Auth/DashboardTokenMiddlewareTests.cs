@@ -13,6 +13,7 @@ using Narya.Core.AppConfig;
 using Narya.Core.Automod;
 using Narya.Core.Chat;
 using Narya.Core.Events;
+using Narya.Core.Media;
 using Narya.Core.Sessions;
 using Narya.Core.Viewers;
 
@@ -54,8 +55,9 @@ public sealed class DashboardTokenMiddlewareTests
         // that depend on IStreamEventStore, the Viewers UpdateViewerProfileCommandHandler/
         // GetRosterQueryHandler/GetRecentViewersQueryHandler that depend on IViewerStore, and
         // the Automod RecordAutomodHoldHandler/ResolveAutomodHoldHandler/GetAutomodQueueQueryHandler
-        // that depend on IAutomodStore. Unconfigured substitutes are enough to satisfy that —
-        // their methods are never invoked by any test in this class.
+        // that depend on IAutomodStore, and (Phase 4 Task 1) MediaAssetsController itself, which
+        // depends on IMediaAssetStore directly. Unconfigured substitutes are enough to satisfy
+        // that — their methods are never invoked by any test in this class.
         _ = b.ConfigureTestServices(services =>
         {
           _ = services.AddSingleton(Substitute.For<IAppConfigStore>());
@@ -64,6 +66,7 @@ public sealed class DashboardTokenMiddlewareTests
           _ = services.AddSingleton(Substitute.For<IStreamEventStore>());
           _ = services.AddSingleton(Substitute.For<IViewerStore>());
           _ = services.AddSingleton(Substitute.For<IAutomodStore>());
+          _ = services.AddSingleton(Substitute.For<IMediaAssetStore>());
         });
 
         if (injectRemoteIp)

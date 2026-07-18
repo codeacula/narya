@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Narya.Application.Behaviors;
 using Narya.Core.Dashboard;
+using Narya.Core.Media;
 using Narya.Core.Realtime;
 
 namespace Narya.Application;
@@ -55,6 +56,16 @@ public static class ServiceCollectionExtensions
     // (a WebApplicationFactory test under Narya:SkipInfrastructure) still needs something to
     // resolve. See NullDashboardTwitchStatusProvider's doc comment.
     services.TryAddSingleton<IDashboardTwitchStatusProvider, NullDashboardTwitchStatusProvider>();
+
+    // TryAddSingleton, same rationale as IRealtimePublisher/IDashboardTwitchStatusProvider above:
+    // Narya.Api.Controllers.MediaAssetsController hard-depends on IMediaFileCatalog (and, once
+    // AddNaryaDatabase does run, so does Narya.Database.Media.MediaAssetStore), so a host that
+    // composes AddNaryaApplication without also composing Narya.Database's AddNaryaDatabase — a
+    // WebApplicationFactory test under Narya:SkipInfrastructure — still needs something to
+    // resolve the controller's constructor. See NullMediaFileCatalog's doc comment for why Phase 4
+    // ships only this default (Phase 5 owns the real filesystem/companion catalog, registered
+    // with a plain AddSingleton that always wins over this TryAddSingleton).
+    services.TryAddSingleton<IMediaFileCatalog, NullMediaFileCatalog>();
 
     return services;
   }
