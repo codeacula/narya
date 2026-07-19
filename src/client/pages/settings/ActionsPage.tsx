@@ -6,6 +6,8 @@ import type {
   ActionStepType,
   ActionUpsert,
   ChatSender,
+  Counter,
+  CounterAdjustMode,
   MediaAsset,
   MediaSelection,
   TextStyle,
@@ -14,6 +16,7 @@ import {
   createAction,
   deleteAction,
   getActions,
+  getCounters,
   getMediaAssets,
   getObsStatus,
   runAction,
@@ -40,7 +43,10 @@ import {
 const EMPTY_DRAFT: ActionUpsert = { name: '', description: '', enabled: true, quickDisable: false, steps: [] };
 
 /** The tokens a template may interpolate. Absent ones render empty, never as literals. */
-const TEMPLATE_HINT = 'Tokens: {actor} {login} {message} {input} {rewardTitle} {amount} {tier} {months} {category} {module}';
+const TEMPLATE_HINT = 'Tokens: {actor} {login} {message} {input} {args} {arg1} {rest} {rewardTitle} {amount} {tier} {months} {category} {module}';
+
+/** Quote tokens exist only inside a quote step, so they get their own hint. */
+const QUOTE_TEMPLATE_HINT = `${TEMPLATE_HINT} — plus {quoteNumber} {quoteText} {quoteSlug} {quoteSubmitter} {quoteShownCount} {quoteDate}`;
 
 // --- Per-type payload editors -------------------------------------------------
 
@@ -106,19 +112,26 @@ function AssetPicker({
   );
 }
 
+/**
+ * The return type is declared so the switch is exhaustiveness-checked. Without it a
+ * missing case returns undefined and React renders nothing — the operator gets a
+ * step row with a type dropdown and no fields at all, and nothing errors.
+ */
 function StepPayloadFields({
   step,
   assets,
   scenes,
+  counters,
   disabled,
   onChange,
 }: {
   step: ActionStepInput;
   assets: MediaAsset[];
   scenes: string[];
+  counters: Counter[];
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
-}) {
+}): React.ReactElement {
   switch (step.type) {
     case 'show_text':
       return (
@@ -403,6 +416,131 @@ function StepPayloadFields({
           </label>
         </>
       );
+
+    case 'adjust_counter':
+      return (
+        <>
+          <label className="field">
+            <span>Counter</span>
+            <select
+              value={step.payload.counterId}
+              disabled={disabled}
+              onChange={event => onChange({ ...step, payload: { ...step.payload, counterId: event.target.value } })}
+            >
+              <option value="">Pick a counter…</option>
+              {counters.map(counter => (
+                <option key={counter.id} value={counter.id}>{counter.label}</option>
+              ))}
+            </select>
+            {/* A counter referenced by a saved step but since deleted would otherwise
+                show as an empty select that silently reverts on the next save. */}
+            {step.payload.counterId && !counters.some(entry => entry.id === step.payload.counterId) && (
+              <span className="media-asset-tag media-asset-tag--broken">deleted counter</span>
+            )}
+          </label>
+          <label className="field">
+            <span>Mode</span>
+            <select
+              value={step.payload.mode}
+              disabled={disabled}
+              onChange={event => onChange({
+                ...step,
+                payload: { ...step.payload, mode: event.target.value as CounterAdjustMode },
+              })}
+            >
+              <option value="add">Change by</option>
+              <option value="set">Set to</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Amount</span>
+            <input
+              type="text"
+              value={step.payload.amountTemplate}
+              disabled={disabled}
+              placeholder="1, -1, or {arg1}"
+              onChange={event => onChange({
+                ...step,
+                payload: { ...step.payload, amountTemplate: event.target.value },
+              })}
+            />
+            {/* Text, not number: the amount may be bound from the invocation
+                ("!death 3" → {arg1}) rather than fixed on the Action. Reset is
+                "Set to" 0. */}
+          </label>
+        </>
+      );
+
+    case 'quote_add':
+      return (
+        <>
+          <label className="field settings-wide-field">
+            <span>Quote text</span>
+            <input
+              value={step.payload.textTemplate}
+              disabled={disabled}
+              maxLength={500}
+              placeholder="{input}"
+              onChange={event => onChange({ ...step, payload: { ...step.payload, textTemplate: event.target.value } })}
+            />
+            <small className="action-hint">{QUOTE_TEMPLATE_HINT}</small>
+          </label>
+          <label className="field">
+            <span>Slug (optional)</span>
+            <input
+              value={step.payload.slugTemplate}
+              disabled={disabled}
+              maxLength={500}
+              placeholder="{arg1}"
+              onChange={event => onChange({ ...step, payload: { ...step.payload, slugTemplate: event.target.value } })}
+            />
+            <small className="action-hint">
+              A keyword handle, so `!quote farts` finds it. Leave blank to save without one.
+            </small>
+          </label>
+          <label className="field settings-wide-field">
+            <span>Confirmation (optional)</span>
+            <input
+              value={step.payload.replyTemplate}
+              disabled={disabled}
+              maxLength={500}
+              placeholder="Saved quote {quoteNumber}."
+              onChange={event => onChange({ ...step, payload: { ...step.payload, replyTemplate: event.target.value } })}
+            />
+            <small className="action-hint">Leave blank to save the quote without announcing it.</small>
+          </label>
+        </>
+      );
+
+    case 'quote_show':
+      return (
+        <>
+          <label className="field">
+            <span>Which quote</span>
+            <input
+              value={step.payload.queryTemplate}
+              disabled={disabled}
+              maxLength={500}
+              placeholder="{input}"
+              onChange={event => onChange({ ...step, payload: { ...step.payload, queryTemplate: event.target.value } })}
+            />
+            <small className="action-hint">
+              A number, a slug, or a keyword. Renders empty — as a bare `!quote` does — to pick a random quote.
+            </small>
+          </label>
+          <label className="field settings-wide-field">
+            <span>Message</span>
+            <input
+              value={step.payload.messageTemplate}
+              disabled={disabled}
+              maxLength={500}
+              placeholder="Quote {quoteNumber}: {quoteText}"
+              onChange={event => onChange({ ...step, payload: { ...step.payload, messageTemplate: event.target.value } })}
+            />
+            <small className="action-hint">{QUOTE_TEMPLATE_HINT}</small>
+          </label>
+        </>
+      );
   }
 }
 
@@ -414,6 +552,7 @@ function StepRow({
   total,
   assets,
   scenes,
+  counters,
   disabled,
   onChange,
   onMove,
@@ -424,6 +563,7 @@ function StepRow({
   total: number;
   assets: MediaAsset[];
   scenes: string[];
+  counters: Counter[];
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
   onMove: (to: number) => void;
@@ -502,7 +642,7 @@ function StepRow({
       </div>
 
       <div className="action-step-body">
-        <StepPayloadFields step={step} assets={assets} scenes={scenes} disabled={disabled} onChange={onChange} />
+        <StepPayloadFields step={step} assets={assets} scenes={scenes} counters={counters} disabled={disabled} onChange={onChange} />
       </div>
 
       <div className="action-step-foot">
@@ -552,6 +692,7 @@ export function ActionsSettingsPage() {
   const [scenes, setScenes] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ActionUpsert | null>(null);
+  const [counters, setCounters] = useState<Counter[]>([]);
   const [runs, setRuns] = useState<Record<string, ActionRunResult>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -581,6 +722,15 @@ export function ActionsSettingsPage() {
       .then(status => setScenes(status.scenes))
       .catch(() => setScenes([]));
   }, []);
+
+  // Its own tolerant effect rather than part of `load`: a counters fetch that fails
+  // should cost the operator the counter dropdown, not the whole Actions page.
+  useEffect(() => {
+    void getCounters()
+      .then(response => setCounters(response.counters))
+      .catch(() => setCounters([]));
+  }, []);
+
 
   const busy = loading || saving;
   const problem = useMemo(() => (draft ? validateAction(draft) : null), [draft]);
@@ -800,6 +950,7 @@ export function ActionsSettingsPage() {
                     total={draft.steps.length}
                     assets={assets}
                     scenes={scenes}
+                    counters={counters}
                     disabled={busy}
                     onChange={next => updateStep(index, next)}
                     onMove={to => setDraft(current => (current ? { ...current, steps: moveStep(current.steps, index, to) } : current))}

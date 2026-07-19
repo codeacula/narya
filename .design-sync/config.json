@@ -1,0 +1,68 @@
+{
+  "projectId": "ef93b6e0-7c95-40b1-a314-1da3a3315106",
+  "shape": "package",
+  "pkg": "streamer-tools",
+  "globalName": "Narya",
+  "srcDir": "src/client/ui",
+  "buildCmd": "bash .design-sync/build-types.sh",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": "src/client/styles/panel.css",
+  "tokensPkg": "streamer-tools",
+  "tokensGlob": "src/client/**/*.css",
+  "dtsPropsFor": {
+    "StatBar": "  clock24: boolean;\n  starfield: boolean;\n  onGoLive: () => void;\n  onRunPreroll: () => void;\n  onOpenStreamInfo: () => void;\n  goLiveBusy: boolean;\n  prerollBusy: boolean;\n  actionMessage: string | null;\n  twitchMissingScopes: string[];\n  streamActive: boolean | null;\n  uptimeSeconds: number | null;\n  uptimeSource: 'twitch' | 'obs' | null;\n  viewerCount: number | null;\n  bitrateKbps: number | null;\n  congestion: number | null;\n  totalFrames: number | null;\n  droppedFrames: number | null;\n  laggedFrames: number | null;\n  adBreakEndsAt: string | null;\n  adScheduleStatus: 'available' | 'not_configured' | 'missing_scope' | 'unauthorized' | 'unavailable';\n  adScheduleError: string | null;\n  nextAdAt: string | null;\n  adBreakDurationSeconds: number | null;\n  prerollFreeTimeSeconds: number | null;\n  snoozeCount: number | null;\n  chatConnection: string;\n  obsConnected: boolean;\n  eventSubConnected: boolean;\n  eventSubError: string | null;\n  onReconnectEventSub: () => void;",
+    "ControlsPanel": "  status: DashboardStatus;\n  scenes: string[];\n  scenePrefix: string;\n  currentScene: string | null;\n  onSwitchScene: (sceneName: string) => void;\n  sceneSwitching: boolean;",
+    "ChattersPanel": "  chatters: Chatter[];\n  viewers: Record<string, Viewer>;\n  error: string | null;\n  onOpenViewer: (login: string) => void;"
+  },
+  "overrides": {
+    "StatBar": {
+      "cardMode": "column",
+      "viewport": "1440x140"
+    },
+    "NavBar": {
+      "cardMode": "column",
+      "viewport": "1440x120"
+    },
+    "Icon": {
+      "cardMode": "column"
+    },
+    "PopWindow": {
+      "cardMode": "column"
+    },
+    "ToastProvider": {
+      "cardMode": "single",
+      "primaryStory": "ToastStack"
+    },
+    "TweakSection": {
+      "cardMode": "single",
+      "primaryStory": "InTweaksPanel"
+    },
+    "TweaksPanel": {
+      "cardMode": "single",
+      "primaryStory": "Display"
+    }
+  },
+  "componentSrcMap": {
+    "MODULES": null,
+    "Icon": "src/client/ui/icons.tsx",
+    "AuthGate": "src/client/ui/authGate.tsx",
+    "ToastProvider": "src/client/ui/notifications.tsx",
+    "ServiceStatusToasts": "src/client/ui/serviceStatus.tsx",
+    "NavBar": "src/client/ui/shell.tsx",
+    "StatBar": "src/client/ui/shell.tsx",
+    "Panel": "src/client/ui/shell.tsx",
+    "PopWindow": "src/client/ui/shell.tsx",
+    "TweaksPanel": "src/client/ui/tweaks.tsx",
+    "TweakSection": "src/client/ui/tweaks.tsx",
+    "Chat": "src/client/ui/panels.tsx",
+    "ChatInput": "src/client/ui/panels.tsx",
+    "ChatMessageRow": "src/client/ui/panels.tsx",
+    "Spotlight": "src/client/ui/panels.tsx",
+    "AttentionPanel": "src/client/ui/panels.tsx",
+    "AttentionDismissAll": "src/client/ui/panels.tsx",
+    "ChattersPanel": "src/client/ui/panels.tsx",
+    "ControlsPanel": "src/client/ui/panels.tsx",
+    "ShoutoutsPanel": "src/client/ui/panels.tsx"
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}

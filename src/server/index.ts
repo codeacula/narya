@@ -6,6 +6,7 @@ import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './aut
 import { startAutomaticAds } from './automaticAds';
 import { registerCategoryModuleRoutes, reconcileCategoryModules } from './categoryModules';
 import { registerChattersRoutes } from './chatters';
+import { registerCounterRoutes } from './counters';
 import {
   migrateLegacyAlerts,
   migrateLegacyCategoryModules,
@@ -27,6 +28,7 @@ import { registerLlmRoutes } from './llm';
 import { restartMusicPolling, startMusicPolling } from './music';
 import { broadcastObsStatus, connectObs, reconnectObs } from './obs';
 import { app, broadcast, server } from './realtime';
+import { registerQuoteRoutes } from './quotes';
 import { registerCoreRoutes } from './routes';
 import { RuntimeState } from './runtime';
 import { registerStaticRoutes } from './static';
@@ -135,6 +137,8 @@ registerActionRoutes(app, getActionExecutor());
 registerAutomationTriggerRoutes(app, getTriggerDispatcher());
 registerCategoryModuleRoutes(app, runtimeState);
 registerStreamCategoryRoutes(app);
+registerCounterRoutes(app);
+registerQuoteRoutes(app);
 registerStreamStatusRoutes(app);
 registerOverlayPlaceholderRoutes(app);
 registerMediaMuteRoutes(app);

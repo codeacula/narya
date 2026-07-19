@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { Action, ActionStep, MediaAsset, OverlayTextPlayback, RewardMedia } from '../shared/api';
+import type { Action, ActionStep, MediaAsset, OverlayTextPlayback, Quote, QuoteInput, RewardMedia } from '../shared/api';
 import { createActionExecutor, type ActionExecutorDeps } from './actionExecutor';
 import { HttpRouteError } from './http';
 import { RuntimeState } from './runtime';
@@ -86,7 +86,24 @@ type Harness = {
   whispers: Array<{ login: string; message: string }>;
   timeouts: Array<{ login: string; seconds: number; reason: string }>;
   bans: Array<{ login: string; reason: string }>;
+  addedQuotes: QuoteInput[];
+  shownQuoteIds: string[];
 };
+
+function quote(overrides: Partial<Quote> = {}): Quote {
+  return {
+    id: 'quote-1',
+    number: 3,
+    slug: 'pizza',
+    text: "I'm hungry for pizza!",
+    submittedBy: 'Sorlus',
+    submittedByLogin: 'sorlus',
+    createdAt: '2026-07-19T12:00:00.000Z',
+    shownCount: 7,
+    lastShownAt: null,
+    ...overrides,
+  };
+}
 
 function harness(
   target: Action | null,
@@ -96,6 +113,7 @@ function harness(
   const calls: Harness = {
     broadcasts: [], played: [], chats: [], spoken: [], scenes: [], transitions: 0,
     shoutouts: [], whispers: [], timeouts: [], bans: [],
+    addedQuotes: [], shownQuoteIds: [],
   };
 
   const deps: ActionExecutorDeps = {
@@ -115,6 +133,9 @@ function harness(
     sendWhisper: async (_state, login, message) => { calls.whispers.push({ login, message }); },
     timeoutUser: async (_state, login, seconds, reason) => { calls.timeouts.push({ login, seconds, reason }); },
     banUser: async (_state, login, reason) => { calls.bans.push({ login, reason }); },
+    addQuote: (input) => { calls.addedQuotes.push(input); return quote({ number: 4, text: input.text }); },
+    resolveQuote: () => quote(),
+    recordQuoteShown: (id) => { calls.shownQuoteIds.push(id); },
     ...overrides,
   };
 
@@ -592,5 +613,332 @@ describe('master media mute', () => {
 
     expect(result.status).toBe('succeeded');
     expect(h.calls.chats).toEqual([{ message: 'hi', sender: 'bot' }]);
+  });
+});
+
+// --- adjust_counter -----------------------------------------------------------
+
+/**
+ * A counter store backed by a plain object, so these tests exercise the executor's
+ * behavior rather than SQLite's. `resolveCounter` reads through it live, which is
+ * what makes the ordering test below meaningful.
+ */
+function counterStore(initial: Record<string, number> = {}) {
+  const values: Record<string, number> = { ...initial };
+  const keyById = (id: string) => id.replace(/^counter-/, '');
+
+  const deps: Partial<ActionExecutorDeps> = {
+    adjustCounter: (id, mode, amount) => {
+      const key = keyById(id);
+      if (!(key in values)) return null;
+      values[key] = mode === 'add' ? values[key]! + amount : amount;
+      return {
+        id, key, label: key, value: values[key]!,
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      };
+    },
+    resolveCounter: (key: string) => (key in values ? values[key] : undefined),
+  };
+
+  return { values, deps };
+}
+
+describe('adjust_counter', () => {
+  test('add moves the counter and reports the new value', async () => {
+    const counters = counterStore({ deaths: 41 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '1' },
+    } as never)]), counters.deps);
+    const result = await run(h);
+
+    expect(counters.values.deaths).toBe(42);
+    expect(result.status).toBe('succeeded');
+    expect(result.steps[0]!.detail).toBe('deaths = 42');
+  });
+
+  test('set assigns, so "set 0" is how a reset is expressed', async () => {
+    const counters = counterStore({ deaths: 99 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'set', amountTemplate: '0' },
+    } as never)]), counters.deps);
+    await run(h);
+    expect(counters.values.deaths).toBe(0);
+  });
+
+  test('decrements on a negative amount rather than clamping', async () => {
+    const counters = counterStore({ deaths: 1 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '-5' },
+    } as never)]), counters.deps);
+    await run(h);
+    expect(counters.values.deaths).toBe(-4);
+  });
+
+  test('binds the amount from the invocation', async () => {
+    const counters = counterStore({ deaths: 0 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '{arg1}' },
+    } as never)]), counters.deps);
+    await run(h, { args: ['3'] });
+    expect(counters.values.deaths).toBe(3);
+  });
+
+  test('SKIPS a non-numeric amount rather than defaulting, and writes nothing', async () => {
+    // Deliberately unlike twitch_timeout, which falls back to a default duration.
+    // There is no safe default for how much to write into a durable counter.
+    const counters = counterStore({ deaths: 7 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '{arg1}' },
+    } as never)]), counters.deps);
+    const result = await run(h, { args: ['banana'] });
+
+    expect(counters.values.deaths).toBe(7);
+    expect(result.steps[0]!.status).toBe('skipped');
+  });
+
+  test('skips an amount that renders empty', async () => {
+    const counters = counterStore({ deaths: 7 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '{arg1}' },
+    } as never)]), counters.deps);
+    const result = await run(h, { args: [] });
+
+    expect(counters.values.deaths).toBe(7);
+    expect(result.steps[0]!.status).toBe('skipped');
+  });
+
+  test('skips a counter that no longer exists', async () => {
+    const counters = counterStore({});
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-gone', mode: 'add', amountTemplate: '1' },
+    } as never)]), counters.deps);
+    const result = await run(h);
+    expect(result.steps[0]!.status).toBe('skipped');
+  });
+});
+
+describe('{counter:key} in templates', () => {
+  test('renders a counter value into overlay text', async () => {
+    const counters = counterStore({ deaths: 12 });
+    const h = harness(action([step({
+      type: 'show_text',
+      payload: { template: 'Deaths: {counter:deaths}', durationMs: 5000, style: 'banner' },
+    } as never)]), counters.deps);
+    await run(h);
+
+    const playback = h.calls.broadcasts[0]!.payload as OverlayTextPlayback;
+    expect(playback.text).toBe('Deaths: 12');
+  });
+
+  test('renders zero as "0", not as empty and not as a literal token', async () => {
+    const counters = counterStore({ deaths: 0 });
+    const h = harness(action([step({
+      payload: { template: 'Deaths: {counter:deaths}', sender: 'bot' },
+    } as never)]), counters.deps);
+    await run(h);
+    expect(h.calls.chats[0]!.message).toBe('Deaths: 0');
+  });
+
+  test('leaves an unknown counter key visible as a literal token', async () => {
+    const counters = counterStore({});
+    const h = harness(action([step({
+      payload: { template: 'Deaths: {counter:typo}', sender: 'bot' },
+    } as never)]), counters.deps);
+    await run(h);
+    expect(h.calls.chats[0]!.message).toBe('Deaths: {counter:typo}');
+  });
+
+  /**
+   * The ordering guarantee the design depends on: same-delay steps start in stored
+   * order without awaiting each other, and adjust_counter writes synchronously, so a
+   * display step placed after an increment sees the incremented value. That is
+   * currently incidental; this test is what makes it a guarantee.
+   */
+  test('a display step after an increment at the same delay sees the new value', async () => {
+    const counters = counterStore({ deaths: 41 });
+    const h = harness(action([
+      step({
+        type: 'adjust_counter',
+        payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '1' },
+      } as never),
+      step({
+        id: 'step-b',
+        payload: { template: 'Deaths: {counter:deaths}', sender: 'bot' },
+      } as never),
+    ]), counters.deps);
+    await run(h);
+
+    expect(h.calls.chats[0]!.message).toBe('Deaths: 42');
+  });
+});
+
+describe('quote_show', () => {
+  const showStep = (payload: Partial<Record<string, unknown>> = {}) => step({
+    type: 'quote_show',
+    payload: {
+      queryTemplate: '{input}',
+      messageTemplate: 'Quote {quoteNumber}: {quoteText}',
+      ...payload,
+    },
+  } as never);
+
+  test('announces the quote to Twitch chat in the requested format', async () => {
+    const h = harness(action([showStep()]));
+    const result = await run(h, { input: '3' });
+
+    expect(result.status).toBe('succeeded');
+    expect(h.calls.chats).toEqual([
+      { message: "Quote 3: I'm hungry for pizza!", sender: 'bot' },
+    ]);
+  });
+
+  test('passes the rendered query through to the lookup', async () => {
+    const queries: string[] = [];
+    const h = harness(action([showStep()]), {
+      resolveQuote: (query) => { queries.push(query); return quote(); },
+    });
+    await run(h, { input: 'farts' });
+
+    expect(queries).toEqual(['farts']);
+  });
+
+  test('a bare command sends an empty query, which means "any quote"', async () => {
+    const queries: string[] = [];
+    const h = harness(action([showStep()]), {
+      resolveQuote: (query) => { queries.push(query); return quote(); },
+    });
+    await run(h, {});
+
+    expect(queries).toEqual(['']);
+    expect(h.calls.chats).toHaveLength(1);
+  });
+
+  test('exposes every quote token to the message template', async () => {
+    const h = harness(action([showStep({
+      messageTemplate: '{quoteNumber}|{quoteText}|{quoteSlug}|{quoteSubmitter}|{quoteShownCount}|{quoteDate}',
+    })]));
+    await run(h, {});
+
+    expect(h.calls.chats[0]!.message)
+      .toBe("3|I'm hungry for pizza!|pizza|Sorlus|7|2026-07-19");
+  });
+
+  test('still resolves the invocation tokens alongside the quote tokens', async () => {
+    const h = harness(action([showStep({ messageTemplate: '{actor} asked for quote {quoteNumber}' })]));
+    await run(h, { actor: 'Bob', input: '3' });
+
+    expect(h.calls.chats[0]!.message).toBe('Bob asked for quote 3');
+  });
+
+  test('a quote containing a token is not re-expanded', async () => {
+    // Quote text is viewer-submitted; interpolating it must not open a second pass.
+    const h = harness(action([showStep()]), {
+      resolveQuote: () => quote({ text: 'literally {actor}' }),
+    });
+    await run(h, { actor: 'Sorlus', input: '3' });
+
+    expect(h.calls.chats[0]!.message).toBe('Quote 3: literally {actor}');
+  });
+
+  test('skips without announcing when no quote matches', async () => {
+    const h = harness(action([showStep()]), { resolveQuote: () => null });
+    const result = await run(h, { input: 'nope' });
+
+    expect(result.status).toBe('skipped');
+    expect(h.calls.chats).toEqual([]);
+    expect(h.calls.shownQuoteIds).toEqual([]);
+  });
+
+  test('counts the show only after the announcement lands', async () => {
+    const h = harness(action([showStep()]));
+    await run(h, { input: '3' });
+
+    expect(h.calls.shownQuoteIds).toEqual(['quote-1']);
+  });
+
+  test('does not count a show whose announcement failed', async () => {
+    // A chat outage must not inflate the counter for a quote nobody saw.
+    const h = harness(action([showStep()]), {
+      sendChat: async () => { throw new HttpRouteError(502, 'Twitch chat is unavailable.'); },
+    });
+    const result = await run(h, { input: '3' });
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]!.detail).toBe('Twitch chat is unavailable.');
+    expect(h.calls.shownQuoteIds).toEqual([]);
+  });
+});
+describe('quote_add', () => {
+  const addStep = (payload: Partial<Record<string, unknown>> = {}) => step({
+    type: 'quote_add',
+    payload: {
+      textTemplate: '{input}',
+      slugTemplate: '',
+      replyTemplate: 'Added quote {quoteNumber}.',
+      ...payload,
+    },
+  } as never);
+
+  test('saves the quote and credits the invoking viewer', async () => {
+    const h = harness(action([addStep()]));
+    const result = await run(h, { actor: 'Sorlus', login: 'sorlus', input: 'pizza is a vegetable' });
+
+    expect(result.status).toBe('succeeded');
+    expect(h.calls.addedQuotes).toEqual([{
+      text: 'pizza is a vegetable',
+      slug: null,
+      submittedBy: 'Sorlus',
+      submittedByLogin: 'sorlus',
+    }]);
+  });
+
+  test('confirms in chat with the number the quote actually got', async () => {
+    const h = harness(action([addStep()]));
+    await run(h, { actor: 'Sorlus', input: 'pizza is a vegetable' });
+
+    expect(h.calls.chats).toEqual([{ message: 'Added quote 4.', sender: 'bot' }]);
+  });
+
+  test('stores a slug when the template renders one', async () => {
+    const h = harness(action([addStep({ textTemplate: '{rest}', slugTemplate: '{arg1}' })]));
+    await run(h, { actor: 'Sorlus', args: ['farts', 'that', 'was', 'loud'] });
+
+    expect(h.calls.addedQuotes[0]!.slug).toBe('farts');
+    expect(h.calls.addedQuotes[0]!.text).toBe('that was loud');
+  });
+
+  test('an empty reply template adds the quote silently', async () => {
+    const h = harness(action([addStep({ replyTemplate: '' })]));
+    const result = await run(h, { actor: 'Sorlus', input: 'quiet one' });
+
+    expect(result.status).toBe('succeeded');
+    expect(h.calls.addedQuotes).toHaveLength(1);
+    expect(h.calls.chats).toEqual([]);
+  });
+
+  test('skips without saving when there is nothing to quote', async () => {
+    const h = harness(action([addStep()]));
+    const result = await run(h, { actor: 'Sorlus', input: '   ' });
+
+    expect(result.status).toBe('skipped');
+    expect(h.calls.addedQuotes).toEqual([]);
+  });
+
+  test('a rejected quote fails the step rather than confirming', async () => {
+    const h = harness(action([addStep()]), {
+      addQuote: () => { throw new HttpRouteError(409, 'A quote with the slug "farts" already exists.'); },
+    });
+    const result = await run(h, { actor: 'Sorlus', input: 'dupe' });
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]!.detail).toBe('A quote with the slug "farts" already exists.');
+    expect(h.calls.chats).toEqual([]);
   });
 });

@@ -200,6 +200,18 @@ db.exec(`
     updated_at text not null
   );
 
+  -- Durable named tallies. The value column is deliberately signed: a counter is
+  -- not necessarily a tally, and clamping at zero would discard a deliberate
+  -- negative. The key column is the counter template token, and is unique.
+  create table if not exists counters (
+    id text primary key,
+    key text not null unique,
+    label text not null,
+    value integer not null default 0,
+    created_at text not null,
+    updated_at text not null
+  );
+
   create table if not exists viewer_reward_categories (
     id text primary key,
     name text not null unique,
@@ -444,6 +456,32 @@ db.exec(`
   create index if not exists idx_viewer_reward_category_members_category on viewer_reward_category_members(category_id);
   create index if not exists idx_viewer_reward_category_games_category on viewer_reward_category_games(category_id);
   create index if not exists idx_automod_holds_resolved_at on automod_holds(resolved_at);
+
+  create table if not exists quotes (
+    id text primary key,
+    number integer not null unique,
+    slug text,
+    text text not null,
+    submitted_by text not null,
+    submitted_by_login text not null default '',
+    created_at text not null,
+    shown_count integer not null default 0,
+    last_shown_at text
+  );
+
+  -- Quote numbers come from here, NOT from max(number) + 1: deleting the newest
+  -- quote must not let the next one inherit its number. "Quote 12" gets repeated in
+  -- Discord history and screenshots long after the fact, so a number that silently
+  -- comes to mean a different quote is worse than a gap in the sequence.
+  create table if not exists quote_sequence (
+    id integer primary key check (id = 1),
+    next_number integer not null
+  );
+  insert or ignore into quote_sequence (id, next_number) values (1, 1);
+
+  -- Partial: a slug is optional, so many quotes hold NULL, but a slug that IS set is
+  -- a lookup handle and must resolve to exactly one quote.
+  create unique index if not exists idx_quotes_slug on quotes(slug) where slug is not null;
 `);
 
 // The runsheet and ticker features were removed; drop their tables from databases created before that.
@@ -516,6 +554,7 @@ const allowedMigrationTables = new Set([
   'app_config',
   'alert_settings',
   'actions',
+  'stream_status',
 ]);
 const allowedMigrationColumns = new Set([
   'account_user_id',
@@ -555,6 +594,7 @@ const allowedMigrationColumns = new Set([
   'obs_scene_prefix',
   'sound_button_volume',
   'quick_disable',
+  'raw_text',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -602,6 +642,10 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // rather than what it actually controls: the default sound-button volume.
   sound_button_volume: 'real not null default 0.2',
   quick_disable: 'integer not null default 0',
+  // The operator's unrendered status line, with its {counter:key} tokens intact.
+  // stream_status.text holds the rendered result, because that column feeds the
+  // overlay-reachable GET and the status:updated broadcast.
+  raw_text: "text not null default ''",
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -670,6 +714,18 @@ addColumnIfMissing('alert_settings', 'sound_src', 'text');
 addColumnIfMissing('alert_settings', 'sound_volume', 'real');
 addColumnIfMissing('alert_settings', 'clip_src', 'text');
 addColumnIfMissing('alert_settings', 'clip_volume', 'real');
+
+// The status line split into stored-raw and rendered. An existing row's `text` is
+// its raw text — it predates counters, so it holds no tokens — and is carried across
+// so the operator's current status survives the upgrade.
+//
+// runOnce, not an unconditional update: this writes a column computed from another
+// column, and re-running it after the operator has since cleared their status would
+// resurrect the old text from the rendered copy.
+addColumnIfMissing('stream_status', 'raw_text', "text not null default ''");
+runOnce('seed-stream-status-raw-text', () => {
+  db.exec('update stream_status set raw_text = text');
+});
 
 // tmi logins are already lowercase, but historically some rows were stored with
 // mixed case. Normalize them once so username queries can use plain equality and

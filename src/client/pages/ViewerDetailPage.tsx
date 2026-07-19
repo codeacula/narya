@@ -92,7 +92,10 @@ function ViewerRecordActions({
     setArmed(false);
     flushViewerRecord(login)
       .then(result => {
-        setNote(`Flushed — ${result.messagesRemoved} message(s) removed.`);
+        const quotes = result.quotesAnonymized > 0
+          ? `, ${result.quotesAnonymized} quote(s) anonymized`
+          : '';
+        setNote(`Flushed — ${result.messagesRemoved} message(s) removed${quotes}.`);
         onFlushed?.();
       })
       .catch(caught => setNote(errorMessage(caught, 'Flush failed')))

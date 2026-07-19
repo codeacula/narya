@@ -541,6 +541,12 @@ export type ViewerRefreshResult = {
 export type ViewerFlushResult = {
   login: string;
   messagesRemoved: number;
+  /**
+   * Quotes whose attribution was anonymized. The quotes themselves survive — see
+   * flushViewer — so this is not a deletion count, and the operator is told about it
+   * because a flush silently editing the quote book would be a surprise.
+   */
+  quotesAnonymized: number;
 };
 
 export type IgnoredLogin = {
@@ -665,15 +671,76 @@ export type MediaMuteState = {
   muted: boolean;
 };
 
-// Freeform stream status line. Doubles as the GET /api/stream-status response
-// and the `status:updated` WebSocket payload.
+/**
+ * Freeform stream status line. Doubles as the GET /api/stream-status response and
+ * the `status:updated` WebSocket payload.
+ *
+ * `text` is RENDERED: any {counter:key} tokens the operator stored have already
+ * been interpolated. Both of this type's surfaces are reachable by an overlay
+ * browser source — /api/stream-status is on OVERLAY_PATHS and `status:updated` is
+ * on OVERLAY_EVENTS — and broadcasts are filtered by event name only, with no
+ * per-field redaction anywhere. So nothing may be added to this type that an
+ * overlay must not see. The operator's raw text lives on StreamStatusRaw, behind
+ * its own route.
+ */
 export type StreamStatus = {
   text: string;
   updatedAt: string;
 };
 
+/**
+ * GET /api/stream-status/raw — operator-only, deliberately NOT on OVERLAY_PATHS.
+ * The editor needs the unrendered text so that saving the Stream Info modal
+ * round-trips `{counter:deaths}` instead of freezing it to a snapshot of its value.
+ */
+export type StreamStatusRaw = {
+  text: string;
+  rawText: string;
+  updatedAt: string;
+};
+
 export type StreamStatusUpdate = {
   text: string;
+};
+
+// --- Counters ----------------------------------------------------------------
+
+/**
+ * A durable named tally. Flat namespace: per-game separation is a naming
+ * convention (`zambie-deaths`), not a schema feature.
+ *
+ * `value` is signed. A counter is not necessarily a tally, and clamping at zero
+ * would silently discard an operator's deliberate negative.
+ */
+export type Counter = {
+  id: string;
+  /** The template token body: `{counter:<key>}`. Normalized to [a-z0-9-] on write. */
+  key: string;
+  label: string;
+  value: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CounterInput = {
+  key: string;
+  label: string;
+  value: number;
+};
+
+/** PUT accepts partial bodies; absent fields keep their current value. */
+export type CounterUpdate = Partial<CounterInput>;
+
+/**
+ * GET /api/counters and the `counters:updated` WebSocket payload. The full list
+ * rather than a delta: it is small, and a full-list payload cannot drift out of
+ * sync the way an incremental one can.
+ *
+ * Deliberately NOT on OVERLAY_EVENTS — it carries operator configuration (keys and
+ * labels). An overlay sees counter values only through already-rendered text.
+ */
+export type CountersResponse = {
+  counters: Counter[];
 };
 
 // =============================================================================
@@ -753,7 +820,10 @@ export type ActionStepType =
   | 'twitch_shoutout'
   | 'twitch_whisper'
   | 'twitch_timeout'
-  | 'twitch_ban';
+  | 'twitch_ban'
+  | 'adjust_counter'
+  | 'quote_add'
+  | 'quote_show';
 
 /** How a multi-asset play_media step picks which asset to play. */
 export type MediaSelection = 'first' | 'random';
@@ -790,6 +860,51 @@ export const MAX_TIMEOUT_SECONDS = 1_209_600;
 export type TwitchBanPayload = { loginTemplate: string; reasonTemplate: string };
 
 /**
+ * `add` moves the counter by `amountTemplate`; `set` assigns it. There is no
+ * separate `reset` mode because resetting is `set` with `0` — one mode fewer to
+ * validate, render, and explain.
+ */
+export type CounterAdjustMode = 'add' | 'set';
+
+/**
+ * `amountTemplate` is a template rather than a number for the same reason
+ * TwitchTimeoutPayload.secondsTemplate is: `!death 3` can bind `{arg1}` instead of
+ * being locked to whatever the Action stored.
+ *
+ * Unlike a timeout, an amount that renders empty or out of range SKIPS the step
+ * rather than falling back to a default. There is no safe default for "how much"
+ * to write into a durable counter — a guessed number is worse than no write.
+ */
+export type AdjustCounterPayload = {
+  counterId: string;
+  mode: CounterAdjustMode;
+  amountTemplate: string;
+};
+
+/**
+ * `slugTemplate` and `replyTemplate` are both optional: an empty slug stores no slug
+ * (many quotes can be slug-less), and an empty reply adds the quote silently.
+ */
+export type QuoteAddPayload = {
+  textTemplate: string;
+  slugTemplate: string;
+  replyTemplate: string;
+};
+
+/**
+ * `queryTemplate` renders to a quote number, a slug, or a keyword; rendering *empty*
+ * is meaningful — it means "any quote", so a bare `!quote` picks a random one.
+ * `messageTemplate` renders against the invocation context extended with the quote
+ * tokens ({quoteNumber}, {quoteText}, …), which is why the lookup and the message
+ * have to live in the same step: steps run concurrently and cannot pass values to
+ * one another, so the step resolves the quote AND sends the message itself.
+ */
+export type QuoteShowPayload = {
+  queryTemplate: string;
+  messageTemplate: string;
+};
+
+/**
  * A single step. `delayMs` is relative to the start of the invocation, not to the
  * previous step: due steps start in stored order WITHOUT waiting for media
  * playback to finish, so text, video, and TTS can land together. A step that
@@ -806,7 +921,10 @@ export type ActionStep =
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_shoutout'; payload: TwitchShoutoutPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_whisper'; payload: TwitchWhisperPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_timeout'; payload: TwitchTimeoutPayload }
-  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_ban'; payload: TwitchBanPayload };
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_ban'; payload: TwitchBanPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'adjust_counter'; payload: AdjustCounterPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'quote_add'; payload: QuoteAddPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'quote_show'; payload: QuoteShowPayload };
 
 /** Omit that preserves a discriminated union instead of collapsing it to one object. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -878,7 +996,52 @@ export type TemplateContext = {
   /** Active Twitch category and module at invocation time. */
   category?: string;
   module?: string;
+  // Set only by a quote step, on a context it derives for its own message template.
+  // A trigger never supplies these, so they render empty everywhere else — the same
+  // way {months} does outside a resub.
+  quoteNumber?: number;
+  quoteText?: string;
+  quoteSlug?: string;
+  quoteSubmitter?: string;
+  quoteShownCount?: number;
+  quoteDate?: string;
 };
+
+// --- Quotes ------------------------------------------------------------------
+
+/**
+ * `number` is the human-facing handle (`!quote 3`) and is allocated from a counter
+ * that never rewinds, so deleting the newest quote cannot make the next one reuse
+ * its number. `slug` is an optional keyword handle (`!quote farts`), unique when set.
+ */
+export type Quote = {
+  id: string;
+  number: number;
+  slug: string | null;
+  text: string;
+  submittedBy: string;
+  submittedByLogin: string;
+  createdAt: string;
+  shownCount: number;
+  lastShownAt: string | null;
+};
+
+export type QuoteInput = {
+  text: string;
+  slug?: string | null;
+  submittedBy?: string;
+  submittedByLogin?: string;
+};
+
+/** A PATCH body: only the fields present are changed. */
+export type QuoteUpdate = {
+  text?: string;
+  slug?: string | null;
+  submittedBy?: string;
+};
+
+export const MAX_QUOTE_LENGTH = 500;
+export const MAX_QUOTE_SLUG_LENGTH = 60;
 
 /** Broadcast payload (`overlay:text`) consumed by the /overlay/text browser source. */
 export type OverlayTextPlayback = {

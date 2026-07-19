@@ -368,6 +368,7 @@ export function ChatInput({ channel }: { channel: string }) {
   const [sender, setSender] = React.useState<ChatSender>('user');
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const message = text.trim();
 
   const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
@@ -376,6 +377,7 @@ export function ChatInput({ channel }: { channel: string }) {
 
     setSending(true);
     setError(null);
+    setNotice(null);
 
     // Anything starting with "/" is an operator command and is resolved entirely by
     // the server, which owns the vocabulary (they are editable trigger rows, not
@@ -392,7 +394,14 @@ export function ChatInput({ channel }: { channel: string }) {
       : sendChatMessage(message, sender);
 
     void task
-      .then(() => setText(''))
+      .then(result => {
+        setText('');
+        // A slash command can answer a question rather than just act — "/counter
+        // deaths" reports a value — so a successful command's message is shown
+        // instead of discarded. Chat sends have nothing to say and stay silent.
+        const reply = (result as { message?: unknown } | null)?.message;
+        if (typeof reply === 'string' && reply) setNotice(reply);
+      })
       .catch(err => {
         setError(errorMessage(err, 'Could not send'));
       })
@@ -420,12 +429,14 @@ export function ChatInput({ channel }: { channel: string }) {
         onChange={event => {
           setText(event.target.value);
           if (error) setError(null);
+          if (notice) setNotice(null);
         }}
       />
       <button className="chat-send" type="submit" disabled={!message || sending}>
         {sending ? 'Sending' : 'Chat'}
       </button>
       {error ? <div className="chat-input-error" title={error}>{error}</div> : null}
+      {!error && notice ? <div className="chat-input-notice" title={notice}>{notice}</div> : null}
     </form>
   );
 }
