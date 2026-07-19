@@ -177,6 +177,7 @@ src/
         GoLiveSection.tsx     # go-live settings (Discord guild/channel, OBS)
         LlmSection.tsx        # LLM provider settings + connection test
         TtsSection.tsx        # Chatterbox TTS settings, voices, and test speak
+        QuotesPage.tsx        # quote book editor (add/edit/remove, keyword + counter)
         ActionsPage.tsx       # Action editor (ordered steps)
         AutomationPage.tsx    # automation trigger editor
         ModulesPage.tsx       # category module editor
@@ -221,6 +222,7 @@ src/
     obs.ts              # OBS WebSocket integration and dashboard stats
     overlayPlaceholders.ts # in-memory overlay bounds flag + routes
     realtime.ts         # Express app, HTTP server, WebSocket broadcasts
+    quotes.ts           # quote book: repo, number allocation, lookup, routes
     routes.ts           # core REST route registrations
     runtime.ts          # RuntimeState (Twitch auth token cache)
     sounds.ts           # sound buttons + playback events (labeled-button repo)
@@ -267,6 +269,15 @@ src/
 **Redeem media and alerts are Actions.** There is no reward→file table and no alert settings table read at runtime any more. A redeem plays media because a `reward` trigger fires an Action with a `play_media` step; a sub alert shows text because a `twitch_event` trigger fires an Action with `show_text` + `play_media`. The legacy `reward_media`, `tts_reward_enabled`, and `alert_settings` tables still exist but are only read by `legacyMigration.ts`. **If you add a second path that plays a redeem, you will double-play it** — `src/server/redeemOnce.test.ts` exists to catch exactly that.
 
 **Chat commands are Actions too — do not hard-code one.** `!quack` used to be a branch in `chat.ts` that picked a random file from a constant array; it is now an Action with a single `play_media` step in `random` selection, fired by a `viewer_command` trigger (`migrateQuackCommandIntoAction`). Randomness is a property of the step — `PlayMediaPayload` is `{ assetIds: string[], selection: 'first' | 'random' }` — so "play a random one of these" never needs new code. `!tts` is the only built-in chat branch left. Adding another hard-coded command both bypasses cooldowns, roles, and dedup, and leaves the operator unable to see or edit it.
+
+**Quotes are Action steps, for the same reason.** `quotes.ts` owns the book; `quote_add` and `quote_show` are the only ways in and out at runtime. Nothing is seeded — a seeded `!quote` would need a Discord channel id that is not configured on a fresh install, so it would ship broken. Two invariants the code depends on:
+
+- **Quote numbers come from `quote_sequence`, never `max(number) + 1`.** "Quote 12" gets repeated in Discord and screenshots long after the fact, so deleting the newest quote must not let the next one inherit its number. A gap in the sequence is correct; a reused number is not.
+- **`shown_count` is bumped after delivery, not after lookup**, so a Discord outage cannot inflate the count for a quote nobody saw. A lookup that matches nothing is `skipped`, not `failed` — a viewer asking for a quote that isn't there is normal traffic.
+
+Because steps run concurrently and cannot pass values to one another, a quote step resolves the quote AND emits its own message rather than feeding a downstream `send_chat` — the shape `llm_response` already uses. The message template renders against the invocation context extended with `{quoteNumber} {quoteText} {quoteSlug} {quoteSubmitter} {quoteShownCount} {quoteDate}`.
+
+**Discord is send-only.** `sendDiscordMessage(channelId, content)` over REST; there is no gateway connection, no registered slash commands, and no interactions endpoint. Discord can be announced *to*; it cannot trigger anything.
 
 **Overlay sources** — `/overlay/clips` receives `media:play` and drains **audio and video as independent lanes**: only video is visually exclusive, so an alert sound never waits out a clip. `/overlay/text` receives `overlay:text` (Action `show_text` steps, including migrated alert banners, which carry an optional `tone` for their accent colour). Media files live in `public/clips` and `public/sounds` (Vite copies them into `dist/` on build; `public/clips/` is gitignored). Never put media directly in `dist/` — `vite build` empties it.
 
