@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "../src",
+    "outDir": "../build/ts",
+    "skipLibCheck": true
+  },
+  "include": ["../src/client/ui/**/*.tsx", "../src/client/ui/**/*.ts"],
+  "exclude": ["../src/**/*.test.ts", "../src/**/*.test.tsx"]
+}
