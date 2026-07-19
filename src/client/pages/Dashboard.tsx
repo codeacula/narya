@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
-import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx, mergeRecentChatters, type RecentChatter } from '../ui/panels';
+import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
 import { useAttention, useAttentionSettings } from '../attention';
+import { useChatFeed, type ChatFeedHelpers } from '../chatFeed';
+import { openViewerPopout } from '../viewerPopout';
 import { isMentionOf } from '../chatText';
 import { playMentionAlert, playTone } from '../sounds';
 import {
   disconnectTwitch,
   getViewers,
   getChatEntries,
-  getChatEntriesBefore,
   getStreamEvents,
   getDashboardStatus,
   getObsStatus,
@@ -21,13 +22,11 @@ import {
   updateViewerProfile,
   runGoLive,
   switchObsScene,
-  getChatters,
   reconnectEventSub,
 } from '../services/dashboard';
 import { useSessionShoutouts } from '../shoutouts';
 import { useSocket } from '../realtime';
-import { chatHighlight } from '../../shared/roles';
-import { CHAT_PRESENCE_TTL_MS, DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
+import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsShell } from './settings/SettingsShell';
 import {
   dashboardRouteFromName,
@@ -41,7 +40,7 @@ import {
 import { ViewersPage } from './ViewersPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
-import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
+import type { ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, WhisperMessage, ObsStatus } from '../../shared/api';
 import { errorMessage } from '../errors';
 
 /* ---------------- constants ---------------- */
@@ -123,8 +122,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [viewerLogin, setViewerLogin] = useState<string | null>(() => viewerLoginFromPath(window.location.pathname));
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [popped, setPopped] = useState<Record<string, PoppedState>>({});
-  const [viewers, setViewers] = useState<Record<string, Viewer>>({});
-  const [chat, setChat] = useState<ChatEntry[]>([]);
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
   const [streamInfoOpen, setStreamInfoOpen] = useState(false);
@@ -138,19 +135,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [obsStatus, setObsStatus] = useState<ObsStatus>(EMPTY_OBS_STATUS);
   const [sceneSwitching, setSceneSwitching] = useState(false);
-  const [chatters, setChatters] = useState<Chatter[]>([]);
-  // People who just chatted, folded into the "viewers" tab so they show at once
-  // instead of waiting on Twitch's laggy presence poll. See mergeRecentChatters.
-  const [recentChatters, setRecentChatters] = useState<RecentChatter[]>([]);
-  const [chattersError, setChattersError] = useState<string | null>(null);
   const automodQueue = useAutomodQueue();
   const [rightTab, setRightTab] = useState<RightTab>('chatters');
-  // Twitch presence + anyone who has chatted recently, so the tab reflects new
-  // talkers at once. Recomputed on each poll/chat so aged-out senders fall away.
-  const liveChatters = React.useMemo(
-    () => mergeRecentChatters(chatters, recentChatters, Date.now(), CHAT_PRESENCE_TTL_MS),
-    [chatters, recentChatters],
-  );
   // False until the first REST refresh lands, so the attention feed can tell the
   // backlog apart from activity that arrived while you were watching.
   const [seeded, setSeeded] = useState(false);
@@ -163,10 +149,34 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   // Same reason as channelRef: the chat:message handler is deliberately stable, so
   // the toggle has to reach it through a ref rather than the dependency array.
   const mentionSoundRef = React.useRef(true);
-  // Known viewer logins + a trailing refresh timer so the chat handler avoids a
+  // A trailing refresh timer so the chat handler picks up message counts without a
   // getViewers() request per message.
-  const viewerLoginsRef = React.useRef<Set<string>>(new Set());
   const viewersDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Status arrives via the dashboard:status WS heartbeat, so no per-message status
+  // refetch. useChatFeed already refetches viewers immediately for a login it does
+  // not know about; coalesce the rest into a trailing 15s refresh.
+  const feed = useChatFeed({
+    onChatMessage: React.useCallback((message: LiveChatMessage, { refreshViewers }: ChatFeedHelpers) => {
+      const now = Date.now();
+      if (lastChatAt.current > 0 && now - lastChatAt.current > 5 * 60 * 1000) {
+        playTone(880, 180, 0.15);
+      }
+      lastChatAt.current = now;
+
+      // Your own messages contain your own login constantly (replies, /me, shoutouts);
+      // pinging yourself for them made the cue meaningless.
+      const channel = channelRef.current;
+      const fromSelf = message.username.toLowerCase() === channel;
+      if (!fromSelf && mentionSoundRef.current && isMentionOf(message.message, channel)) {
+        playMentionAlert();
+      }
+
+      if (viewersDebounceRef.current) clearTimeout(viewersDebounceRef.current);
+      viewersDebounceRef.current = setTimeout(refreshViewers, 15_000);
+    }, []),
+  });
+  const { chat, setChat, viewers, setViewers } = feed;
 
   const changePage = React.useCallback((nextPage: string) => {
     const route = dashboardRouteFromName(nextPage);
@@ -202,10 +212,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     mentionSoundRef.current = attentionSettings.mentionSoundEnabled;
   }, [attentionSettings.mentionSoundEnabled]);
 
-  useEffect(() => {
-    viewerLoginsRef.current = new Set(Object.keys(viewers));
-  }, [viewers]);
-
   useEffect(() => () => {
     if (viewersDebounceRef.current) clearTimeout(viewersDebounceRef.current);
   }, []);
@@ -238,30 +244,15 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       }
     };
 
-    const refreshChatters = async () => {
-      try {
-        const result = await getChatters();
-        if (!cancelled) {
-          setChatters(result.chatters);
-          setChattersError(null);
-        }
-      } catch (error) {
-        if (!cancelled) setChattersError(errorMessage(error, 'Could not load chatters'));
-      }
-    };
-
     void refreshAll();
-    void refreshChatters();
     // No 5s status poll — the dashboard:status WS heartbeat keeps status fresh.
     const fullRefresh = setInterval(refreshAll, DASHBOARD_FULL_REFRESH_MS);
-    const chattersRefresh = setInterval(refreshChatters, 30_000);
 
     return () => {
       cancelled = true;
       clearInterval(fullRefresh);
-      clearInterval(chattersRefresh);
     };
-  }, []);
+  }, [setChat, setViewers]);
 
   // Real Twitch EventSub events from the backend
   useSocket<StreamEvent>('stream:event', React.useCallback((evt) => {
@@ -274,73 +265,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setEvents(evs => evs.some(e => e.id === update.id)
       ? evs.map(e => e.id === update.id ? { ...e, detail: update.detail, tone: update.tone } : e)
       : evs);
-  }, []));
-
-  useSocket<LiveChatMessage>('chat:message', React.useCallback((message) => {
-    const now = Date.now();
-    if (lastChatAt.current > 0 && now - lastChatAt.current > 5 * 60 * 1000) {
-      playTone(880, 180, 0.15);
-    }
-    lastChatAt.current = now;
-
-    // Your own messages contain your own login constantly (replies, /me, shoutouts);
-    // pinging yourself for them made the cue meaningless.
-    const channel = channelRef.current;
-    const fromSelf = message.username.toLowerCase() === channel;
-    if (!fromSelf && mentionSoundRef.current && isMentionOf(message.message, channel)) {
-      playMentionAlert();
-    }
-
-    const login = message.username.toLowerCase();
-    const nextEntry: ChatEntry = {
-      id: message.id,
-      user: login,
-      text: message.message,
-      time: new Date(message.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
-      at: message.receivedAt,
-      sessionId: message.sessionId ?? null,
-      highlight: chatHighlight(message.badges, Boolean(message.isFirstEver), Boolean(message.isFirstThisSession)),
-      emotes: message.emotes,
-    };
-
-    // Cap live-append so long streams don't grow render cost forever.
-    // loadOlderChat prepends older pages, so only the live tail is capped here.
-    setChat(current => current.some(entry => entry.id === nextEntry.id) ? current : [...current, nextEntry].slice(-400));
-
-    // Fold this sender into the "viewers" tab right away — a message proves they're
-    // here even before Twitch's presence poll lists them — and drop anyone whose last
-    // message has aged past the TTL so people who left don't linger.
-    setRecentChatters(current => {
-      const cutoff = now - CHAT_PRESENCE_TTL_MS;
-      const kept = current.filter(entry => entry.at >= cutoff && entry.chatter.userLogin.toLowerCase() !== login);
-      const chatter = { userId: 'chat:' + login, userLogin: message.username, userName: message.displayName || message.username };
-      return [...kept, { chatter, at: now }];
-    });
-
-    // Status arrives via the dashboard:status WS heartbeat, so no per-message
-    // status refetch. Only refetch viewers immediately for a login we don't yet
-    // know about; otherwise coalesce updates into a trailing 15s refresh to pick
-    // up message counts without a request per message.
-    const refreshViewers = () => {
-      void getViewers().then(setViewers).catch((error: unknown) => {
-        console.error('Failed to refresh viewers after chat message:', error);
-      });
-    };
-    if (!viewerLoginsRef.current.has(login)) {
-      viewerLoginsRef.current.add(login);
-      refreshViewers();
-    }
-    if (viewersDebounceRef.current) clearTimeout(viewersDebounceRef.current);
-    viewersDebounceRef.current = setTimeout(refreshViewers, 15_000);
-  }, []));
-
-  useSocket<ChatModerationEvent>('chat:moderated', React.useCallback(() => {
-    void Promise.all([getChatEntries(), getViewers()]).then(([nextChat, nextViewers]) => {
-      setChat(nextChat);
-      setViewers(nextViewers);
-    }).catch((error: unknown) => {
-      console.error('Failed to refresh chat after moderation event:', error);
-    });
   }, []));
 
   useSocket<WhisperMessage>('whisper:message', React.useCallback((msg) => {
@@ -531,10 +455,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     events,
     channel: status.channel,
     currentSessionId: status.streamSessionId,
-    openViewerPopout: login => {
-      const windowName = `viewer_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      window.open(`/viewer?login=${encodeURIComponent(login)}`, windowName, 'width=380,height=560');
-    },
+    openViewerPopout,
     updateViewerProfile: async (login, profile) => {
       const updated = await updateViewerProfile(login, profile);
       setViewers(current => {
@@ -551,14 +472,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       });
       return updated;
     },
-    loadOlderChat: async () => {
-      const oldest = chat[0];
-      if (!oldest) return false;
-      const older = await getChatEntriesBefore(oldest.id);
-      if (older.length === 0) return false;
-      setChat(current => [...older, ...current]);
-      return older.length === 80; // still more if a full page came back
-    },
+    loadOlderChat: feed.loadOlderChat,
   };
 
   const handlePop = (id: string, on: boolean) => {
@@ -597,7 +511,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
   function renderRightTab(tab: RightTab) {
     if (tab === 'chatters') {
-      return <ChattersPanel chatters={liveChatters} viewers={viewers} error={chattersError} onOpenViewer={ctx.openViewerPopout} />;
+      return <ChattersPanel chatters={feed.liveChatters} viewers={viewers} error={feed.chattersError} onOpenViewer={ctx.openViewerPopout} />;
     }
     if (tab === 'activity') return MODULES.events.render(ctx);
     if (tab === 'shoutouts') {
@@ -687,7 +601,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
           popped={!!popped['chatters']}
           onPop={handlePop}
           tabs={[
-            { id: 'chatters', label: 'Viewers', badge: chatters.length },
+            { id: 'chatters', label: 'Viewers', badge: feed.chatters.length },
             { id: 'activity', label: 'Activity', badge: events.length },
             { id: 'shoutouts', label: 'Shoutouts', badge: shoutouts.length },
             { id: 'automod', label: 'AutoMod', badge: automodQueue.pending.length },
