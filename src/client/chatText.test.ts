@@ -52,7 +52,6 @@ describe('parseLinkToken', () => {
 
   test('leaves non-URL tokens alone', () => {
     expect(parseLinkToken('hello')).toBeNull();
-    expect(parseLinkToken('example.com')).toBeNull();
     // No scheme we allow means no anchor — a chat message can't emit javascript:.
     expect(parseLinkToken('javascript:alert(1)')).toBeNull();
     expect(parseLinkToken('https://')).toBeNull();
@@ -63,6 +62,7 @@ describe('parseLinkToken', () => {
     expect(parseLinkToken('https://example.com/a.')).toEqual({
       href: 'https://example.com/a',
       label: 'https://example.com/a',
+      leading: '',
       trailing: '.',
     });
     expect(parseLinkToken('https://example.com/a?!')?.trailing).toBe('?!');
@@ -72,5 +72,68 @@ describe('parseLinkToken', () => {
     expect(parseLinkToken('https://example.com/a)')?.label).toBe('https://example.com/a');
     expect(parseLinkToken('https://en.wikipedia.org/wiki/Foo_(bar)')?.label)
       .toBe('https://en.wikipedia.org/wiki/Foo_(bar)');
+  });
+
+  // Leading punctuation used to defeat the match outright: LINK_PREFIX is `^`-anchored,
+  // so `(https://x.com` was not a link at all, while the trailing `)` was handled fine.
+  test('peels leading punctuation and re-emits it', () => {
+    expect(parseLinkToken('(https://example.com/a)')).toEqual({
+      href: 'https://example.com/a',
+      label: 'https://example.com/a',
+      leading: '(',
+      trailing: ')',
+    });
+    expect(parseLinkToken('"www.example.com"')?.href).toBe('https://www.example.com');
+  });
+});
+
+// The reported bug: typing a link in the dashboard did not linkify. The renderer was
+// fine — the tokenizer only accepted http://, https://, and www., so the schemeless
+// form chat actually posts was rejected.
+describe('parseLinkToken — schemeless hosts', () => {
+  test('links a schemeless host on the TLD allowlist', () => {
+    expect(parseLinkToken('twitch.tv/codeacula')?.href).toBe('https://twitch.tv/codeacula');
+    expect(parseLinkToken('youtu.be/dQw4w9WgXcQ')?.href).toBe('https://youtu.be/dQw4w9WgXcQ');
+    expect(parseLinkToken('example.com')?.href).toBe('https://example.com');
+    expect(parseLinkToken('discord.gg/abc')?.href).toBe('https://discord.gg/abc');
+  });
+
+  test('labels the host exactly as typed, without inventing a scheme in the text', () => {
+    const link = parseLinkToken('twitch.tv/codeacula');
+    expect(link?.label).toBe('twitch.tv/codeacula');
+    expect(link?.href).toBe('https://twitch.tv/codeacula');
+  });
+
+  // The whole point of an allowlist. A bare `word.word` rule linkifies all of these.
+  test('does not linkify filenames, versions, or prose that merely contains a dot', () => {
+    expect(parseLinkToken('Node.js')).toBeNull();
+    expect(parseLinkToken('config.json')).toBeNull();
+    expect(parseLinkToken('script.py')).toBeNull();
+    expect(parseLinkToken('README.md')).toBeNull();
+    expect(parseLinkToken('3.5')).toBeNull();
+    expect(parseLinkToken('v1.2.3')).toBeNull();
+    expect(parseLinkToken('U.S.')).toBeNull();
+    expect(parseLinkToken('etc.')).toBeNull();
+    expect(parseLinkToken('...')).toBeNull();
+  });
+
+  test('an email address is not a link', () => {
+    expect(parseLinkToken('someone@example.com')).toBeNull();
+  });
+
+  test('schemeless matching still peels punctuation', () => {
+    expect(parseLinkToken('twitch.tv/codeacula.')).toEqual({
+      href: 'https://twitch.tv/codeacula',
+      label: 'twitch.tv/codeacula',
+      leading: '',
+      trailing: '.',
+    });
+    expect(parseLinkToken('(example.com)')?.label).toBe('example.com');
+  });
+
+  test('a schemeless host cannot smuggle in another scheme', () => {
+    expect(parseLinkToken('data:text/html,x')).toBeNull();
+    expect(parseLinkToken('file:///etc/passwd')).toBeNull();
+    expect(parseLinkToken('javascript:void.com')).toBeNull();
   });
 });

@@ -1048,6 +1048,17 @@ nav {
   overflow-wrap: anywhere;
 }
 
+/* A URL inside a held message: styled so the operator can see it is a link, but not
+   an anchor — see markLinks() in automod.tsx. Dotted rather than solid underline so it
+   reads as "this is a URL" rather than "click me", and `cursor: text` so it does not
+   invite the click it will not perform. The full href is on the title attribute. */
+.automod-link {
+  color: var(--warning-fg, var(--ivory));
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: text;
+}
+
 .automod-error {
   margin: 0;
   color: var(--danger-fg);
