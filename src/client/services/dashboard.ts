@@ -57,6 +57,9 @@ import type {
   DiscordGuild,
   DiscordChannel,
   GoLiveSettings,
+  Quote,
+  QuoteInput,
+  QuoteUpdate,
   GoLiveSettingsUpdate,
   GoLiveResult,
   ViewerRewardCategory,
@@ -646,4 +649,23 @@ export async function deleteCategoryModule(id: string): Promise<void> {
 /** Re-reads the live Twitch category and re-applies module-owned reward groups. Clears `degraded` when it succeeds. */
 export async function reconcileCategoryModules(): Promise<CategoryModulesResponse> {
   return sendJson<CategoryModulesResponse>('/api/category-modules/reconcile', 'POST', {});
+}
+
+// --- Quotes ------------------------------------------------------------------
+
+export async function getQuotes(): Promise<Quote[]> {
+  return fetchJson<Quote[]>('/api/quotes');
+}
+
+export async function createQuote(quote: QuoteInput): Promise<Quote> {
+  return sendJson<Quote>('/api/quotes', 'POST', quote);
+}
+
+/** Only the fields present are changed; an explicit null slug clears it. */
+export async function updateQuote(id: string, update: QuoteUpdate): Promise<Quote> {
+  return sendJson<Quote>(`/api/quotes/${encodeURIComponent(id)}`, 'PATCH', update);
+}
+
+export async function deleteQuote(id: string): Promise<void> {
+  return sendVoid(`/api/quotes/${encodeURIComponent(id)}`, 'DELETE');
 }

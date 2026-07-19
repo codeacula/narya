@@ -53,6 +53,13 @@ export const SETTINGS_SECTIONS: ReadonlyArray<SettingsSection> = [
     blurb: 'Create and organize Twitch Channel Points rewards. Toggle a category to switch its manageable rewards on or off together.',
   },
   {
+    id: 'quotes',
+    group: 'channel',
+    label: 'Quotes',
+    title: 'Quotes',
+    blurb: 'The quote book. Each quote has a number, an optional keyword, and a count of how often it has been pulled up. Wire the commands that save and announce them in Actions.',
+  },
+  {
     id: 'actions',
     group: 'automation',
     label: 'Actions',
