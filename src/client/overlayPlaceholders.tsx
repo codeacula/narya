@@ -1,7 +1,7 @@
 import React from 'react';
 import type { OverlayPlaceholders } from '../shared/api';
 import { useSocket, useSocketReconnect } from './realtime';
-import { getOverlayPlaceholders } from './services/dashboard';
+import { getOverlayPlaceholders, updateOverlayPlaceholders } from './services/dashboard';
 
 /**
  * REST seed + live `overlay:placeholders` updates, so toggling from the dashboard
@@ -30,6 +30,53 @@ export function useOverlayPlaceholders(): boolean {
   );
 
   return enabled;
+}
+
+/**
+ * The operator's switch for the outlines, living in the nav bar's Display panel.
+ *
+ * It used to sit in the dashboard's Stream Controls panel, which the cockpit mounts
+ * only when OBS is connected — so the control for positioning OBS sources vanished
+ * exactly when OBS was down, despite the flag having nothing to do with OBS. The
+ * Display panel is always reachable.
+ *
+ * Loud while it is on, because it is drawing boxes over whatever OBS is composing.
+ * The server holds the flag in memory only, so a restart clears it, but a restart is
+ * not something to rely on mid-session — hence the warning rather than silence.
+ */
+export function OverlayBoundsToggle() {
+  // Shares the hook with the overlays themselves, so the switch and the sources can
+  // never disagree, and it inherits the refetch-on-reconnect the old copy lacked.
+  const enabled = useOverlayPlaceholders();
+  const [busy, setBusy] = React.useState(false);
+
+  const toggle = (next: boolean) => {
+    setBusy(true);
+    // No local state to set: the PUT broadcasts `overlay:placeholders`, and the hook
+    // above is already subscribed to it.
+    updateOverlayPlaceholders(next)
+      .catch(() => undefined)
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="twk-overlay-bounds">
+      <label className="twk-toggle">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={busy}
+          onChange={event => toggle(event.target.checked)}
+        />
+        <span>Show overlay bounds</span>
+      </label>
+      {enabled && (
+        <p className="twk-warn" role="status">
+          Outlines are visible in every overlay source — turn this off before going live.
+        </p>
+      )}
+    </div>
+  );
 }
 
 const OVERLAY_LABELS: Record<string, string> = {

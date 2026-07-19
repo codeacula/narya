@@ -37,6 +37,8 @@ import type {
   Chatter,
   ChattersResponse,
   ViewerRosterEntry,
+  ViewerRefreshResult,
+  ViewerFlushResult,
   SoundButton,
   SoundButtonUpdate,
   SoundPlayback,
@@ -425,6 +427,16 @@ export async function getChatters(): Promise<ChattersResponse> {
 
 export async function getViewerRoster(): Promise<ViewerRosterEntry[]> {
   return fetchJson<ViewerRosterEntry[]>('/api/viewers/roster');
+}
+
+/** Re-query Twitch for one viewer, persisting the result and detecting a dead account. */
+export async function refreshViewer(login: string): Promise<ViewerRefreshResult> {
+  return sendJson<ViewerRefreshResult>(`/api/viewers/${encodeURIComponent(login)}/refresh`, 'POST');
+}
+
+/** Remove a viewer and keep them out. See flushViewer on the server. */
+export async function flushViewer(login: string, reason = ''): Promise<ViewerFlushResult> {
+  return sendJson<ViewerFlushResult>(`/api/viewers/${encodeURIComponent(login)}/flush`, 'POST', { reason });
 }
 
 export async function getVips(): Promise<Chatter[]> {

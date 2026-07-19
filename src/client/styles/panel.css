@@ -1352,10 +1352,9 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   flex: 1;
   min-width: 0;
 }
-/* Overlay bounds toggle. Wraps so the warning sits under the checkbox rather than
-   squeezing the control when it appears. */
-.ctrl-overlay-section { flex-wrap: wrap; align-items: center; }
-/* Media mute shares the overlay toggle's wrap-and-warning layout. */
+/* Wraps so the warning sits under the checkbox rather than squeezing the control when
+   it appears. `.ctrl-overlay-section` used to share this and is gone with the overlay
+   bounds toggle, which moved to the nav bar's Display panel. */
 .ctrl-mute-section { flex-wrap: wrap; align-items: center; }
 .ctrl-toggle {
   display: flex;
@@ -1370,7 +1369,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .ctrl-toggle input { cursor: pointer; }
 .ctrl-toggle.is-muted span { color: var(--danger-fg); font-weight: 600; }
-.ctrl-overlay-warning {
+.ctrl-inline-warning {
   flex-basis: 100%;
   margin: 0;
   padding-left: 60px;
@@ -2764,7 +2763,21 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 /* VIP and Mod live up here with identity, not down in Spotlight's action row: they
    change who someone *is* in the channel, where shout out / timeout / ban act on the
    moment. */
-.viewer-detail-roles { flex: none; display: flex; gap: 6px; }
+/* Wraps because the record actions (Refresh / Flush) and their status line share this
+   row with the role grants, and the status line is a full sentence. */
+.viewer-detail-roles { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.viewer-record-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* Set apart from the role grants: these act on Narya's record of the viewer, not on
+   their standing in the channel. */
+.viewer-record-actions { padding-left: 8px; margin-left: 2px; border-left: 1px solid var(--border-1); }
+.viewer-record-note {
+  flex-basis: 100%;
+  text-align: right;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
 
 .viewer-history {
   margin-top: var(--space-5);
@@ -2826,6 +2839,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .roster-stat-seen { color: var(--fg-2); }
 .roster-stat-seen.is-live { color: var(--gold-400); }
 .roster-stat-msgs { color: var(--fg-3); }
+.roster-stat-missing { color: var(--danger-fg); }
 
 @media (max-width: 760px) {
   .roster-row {
