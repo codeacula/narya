@@ -12,6 +12,8 @@ export type StreamSession = {
   // failure was terminal (operator has to fix something) rather than transient.
   discordAnnounceAttempts: number;
   discordAnnounceTerminal: number;
+  /** RFC3339 time the operator plans to end this stream, or null. */
+  plannedEndAt: string | null;
 };
 
 const getActiveSessionRow = db.prepare(`
@@ -24,7 +26,8 @@ const getActiveSessionRow = db.prepare(`
     discord_channel_id as discordChannelId,
     discord_announce_error as discordAnnounceError,
     discord_announce_attempts as discordAnnounceAttempts,
-    discord_announce_terminal as discordAnnounceTerminal
+    discord_announce_terminal as discordAnnounceTerminal,
+    planned_end_at as plannedEndAt
   from stream_sessions
   where ended_at is null
   order by started_at desc
@@ -41,7 +44,8 @@ const getSessionBySourceRow = db.prepare(`
     discord_channel_id as discordChannelId,
     discord_announce_error as discordAnnounceError,
     discord_announce_attempts as discordAnnounceAttempts,
-    discord_announce_terminal as discordAnnounceTerminal
+    discord_announce_terminal as discordAnnounceTerminal,
+    planned_end_at as plannedEndAt
   from stream_sessions
   where source = ?
   limit 1
@@ -77,6 +81,12 @@ const clearStreamSessionAnnounceError = db.prepare(`
   set discord_announce_error = null,
       discord_announce_terminal = 0,
       discord_announce_attempts = 0
+  where id = ?
+`);
+
+const updateStreamSessionPlannedEnd = db.prepare(`
+  update stream_sessions
+  set planned_end_at = ?
   where id = ?
 `);
 
@@ -168,4 +178,16 @@ export function getSessionChatterCount(): number {
   if (!sessionId) return 0;
   const row = countSessionChatters.get(sessionId) as { count: number };
   return row.count;
+}
+
+/**
+ * The plan is scoped to one stream. `getPlannedStreamEnd` reads the ACTIVE session
+ * only, so ending a session drops the plan rather than carrying it into the next one.
+ */
+export function setPlannedStreamEnd(sessionId: string, plannedEndAt: string | null) {
+  updateStreamSessionPlannedEnd.run(plannedEndAt, sessionId);
+}
+
+export function getPlannedStreamEnd(): string | null {
+  return getActiveStreamSession()?.plannedEndAt ?? null;
 }

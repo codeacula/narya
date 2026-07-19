@@ -538,6 +538,7 @@ const allowedMigrationColumns = new Set([
   'obs_scene_prefix',
   'sound_button_volume',
   'quick_disable',
+  'planned_end_at',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -575,6 +576,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // rather than what it actually controls: the default sound-button volume.
   sound_button_volume: 'real not null default 0.2',
   quick_disable: 'integer not null default 0',
+  planned_end_at: 'text',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -608,6 +610,9 @@ addColumnIfMissing('chat_messages', 'emotes_json', 'text');
 addColumnIfMissing('chat_messages', 'stream_session_id', 'text');
 addColumnIfMissing('chat_messages', 'is_first_in_session', 'integer not null default 0');
 addColumnIfMissing('chat_messages', 'is_first_ever', 'integer not null default 0');
+// When the operator plans to end this stream, set from the go-live Info screen or
+// the dashboard. Null for sessions with no plan and for rows predating the column.
+addColumnIfMissing('stream_sessions', 'planned_end_at', 'text');
 addColumnIfMissing('viewer_reward_categories', 'default_background_color', 'text');
 addColumnIfMissing('tts_settings', 'voice_profile_id', "text not null default 'zombiechicken'");
 addColumnIfMissing('tts_settings', 'language_id', "text not null default 'en'");

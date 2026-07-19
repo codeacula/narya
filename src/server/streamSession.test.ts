@@ -1,10 +1,13 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { db } from './db';
 import {
+  endActiveStreamSession,
   getActiveStreamSession,
   getOrStartStreamSession,
+  getPlannedStreamEnd,
   hasSeenChatterBefore,
   recordCurrentSessionChatter,
+  setPlannedStreamEnd,
 } from './streamSession';
 
 function uniqueSource() {
@@ -46,5 +49,43 @@ describe('hasSeenChatterBefore', () => {
       .run(login, new Date().toISOString());
     expect(hasSeenChatterBefore(login)).toBe(true);
     expect(hasSeenChatterBefore(login.toUpperCase())).toBe(true);
+  });
+});
+
+describe('planned stream end', () => {
+  beforeEach(() => {
+    db.exec('delete from stream_session_chatters');
+    db.exec('delete from stream_sessions');
+  });
+
+  test('a new session has no planned end', () => {
+    getOrStartStreamSession('test-a', '2026-07-19T18:00:00.000Z');
+    expect(getPlannedStreamEnd()).toBeNull();
+    expect(getActiveStreamSession()?.plannedEndAt).toBeNull();
+  });
+
+  test('stores and reads back a planned end', () => {
+    const session = getOrStartStreamSession('test-b', '2026-07-19T18:00:00.000Z');
+    setPlannedStreamEnd(session.id, '2026-07-19T21:00:00.000Z');
+    expect(getPlannedStreamEnd()).toBe('2026-07-19T21:00:00.000Z');
+  });
+
+  test('clears a planned end', () => {
+    const session = getOrStartStreamSession('test-c', '2026-07-19T18:00:00.000Z');
+    setPlannedStreamEnd(session.id, '2026-07-19T21:00:00.000Z');
+    setPlannedStreamEnd(session.id, null);
+    expect(getPlannedStreamEnd()).toBeNull();
+  });
+
+  // The plan belongs to one stream. Ending the session must not leak it into the next.
+  test('a planned end does not survive the session ending', () => {
+    const session = getOrStartStreamSession('test-d', '2026-07-19T18:00:00.000Z');
+    setPlannedStreamEnd(session.id, '2026-07-19T21:00:00.000Z');
+    endActiveStreamSession('2026-07-19T21:30:00.000Z');
+    expect(getPlannedStreamEnd()).toBeNull();
+  });
+
+  test('off-stream, there is no planned end to read', () => {
+    expect(getPlannedStreamEnd()).toBeNull();
   });
 });
