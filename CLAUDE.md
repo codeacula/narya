@@ -142,6 +142,8 @@ src/
     suggestions.ts      # useDebouncedSuggestions type-ahead + formatBoxArtUrl
     tabletChat.tsx      # TabletChatPanel (tablet-chrome chat surface)
     tts.ts              # useTtsEvents hook (plays TTS audio from WebSocket)
+    windDown.ts         # useWindDown (operator) / useWindDownOverlay (browser source)
+    windDownCountdown.ts # relative countdown formatting for the overlay
     realtime.ts         # shared WebSocket singleton + useSocket hook
     routing.ts          # dashboardRouteFromPath / pathForDashboardRoute / overlayFromPath
     main.tsx            # thin path-based router → page components
@@ -229,6 +231,10 @@ src/
     streamStatus.ts     # persisted stream status line + routes
     tags.ts             # tag normalization, tag history, suggestion merging
     tts.ts              # Chatterbox TTS integration
+    windDown.ts         # wind-down settings + state store, routes, title re-base
+    windDownLoop.ts     # wind-down tick loop + Twitch title application
+    windDownSchedule.ts # the pure evaluateWindDown decision
+    windDownTitle.ts    # title composition + the 140-char truncation rule
     twitchIdentity.ts   # which Twitch account the stored OAuth tokens belong to
     viewerRewards.ts    # Twitch channel point reward management
     viewers.ts          # VIP/moderator roster and grant/revoke routes
@@ -272,6 +278,22 @@ src/
 **An overlay URL is in someone's OBS scene collection — you cannot just delete it.** Overlay paths are resolved by `overlayFromPath` in `routing.ts`, and *everything* under `/overlay` resolves there: an unrecognized path returns `'unknown'` and renders an inert transparent notice. It must never fall through to the dashboard, which is exactly what the retired `/overlay/alerts` did — an OBS browser source rendered the operator's chat, controls, and viewer data into a live scene. `/overlay/alerts` is therefore **aliased to the text overlay**, not deleted, so the existing source keeps showing alert banners. It maps to text *only*: the alert's sound and clip are a `play_media` step and `/overlay/clips` is already a source in the same scene receiving `media:play`, so rendering media on both would **play every alert twice**. Retiring an overlay route means aliasing it and covering it in `routing.test.ts`.
 
 **Overlay bounds** (`overlayPlaceholders.ts`) — most overlays are invisible until an event fires, so they cannot be positioned in OBS. The dashboard's Controls panel toggles `overlay:placeholders`, and every source draws a labelled outline of its own bounds; real content still renders on top. `OverlayPlaceholder` is attached **once, in `main.tsx`'s overlay branch**, not per page, so a new overlay cannot ship without one. The flag is **in memory and never persisted**: boxes drawn over a live stream are the bad state, so a restart must clear it rather than restore it, and `setOverlayPlaceholders` only accepts a literal `true`. The GET is on the overlay token's read allowlist so a source can seed itself; the PUT is operator-only (the token is GET-only), so a browser source cannot switch the boxes on for every other source.
+
+**Wind-down** (`windDown.ts`, `windDownLoop.ts`) — signals that the stream is wrapping up: a suffix on the Twitch title and a `/overlay/winddown` countdown. Fires automatically N minutes before `stream_sessions.planned_end_at`, or manually from the dashboard, or from a `set_wind_down` Action step.
+
+**Twitch exposes no API to block an incoming raid.** Not Helix, not EventSub, not a chat command — `channel:manage:raids` is outbound-only, Shield Mode is an opaque container of broadcaster-configured overrides the API cannot read, and the Creator Dashboard's own "Stop Raids for 1 Hour" has no API. So wind-down *signals* a prospective raider rather than stopping one, and must never be described as blocking anything. **Raid alerts are deliberately NOT suppressed during wind-down** — a raid five minutes before the end is more worth celebrating, not less. Do not add a setting for it.
+
+The scheduler is a pure `evaluateWindDown` decision plus a tick loop, the same split as `automaticAds.ts`. The rules that carry the weight, each of which cost a review round to find:
+
+- **`base_title` and `applied_suffix` are persisted, and written only AFTER the Twitch write confirms.** They must always describe what is actually on the channel. Persisting first means a failed write records a suffix that never went up, and the next reconcile then strips a suffix the title does not carry and stacks a second one.
+- **The live title is always recomputed as base + suffix**, never appended to the live value, so activating twice cannot stack suffixes.
+- **Only a *manual* switch-off latches `dismissed_session_id`.** That is the operator deciding to keep streaming, and the scheduler honors it for the rest of the session. An Action or the scheduler switching off must not latch, or automation would permanently disarm the schedule.
+- **`resetWindDownForStreamEnd` runs on `stream.offline`** and clears the whole row. Without it `active` survives into the next stream and `evaluateWindDown`'s `already_active` guard disarms the scheduler forever.
+- **Both failure directions retry**, gated on `baseTitle === null` (activation never landed) and `baseTitle !== null` while inactive (restore never landed), with a burst-then-backoff so a revoked token does not log every 5 seconds.
+
+`windDown.ts` must **not** import `windDownLoop.ts` — `windDownLoop.ts` imports `twitch/api.ts`, which imports `windDown.ts`, and all three prepare statements at load time, so the cycle is a boot-order failure rather than a clean error. That is why the title applier is an injected seam (`setWindDownTitleApplier`, registered in `index.ts`) rather than a direct call.
+
+The title update calls `PATCH /helix/channels` with **only** the title, not the app's own `/api/twitch/stream-info` route — that route requires a category and fires `onCategorySignal`, so routing a title tweak through it would re-trigger category-module switching from a clock tick.
 
 **Stream-session scoping** — `stream_events.session_id` stamps each event with the active `stream_sessions` row at emit time (null when off-stream, and for rows predating the column). The dashboard dims events whose `sessionId` differs from `DashboardStatus.streamSessionId`, the attention feed ignores them, and `GET /api/dashboard/session-shoutouts` groups the current session's events per actor to drive the Shoutouts tab and the `/overlay/shoutouts` ticker.
 
