@@ -5,8 +5,33 @@ import type { MediaFile, MediaKind } from '../shared/api';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, '..', '..', 'public');
+const fixturesDir = path.resolve(__dirname, '__fixtures__', 'media');
 
-/** Folders under public/ that hold redeem-playable media. */
+/**
+ * Isolate tests from the operator's media, the way db.ts isolates them from the
+ * operator's database. `bun test` sets NODE_ENV=test, so scan the committed
+ * fixtures there; a normal run still scans public/.
+ *
+ * public/clips and public/sounds are gitignored operator media, so a fresh clone
+ * or a new git worktree has no public/ directory at all. Scanning it under test
+ * meant every assertion that needed a resolvable file passed only on the machine
+ * that happened to hold the operator's library, and failed for CI and for any new
+ * contributor. Resolved once at import time — like dbPath — because the scan is
+ * cached and a mid-run change would be neither observed nor meaningful.
+ */
+const mediaDir = process.env.NODE_ENV === 'test' ? fixturesDir : publicDir;
+
+/**
+ * The directory the scan actually walks. Exported so a test can assert the
+ * isolation above is still in force — without that assertion, reverting it would
+ * turn the suite green on any machine holding the operator's media and red
+ * everywhere else, which is exactly the failure this replaced.
+ */
+export function mediaScanRoot(): string {
+  return mediaDir;
+}
+
+/** Folders under the media root that hold redeem-playable media. */
 const MEDIA_ROOTS = ['clips', 'sounds'];
 
 const KIND_BY_EXTENSION: Record<string, MediaKind> = {
@@ -54,7 +79,7 @@ function scan(): { files: MediaFile[]; bySrc: Map<string, MediaFile> } {
   if (cache && now - cache.at < SCAN_TTL_MS) return cache;
   const files: MediaFile[] = [];
   for (const root of MEDIA_ROOTS) {
-    const absolute = path.join(publicDir, root);
+    const absolute = path.join(mediaDir, root);
     if (!existsSync(absolute)) continue;
     walk(absolute, `/${root}`, files);
   }
