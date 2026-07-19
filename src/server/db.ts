@@ -350,6 +350,36 @@ db.exec(`
     muted integer not null default 0
   );
 
+  -- Wind-down configuration. Its own table rather than app_config: these are
+  -- feature settings, not credentials, and saving them must never reconnect Twitch
+  -- or OBS. Same shape as go_live_settings.
+  create table if not exists wind_down_settings (
+    id text primary key,
+    lead_minutes integer not null default 15,
+    title_suffix text not null default '| Ending soon',
+    title_enabled integer not null default 1,
+    overlay_enabled integer not null default 1,
+    updated_at text not null
+  );
+
+  -- Wind-down runtime state. Single row (id = 1) so it survives a restart.
+  --
+  -- base_title is PERSISTED, not held in memory: a restart while active would
+  -- otherwise leave the suffix welded to the operator's Twitch title into the next
+  -- stream, with nothing left that knows what the title used to be.
+  --
+  -- dismissed_session_id latches a manual switch-off for the rest of that stream, so
+  -- the scheduler cannot re-arm one tick after the operator decided to keep going.
+  create table if not exists wind_down_state (
+    id integer primary key check (id = 1),
+    active integer not null default 0,
+    activated_at text,
+    source text,
+    session_id text,
+    base_title text,
+    dismissed_session_id text
+  );
+
   create table if not exists action_steps (
     id text primary key,
     action_id text not null,

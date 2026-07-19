@@ -17,6 +17,7 @@ import {
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { registerMediaMuteRoutes } from './mediaMute';
 import { registerOverlayPlaceholderRoutes } from './overlayPlaceholders';
+import { registerWindDownRoutes } from './windDown';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { config, isLoopbackHost } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
@@ -137,6 +138,7 @@ registerStreamCategoryRoutes(app);
 registerStreamStatusRoutes(app);
 registerOverlayPlaceholderRoutes(app);
 registerMediaMuteRoutes(app);
+registerWindDownRoutes(app);
 registerLlmRoutes(app);
 registerDiscordRoutes(app);
 registerGoLiveRoutes(app);
