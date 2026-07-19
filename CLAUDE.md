@@ -89,6 +89,8 @@ Preserve file encoding and Unicode characters when editing. Inspect the resultin
 
 Bun-powered Vite + React + TypeScript SPA with an Express/Bun backend. Validation is via typecheck, the `bun test` suite (`*.test.ts` colocated with source), and build.
 
+A C#/.NET + Vue rewrite was attempted and abandoned on 2026-07-19. It is archived in the git tag `archive/csharp-vue-rewrite`; this stack is the only one that ships.
+
 ## Commands
 
 ```sh
@@ -120,18 +122,33 @@ The following is a navigation aid, not a substitute for inspecting the current r
 src/
   client/
     attention.ts        # useAttention hook: thank-worthy events + tagged chat, ack set, chime
+    auth.ts             # dashboard token capture/storage, withToken(), rejection signalling
+    automod.tsx         # useAutomodQueue hook + AutomodPanel + AutomodQuickActions
     chat.tsx            # useChat hook + ChatPanel component
+    chatText.ts         # isMentionOf + URL link tokenizing for chat text
     clips.tsx           # useMediaQueue hook + ClipStage (redeem clip/sound playback)
+    errors.ts           # errorMessage(caught, fallback) — shared catch-to-string helper
+    eventKinds.ts       # event-kind verb/chip/tone presentation + attention kind set
+    mediaMute.ts        # useMediaMute hook (master sound/video mute switch)
     music.tsx           # useMusic hook + MusicPanel + MusicControls
+    overlayPlaceholders.tsx # useOverlayPlaceholders hook + OverlayPlaceholder outline
+    overlayText.tsx     # overlay text queue helpers + useOverlayTextQueue + OverlayTextStage
+    quickActions.tsx    # useQuickActions hook + QuickActionsPanel + TabletQuickActions
+    scenes.ts           # switchableScenes / sceneLabel (OBS scene prefix filtering + ordering)
     shoutouts.tsx       # useSessionShoutouts hook + ShoutoutTicker (overlay)
     sounds.ts           # useSoundEvents hook + preloaded quack sources + playTone/playAttentionChime
+    storage.ts          # loadStoredJson / saveStoredJson (localStorage that never throws)
+    streamStatus.ts     # useStreamStatus hook (REST seed + status:updated)
+    suggestions.ts      # useDebouncedSuggestions type-ahead + formatBoxArtUrl
+    tabletChat.tsx      # TabletChatPanel (tablet-chrome chat surface)
     tts.ts              # useTtsEvents hook (plays TTS audio from WebSocket)
     realtime.ts         # shared WebSocket singleton + useSocket hook
-    routing.ts          # dashboardRouteFromPath / pathForDashboardRoute
+    routing.ts          # dashboardRouteFromPath / pathForDashboardRoute / overlayFromPath
     main.tsx            # thin path-based router → page components
     services/
       dashboard.ts      # dashboard data service backed by REST endpoints
     ui/
+      authGate.tsx      # AuthGate: token-rejection screen in front of operator pages
       icons.tsx         # Icon component
       shell.tsx         # NavBar, StatBar, Panel, PopWindow, useDrag
       panels.tsx        # Chat, Spotlight, EventFeed, MODULES registry
@@ -140,13 +157,30 @@ src/
       serviceStatus.tsx # ServiceStatusToasts (settings:updated WebSocket events)
     pages/
       Dashboard.tsx         # cockpit dashboard (3 layouts, popout windows)
-      SettingsPage.tsx      # Settings → Connections & credentials
+      SettingsPage.tsx      # ConnectionsSettingsPage — Twitch sign-in + the Connections section
+      StreamCategoriesPage.tsx # saved stream categories and their tags
       ViewerRewardsPage.tsx # Twitch viewer rewards management
+      ViewersPage.tsx       # viewer roster (all/live/VIPs/mods) + ViewerOrb/RoleBadges
+      ViewerDetailPage.tsx  # ViewerDetailPane: one viewer's details, messages, role actions
       ViewerWindow.tsx      # popout viewer info window
       StreamInfoModal.tsx   # go-live stream info editor
       Overlay.tsx           # browser-source overlays (transparent): combined frame plus
-                            # per-widget routes /overlay/{chat,nowplaying,sounds,shoutouts,clips}
+                            # per-widget routes
+                            # /overlay/{chat,nowplaying,sounds,shoutouts,clips,status,text}
       Tablet.tsx            # surface stream-deck controls
+      settings/
+        SettingsShell.tsx     # settings shell: section rail + body selection by id
+        sections.ts           # the settings section/group registry (single declaration site)
+        shared.tsx            # SettingsHeader / SettingsRow layout primitives
+        ConnectionsSection.tsx # credentials + channel form (Twitch/OBS/Discord)
+        ContentSection.tsx    # media asset catalog + sound/clip button management
+        GoLiveSection.tsx     # go-live settings (Discord guild/channel, OBS)
+        LlmSection.tsx        # LLM provider settings + connection test
+        TtsSection.tsx        # Chatterbox TTS settings, voices, and test speak
+        ActionsPage.tsx       # Action editor (ordered steps)
+        AutomationPage.tsx    # automation trigger editor
+        ModulesPage.tsx       # category module editor
+        automation.ts         # React-free step/trigger limits, validation, run-result formatting
     styles/
       tokens.css        # design tokens (colors, type, spacing, motion)
       panel.css         # cockpit layout + component styles (kebab-case classes)
@@ -154,6 +188,9 @@ src/
   server/
     index.ts            # Express routes and server startup
     appConfig.ts        # database-backed runtime config store (GET/PUT /api/config)
+    auth.ts             # dashboard/overlay token roles, OVERLAY_EVENTS allowlist, route guards
+    automaticAds.ts     # ad-schedule loop + the pure evaluateAdSchedule decision
+    automod.ts          # AutoMod held-message queue (record/resolve/sweep)
     chat.ts             # Twitch chat via tmi.js, persistence, moderation events
     actions.ts          # Action repository + routes (reusable multi-step actions)
     actionExecutor.ts   # runs an Action's steps; media resolution is an injected port
@@ -161,9 +198,12 @@ src/
     automation.ts       # composition root: executor + trigger dispatcher
     automationTriggers.ts # trigger repository, routes, seeded slash commands
     categoryModules.ts  # category modules + the reward-group switch coordinator
+    clips.ts            # clip buttons over the shared labeled-button repo
     rewardMedia.ts      # the media:play broadcast (reward bindings are Actions now)
+    labeledButtons.ts   # createLabeledButtonRepo: shared (id, label, filename) CRUD + trigger
     legacyMigration.ts  # one-shot conversions into the automation schema (runOnce)
     mediaAssets.ts      # configured media catalog (media_assets)
+    mediaMute.ts        # persisted master sound/video mute switch + routes
     triggerDispatcher.ts # matching, cooldowns, dedup, bot-loop prevention
     chatters.ts         # chatter tracking routes
     config.ts           # boot/infra-only env config (PORT, OAuth URIs)
@@ -172,23 +212,29 @@ src/
     emotes.ts           # BTTV/7TV emote fetching and cache
     eventsub.ts         # Twitch EventSub WebSocket
     goLive.ts           # go-live stream info updates
-    http.ts             # HTTP route errors and helpers
+    http.ts             # HTTP route errors, helpers, and the handle() route wrapper
     llm.ts              # LLM (AI) routes
     media.ts            # scans public/clips + public/sounds; validates binding srcs
     music.ts            # playerctl/manual now-playing state
+    numeric.ts          # clamp / clampFinite arithmetic helpers
     obs.ts              # OBS WebSocket integration and dashboard stats
+    overlayPlaceholders.ts # in-memory overlay bounds flag + routes
     realtime.ts         # Express app, HTTP server, WebSocket broadcasts
-    rewardMedia.ts      # reward_media table: which clip/sound a redeem plays
     routes.ts           # core REST route registrations
     runtime.ts          # RuntimeState (Twitch auth token cache)
-    sounds.ts           # sound playback events
+    sounds.ts           # sound buttons + playback events (labeled-button repo)
     static.ts           # serves dist/ for production
+    streamCategories.ts # saved stream categories, their tags, and routes
     streamSession.ts    # stream session tracking
+    streamStatus.ts     # persisted stream status line + routes
+    tags.ts             # tag normalization, tag history, suggestion merging
     tts.ts              # Chatterbox TTS integration
+    twitchIdentity.ts   # which Twitch account the stored OAuth tokens belong to
     viewerRewards.ts    # Twitch channel point reward management
+    viewers.ts          # VIP/moderator roster and grant/revoke routes
     twitch/
       auth.ts           # Twitch OAuth flow
-      api.ts            # Twitch API calls (stream info, ads, automod, etc.)
+      api.ts            # Twitch API calls (stream info, ads, automod, etc.) + twitchFetch
     types/
       tmi.d.ts          # local declarations for tmi.js
     dashboard/
@@ -197,6 +243,8 @@ src/
     api.ts              # client/server API and WebSocket payload contracts
     constants.ts        # shared timing constants
     roles.ts            # Twitch role inference from badges
+    time.ts             # formatAgo relative-time formatting
+    tts.ts              # TTS tone presets
 ```
 
 **Service boundary** — `src/client/services/dashboard.ts` is the dashboard's REST data boundary. Components and hooks import shared domain contracts from `src/shared/api.ts` and dashboard data from the service layer instead of calling `fetch` directly.
