@@ -37,6 +37,7 @@ import type {
   Chatter,
   ChattersResponse,
   ViewerRosterEntry,
+  IgnoredLogin,
   ViewerRefreshResult,
   ViewerFlushResult,
   SoundButton,
@@ -423,6 +424,14 @@ export async function denyAutomodHold(id: string): Promise<AutomodHold> {
 
 export async function getChatters(): Promise<ChattersResponse> {
   return fetchJson<ChattersResponse>('/api/chatters');
+}
+
+/**
+ * Logins the operator has flushed. The roster page needs these to keep a flushed
+ * VIP or moderator from being synthesized back out of the live Twitch role lists.
+ */
+export async function getIgnoredLogins(): Promise<IgnoredLogin[]> {
+  return fetchJson<IgnoredLogin[]>('/api/viewers/ignored');
 }
 
 export async function getViewerRoster(): Promise<ViewerRosterEntry[]> {

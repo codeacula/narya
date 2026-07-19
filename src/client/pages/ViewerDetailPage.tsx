@@ -55,7 +55,17 @@ function viewerFromPerson(person: Person): Viewer {
  * the confirmation cannot be dismissed without reading it. It reverts on blur so a
  * half-pressed Flush does not sit armed.
  */
-function ViewerRecordActions({ login, onFlushed }: { login: string; onFlushed?: () => void }) {
+function ViewerRecordActions({
+  login,
+  onRefreshed,
+  onFlushed,
+}: {
+  login: string;
+  /** Profile re-synced. The roster may have changed; the chat history has not. */
+  onRefreshed?: () => void;
+  /** Messages were deleted, so anything rendering them is now stale. */
+  onFlushed?: () => void;
+}) {
   const [busy, setBusy] = React.useState(false);
   const [armed, setArmed] = React.useState(false);
   const [note, setNote] = React.useState<string | null>(null);
@@ -70,7 +80,7 @@ function ViewerRecordActions({ login, onFlushed }: { login: string; onFlushed?: 
         if (!result.found) setNote('Twitch no longer has this account.');
         else if (result.renamedTo) setNote(`Now known as @${result.renamedTo}.`);
         else setNote('Profile updated.');
-        onFlushed?.();
+        onRefreshed?.();
       })
       .catch(caught => setNote(errorMessage(caught, 'Refresh failed')))
       .finally(() => setBusy(false));
@@ -149,6 +159,11 @@ export function ViewerDetailPane({
 
   // Full chat history for this viewer, paged oldest-appended-on-top.
   const [messages, setMessages] = React.useState<ChatEntry[]>([]);
+  // Bumped when a flush deletes this viewer's messages. The effect below keys on the
+  // login, which does not change across a flush, so without this the pane keeps
+  // rendering rows the server has already deleted — directly contradicting its own
+  // "messages removed" notice until the operator navigates away.
+  const [historyNonce, setHistoryNonce] = React.useState(0);
   const [loadingHistory, setLoadingHistory] = React.useState(true);
   const [hasMore, setHasMore] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
@@ -166,7 +181,7 @@ export function ViewerDetailPane({
       .catch(() => { if (!cancelled) { setMessages([]); setHasMore(false); } })
       .finally(() => { if (!cancelled) setLoadingHistory(false); });
     return () => { cancelled = true; };
-  }, [login]);
+  }, [login, historyNonce]);
 
   const loadOlder = () => {
     const oldest = messages[0];
@@ -207,7 +222,11 @@ export function ViewerDetailPane({
           {isMod
             ? <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => removeModerator(login), `remove mod from @${login}`)}>Un-Mod</button>
             : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantModerator(login), `mod @${login}`)}>Mod</button>}
-          <ViewerRecordActions login={login} onFlushed={onFlushed} />
+          <ViewerRecordActions
+            login={login}
+            onRefreshed={onFlushed}
+            onFlushed={() => { setHistoryNonce(nonce => nonce + 1); onFlushed?.(); }}
+          />
         </div>
       </header>
 
