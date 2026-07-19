@@ -12,7 +12,7 @@ import { formatAgo } from '../../shared/time';
 import { twitchClient } from '../chat';
 import { appConfig } from '../appConfig';
 import { db } from '../db';
-import { HttpRouteError, sendRouteError } from '../http';
+import { handle, HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
 import { broadcast, getSocketCount } from '../realtime';
 import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus } from '../runtime';
@@ -473,28 +473,24 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
     response.json(roster);
   });
 
-  app.patch('/api/dashboard/viewers/:login/profile', (request, response) => {
-    try {
-      const login = request.params.login.trim().toLowerCase();
-      if (!login) throw new HttpRouteError(400, 'Viewer login is required.');
+  app.patch('/api/dashboard/viewers/:login/profile', handle((request, response) => {
+    const login = request.params.login.trim().toLowerCase();
+    if (!login) throw new HttpRouteError(400, 'Viewer login is required.');
 
-      const profile = normalizeViewerProfileBody(request.body);
-      const now = new Date().toISOString();
-      db.prepare(`
-        insert into viewer_profiles (login, real_name, tags_json, note, created_at, updated_at)
-        values (?, ?, ?, ?, ?, ?)
-        on conflict(login) do update set
-          real_name = excluded.real_name,
-          tags_json = excluded.tags_json,
-          note = excluded.note,
-          updated_at = excluded.updated_at
-      `).run(login, profile.realName, JSON.stringify(profile.tags), profile.note, now, now);
+    const profile = normalizeViewerProfileBody(request.body);
+    const now = new Date().toISOString();
+    db.prepare(`
+      insert into viewer_profiles (login, real_name, tags_json, note, created_at, updated_at)
+      values (?, ?, ?, ?, ?, ?)
+      on conflict(login) do update set
+        real_name = excluded.real_name,
+        tags_json = excluded.tags_json,
+        note = excluded.note,
+        updated_at = excluded.updated_at
+    `).run(login, profile.realName, JSON.stringify(profile.tags), profile.note, now, now);
 
-      response.json(profile);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+    response.json(profile);
+  }));
 
   app.get('/api/dashboard/chat', (_request, response) => {
     const beforeId = typeof _request.query['before'] === 'string' ? _request.query['before'] : null;

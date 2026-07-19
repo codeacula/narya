@@ -42,6 +42,20 @@ export function parseJsonColumn<T>(value: string | null): T | null {
   }
 }
 
+export function handle<P = Record<string, string>>(
+  fn: (request: express.Request<P>, response: express.Response) => unknown | Promise<unknown>,
+): express.RequestHandler<P> {
+  return (request, response) => {
+    void (async () => {
+      try {
+        await fn(request, response);
+      } catch (error) {
+        sendRouteError(response, error);
+      }
+    })();
+  };
+}
+
 export function sendRouteError(response: express.Response, error: unknown) {
   if (error instanceof HttpRouteError) {
     response.status(error.status).json({ error: error.message });

@@ -1,7 +1,7 @@
 import type express from 'express';
 import type { AppConfig, AppConfigUpdate } from '../shared/api';
 import { db, runOnce } from './db';
-import { HttpRouteError, sendRouteError } from './http';
+import { handle, HttpRouteError } from './http';
 import { getAuthenticatedTwitchLogin } from './twitchIdentity';
 
 const APP_CONFIG_ID = 'default';
@@ -400,13 +400,9 @@ export function registerAppConfigRoutes(
     response.json(getAppConfig());
   });
 
-  app.put('/api/config', (request, response) => {
-    try {
-      const result = saveAppConfig(request.body);
-      onSaved(result);
-      response.json(result.config);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/config', handle((request, response) => {
+    const result = saveAppConfig(request.body);
+    onSaved(result);
+    response.json(result.config);
+  }));
 }

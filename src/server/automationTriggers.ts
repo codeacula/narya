@@ -18,7 +18,7 @@ import type {
 } from '../shared/api';
 import { DEFAULT_GLOBAL_COOLDOWN_MS, DEFAULT_USER_COOLDOWN_MS } from '../shared/api';
 import { db, runOnce } from './db';
-import { HttpRouteError, sendRouteError } from './http';
+import { handle, HttpRouteError } from './http';
 import type { TriggerDispatcher } from './triggerDispatcher';
 
 const MAX_PHRASE_LENGTH = 200;
@@ -452,46 +452,26 @@ export function registerAutomationTriggerRoutes(app: express.Express, dispatcher
     response.json(listAutomationTriggers());
   });
 
-  app.post('/api/automation/triggers', (request, response) => {
-    try {
-      response.status(201).json(createAutomationTrigger(request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/automation/triggers', handle((request, response) => {
+    response.status(201).json(createAutomationTrigger(request.body));
+  }));
 
-  app.put('/api/automation/triggers/:id', (request, response) => {
-    try {
-      response.json(updateAutomationTrigger(request.params.id, request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/automation/triggers/:id', handle((request, response) => {
+    response.json(updateAutomationTrigger(request.params.id, request.body));
+  }));
 
-  app.delete('/api/automation/triggers/:id', (request, response) => {
-    try {
-      deleteAutomationTrigger(request.params.id);
-      response.status(204).end();
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.delete('/api/automation/triggers/:id', handle((request, response) => {
+    deleteAutomationTrigger(request.params.id);
+    response.status(204).end();
+  }));
 
-  app.post('/api/automation/triggers/:id/run', async (request, response) => {
-    try {
-      response.json(await dispatcher.runTriggerManually(request.params.id, runContext(request.body)));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/automation/triggers/:id/run', handle(async (request, response) => {
+    response.json(await dispatcher.runTriggerManually(request.params.id, runContext(request.body)));
+  }));
 
   // Always 200: an unknown command is a normal `ok: false` outcome, not an HTTP error,
   // and it is answered here rather than forwarded anywhere.
-  app.post('/api/automation/slash', async (request, response) => {
-    try {
-      response.json(await dispatcher.handleSlashCommand(slashInput(request.body)));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/automation/slash', handle(async (request, response) => {
+    response.json(await dispatcher.handleSlashCommand(slashInput(request.body)));
+  }));
 }

@@ -9,7 +9,7 @@ import type {
   StreamCategoryRewardGroup,
 } from '../shared/api';
 import { db } from './db';
-import { HttpRouteError, readResponseError, sendRouteError } from './http';
+import { handle, HttpRouteError, readResponseError } from './http';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
@@ -608,54 +608,34 @@ export function registerCategoryModuleRoutes(app: express.Express, state: Runtim
     response.json(getCategoryModulesResponse());
   });
 
-  app.post('/api/category-modules/reconcile', async (_request, response) => {
-    try {
-      await reconcileCategoryModules(state);
-      response.json(getCategoryModulesResponse());
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/category-modules/reconcile', handle(async (_request, response) => {
+    await reconcileCategoryModules(state);
+    response.json(getCategoryModulesResponse());
+  }));
 
-  app.post('/api/category-modules', (request, response) => {
-    try {
-      const input = normalizeCategoryModuleInput(request.body);
-      const created = createCategoryModule(input);
-      broadcastModules();
-      response.status(201).json(created);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/category-modules', handle((request, response) => {
+    const input = normalizeCategoryModuleInput(request.body);
+    const created = createCategoryModule(input);
+    broadcastModules();
+    response.status(201).json(created);
+  }));
 
-  app.get('/api/category-modules/:id', (request, response) => {
-    try {
-      const module = getCategoryModule(request.params.id);
-      if (!module) throw new HttpRouteError(404, 'Category module not found.');
-      response.json(module);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.get('/api/category-modules/:id', handle((request, response) => {
+    const module = getCategoryModule(request.params.id);
+    if (!module) throw new HttpRouteError(404, 'Category module not found.');
+    response.json(module);
+  }));
 
-  app.put('/api/category-modules/:id', (request, response) => {
-    try {
-      const input = normalizeCategoryModuleInput(request.body);
-      const updated = updateCategoryModule(request.params.id, input);
-      broadcastModules();
-      response.json(updated);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/category-modules/:id', handle((request, response) => {
+    const input = normalizeCategoryModuleInput(request.body);
+    const updated = updateCategoryModule(request.params.id, input);
+    broadcastModules();
+    response.json(updated);
+  }));
 
-  app.delete('/api/category-modules/:id', (request, response) => {
-    try {
-      if (!deleteCategoryModule(request.params.id)) throw new HttpRouteError(404, 'Category module not found.');
-      broadcastModules();
-      response.status(204).send();
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.delete('/api/category-modules/:id', handle((request, response) => {
+    if (!deleteCategoryModule(request.params.id)) throw new HttpRouteError(404, 'Category module not found.');
+    broadcastModules();
+    response.status(204).send();
+  }));
 }

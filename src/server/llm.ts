@@ -1,7 +1,7 @@
 import type express from 'express';
 import type { ChatMessage, LlmSettings, LlmSettingsUpdate } from '../shared/api';
 import { db } from './db';
-import { HttpRouteError, sendRouteError } from './http';
+import { handle, HttpRouteError } from './http';
 
 const LLM_SETTINGS_ID = 'default';
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1';
@@ -288,53 +288,45 @@ export function registerLlmRoutes(app: express.Express) {
     response.json(getLlmSettings());
   });
 
-  app.put('/api/llm/settings', (request, response) => {
+  app.put('/api/llm/settings', handle((request, response) => {
+    response.json(saveLlmSettings(request.body));
+  }));
+
+  app.post('/api/llm/test', handle(async (request, response) => {
+    const body = request.body as { question?: unknown };
+    const question = typeof body.question === 'string' && body.question.trim()
+      ? body.question.trim()
+      : 'Give me one short stream-chat-safe test reply.';
+    if (question.length > 500) throw new HttpRouteError(400, 'Test question must be 500 characters or fewer.');
+
+    const settings = getSettingsRowOrDefault();
+    if (!settings.enabled) throw new HttpRouteError(400, 'LLM is disabled in settings.');
+    if (!settings.baseUrl || !settings.model) throw new HttpRouteError(400, 'LLM base URL and model are required.');
+
+    const fakeChatMessage = {
+      id: 'llm-settings-test',
+      channel: 'settings',
+      username: 'settings',
+      displayName: 'Settings',
+      color: null,
+      message: `!ponder ${question}`,
+      receivedAt: new Date().toISOString(),
+      deletedAt: null,
+      deletedReason: null,
+      badges: null,
+      emotes: null,
+      isFirstTimer: false,
+      isFirstThisSession: false,
+      isFirstEver: false,
+    };
+    let answer: string;
     try {
-      response.json(saveLlmSettings(request.body));
-    } catch (error) {
-      sendRouteError(response, error);
+      answer = await callLlm(settings, userContent(fakeChatMessage, question));
+    } catch (llmError) {
+      const msg = llmError instanceof Error ? llmError.message : 'LLM request failed.';
+      throw new HttpRouteError(502, msg);
     }
-  });
-
-  app.post('/api/llm/test', async (request, response) => {
-    try {
-      const body = request.body as { question?: unknown };
-      const question = typeof body.question === 'string' && body.question.trim()
-        ? body.question.trim()
-        : 'Give me one short stream-chat-safe test reply.';
-      if (question.length > 500) throw new HttpRouteError(400, 'Test question must be 500 characters or fewer.');
-
-      const settings = getSettingsRowOrDefault();
-      if (!settings.enabled) throw new HttpRouteError(400, 'LLM is disabled in settings.');
-      if (!settings.baseUrl || !settings.model) throw new HttpRouteError(400, 'LLM base URL and model are required.');
-
-      const fakeChatMessage = {
-        id: 'llm-settings-test',
-        channel: 'settings',
-        username: 'settings',
-        displayName: 'Settings',
-        color: null,
-        message: `!ponder ${question}`,
-        receivedAt: new Date().toISOString(),
-        deletedAt: null,
-        deletedReason: null,
-        badges: null,
-        emotes: null,
-        isFirstTimer: false,
-        isFirstThisSession: false,
-        isFirstEver: false,
-      };
-      let answer: string;
-      try {
-        answer = await callLlm(settings, userContent(fakeChatMessage, question));
-      } catch (llmError) {
-        const msg = llmError instanceof Error ? llmError.message : 'LLM request failed.';
-        throw new HttpRouteError(502, msg);
-      }
-      const reply = formatPonderReply(fakeChatMessage, answer);
-      response.json({ ok: true, reply });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+    const reply = formatPonderReply(fakeChatMessage, answer);
+    response.json({ ok: true, reply });
+  }));
 }

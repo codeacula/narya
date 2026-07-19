@@ -8,7 +8,7 @@ import type {
   ViewerRewardUpsert,
 } from '../shared/api';
 import { db } from './db';
-import { HttpRouteError, readResponseError, sendRouteError } from './http';
+import { handle, HttpRouteError, readResponseError } from './http';
 import { broadcast } from './realtime';
 
 import type { RuntimeState } from './runtime';
@@ -350,203 +350,171 @@ export function setRewardGroupEnabled(groupId: string, enabled: boolean): void {
 }
 
 export function registerViewerRewardRoutes(app: express.Express, state: RuntimeState) {
-  app.get('/api/twitch/rewards', async (_request, response) => {
-    try {
-      response.json(await getRewardsResponse(state));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.get('/api/twitch/rewards', handle(async (_request, response) => {
+    response.json(await getRewardsResponse(state));
+  }));
 
-  app.post('/api/twitch/reward-categories', async (request, response) => {
+  app.post('/api/twitch/reward-categories', handle(async (request, response) => {
+    const name = normalizeCategoryName(request.body?.name);
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
     try {
-      const name = normalizeCategoryName(request.body?.name);
-      const id = crypto.randomUUID();
-      const now = new Date().toISOString();
-      try {
-        insertCategory.run(id, name, now, now);
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
-          throw new HttpRouteError(409, `A category named "${name}" already exists.`);
-        }
-        throw error;
+      insertCategory.run(id, name, now, now);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+        throw new HttpRouteError(409, `A category named "${name}" already exists.`);
       }
-      response.status(201).json({ id, name, enabled: true, rewardCount: 0, defaultBackgroundColor: null, games: [] } satisfies ViewerRewardCategory);
-    } catch (error) {
-      sendRouteError(response, error);
+      throw error;
     }
-  });
+    response.status(201).json({ id, name, enabled: true, rewardCount: 0, defaultBackgroundColor: null, games: [] } satisfies ViewerRewardCategory);
+  }));
 
-  app.patch('/api/twitch/reward-categories/:id', async (request, response) => {
-    try {
-      const current = getCategory.get(request.params.id) as CategoryRow | null;
-      if (!current) throw new HttpRouteError(404, 'Reward category not found.');
-      const name = request.body?.name === undefined ? current.name : normalizeCategoryName(request.body.name);
-      const enabled = typeof request.body?.enabled === 'boolean' ? request.body.enabled : current.enabled === 1;
-      const defaultBackgroundColor = request.body?.defaultBackgroundColor === undefined
-        ? current.default_background_color
-        : (typeof request.body.defaultBackgroundColor === 'string'
-          ? normalizeHexColor(request.body.defaultBackgroundColor, current.default_background_color ?? '#9147FF')
-          : null);
-      const games = request.body?.games === undefined ? undefined : normalizeCategoryGames(request.body.games);
+  app.patch('/api/twitch/reward-categories/:id', handle(async (request, response) => {
+    const current = getCategory.get(request.params.id) as CategoryRow | null;
+    if (!current) throw new HttpRouteError(404, 'Reward category not found.');
+    const name = request.body?.name === undefined ? current.name : normalizeCategoryName(request.body.name);
+    const enabled = typeof request.body?.enabled === 'boolean' ? request.body.enabled : current.enabled === 1;
+    const defaultBackgroundColor = request.body?.defaultBackgroundColor === undefined
+      ? current.default_background_color
+      : (typeof request.body.defaultBackgroundColor === 'string'
+        ? normalizeHexColor(request.body.defaultBackgroundColor, current.default_background_color ?? '#9147FF')
+        : null);
+    const games = request.body?.games === undefined ? undefined : normalizeCategoryGames(request.body.games);
 
-      let updatedCount = 0;
-      let skippedReadOnlyCount = 0;
-      if (enabled !== (current.enabled === 1)) {
-        const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-        const rewards = await fetchRewards(credentials);
-        const result = await toggleGroupRewards(credentials, rewards, current.id, enabled);
-        updatedCount = result.updatedCount;
-        skippedReadOnlyCount = result.skippedReadOnlyCount;
-        if (result.failedCount > 0) {
-          throw new HttpRouteError(502, `${result.failedCount} reward${result.failedCount === 1 ? '' : 's'} could not be updated on Twitch.`);
-        }
-      }
-
-      try {
-        updateCategory.run(name, enabled ? 1 : 0, defaultBackgroundColor ?? null, new Date().toISOString(), current.id);
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
-          throw new HttpRouteError(409, `A category named "${name}" already exists.`);
-        }
-        throw error;
-      }
-
-      if (games !== undefined) replaceCategoryGames(current.id, games);
-
-      const payload = await getRewardsResponse(state) as ViewerRewardCategoryToggleResult;
-      payload.updatedCount = updatedCount;
-      payload.skippedReadOnlyCount = skippedReadOnlyCount;
-      response.json(payload);
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.delete('/api/twitch/reward-categories/:id', (request, response) => {
-    try {
-      if (!getCategory.get(request.params.id)) throw new HttpRouteError(404, 'Reward category not found.');
-      // Members and game mappings both cascade (see db.ts). Deleting members by
-      // hand here used to leave the game mappings orphaned, because the cascade
-      // the schema declared was never enabled.
-      deleteCategory.run(request.params.id);
-      response.status(204).send();
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.post('/api/twitch/reward-categories/:id/apply-color', async (request, response) => {
-    try {
-      const category = getCategory.get(request.params.id) as CategoryRow | null;
-      if (!category) throw new HttpRouteError(404, 'Reward category not found.');
-      if (!category.default_background_color) throw new HttpRouteError(400, 'This category has no default color set.');
+    let updatedCount = 0;
+    let skippedReadOnlyCount = 0;
+    if (enabled !== (current.enabled === 1)) {
       const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
       const rewards = await fetchRewards(credentials);
-      const categoryRewardIds = new Set(
-        (listCategoryRewardIds.all(category.id) as Array<{ rewardId: string }>).map(item => item.rewardId),
-      );
-      const manageable = rewards.filter(r => categoryRewardIds.has(r.id) && r.canManage);
-      const results = await Promise.allSettled(
-        manageable.map(r => sendTwitchRewardUpdate(credentials, r.id, { background_color: category.default_background_color })),
-      );
-      const failed = results.filter(r => r.status === 'rejected');
-      if (failed.length > 0) {
-        throw new HttpRouteError(502, `${failed.length} reward${failed.length === 1 ? '' : 's'} could not be updated on Twitch.`);
+      const result = await toggleGroupRewards(credentials, rewards, current.id, enabled);
+      updatedCount = result.updatedCount;
+      skippedReadOnlyCount = result.skippedReadOnlyCount;
+      if (result.failedCount > 0) {
+        throw new HttpRouteError(502, `${result.failedCount} reward${result.failedCount === 1 ? '' : 's'} could not be updated on Twitch.`);
       }
-      response.json(await getRewardsResponse(state));
-    } catch (error) {
-      sendRouteError(response, error);
     }
-  });
 
-  app.post('/api/twitch/rewards', async (request, response) => {
     try {
-      const reward = normalizeReward(request.body);
-      const category = reward.categoryId ? getCategory.get(reward.categoryId) as CategoryRow : null;
-      const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-      const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
-      const twitchResponse = await fetch(`${REWARDS_URL}?${params.toString()}`, {
-        method: 'POST',
-        headers: twitchHeaders(credentials),
-        body: JSON.stringify(twitchRewardBody(reward, category?.enabled === 0 ? false : reward.isEnabled, false)),
+      updateCategory.run(name, enabled ? 1 : 0, defaultBackgroundColor ?? null, new Date().toISOString(), current.id);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+        throw new HttpRouteError(409, `A category named "${name}" already exists.`);
+      }
+      throw error;
+    }
+
+    if (games !== undefined) replaceCategoryGames(current.id, games);
+
+    const payload = await getRewardsResponse(state) as ViewerRewardCategoryToggleResult;
+    payload.updatedCount = updatedCount;
+    payload.skippedReadOnlyCount = skippedReadOnlyCount;
+    response.json(payload);
+  }));
+
+  app.delete('/api/twitch/reward-categories/:id', handle((request, response) => {
+    if (!getCategory.get(request.params.id)) throw new HttpRouteError(404, 'Reward category not found.');
+    // Members and game mappings both cascade (see db.ts). Deleting members by
+    // hand here used to leave the game mappings orphaned, because the cascade
+    // the schema declared was never enabled.
+    deleteCategory.run(request.params.id);
+    response.status(204).send();
+  }));
+
+  app.post('/api/twitch/reward-categories/:id/apply-color', handle(async (request, response) => {
+    const category = getCategory.get(request.params.id) as CategoryRow | null;
+    if (!category) throw new HttpRouteError(404, 'Reward category not found.');
+    if (!category.default_background_color) throw new HttpRouteError(400, 'This category has no default color set.');
+    const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
+    const rewards = await fetchRewards(credentials);
+    const categoryRewardIds = new Set(
+      (listCategoryRewardIds.all(category.id) as Array<{ rewardId: string }>).map(item => item.rewardId),
+    );
+    const manageable = rewards.filter(r => categoryRewardIds.has(r.id) && r.canManage);
+    const results = await Promise.allSettled(
+      manageable.map(r => sendTwitchRewardUpdate(credentials, r.id, { background_color: category.default_background_color })),
+    );
+    const failed = results.filter(r => r.status === 'rejected');
+    if (failed.length > 0) {
+      throw new HttpRouteError(502, `${failed.length} reward${failed.length === 1 ? '' : 's'} could not be updated on Twitch.`);
+    }
+    response.json(await getRewardsResponse(state));
+  }));
+
+  app.post('/api/twitch/rewards', handle(async (request, response) => {
+    const reward = normalizeReward(request.body);
+    const category = reward.categoryId ? getCategory.get(reward.categoryId) as CategoryRow : null;
+    const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
+    const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
+    const twitchResponse = await fetch(`${REWARDS_URL}?${params.toString()}`, {
+      method: 'POST',
+      headers: twitchHeaders(credentials),
+      body: JSON.stringify(twitchRewardBody(reward, category?.enabled === 0 ? false : reward.isEnabled, false)),
+    });
+    if (!twitchResponse.ok) {
+      const message = await readResponseError(twitchResponse, 'Twitch reward creation failed.');
+      throw new HttpRouteError(twitchResponse.status === 400 || twitchResponse.status === 401 || twitchResponse.status === 403 ? twitchResponse.status : 502, message);
+    }
+    const data = await twitchResponse.json() as { data?: TwitchReward[] };
+    const created = data.data?.[0];
+    if (!created) throw new HttpRouteError(502, 'Twitch did not return the created reward.');
+    saveRewardCategory(created.id, reward.categoryId);
+    // Twitch mints the reward id, so the binding can only be saved here — the
+    // response returns the whole list, not the created reward.
+    response.status(201).json(await getRewardsResponse(state));
+  }));
+
+  app.patch('/api/twitch/rewards/:id', handle(async (request, response) => {
+    const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
+    const currentRewards = await fetchRewards(credentials);
+    const current = currentRewards.find(reward => reward.id === request.params.id);
+    if (!current) throw new HttpRouteError(404, 'Reward not found.');
+
+    const categoryId = request.body?.categoryId === undefined
+      ? current.categoryId
+      : normalizeCategoryId(request.body.categoryId);
+    const hasTwitchFields = ['title', 'prompt', 'cost', 'isEnabled', 'isPaused', 'isUserInputRequired', 'skipQueue', 'backgroundColor', 'globalCooldown', 'maxPerStream', 'maxPerUserPerStream'].some(key => request.body?.[key] !== undefined);
+    if (hasTwitchFields) {
+      if (!current.canManage) throw new HttpRouteError(403, 'Twitch only allows this app to edit rewards that it created.');
+      const reward = normalizeReward({
+        title: request.body.title ?? current.title,
+        prompt: request.body.prompt ?? current.prompt,
+        cost: request.body.cost ?? current.cost,
+        isEnabled: request.body.isEnabled ?? current.isEnabled,
+        isPaused: request.body.isPaused ?? current.isPaused,
+        isUserInputRequired: request.body.isUserInputRequired ?? current.isUserInputRequired,
+        skipQueue: request.body.skipQueue ?? current.skipQueue,
+        backgroundColor: request.body.backgroundColor ?? current.backgroundColor,
+        globalCooldown: request.body.globalCooldown ?? current.globalCooldown,
+        maxPerStream: request.body.maxPerStream ?? current.maxPerStream,
+        maxPerUserPerStream: request.body.maxPerUserPerStream ?? current.maxPerUserPerStream,
+        categoryId,
       });
-      if (!twitchResponse.ok) {
-        const message = await readResponseError(twitchResponse, 'Twitch reward creation failed.');
-        throw new HttpRouteError(twitchResponse.status === 400 || twitchResponse.status === 401 || twitchResponse.status === 403 ? twitchResponse.status : 502, message);
+      const category = categoryId ? getCategory.get(categoryId) as CategoryRow : null;
+      await sendTwitchRewardUpdate(credentials, current.id, twitchRewardBody(reward, category?.enabled === 0 ? false : reward.isEnabled, true));
+    } else if (categoryId !== current.categoryId && categoryId && current.canManage) {
+      const category = getCategory.get(categoryId) as CategoryRow;
+      const categoryEnabled = category.enabled === 1;
+      if (current.isEnabled !== categoryEnabled) {
+        await sendTwitchRewardUpdate(credentials, current.id, { is_enabled: categoryEnabled });
       }
-      const data = await twitchResponse.json() as { data?: TwitchReward[] };
-      const created = data.data?.[0];
-      if (!created) throw new HttpRouteError(502, 'Twitch did not return the created reward.');
-      saveRewardCategory(created.id, reward.categoryId);
-      // Twitch mints the reward id, so the binding can only be saved here — the
-      // response returns the whole list, not the created reward.
-      response.status(201).json(await getRewardsResponse(state));
-    } catch (error) {
-      sendRouteError(response, error);
     }
-  });
+    saveRewardCategory(current.id, categoryId);
+    response.json(await getRewardsResponse(state));
+  }));
 
-  app.patch('/api/twitch/rewards/:id', async (request, response) => {
-    try {
-      const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-      const currentRewards = await fetchRewards(credentials);
-      const current = currentRewards.find(reward => reward.id === request.params.id);
-      if (!current) throw new HttpRouteError(404, 'Reward not found.');
 
-      const categoryId = request.body?.categoryId === undefined
-        ? current.categoryId
-        : normalizeCategoryId(request.body.categoryId);
-      const hasTwitchFields = ['title', 'prompt', 'cost', 'isEnabled', 'isPaused', 'isUserInputRequired', 'skipQueue', 'backgroundColor', 'globalCooldown', 'maxPerStream', 'maxPerUserPerStream'].some(key => request.body?.[key] !== undefined);
-      if (hasTwitchFields) {
-        if (!current.canManage) throw new HttpRouteError(403, 'Twitch only allows this app to edit rewards that it created.');
-        const reward = normalizeReward({
-          title: request.body.title ?? current.title,
-          prompt: request.body.prompt ?? current.prompt,
-          cost: request.body.cost ?? current.cost,
-          isEnabled: request.body.isEnabled ?? current.isEnabled,
-          isPaused: request.body.isPaused ?? current.isPaused,
-          isUserInputRequired: request.body.isUserInputRequired ?? current.isUserInputRequired,
-          skipQueue: request.body.skipQueue ?? current.skipQueue,
-          backgroundColor: request.body.backgroundColor ?? current.backgroundColor,
-          globalCooldown: request.body.globalCooldown ?? current.globalCooldown,
-          maxPerStream: request.body.maxPerStream ?? current.maxPerStream,
-          maxPerUserPerStream: request.body.maxPerUserPerStream ?? current.maxPerUserPerStream,
-          categoryId,
-        });
-        const category = categoryId ? getCategory.get(categoryId) as CategoryRow : null;
-        await sendTwitchRewardUpdate(credentials, current.id, twitchRewardBody(reward, category?.enabled === 0 ? false : reward.isEnabled, true));
-      } else if (categoryId !== current.categoryId && categoryId && current.canManage) {
-        const category = getCategory.get(categoryId) as CategoryRow;
-        const categoryEnabled = category.enabled === 1;
-        if (current.isEnabled !== categoryEnabled) {
-          await sendTwitchRewardUpdate(credentials, current.id, { is_enabled: categoryEnabled });
-        }
-      }
-      saveRewardCategory(current.id, categoryId);
-      response.json(await getRewardsResponse(state));
-    } catch (error) {
-      sendRouteError(response, error);
+  app.delete('/api/twitch/rewards/:id', handle(async (request, response) => {
+    const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
+    const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, id: request.params.id });
+    const twitchResponse = await fetch(`${REWARDS_URL}?${params.toString()}`, {
+      method: 'DELETE',
+      headers: twitchHeaders(credentials),
+    });
+    if (!twitchResponse.ok) {
+      const message = await readResponseError(twitchResponse, 'Twitch reward deletion failed.');
+      throw new HttpRouteError(twitchResponse.status === 400 || twitchResponse.status === 401 || twitchResponse.status === 403 || twitchResponse.status === 404 ? twitchResponse.status : 502, message);
     }
-  });
-
-
-  app.delete('/api/twitch/rewards/:id', async (request, response) => {
-    try {
-      const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-      const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, id: request.params.id });
-      const twitchResponse = await fetch(`${REWARDS_URL}?${params.toString()}`, {
-        method: 'DELETE',
-        headers: twitchHeaders(credentials),
-      });
-      if (!twitchResponse.ok) {
-        const message = await readResponseError(twitchResponse, 'Twitch reward deletion failed.');
-        throw new HttpRouteError(twitchResponse.status === 400 || twitchResponse.status === 401 || twitchResponse.status === 403 || twitchResponse.status === 404 ? twitchResponse.status : 502, message);
-      }
-      clearRewardCategory.run(request.params.id);
-      response.status(204).send();
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+    clearRewardCategory.run(request.params.id);
+    response.status(204).send();
+  }));
 }

@@ -4,7 +4,7 @@ import { appConfig } from './appConfig';
 import { getAutomodHold, getAutomodQueue, resolveAutomodHold } from './automod';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
-import { HttpRouteError, parseJsonColumn, sendRouteError } from './http';
+import { handle, HttpRouteError, parseJsonColumn } from './http';
 import {
   createClipButton,
   deleteClipButton,
@@ -157,30 +157,18 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     response.json(getSoundButtons());
   });
 
-  app.post('/api/sounds', (request, response) => {
-    try {
-      response.status(201).json(createSoundButton(request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/sounds', handle((request, response) => {
+    response.status(201).json(createSoundButton(request.body));
+  }));
 
-  app.put('/api/sounds/:id', (request, response) => {
-    try {
-      response.json(updateSoundButton(request.params.id, request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/sounds/:id', handle((request, response) => {
+    response.json(updateSoundButton(request.params.id, request.body));
+  }));
 
-  app.delete('/api/sounds/:id', (request, response) => {
-    try {
-      deleteSoundButton(request.params.id);
-      response.status(204).end();
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.delete('/api/sounds/:id', handle((request, response) => {
+    deleteSoundButton(request.params.id);
+    response.status(204).end();
+  }));
 
   app.post('/api/sounds/:id/play', (request, response) => {
     const playback = triggerSoundButton(request.params.id);
@@ -195,30 +183,18 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     response.json(getClipButtons());
   });
 
-  app.post('/api/clips', (request, response) => {
-    try {
-      response.status(201).json(createClipButton(request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/clips', handle((request, response) => {
+    response.status(201).json(createClipButton(request.body));
+  }));
 
-  app.put('/api/clips/:id', (request, response) => {
-    try {
-      response.json(updateClipButton(request.params.id, request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/clips/:id', handle((request, response) => {
+    response.json(updateClipButton(request.params.id, request.body));
+  }));
 
-  app.delete('/api/clips/:id', (request, response) => {
-    try {
-      deleteClipButton(request.params.id);
-      response.status(204).end();
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.delete('/api/clips/:id', handle((request, response) => {
+    deleteClipButton(request.params.id);
+    response.status(204).end();
+  }));
 
   app.post('/api/clips/:id/play', (request, response) => {
     const playback = triggerClipButton(request.params.id);
@@ -238,29 +214,25 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     { path: 'deny', action: 'DENY', resolution: 'denied' },
   ] as const;
   for (const { path, action, resolution } of automodActions) {
-    app.post(`/api/automod/:id/${path}`, async (request, response) => {
-      try {
-        const id = request.params.id;
-        // Check locally first so an unknown id 404s without any Twitch side
-        // effect, and an already-resolved hold (EventSub won the race) returns
-        // idempotently instead of erroring.
-        const existing = getAutomodHold(id);
-        if (!existing) throw new HttpRouteError(404, 'AutoMod hold not found.');
-        if (existing.resolvedAt) {
-          response.json(existing);
-          return;
-        }
-        const result = await resolveAutomodMessage(state, id, action);
-        // 'gone' is a guess — Twitch no longer knows the hold, so we assume it aged
-        // out. A later automod.message.update carrying the real verdict replaces it.
-        const hold = result.outcome === 'gone'
-          ? resolveAutomodHold(id, 'expired', null)
-          : resolveAutomodHold(id, resolution, result.moderatorLogin, { authoritative: true });
-        response.json(hold ?? existing);
-      } catch (error) {
-        sendRouteError(response, error);
+    app.post(`/api/automod/:id/${path}`, handle(async (request, response) => {
+      const id = request.params.id;
+      // Check locally first so an unknown id 404s without any Twitch side
+      // effect, and an already-resolved hold (EventSub won the race) returns
+      // idempotently instead of erroring.
+      const existing = getAutomodHold(id);
+      if (!existing) throw new HttpRouteError(404, 'AutoMod hold not found.');
+      if (existing.resolvedAt) {
+        response.json(existing);
+        return;
       }
-    });
+      const result = await resolveAutomodMessage(state, id, action);
+      // 'gone' is a guess — Twitch no longer knows the hold, so we assume it aged
+      // out. A later automod.message.update carrying the real verdict replaces it.
+      const hold = result.outcome === 'gone'
+        ? resolveAutomodHold(id, 'expired', null)
+        : resolveAutomodHold(id, resolution, result.moderatorLogin, { authoritative: true });
+      response.json(hold ?? existing);
+    }));
   }
 
   app.get('/api/emotes', async (_request, response) => {
@@ -271,63 +243,51 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     response.json(getTtsSettings());
   });
 
-  app.put('/api/tts/settings', (request, response) => {
-    try {
-      const body = request.body as {
-        enabled?: unknown;
-        voiceProfileId?: unknown;
-        languageId?: unknown;
-        tonePreset?: unknown;
-        exaggeration?: unknown;
-        cfgWeight?: unknown;
-        temperature?: unknown;
-        volume?: unknown;
-      };
-      const enabled = typeof body.enabled === 'boolean' ? body.enabled : false;
-      const voiceProfileId = typeof body.voiceProfileId === 'string' ? body.voiceProfileId.trim() : 'zombiechicken';
-      const languageId = typeof body.languageId === 'string' ? body.languageId.trim() : 'en';
-      const tonePreset = typeof body.tonePreset === 'string' ? body.tonePreset.trim() : 'neutral';
-      const exaggeration = typeof body.exaggeration === 'number' ? body.exaggeration : 0.5;
-      const cfgWeight = typeof body.cfgWeight === 'number' ? body.cfgWeight : 0.5;
-      const temperature = typeof body.temperature === 'number' ? body.temperature : 0.8;
-      const volume = typeof body.volume === 'number' ? body.volume : 0.8;
-      response.json(updateTtsSettings({
-        enabled,
-        voiceProfileId,
-        languageId,
-        tonePreset,
-        exaggeration,
-        cfgWeight,
-        temperature,
-        volume,
-      }));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/tts/settings', handle((request, response) => {
+    const body = request.body as {
+      enabled?: unknown;
+      voiceProfileId?: unknown;
+      languageId?: unknown;
+      tonePreset?: unknown;
+      exaggeration?: unknown;
+      cfgWeight?: unknown;
+      temperature?: unknown;
+      volume?: unknown;
+    };
+    const enabled = typeof body.enabled === 'boolean' ? body.enabled : false;
+    const voiceProfileId = typeof body.voiceProfileId === 'string' ? body.voiceProfileId.trim() : 'zombiechicken';
+    const languageId = typeof body.languageId === 'string' ? body.languageId.trim() : 'en';
+    const tonePreset = typeof body.tonePreset === 'string' ? body.tonePreset.trim() : 'neutral';
+    const exaggeration = typeof body.exaggeration === 'number' ? body.exaggeration : 0.5;
+    const cfgWeight = typeof body.cfgWeight === 'number' ? body.cfgWeight : 0.5;
+    const temperature = typeof body.temperature === 'number' ? body.temperature : 0.8;
+    const volume = typeof body.volume === 'number' ? body.volume : 0.8;
+    response.json(updateTtsSettings({
+      enabled,
+      voiceProfileId,
+      languageId,
+      tonePreset,
+      exaggeration,
+      cfgWeight,
+      temperature,
+      volume,
+    }));
+  }));
 
   app.get('/api/tts/status', async (_request, response) => {
     response.json(await getTtsEngineStatus());
   });
 
-  app.get('/api/tts/voices', async (_request, response) => {
-    try {
-      response.json(await getTtsVoices());
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.get('/api/tts/voices', handle(async (_request, response) => {
+    response.json(await getTtsVoices());
+  }));
 
-  app.post('/api/tts/speak', async (request, response) => {
-    try {
-      const body = request.body as { text?: unknown };
-      const text = typeof body.text === 'string' ? body.text.trim() : '';
-      if (!text) throw new HttpRouteError(400, 'text is required.');
-      await speakText(text, true);
-      response.json({ ok: true });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/tts/speak', handle(async (request, response) => {
+    const body = request.body as { text?: unknown };
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) throw new HttpRouteError(400, 'text is required.');
+    await speakText(text, true);
+    response.json({ ok: true });
+  }));
 
 }

@@ -1,7 +1,7 @@
 import type express from 'express';
 import type { StreamStatus } from '../shared/api';
 import { db } from './db';
-import { sendRouteError } from './http';
+import { handle } from './http';
 import { broadcast } from './realtime';
 
 const STATUS_ID = 'default';
@@ -47,11 +47,7 @@ export function registerStreamStatusRoutes(app: express.Express) {
     response.json(getStreamStatus());
   });
 
-  app.put('/api/stream-status', (request, response) => {
-    try {
-      response.json(saveStreamStatus(request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/stream-status', handle((request, response) => {
+    response.json(saveStreamStatus(request.body));
+  }));
 }

@@ -2,7 +2,7 @@ import type express from 'express';
 import type { DiscordChannel, DiscordGuild, DiscordStatus } from '../shared/api';
 import { appConfig } from './appConfig';
 import { config } from './config';
-import { HttpRouteError, readResponseError, sendRouteError } from './http';
+import { handle, HttpRouteError, readResponseError } from './http';
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_BOT_PERMISSIONS = String((1 << 10) | (1 << 11)); // VIEW_CHANNEL + SEND_MESSAGES
@@ -195,19 +195,11 @@ export function registerDiscordRoutes(app: express.Express) {
     response.json(await getDiscordStatus());
   });
 
-  app.get('/api/discord/guilds', async (_request, response) => {
-    try {
-      response.json(await listDiscordGuilds());
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.get('/api/discord/guilds', handle(async (_request, response) => {
+    response.json(await listDiscordGuilds());
+  }));
 
-  app.get('/api/discord/guilds/:guildId/channels', async (request, response) => {
-    try {
-      response.json(await listDiscordChannels(request.params.guildId));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.get('/api/discord/guilds/:guildId/channels', handle(async (request, response) => {
+    response.json(await listDiscordChannels(request.params.guildId));
+  }));
 }

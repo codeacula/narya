@@ -3,7 +3,7 @@ import type { DiscordAnnounceFailedPayload, GoLiveResult, GoLiveSettings, GoLive
 import { appConfig } from './appConfig';
 import { db } from './db';
 import { clearDiscordStatusCache, sendDiscordMessage } from './discord';
-import { HttpRouteError, sendRouteError } from './http';
+import { handle, HttpRouteError } from './http';
 import { getObsStatus, startObsStream, switchObsScene } from './obs';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
@@ -286,23 +286,15 @@ export function registerGoLiveRoutes(app: express.Express) {
     response.json(getGoLiveSettings());
   });
 
-  app.put('/api/go-live/settings', (request, response) => {
-    try {
-      response.json(saveGoLiveSettings(request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/go-live/settings', handle((request, response) => {
+    response.json(saveGoLiveSettings(request.body));
+  }));
 
   app.delete('/api/go-live/settings/discord', (_request, response) => {
     response.json(clearDiscordGoLiveSettings());
   });
 
-  app.post('/api/go-live', async (_request, response) => {
-    try {
-      response.json(await runGoLive());
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/go-live', handle(async (_request, response) => {
+    response.json(await runGoLive());
+  }));
 }

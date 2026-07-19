@@ -2,7 +2,7 @@ import type express from 'express';
 import type { ViewerDetails } from '../../shared/api';
 import { TOKEN_EXPIRY_REFRESH_BUFFER_MS } from '../../shared/constants';
 import { appConfig } from '../appConfig';
-import { HttpRouteError, readResponseError, sendRouteError } from '../http';
+import { handle, HttpRouteError, readResponseError } from '../http';
 import type { RuntimeState } from '../runtime';
 import { parseTwitchGameId } from '../streamCategories';
 import { mergeTagSuggestions, normalizeTag, normalizeTags, recordTagHistory, suggestTagHistory } from '../tags';
@@ -652,221 +652,181 @@ async function resolveTwitchCategoryId(category: string, credentials: Awaited<Re
 }
 
 export function registerTwitchApiRoutes(app: express.Express, state: RuntimeState) {
-  app.get('/api/twitch/stream-info', async (_request, response) => {
+  app.get('/api/twitch/stream-info', handle(async (_request, response) => {
+    const credentials = await getTwitchActionCredentials(state, []);
+    const res = await fetch(
+      `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
+      { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+    );
+
+    if (!res.ok) {
+      const message = await readResponseError(res, 'Twitch channel information is unavailable.');
+      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+    }
+
+    const data = await res.json() as {
+      data?: Array<{
+        broadcaster_name?: string;
+        game_id?: string;
+        game_name?: string;
+        title?: string;
+        tags?: string[];
+      }>;
+    };
+    const channel = data.data?.[0];
+    if (!channel) throw new HttpRouteError(404, `No Twitch channel information found for "${appConfig.twitchChannel}".`);
+
+    response.json({
+      broadcasterName: channel.broadcaster_name ?? appConfig.twitchChannel,
+      categoryId: channel.game_id ?? '',
+      category: channel.game_name ?? '',
+      title: channel.title ?? '',
+      tags: normalizeTags(channel.tags ?? []),
+    });
+  }));
+
+  app.get('/api/twitch/category-suggestions', handle(async (request, response) => {
+    const query = typeof request.query['query'] === 'string' ? request.query['query'].trim() : '';
+    if (query.length < 2) {
+      response.json([]);
+      return;
+    }
+
+    const headers = await getTwitchApiHeaders(state);
+    if (!headers) throw new HttpRouteError(401, 'Twitch API credentials are required.');
+
+    const categories = await searchTwitchCategories(query, {
+      clientId: headers['Client-Id'],
+      authorization: headers.Authorization,
+    });
+    response.json(categories);
+  }));
+
+  app.get('/api/twitch/tag-suggestions', handle(async (request, response) => {
+    const query = typeof request.query['query'] === 'string' ? request.query['query'].trim() : '';
+    const candidate = normalizeTag(query);
+    const history = suggestTagHistory(query, 8);
+
+    // The channel's current tags are a nice-to-have; if Twitch is unreachable or
+    // unauthenticated, fall back to history-only suggestions rather than 500ing.
+    let channelTags: string[] = [];
     try {
       const credentials = await getTwitchActionCredentials(state, []);
       const res = await fetch(
         `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
         { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
       );
-
-      if (!res.ok) {
-        const message = await readResponseError(res, 'Twitch channel information is unavailable.');
-        throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
+      if (res.ok) {
+        const data = await res.json() as { data?: Array<{ tags?: string[] }> };
+        // Filter the channel's tags by the query the same way history is, so a
+        // search like "cod" can't surface unrelated tags (English, Cozy) and
+        // crowd out the relevant candidate. An empty query browses them all.
+        const needle = candidate.toLowerCase();
+        channelTags = normalizeTags(data.data?.[0]?.tags ?? [])
+          .filter(tag => !needle || tag.toLowerCase().includes(needle));
       }
-
-      const data = await res.json() as {
-        data?: Array<{
-          broadcaster_name?: string;
-          game_id?: string;
-          game_name?: string;
-          title?: string;
-          tags?: string[];
-        }>;
-      };
-      const channel = data.data?.[0];
-      if (!channel) throw new HttpRouteError(404, `No Twitch channel information found for "${appConfig.twitchChannel}".`);
-
-      response.json({
-        broadcasterName: channel.broadcaster_name ?? appConfig.twitchChannel,
-        categoryId: channel.game_id ?? '',
-        category: channel.game_name ?? '',
-        title: channel.title ?? '',
-        tags: normalizeTags(channel.tags ?? []),
-      });
-    } catch (error) {
-      sendRouteError(response, error);
+    } catch {
+      // history-only suggestions
     }
-  });
 
-  app.get('/api/twitch/category-suggestions', async (request, response) => {
-    try {
-      const query = typeof request.query['query'] === 'string' ? request.query['query'].trim() : '';
-      if (query.length < 2) {
-        response.json([]);
-        return;
-      }
+    response.json(mergeTagSuggestions({ history, channelTags, candidate }));
+  }));
 
-      const headers = await getTwitchApiHeaders(state);
-      if (!headers) throw new HttpRouteError(401, 'Twitch API credentials are required.');
+  app.patch('/api/twitch/stream-info', handle(async (request, response) => {
+    const body = request.body as { title?: unknown; category?: unknown; categoryId?: unknown; tags?: unknown };
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const category = typeof body.category === 'string' ? body.category.trim() : '';
+    const providedId = parseTwitchGameId(body.categoryId);
+    const tags = normalizeTags(body.tags);
 
-      const categories = await searchTwitchCategories(query, {
-        clientId: headers['Client-Id'],
-        authorization: headers.Authorization,
-      });
-      response.json(categories);
-    } catch (error) {
-      sendRouteError(response, error);
+    if (!title) throw new HttpRouteError(400, 'Title is required.');
+    if (title.length > 140) throw new HttpRouteError(400, 'Title must be 140 characters or fewer.');
+    if (!category) throw new HttpRouteError(400, 'Category is required.');
+
+    const credentials = await getTwitchActionCredentials(state, ['channel:manage:broadcast']);
+    // Prefer an exact game id chosen from the saved list, but confirm it still resolves so a stale
+    // saved id can't be pushed under a mismatched name; otherwise fall back to fuzzy name resolution.
+    let gameId: string;
+    let categoryName = category;
+    if (providedId) {
+      const found = await getTwitchCategoryById(providedId, credentials);
+      if (!found) throw new HttpRouteError(400, 'Saved category no longer exists on Twitch — re-add it from search.');
+      gameId = found.id;
+      categoryName = found.name;
+    } else {
+      gameId = await resolveTwitchCategoryId(category, credentials);
     }
-  });
-
-  app.get('/api/twitch/tag-suggestions', async (request, response) => {
-    try {
-      const query = typeof request.query['query'] === 'string' ? request.query['query'].trim() : '';
-      const candidate = normalizeTag(query);
-      const history = suggestTagHistory(query, 8);
-
-      // The channel's current tags are a nice-to-have; if Twitch is unreachable or
-      // unauthenticated, fall back to history-only suggestions rather than 500ing.
-      let channelTags: string[] = [];
-      try {
-        const credentials = await getTwitchActionCredentials(state, []);
-        const res = await fetch(
-          `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
-          { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
-        );
-        if (res.ok) {
-          const data = await res.json() as { data?: Array<{ tags?: string[] }> };
-          // Filter the channel's tags by the query the same way history is, so a
-          // search like "cod" can't surface unrelated tags (English, Cozy) and
-          // crowd out the relevant candidate. An empty query browses them all.
-          const needle = candidate.toLowerCase();
-          channelTags = normalizeTags(data.data?.[0]?.tags ?? [])
-            .filter(tag => !needle || tag.toLowerCase().includes(needle));
-        }
-      } catch {
-        // history-only suggestions
-      }
-
-      response.json(mergeTagSuggestions({ history, channelTags, candidate }));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
-
-  app.patch('/api/twitch/stream-info', async (request, response) => {
-    try {
-      const body = request.body as { title?: unknown; category?: unknown; categoryId?: unknown; tags?: unknown };
-      const title = typeof body.title === 'string' ? body.title.trim() : '';
-      const category = typeof body.category === 'string' ? body.category.trim() : '';
-      const providedId = parseTwitchGameId(body.categoryId);
-      const tags = normalizeTags(body.tags);
-
-      if (!title) throw new HttpRouteError(400, 'Title is required.');
-      if (title.length > 140) throw new HttpRouteError(400, 'Title must be 140 characters or fewer.');
-      if (!category) throw new HttpRouteError(400, 'Category is required.');
-
-      const credentials = await getTwitchActionCredentials(state, ['channel:manage:broadcast']);
-      // Prefer an exact game id chosen from the saved list, but confirm it still resolves so a stale
-      // saved id can't be pushed under a mismatched name; otherwise fall back to fuzzy name resolution.
-      let gameId: string;
-      let categoryName = category;
-      if (providedId) {
-        const found = await getTwitchCategoryById(providedId, credentials);
-        if (!found) throw new HttpRouteError(400, 'Saved category no longer exists on Twitch — re-add it from search.');
-        gameId = found.id;
-        categoryName = found.name;
-      } else {
-        gameId = await resolveTwitchCategoryId(category, credentials);
-      }
-      const res = await fetch(
-        `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
-        {
-          method: 'PATCH',
-          headers: {
-            'Client-Id': credentials.clientId,
-            Authorization: credentials.authorization,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ title, game_id: gameId, tags }),
+    const res = await fetch(
+      `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Client-Id': credentials.clientId,
+          Authorization: credentials.authorization,
+          'Content-Type': 'application/json',
         },
-      );
+        body: JSON.stringify({ title, game_id: gameId, tags }),
+      },
+    );
 
-      if (!res.ok) {
-        const message = await readResponseError(res, 'Twitch channel update failed.');
-        throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
-      }
-
-      // Remember these tags so the type-ahead can suggest them next time.
-      recordTagHistory(tags);
-
-      // Swap category modules to match the new stream category (best-effort — never
-      // fails the update). This is one of several signals; see categoryModules.ts.
-      await onCategorySignal(state, 'stream_info_update', gameId || null, categoryName || null);
-
-      response.json({ ok: true, title, category: categoryName, categoryId: gameId, tags });
-    } catch (error) {
-      sendRouteError(response, error);
+    if (!res.ok) {
+      const message = await readResponseError(res, 'Twitch channel update failed.');
+      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
     }
-  });
 
-  app.post('/api/twitch/preroll', async (_request, response) => {
-    try {
-      response.json({ ok: true, ...await runTwitchCommercial(state) });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+    // Remember these tags so the type-ahead can suggest them next time.
+    recordTagHistory(tags);
 
-  app.post('/api/twitch/chat-message', async (request, response) => {
-    try {
-      const body = request.body as { message?: unknown; sender?: unknown };
-      const message = typeof body.message === 'string' ? body.message.trim() : '';
-      const sender = body.sender === 'bot' ? 'bot' : 'user';
+    // Swap category modules to match the new stream category (best-effort — never
+    // fails the update). This is one of several signals; see categoryModules.ts.
+    await onCategorySignal(state, 'stream_info_update', gameId || null, categoryName || null);
 
-      const result = await sendTwitchChatMessage(state, message, sender);
+    response.json({ ok: true, title, category: categoryName, categoryId: gameId, tags });
+  }));
 
-      response.json({
-        ok: true,
-        messageId: result.messageId,
-      });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/twitch/preroll', handle(async (_request, response) => {
+    response.json({ ok: true, ...await runTwitchCommercial(state) });
+  }));
 
-  app.post('/api/twitch/users/:login/shoutout', async (request, response) => {
-    try {
-      await sendTwitchShoutout(state, request.params.login);
-      response.json({ ok: true, message: `Shoutout sent to @${request.params.login}.` });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/twitch/chat-message', handle(async (request, response) => {
+    const body = request.body as { message?: unknown; sender?: unknown };
+    const message = typeof body.message === 'string' ? body.message.trim() : '';
+    const sender = body.sender === 'bot' ? 'bot' : 'user';
 
-  app.post('/api/twitch/users/:login/whisper', async (request, response) => {
-    try {
-      const body = request.body as { message?: unknown };
-      const message = typeof body.message === 'string' ? body.message : '';
-      await sendTwitchWhisper(state, request.params.login, message);
-      response.json({ ok: true, message: `Whisper sent to @${request.params.login}.` });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+    const result = await sendTwitchChatMessage(state, message, sender);
 
-  app.post('/api/twitch/users/:login/timeout', async (request, response) => {
-    try {
-      const body = request.body as { durationSeconds?: unknown; reason?: unknown };
-      await moderateTwitchUser(state, request.params.login, 'timeout', {
-        durationSeconds: body.durationSeconds,
-        reason: body.reason,
-      });
-      response.json({ ok: true, message: `@${request.params.login} timed out.` });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+    response.json({
+      ok: true,
+      messageId: result.messageId,
+    });
+  }));
 
-  app.post('/api/twitch/users/:login/ban', async (request, response) => {
-    try {
-      const body = request.body as { reason?: unknown };
-      await moderateTwitchUser(state, request.params.login, 'ban', { reason: body.reason });
-      response.json({ ok: true, message: `@${request.params.login} banned.` });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/twitch/users/:login/shoutout', handle(async (request, response) => {
+    await sendTwitchShoutout(state, request.params.login);
+    response.json({ ok: true, message: `Shoutout sent to @${request.params.login}.` });
+  }));
+
+  app.post('/api/twitch/users/:login/whisper', handle(async (request, response) => {
+    const body = request.body as { message?: unknown };
+    const message = typeof body.message === 'string' ? body.message : '';
+    await sendTwitchWhisper(state, request.params.login, message);
+    response.json({ ok: true, message: `Whisper sent to @${request.params.login}.` });
+  }));
+
+  app.post('/api/twitch/users/:login/timeout', handle(async (request, response) => {
+    const body = request.body as { durationSeconds?: unknown; reason?: unknown };
+    await moderateTwitchUser(state, request.params.login, 'timeout', {
+      durationSeconds: body.durationSeconds,
+      reason: body.reason,
+    });
+    response.json({ ok: true, message: `@${request.params.login} timed out.` });
+  }));
+
+  app.post('/api/twitch/users/:login/ban', handle(async (request, response) => {
+    const body = request.body as { reason?: unknown };
+    await moderateTwitchUser(state, request.params.login, 'ban', { reason: body.reason });
+    response.json({ ok: true, message: `@${request.params.login} banned.` });
+  }));
 }
 
 export { getTwitchAuthStatus, REQUIRED_TWITCH_OAUTH_SCOPES };

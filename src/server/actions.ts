@@ -13,7 +13,7 @@ import type {
 import { MAX_TIMEOUT_SECONDS } from '../shared/api';
 import type { ActionExecutor } from './actionExecutor';
 import { db } from './db';
-import { HttpRouteError, sendRouteError } from './http';
+import { handle, HttpRouteError } from './http';
 
 const MAX_STEPS = 20;
 const MAX_NAME_LENGTH = 120;
@@ -408,38 +408,22 @@ export function registerActionRoutes(app: express.Express, executor: ActionExecu
     response.json(listActions());
   });
 
-  app.post('/api/actions', (request, response) => {
-    try {
-      response.status(201).json(createAction(request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/actions', handle((request, response) => {
+    response.status(201).json(createAction(request.body));
+  }));
 
-  app.put('/api/actions/:id', (request, response) => {
-    try {
-      response.json(updateAction(request.params.id, request.body));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/actions/:id', handle((request, response) => {
+    response.json(updateAction(request.params.id, request.body));
+  }));
 
-  app.delete('/api/actions/:id', (request, response) => {
-    try {
-      deleteAction(request.params.id);
-      response.status(204).end();
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.delete('/api/actions/:id', handle((request, response) => {
+    deleteAction(request.params.id);
+    response.status(204).end();
+  }));
 
-  app.post('/api/actions/:id/run', async (request, response) => {
-    try {
-      const id = request.params.id;
-      if (!getActionRow.get(id)) throw new HttpRouteError(404, 'Action not found.');
-      response.json(await executor.runAction(id, normalizeRunContext(request.body)));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/actions/:id/run', handle(async (request, response) => {
+    const id = request.params.id;
+    if (!getActionRow.get(id)) throw new HttpRouteError(404, 'Action not found.');
+    response.json(await executor.runAction(id, normalizeRunContext(request.body)));
+  }));
 }

@@ -1,7 +1,7 @@
 import type express from 'express';
 import type { SavedStreamCategory, SavedStreamCategoryInput, StreamCategoryRewardGroup } from '../shared/api';
 import { db } from './db';
-import { HttpRouteError, sendRouteError } from './http';
+import { handle, HttpRouteError } from './http';
 import { normalizeTags, recordTagHistory, suggestTagHistory } from './tags';
 
 const listStreamCategoriesRow = db.prepare(`
@@ -107,55 +107,39 @@ export function registerStreamCategoryRoutes(app: express.Express) {
     response.json(listSavedStreamCategories());
   });
 
-  app.post('/api/stream-categories', (request, response) => {
-    try {
-      const body = request.body as Partial<SavedStreamCategoryInput>;
-      const id = normalizeGameId(body?.id);
-      const name = typeof body?.name === 'string' ? body.name.trim() : '';
-      if (!name) throw new HttpRouteError(400, 'Category name is required.');
-      const boxArtUrl = typeof body?.boxArtUrl === 'string' && body.boxArtUrl.trim()
-        ? body.boxArtUrl.trim()
-        : null;
-      upsertStreamCategory.run(id, name.slice(0, 160), boxArtUrl, new Date().toISOString());
-      response.status(201).json(listSavedStreamCategories());
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/stream-categories', handle((request, response) => {
+    const body = request.body as Partial<SavedStreamCategoryInput>;
+    const id = normalizeGameId(body?.id);
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    if (!name) throw new HttpRouteError(400, 'Category name is required.');
+    const boxArtUrl = typeof body?.boxArtUrl === 'string' && body.boxArtUrl.trim()
+      ? body.boxArtUrl.trim()
+      : null;
+    upsertStreamCategory.run(id, name.slice(0, 160), boxArtUrl, new Date().toISOString());
+    response.status(201).json(listSavedStreamCategories());
+  }));
 
-  app.patch('/api/stream-categories/:gameId', (request, response) => {
-    try {
-      const id = normalizeGameId(request.params.gameId);
-      const hidden = request.body?.hidden === true;
-      if (setStreamCategoryHidden.run(hidden ? 1 : 0, id).changes === 0) {
-        throw new HttpRouteError(404, 'Saved stream category not found.');
-      }
-      response.json(listSavedStreamCategories());
-    } catch (error) {
-      sendRouteError(response, error);
+  app.patch('/api/stream-categories/:gameId', handle((request, response) => {
+    const id = normalizeGameId(request.params.gameId);
+    const hidden = request.body?.hidden === true;
+    if (setStreamCategoryHidden.run(hidden ? 1 : 0, id).changes === 0) {
+      throw new HttpRouteError(404, 'Saved stream category not found.');
     }
-  });
+    response.json(listSavedStreamCategories());
+  }));
 
-  app.put('/api/stream-categories/:gameId/tags', (request, response) => {
-    try {
-      const id = normalizeGameId(request.params.gameId);
-      if (!streamCategoryExists(id)) throw new HttpRouteError(404, 'Saved stream category not found.');
-      setSavedStreamCategoryTags(id, (request.body as { tags?: unknown })?.tags);
-      response.json(listSavedStreamCategories());
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.put('/api/stream-categories/:gameId/tags', handle((request, response) => {
+    const id = normalizeGameId(request.params.gameId);
+    if (!streamCategoryExists(id)) throw new HttpRouteError(404, 'Saved stream category not found.');
+    setSavedStreamCategoryTags(id, (request.body as { tags?: unknown })?.tags);
+    response.json(listSavedStreamCategories());
+  }));
 
-  app.delete('/api/stream-categories/:gameId', (request, response) => {
-    try {
-      const id = normalizeGameId(request.params.gameId);
-      if (!deleteSavedStreamCategory(id)) throw new HttpRouteError(404, 'Saved stream category not found.');
-      response.json(listSavedStreamCategories());
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.delete('/api/stream-categories/:gameId', handle((request, response) => {
+    const id = normalizeGameId(request.params.gameId);
+    if (!deleteSavedStreamCategory(id)) throw new HttpRouteError(404, 'Saved stream category not found.');
+    response.json(listSavedStreamCategories());
+  }));
 
   app.get('/api/stream-tags', (request, response) => {
     const query = typeof request.query['query'] === 'string' ? request.query['query'] : '';

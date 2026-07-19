@@ -9,7 +9,7 @@ import type {
   PlayMediaPayload,
 } from '../shared/api';
 import { db } from './db';
-import { HttpRouteError, parseJsonColumn, sendRouteError } from './http';
+import { handle, HttpRouteError, parseJsonColumn } from './http';
 import { findMediaFile, listMediaFiles } from './media';
 
 const DEFAULT_VOLUME = 0.8;
@@ -221,54 +221,34 @@ export function resolveMediaAssetForPlayback(id: string): MediaAsset | null {
 }
 
 export function registerMediaAssetRoutes(app: express.Express) {
-  app.get('/api/media-assets', (_req, res) => {
-    try {
-      const body: MediaAssetsResponse = { assets: listMediaAssets() };
-      res.json(body);
-    } catch (error) {
-      sendRouteError(res, error);
-    }
-  });
+  app.get('/api/media-assets', handle((_req, res) => {
+    const body: MediaAssetsResponse = { assets: listMediaAssets() };
+    res.json(body);
+  }));
 
-  app.post('/api/media-assets', (req, res) => {
-    try {
-      res.status(201).json(createMediaAsset(req.body));
-    } catch (error) {
-      sendRouteError(res, error);
-    }
-  });
+  app.post('/api/media-assets', handle((req, res) => {
+    res.status(201).json(createMediaAsset(req.body));
+  }));
 
-  app.put('/api/media-assets/:id', (req, res) => {
-    try {
-      res.json(updateMediaAsset(req.params.id, req.body));
-    } catch (error) {
-      sendRouteError(res, error);
-    }
-  });
+  app.put('/api/media-assets/:id', handle((req, res) => {
+    res.json(updateMediaAsset(req.params.id, req.body));
+  }));
 
-  app.delete('/api/media-assets/:id', (req, res) => {
-    try {
-      deleteMediaAsset(req.params.id);
-      res.status(204).end();
-    } catch (error) {
-      sendRouteError(res, error);
-    }
-  });
+  app.delete('/api/media-assets/:id', handle((req, res) => {
+    deleteMediaAsset(req.params.id);
+    res.status(204).end();
+  }));
 
   // The only surface that exposes raw filesystem entries. `configuredSrcs` lets
   // the picker mark files that a configured asset already claims.
-  app.get('/api/media/discovered', (_req, res) => {
-    try {
-      const configuredSrcs = listMediaAssets()
-        .filter(asset => asset.sourceType === 'local')
-        .map(asset => asset.src);
-      const body: DiscoveredMediaResponse = {
-        files: listMediaFiles(),
-        configuredSrcs: [...new Set(configuredSrcs)],
-      };
-      res.json(body);
-    } catch (error) {
-      sendRouteError(res, error);
-    }
-  });
+  app.get('/api/media/discovered', handle((_req, res) => {
+    const configuredSrcs = listMediaAssets()
+      .filter(asset => asset.sourceType === 'local')
+      .map(asset => asset.src);
+    const body: DiscoveredMediaResponse = {
+      files: listMediaFiles(),
+      configuredSrcs: [...new Set(configuredSrcs)],
+    };
+    res.json(body);
+  }));
 }

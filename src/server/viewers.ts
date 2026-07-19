@@ -1,6 +1,6 @@
 import type express from 'express';
 import type { Chatter } from '../shared/api';
-import { HttpRouteError, readResponseError, sendRouteError } from './http';
+import { handle, HttpRouteError, readResponseError } from './http';
 import type { RuntimeState } from './runtime';
 import { getTwitchActionCredentials, resolveTwitchUserId } from './twitch/api';
 
@@ -58,59 +58,35 @@ async function writeRole(
 }
 
 export function registerViewerRoleRoutes(app: express.Express, state: RuntimeState) {
-  app.get('/api/twitch/vips', async (_request, response) => {
-    try {
-      const credentials = await getTwitchActionCredentials(state, [VIP_SCOPE]);
-      const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, first: '100' });
-      response.json(await listRoleUsers(`${HELIX}/channels/vips?${params.toString()}`, credentials));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.get('/api/twitch/vips', handle(async (_request, response) => {
+    const credentials = await getTwitchActionCredentials(state, [VIP_SCOPE]);
+    const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, first: '100' });
+    response.json(await listRoleUsers(`${HELIX}/channels/vips?${params.toString()}`, credentials));
+  }));
 
-  app.get('/api/twitch/moderators', async (_request, response) => {
-    try {
-      const credentials = await getTwitchActionCredentials(state, [MOD_SCOPE]);
-      const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, first: '100' });
-      response.json(await listRoleUsers(`${HELIX}/moderation/moderators?${params.toString()}`, credentials));
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.get('/api/twitch/moderators', handle(async (_request, response) => {
+    const credentials = await getTwitchActionCredentials(state, [MOD_SCOPE]);
+    const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, first: '100' });
+    response.json(await listRoleUsers(`${HELIX}/moderation/moderators?${params.toString()}`, credentials));
+  }));
 
-  app.post('/api/twitch/users/:login/vip', async (request, response) => {
-    try {
-      await writeRole(state, VIP_SCOPE, '/channels/vips', 'POST', request.params.login);
-      response.json({ ok: true, message: `@${request.params.login} is now a VIP.` });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/twitch/users/:login/vip', handle(async (request, response) => {
+    await writeRole(state, VIP_SCOPE, '/channels/vips', 'POST', request.params.login);
+    response.json({ ok: true, message: `@${request.params.login} is now a VIP.` });
+  }));
 
-  app.delete('/api/twitch/users/:login/vip', async (request, response) => {
-    try {
-      await writeRole(state, VIP_SCOPE, '/channels/vips', 'DELETE', request.params.login);
-      response.json({ ok: true, message: `@${request.params.login} is no longer a VIP.` });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.delete('/api/twitch/users/:login/vip', handle(async (request, response) => {
+    await writeRole(state, VIP_SCOPE, '/channels/vips', 'DELETE', request.params.login);
+    response.json({ ok: true, message: `@${request.params.login} is no longer a VIP.` });
+  }));
 
-  app.post('/api/twitch/users/:login/moderator', async (request, response) => {
-    try {
-      await writeRole(state, MOD_SCOPE, '/moderation/moderators', 'POST', request.params.login);
-      response.json({ ok: true, message: `@${request.params.login} is now a moderator.` });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.post('/api/twitch/users/:login/moderator', handle(async (request, response) => {
+    await writeRole(state, MOD_SCOPE, '/moderation/moderators', 'POST', request.params.login);
+    response.json({ ok: true, message: `@${request.params.login} is now a moderator.` });
+  }));
 
-  app.delete('/api/twitch/users/:login/moderator', async (request, response) => {
-    try {
-      await writeRole(state, MOD_SCOPE, '/moderation/moderators', 'DELETE', request.params.login);
-      response.json({ ok: true, message: `@${request.params.login} is no longer a moderator.` });
-    } catch (error) {
-      sendRouteError(response, error);
-    }
-  });
+  app.delete('/api/twitch/users/:login/moderator', handle(async (request, response) => {
+    await writeRole(state, MOD_SCOPE, '/moderation/moderators', 'DELETE', request.params.login);
+    response.json({ ok: true, message: `@${request.params.login} is no longer a moderator.` });
+  }));
 }
