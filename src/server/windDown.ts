@@ -215,6 +215,35 @@ export function broadcastWindDown() {
   broadcast('winddown:updated', getWindDownPublicState());
 }
 
+/**
+ * The Twitch title write for wind-down lives in windDownLoop.ts, which imports
+ * twitch/api.ts, which imports THIS module (for `rebaseWindDownTitle`) — so this
+ * module cannot import windDownLoop.ts back without closing a cycle between modules
+ * that all prepare SQLite statements at import time, which is a boot-order failure.
+ * index.ts already imports both and registers the real applier at boot; tests
+ * register a fake. When nothing is registered (e.g. before boot wiring runs), the
+ * title step is silently skipped rather than crashing.
+ */
+export type WindDownTitleApplier = (active: boolean) => Promise<void>;
+let applyTitle: WindDownTitleApplier | null = null;
+
+export function setWindDownTitleApplier(fn: WindDownTitleApplier | null) {
+  applyTitle = fn;
+}
+
+/**
+ * The overlay signal (state row + broadcast) is authoritative either way; only the
+ * Twitch write can fail. Never let that fail the caller or corrupt state — log it.
+ */
+async function applyTitleSafely(active: boolean, context: string): Promise<void> {
+  if (!applyTitle) return;
+  try {
+    await applyTitle(active);
+  } catch (error) {
+    console.error(`Wind-down: could not update the Twitch title (${context}):`, error);
+  }
+}
+
 export function setWindDownActive(input: { active: boolean; source: WindDownSource }): WindDownPublicState {
   const prev = getWindDownState();
   const sessionId = getCurrentStreamSessionId();
@@ -246,6 +275,28 @@ export function setWindDownActive(input: { active: boolean; source: WindDownSour
 /** The loop's handle on the stored pre-wind-down title. */
 export function setWindDownBaseTitle(baseTitle: string | null) {
   writeState({ ...getWindDownState(), baseTitle });
+}
+
+/**
+ * The stream ended. `wind_down_state.active` must not survive into the next one —
+ * `evaluateWindDown` refuses to activate at all while `state.active` is true
+ * ("already_active"), so a state row left over from the last stream would permanently
+ * disarm the scheduler and weld the suffix onto every future title. Restore the title
+ * FIRST, while the stored base title this session captured is still there to restore
+ * to, then clear the whole row — including `dismissedSessionId`, which is scoped to
+ * the session that just ended and must not carry into the next one.
+ */
+export async function resetWindDownForStreamEnd(): Promise<void> {
+  await applyTitleSafely(false, 'stream end');
+  writeState({
+    active: false,
+    activatedAt: null,
+    source: null,
+    sessionId: null,
+    baseTitle: null,
+    dismissedSessionId: null,
+  });
+  broadcastWindDown();
 }
 
 /**
@@ -281,9 +332,13 @@ export function registerWindDownRoutes(app: express.Express) {
     response.json(getWindDownPublicState());
   });
 
-  app.put('/api/wind-down', handle((request, response) => {
+  app.put('/api/wind-down', handle(async (request, response) => {
     const active = (request.body as { active?: unknown } | null)?.active === true;
-    response.json(setWindDownActive({ active, source: 'manual' }));
+    const state = setWindDownActive({ active, source: 'manual' });
+    // Both directions: switching on suffixes the title, switching off must actually
+    // take it back off rather than leaving it welded to the title forever.
+    await applyTitleSafely(active, 'manual toggle');
+    response.json(state);
   }));
 
   app.get('/api/wind-down/settings', (_request, response) => {

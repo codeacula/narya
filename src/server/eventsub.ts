@@ -13,6 +13,7 @@ import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { endActiveStreamSession, getCurrentStreamSessionId } from './streamSession';
 import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials, runTwitchCommercial } from './twitch/api';
+import { resetWindDownForStreamEnd } from './windDown';
 
 const insertStreamEvent = db.prepare(`
   insert or ignore into stream_events (id, kind, actor, detail, tone, received_at, session_id, actor_login)
@@ -157,6 +158,10 @@ export async function handleEventSubNotification(
     case 'stream.offline':
       state.clearTwitchCaches();
       endActiveStreamSession();
+      // wind_down_state must not survive into the next stream: evaluateWindDown's
+      // already_active guard would otherwise refuse to ever arm again, and the
+      // suffix would stay welded to the title across every future stream.
+      await resetWindDownForStreamEnd();
       break;
     case 'channel.follow':
       emitStreamEvent('follow', event.user_name as string, 'followed', 'silver', loginOf(event));

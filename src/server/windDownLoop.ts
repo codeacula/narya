@@ -69,38 +69,81 @@ export async function applyWindDownTitle(port: WindDownTitlePort, active: boolea
  * A restart while wind-down is active would otherwise leave the suffix welded to the
  * title with nothing left that knows what the title used to be. The base title is
  * persisted precisely so this can put things back the way they were.
+ *
+ * But the stored base title can go stale: activate -> process dies -> the operator
+ * edits the title directly on Twitch -> restart. Blindly reapplying the stored base
+ * would clobber that edit. The live title is the tell: if our suffix is still on the
+ * end of it, nothing has changed underneath us (or the crash landed after the Twitch
+ * write succeeded but before the base title got persisted — stripping the suffix
+ * recovers the correct base either way). If the suffix is already gone, the operator
+ * changed the title while we were down, and their edit — with no suffix to strip —
+ * becomes the new base untouched.
  */
 export async function reconcileWindDownOnBoot(port: WindDownTitlePort): Promise<void> {
-  if (!getWindDownState().active) return;
+  const state = getWindDownState();
+  if (!state.active) return;
+
+  const settings = getWindDownSettings();
+  if (settings.titleEnabled) {
+    const liveTitle = await port.getTitle();
+    const suffix = settings.titleSuffix.trim();
+    const suffixStillPresent = suffix.length > 0 && liveTitle.trim().endsWith(suffix);
+    if (state.baseTitle === null || !suffixStillPresent) {
+      setWindDownBaseTitle(stripWindDownSuffix(liveTitle, settings.titleSuffix));
+    }
+  }
+
   await applyWindDownTitle(port, true);
 }
 
 let windDownTimer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
-async function tick(port: WindDownTitlePort): Promise<void> {
+/**
+ * Exported so tests can drive a tick directly rather than waiting on the real
+ * interval — the only seam this needs, since the decision logic itself already reads
+ * real wall-clock time (`Date.now()`) and DB state that a test can set up directly
+ * (a planned end a few minutes out, a real stream session row, etc).
+ */
+export async function tick(port: WindDownTitlePort): Promise<void> {
   // Overlapping ticks could double-apply the title while a slow PATCH is in flight.
   if (running) return;
   running = true;
   try {
     const settings = getWindDownSettings();
+    const state = getWindDownState();
     const decision = evaluateWindDown({
       now: Date.now(),
       plannedEndAt: getPlannedStreamEnd(),
       leadMinutes: settings.leadMinutes,
       sessionId: getCurrentStreamSessionId(),
-      state: { active: getWindDownState().active, dismissedSessionId: getWindDownState().dismissedSessionId },
+      state: { active: state.active, dismissedSessionId: state.dismissedSessionId },
     });
-    if (decision.action !== 'activate') return;
 
-    setWindDownActive({ active: true, source: 'scheduled' });
-    try {
-      await applyWindDownTitle(port, true);
-    } catch (error) {
-      // The overlay signal is already up; only the title failed. Leave wind-down
-      // active and let the next tick's reconcile retry rather than tearing down a
-      // signal the viewer can already see.
-      console.error('Wind-down: could not update the Twitch title:', error);
+    if (decision.action === 'activate') {
+      setWindDownActive({ active: true, source: 'scheduled' });
+      try {
+        await applyWindDownTitle(port, true);
+      } catch (error) {
+        // Left active with baseTitle still null — applyWindDownTitle only persists
+        // it once the Twitch write succeeds. That null is exactly the signal the
+        // retry branch below looks for on the next tick; this IS the retry
+        // mechanism, not a placeholder for one.
+        console.error('Wind-down: could not update the Twitch title:', error);
+      }
+      return;
+    }
+
+    // Not activating this tick — but if we are already active and the activation's
+    // Twitch write never actually landed (baseTitle null, activation not disabled),
+    // retry it here rather than leaving the suffix off for the rest of the stream
+    // while the dashboard confidently shows "active".
+    if (state.active && state.baseTitle === null && settings.titleEnabled) {
+      try {
+        await applyWindDownTitle(port, true);
+      } catch (error) {
+        console.error('Wind-down: could not update the Twitch title:', error);
+      }
     }
   } finally {
     running = false;

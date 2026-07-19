@@ -789,7 +789,7 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
     // fails the update). This is one of several signals; see categoryModules.ts.
     await onCategorySignal(state, 'stream_info_update', gameId || null, categoryName || null);
 
-    response.json({ ok: true, title, category: categoryName, categoryId: gameId, tags });
+    response.json({ ok: true, title: titleToSend, category: categoryName, categoryId: gameId, tags });
   }));
 
   app.post('/api/twitch/preroll', handle(async (_request, response) => {

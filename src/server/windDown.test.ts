@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, test } from 'bun:test';
+import type { AddressInfo } from 'node:net';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import express from 'express';
 import { db } from './db';
 import { getOrStartStreamSession, setPlannedStreamEnd } from './streamSession';
 import {
@@ -6,9 +8,12 @@ import {
   getWindDownSettings,
   getWindDownState,
   rebaseWindDownTitle,
+  registerWindDownRoutes,
+  resetWindDownForStreamEnd,
   saveWindDownSettings,
   setWindDownActive,
   setWindDownBaseTitle,
+  setWindDownTitleApplier,
 } from './windDown';
 
 beforeEach(() => {
@@ -17,6 +22,26 @@ beforeEach(() => {
   db.exec('delete from stream_session_chatters');
   db.exec('delete from stream_sessions');
 });
+
+// The applier is a module-level seam (see windDown.ts) so it must not leak a fake
+// registered by one test into the next.
+afterEach(() => {
+  setWindDownTitleApplier(null);
+});
+
+/** Stands up a throwaway express app with just the wind-down routes mounted. */
+async function startTestApp() {
+  const app = express();
+  app.use(express.json());
+  registerWindDownRoutes(app);
+  const server = app.listen(0);
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    port,
+    close: () => new Promise<void>(resolve => server.close(() => resolve())),
+  };
+}
 
 describe('wind-down settings', () => {
   test('a fresh install gets the documented defaults', () => {
@@ -146,5 +171,130 @@ describe('rebaseWindDownTitle', () => {
     saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Ending soon', titleEnabled: false, overlayEnabled: true });
     setWindDownActive({ active: true, source: 'manual' });
     expect(rebaseWindDownTitle('Modding Fallout')).toBe('Modding Fallout');
+  });
+});
+
+// Finding 1 (CRITICAL): PUT /api/wind-down only flipped the DB row and broadcast —
+// nothing ever called the title applier, so switching off left the suffix on the
+// operator's live title forever. These drive the route itself (not the helper
+// functions directly) because the bug was specifically that the ROUTE never wired
+// the applier in.
+describe('PUT /api/wind-down applies the title (Finding 1)', () => {
+  test('switching on calls the applier with active=true', async () => {
+    const calls: boolean[] = [];
+    setWindDownTitleApplier(async active => { calls.push(active); });
+    const app = await startTestApp();
+    try {
+      getOrStartStreamSession('test-put-on', '2026-07-19T18:00:00.000Z');
+      const res = await fetch(`http://127.0.0.1:${app.port}/api/wind-down`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: true }),
+      });
+      expect(res.status).toBe(200);
+      expect(calls).toEqual([true]);
+      expect(getWindDownState().active).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // The exact bug: turning wind-down off never took the suffix back off the title.
+  test('switching off calls the applier with active=false', async () => {
+    const calls: boolean[] = [];
+    setWindDownTitleApplier(async active => { calls.push(active); });
+    const app = await startTestApp();
+    try {
+      getOrStartStreamSession('test-put-off', '2026-07-19T18:00:00.000Z');
+      setWindDownActive({ active: true, source: 'manual' });
+      calls.length = 0; // only interested in what the PUT itself triggers
+
+      const res = await fetch(`http://127.0.0.1:${app.port}/api/wind-down`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: false }),
+      });
+      expect(res.status).toBe(200);
+      expect(calls).toEqual([false]);
+      expect(getWindDownState().active).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('a Twitch failure from the applier does not fail the route or corrupt the state', async () => {
+    setWindDownTitleApplier(async () => { throw new Error('Twitch is down'); });
+    const app = await startTestApp();
+    try {
+      getOrStartStreamSession('test-put-fail', '2026-07-19T18:00:00.000Z');
+      const res = await fetch(`http://127.0.0.1:${app.port}/api/wind-down`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: true }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { active: boolean };
+      expect(body.active).toBe(true);
+      expect(getWindDownState().active).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+// Finding 2 (CRITICAL): stream.offline never reset wind_down_state, so
+// evaluateWindDown's `already_active` guard permanently disarmed the scheduler from
+// the second stream onward, and the suffix never came back off.
+describe('resetWindDownForStreamEnd (Finding 2)', () => {
+  test('restores the title and clears every field of the state row', async () => {
+    const calls: boolean[] = [];
+    setWindDownTitleApplier(async active => { calls.push(active); });
+
+    const session = getOrStartStreamSession('test-reset-a', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'scheduled' });
+    setWindDownBaseTitle('Modding Skyrim');
+    expect(getWindDownState().sessionId).toBe(session.id);
+
+    await resetWindDownForStreamEnd();
+
+    expect(calls).toEqual([false]);
+    const state = getWindDownState();
+    expect(state.active).toBe(false);
+    expect(state.activatedAt).toBeNull();
+    expect(state.source).toBeNull();
+    expect(state.sessionId).toBeNull();
+    expect(state.baseTitle).toBeNull();
+    expect(state.dismissedSessionId).toBeNull();
+  });
+
+  // The dismissal is scoped to the session that just ended. Leaving it set would
+  // silently disable the schedule for the entirely different stream that starts next.
+  test('clears a stale manual dismissal even when wind-down was never reactivated', async () => {
+    const session = getOrStartStreamSession('test-reset-b', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'scheduled' });
+    setWindDownActive({ active: false, source: 'manual' });
+    expect(getWindDownState().dismissedSessionId).toBe(session.id);
+
+    await resetWindDownForStreamEnd();
+
+    expect(getWindDownState().dismissedSessionId).toBeNull();
+  });
+
+  test('a Twitch failure from the applier still clears the state row', async () => {
+    setWindDownTitleApplier(async () => { throw new Error('Twitch is down'); });
+    getOrStartStreamSession('test-reset-c', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'scheduled' });
+    setWindDownBaseTitle('Modding Skyrim');
+
+    await resetWindDownForStreamEnd();
+
+    expect(getWindDownState().active).toBe(false);
+  });
+
+  test('does nothing harmful when no applier is registered', async () => {
+    getOrStartStreamSession('test-reset-d', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'scheduled' });
+    await expect(resetWindDownForStreamEnd()).resolves.toBeUndefined();
+    expect(getWindDownState().active).toBe(false);
   });
 });

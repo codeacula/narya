@@ -17,8 +17,8 @@ import {
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { registerMediaMuteRoutes } from './mediaMute';
 import { registerOverlayPlaceholderRoutes } from './overlayPlaceholders';
-import { registerWindDownRoutes } from './windDown';
-import { startWindDownLoop } from './windDownLoop';
+import { registerWindDownRoutes, setWindDownTitleApplier } from './windDown';
+import { applyWindDownTitle, startWindDownLoop, windDownTitlePort } from './windDownLoop';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { config, isLoopbackHost } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
@@ -159,6 +159,11 @@ server.listen(config.port, config.host, () => {
   startMusicPolling();
   startDashboardHeartbeat(runtimeState);
   startAutomaticAds(runtimeState);
+  // windDown.ts cannot import windDownLoop.ts directly — windDownLoop.ts imports
+  // twitch/api.ts, which imports windDown.ts, so that would close a cycle between
+  // modules that all prepare SQLite statements at import time. Register the real
+  // Twitch-title applier here instead, where both modules are already in scope.
+  setWindDownTitleApplier(active => applyWindDownTitle(windDownTitlePort(runtimeState), active));
   startWindDownLoop(runtimeState);
   void connectEventSub(runtimeState);
 
