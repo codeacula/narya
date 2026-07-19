@@ -222,8 +222,15 @@ describe('PUT /api/wind-down applies the title (Finding 1)', () => {
     }
   });
 
+  // Finding 5: this used to never inspect the applier's call record, so it would
+  // pass whether or not the route called the applier at all. Assert it was actually
+  // invoked, not just that the route survived a throw nobody triggered.
   test('a Twitch failure from the applier does not fail the route or corrupt the state', async () => {
-    setWindDownTitleApplier(async () => { throw new Error('Twitch is down'); });
+    const calls: boolean[] = [];
+    setWindDownTitleApplier(async active => {
+      calls.push(active);
+      throw new Error('Twitch is down');
+    });
     const app = await startTestApp();
     try {
       getOrStartStreamSession('test-put-fail', '2026-07-19T18:00:00.000Z');
@@ -236,6 +243,7 @@ describe('PUT /api/wind-down applies the title (Finding 1)', () => {
       const body = await res.json() as { active: boolean };
       expect(body.active).toBe(true);
       expect(getWindDownState().active).toBe(true);
+      expect(calls).toEqual([true]);
     } finally {
       await app.close();
     }
@@ -296,5 +304,39 @@ describe('resetWindDownForStreamEnd (Finding 2)', () => {
     setWindDownActive({ active: true, source: 'scheduled' });
     await expect(resetWindDownForStreamEnd()).resolves.toBeUndefined();
     expect(getWindDownState().active).toBe(false);
+  });
+});
+
+// Finding 3: a failed restore write used to be indistinguishable from a successful
+// one — resetWindDownForStreamEnd wiped baseTitle unconditionally, so a transient
+// Twitch failure welded the suffix on forever and a redelivered stream.offline (which
+// just calls this again) saw baseTitle already null and no-opped instead of retrying.
+describe('resetWindDownForStreamEnd preserves state on a failed restore (Finding 3)', () => {
+  test('a failed restore keeps the base title instead of wiping it', async () => {
+    setWindDownTitleApplier(async () => { throw new Error('Twitch is down'); });
+    getOrStartStreamSession('test-reset-e', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'scheduled' });
+    setWindDownBaseTitle('Modding Skyrim');
+
+    await resetWindDownForStreamEnd();
+
+    expect(getWindDownState().active).toBe(false);
+    // The write never landed — wiping this would leave the suffix stuck on the
+    // title with nothing left able to recover it.
+    expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
+  });
+
+  // The other half: once the applier actually succeeds, the failed-restore fields
+  // must still clear — this ISN'T a "never clear on this path" fix.
+  test('a successful restore still clears the base title', async () => {
+    setWindDownTitleApplier(async () => {});
+    getOrStartStreamSession('test-reset-f', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'scheduled' });
+    setWindDownBaseTitle('Modding Skyrim');
+
+    await resetWindDownForStreamEnd();
+
+    expect(getWindDownState().active).toBe(false);
+    expect(getWindDownState().baseTitle).toBeNull();
   });
 });

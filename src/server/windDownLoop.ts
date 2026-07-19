@@ -7,7 +7,7 @@ import {
   getWindDownSettings,
   getWindDownState,
   setWindDownActive,
-  setWindDownBaseTitle,
+  setWindDownTitleState,
 } from './windDown';
 import { evaluateWindDown } from './windDownSchedule';
 import { composeWindDownTitle, stripWindDownSuffix } from './windDownTitle';
@@ -55,14 +55,16 @@ export async function applyWindDownTitle(port: WindDownTitlePort, active: boolea
     // Write first. A failed PATCH must not leave a base title recorded for a suffix
     // that never went up, and must not clear one that is still live.
     await port.setTitle(next);
-    setWindDownBaseTitle(baseTitle);
+    // Record which suffix actually went up alongside the base, so a later boot
+    // reconcile can strip exactly that rather than whatever the setting says by then.
+    setWindDownTitleState(baseTitle, settings.titleSuffix);
     return;
   }
 
   // Nothing captured means the suffix never went up — there is nothing to restore.
   if (stored.baseTitle === null) return;
   await port.setTitle(stored.baseTitle);
-  setWindDownBaseTitle(null);
+  setWindDownTitleState(null, null);
 }
 
 /**
@@ -70,14 +72,22 @@ export async function applyWindDownTitle(port: WindDownTitlePort, active: boolea
  * title with nothing left that knows what the title used to be. The base title is
  * persisted precisely so this can put things back the way they were.
  *
- * But the stored base title can go stale: activate -> process dies -> the operator
- * edits the title directly on Twitch -> restart. Blindly reapplying the stored base
- * would clobber that edit. The live title is the tell: if our suffix is still on the
- * end of it, nothing has changed underneath us (or the crash landed after the Twitch
- * write succeeded but before the base title got persisted — stripping the suffix
- * recovers the correct base either way). If the suffix is already gone, the operator
- * changed the title while we were down, and their edit — with no suffix to strip —
- * becomes the new base untouched.
+ * The base is always re-derived from the LIVE title (never blindly trusted from
+ * storage), by stripping the suffix that was ACTUALLY applied last time — recorded
+ * in `appliedSuffix` alongside `baseTitle` — rather than a heuristic guess of
+ * "does the live title merely end with whatever the suffix setting says right now".
+ * That guess had two failure modes: an operator editing the suffixed title they can
+ * see has no way to know the trailing text is app-managed, and can plausibly retype
+ * only the base while leaving a suffix that happens to still match — which the old
+ * heuristic read as "unchanged" and clobbered with the stale stored base. And if the
+ * suffix setting changed while active, the live title's OLD suffix would never match
+ * the NEW configured one, so the heuristic adopted the whole live title — old suffix
+ * included — as the base, double-stacking it on the next compose. Stripping the
+ * suffix that was actually recorded handles both: the operator's edit survives
+ * because the base always comes from the live title, and the old suffix comes off
+ * cleanly because we know exactly what it was, independent of what the setting says
+ * now. A state row predating this column has no recorded suffix to fall back on, so
+ * it falls back to the current setting — the old best-effort behavior.
  */
 export async function reconcileWindDownOnBoot(port: WindDownTitlePort): Promise<void> {
   const state = getWindDownState();
@@ -86,11 +96,8 @@ export async function reconcileWindDownOnBoot(port: WindDownTitlePort): Promise<
   const settings = getWindDownSettings();
   if (settings.titleEnabled) {
     const liveTitle = await port.getTitle();
-    const suffix = settings.titleSuffix.trim();
-    const suffixStillPresent = suffix.length > 0 && liveTitle.trim().endsWith(suffix);
-    if (state.baseTitle === null || !suffixStillPresent) {
-      setWindDownBaseTitle(stripWindDownSuffix(liveTitle, settings.titleSuffix));
-    }
+    const suffixToStrip = state.appliedSuffix ?? settings.titleSuffix;
+    setWindDownTitleState(stripWindDownSuffix(liveTitle, suffixToStrip), settings.titleSuffix);
   }
 
   await applyWindDownTitle(port, true);
@@ -98,6 +105,37 @@ export async function reconcileWindDownOnBoot(port: WindDownTitlePort): Promise<
 
 let windDownTimer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+
+/**
+ * Both retry branches in `tick()` below would otherwise fire every tick
+ * (`DASHBOARD_HEARTBEAT_MS`, 5s by default). Against a permanent failure — revoked
+ * OAuth, say — that logs every 5 seconds for the rest of the stream. Retry at full
+ * speed for the first few failures, since the common case is a network blip that
+ * clears on the very next tick, then back off so a permanent failure quiets down
+ * instead of spamming the log. This is noise control, not a real backoff schedule —
+ * the retry itself is already self-bounding (a success clears the field it is
+ * watching and stops firing).
+ */
+const RETRY_BURST_TICKS = 5;
+const RETRY_BACKOFF_TICKS = 12; // ~1 minute at the default 5s heartbeat, after the burst
+
+function shouldAttemptRetry(consecutiveFailures: number): boolean {
+  if (consecutiveFailures < RETRY_BURST_TICKS) return true;
+  return consecutiveFailures % RETRY_BACKOFF_TICKS === 0;
+}
+
+let activationRetryFailures = 0;
+let restoreRetryFailures = 0;
+
+/**
+ * Test-only: the failure-streak counters above are module state, so a test that
+ * exercises the backoff (deliberately leaving a permanent failure mid-streak) would
+ * otherwise leak it into whatever test runs next in the same file.
+ */
+export function resetWindDownRetryBackoffForTests() {
+  activationRetryFailures = 0;
+  restoreRetryFailures = 0;
+}
 
 /**
  * Exported so tests can drive a tick directly rather than waiting on the real
@@ -124,6 +162,7 @@ export async function tick(port: WindDownTitlePort): Promise<void> {
       setWindDownActive({ active: true, source: 'scheduled' });
       try {
         await applyWindDownTitle(port, true);
+        activationRetryFailures = 0;
       } catch (error) {
         // Left active with baseTitle still null — applyWindDownTitle only persists
         // it once the Twitch write succeeds. That null is exactly the signal the
@@ -139,11 +178,39 @@ export async function tick(port: WindDownTitlePort): Promise<void> {
     // retry it here rather than leaving the suffix off for the rest of the stream
     // while the dashboard confidently shows "active".
     if (state.active && state.baseTitle === null && settings.titleEnabled) {
-      try {
-        await applyWindDownTitle(port, true);
-      } catch (error) {
-        console.error('Wind-down: could not update the Twitch title:', error);
+      if (shouldAttemptRetry(activationRetryFailures)) {
+        try {
+          await applyWindDownTitle(port, true);
+          activationRetryFailures = 0;
+        } catch (error) {
+          activationRetryFailures += 1;
+          console.error('Wind-down: could not update the Twitch title:', error);
+        }
+      } else {
+        activationRetryFailures += 1;
       }
+    } else {
+      activationRetryFailures = 0;
+    }
+
+    // The mirror image: a restore that failed (e.g. a Twitch outage exactly at
+    // stream end) leaves baseTitle populated while inactive, and reconcileWindDownOnBoot
+    // only runs while `active` is true — this path just set it false. Retry it here
+    // too, rather than relying solely on a redelivered `stream.offline` to try again.
+    if (!state.active && state.baseTitle !== null && settings.titleEnabled) {
+      if (shouldAttemptRetry(restoreRetryFailures)) {
+        try {
+          await applyWindDownTitle(port, false);
+          restoreRetryFailures = 0;
+        } catch (error) {
+          restoreRetryFailures += 1;
+          console.error('Wind-down: could not restore the Twitch title:', error);
+        }
+      } else {
+        restoreRetryFailures += 1;
+      }
+    } else {
+      restoreRetryFailures = 0;
     }
   } finally {
     running = false;

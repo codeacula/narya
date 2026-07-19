@@ -36,6 +36,11 @@ export type WindDownStoredState = {
   source: WindDownSource | null;
   sessionId: string | null;
   baseTitle: string | null;
+  // The suffix that was actually applied alongside baseTitle. Recorded so
+  // reconcile-on-boot can strip exactly what was written to the live title instead
+  // of guessing from whatever the suffix setting currently says — a setting change
+  // while active must not be confused with the suffix that is actually out there.
+  appliedSuffix: string | null;
   dismissedSessionId: string | null;
 };
 
@@ -53,6 +58,7 @@ type StateRow = {
   source: string | null;
   sessionId: string | null;
   baseTitle: string | null;
+  appliedSuffix: string | null;
   dismissedSessionId: string | null;
 };
 
@@ -90,20 +96,23 @@ const selectState = db.prepare(`
     source,
     session_id as sessionId,
     base_title as baseTitle,
+    applied_suffix as appliedSuffix,
     dismissed_session_id as dismissedSessionId
   from wind_down_state
   where id = 1
 `);
 
 const upsertState = db.prepare(`
-  insert into wind_down_state (id, active, activated_at, source, session_id, base_title, dismissed_session_id)
-  values (1, ?, ?, ?, ?, ?, ?)
+  insert into wind_down_state
+    (id, active, activated_at, source, session_id, base_title, applied_suffix, dismissed_session_id)
+  values (1, ?, ?, ?, ?, ?, ?, ?)
   on conflict(id) do update set
     active = excluded.active,
     activated_at = excluded.activated_at,
     source = excluded.source,
     session_id = excluded.session_id,
     base_title = excluded.base_title,
+    applied_suffix = excluded.applied_suffix,
     dismissed_session_id = excluded.dismissed_session_id
 `);
 
@@ -171,7 +180,15 @@ export function saveWindDownSettings(body: unknown): WindDownSettings {
 export function getWindDownState(): WindDownStoredState {
   const row = selectState.get() as StateRow | null;
   if (!row) {
-    return { active: false, activatedAt: null, source: null, sessionId: null, baseTitle: null, dismissedSessionId: null };
+    return {
+      active: false,
+      activatedAt: null,
+      source: null,
+      sessionId: null,
+      baseTitle: null,
+      appliedSuffix: null,
+      dismissedSessionId: null,
+    };
   }
   return {
     active: row.active === 1,
@@ -179,6 +196,7 @@ export function getWindDownState(): WindDownStoredState {
     source: (row.source as WindDownSource | null) ?? null,
     sessionId: row.sessionId,
     baseTitle: row.baseTitle,
+    appliedSuffix: row.appliedSuffix,
     dismissedSessionId: row.dismissedSessionId,
   };
 }
@@ -190,6 +208,7 @@ function writeState(state: WindDownStoredState) {
     state.source,
     state.sessionId,
     state.baseTitle,
+    state.appliedSuffix,
     state.dismissedSessionId,
   );
 }
@@ -234,13 +253,19 @@ export function setWindDownTitleApplier(fn: WindDownTitleApplier | null) {
 /**
  * The overlay signal (state row + broadcast) is authoritative either way; only the
  * Twitch write can fail. Never let that fail the caller or corrupt state — log it.
+ *
+ * Returns whether the write actually landed (true when nothing is registered — there
+ * is nothing to fail), so a caller like `resetWindDownForStreamEnd` can tell a
+ * successful restore from a failed one instead of assuming success.
  */
-async function applyTitleSafely(active: boolean, context: string): Promise<void> {
-  if (!applyTitle) return;
+async function applyTitleSafely(active: boolean, context: string): Promise<boolean> {
+  if (!applyTitle) return true;
   try {
     await applyTitle(active);
+    return true;
   } catch (error) {
     console.error(`Wind-down: could not update the Twitch title (${context}):`, error);
+    return false;
   }
 }
 
@@ -262,8 +287,10 @@ export function setWindDownActive(input: { active: boolean; source: WindDownSour
     activatedAt: input.active ? (prev.active ? prev.activatedAt : nowIso()) : null,
     source: input.active ? input.source : null,
     sessionId: input.active ? sessionId : prev.sessionId,
-    // The base title is owned by the loop, which restores from it. Preserve it here.
+    // The base title (and the suffix recorded alongside it) are owned by the loop,
+    // which restores from them. Preserve both here.
     baseTitle: prev.baseTitle,
+    appliedSuffix: prev.appliedSuffix,
     dismissedSessionId,
   });
 
@@ -278,22 +305,42 @@ export function setWindDownBaseTitle(baseTitle: string | null) {
 }
 
 /**
+ * Record the base title together with the suffix actually applied alongside it —
+ * the pair the boot reconcile needs to derive an exact base from the live title
+ * later, rather than guessing from whatever the suffix setting currently says.
+ * `null, null` marks "nothing applied" (a completed restore).
+ */
+export function setWindDownTitleState(baseTitle: string | null, appliedSuffix: string | null) {
+  writeState({ ...getWindDownState(), baseTitle, appliedSuffix });
+}
+
+/**
  * The stream ended. `wind_down_state.active` must not survive into the next one —
  * `evaluateWindDown` refuses to activate at all while `state.active` is true
  * ("already_active"), so a state row left over from the last stream would permanently
  * disarm the scheduler and weld the suffix onto every future title. Restore the title
  * FIRST, while the stored base title this session captured is still there to restore
- * to, then clear the whole row — including `dismissedSessionId`, which is scoped to
- * the session that just ended and must not carry into the next one.
+ * to, then clear the row — including `dismissedSessionId`, which is scoped to the
+ * session that just ended and must not carry into the next one.
+ *
+ * `active` always goes false here: EventSub already told us the stream is over, and
+ * there is nothing left to be "active" about. But `baseTitle`/`appliedSuffix` only
+ * clear when the restore write actually landed — a transient Twitch failure must not
+ * make this look like nothing is left to fix, or nothing would ever retry it: not
+ * `tick()` (which only reconciles while streaming) and not a redelivered
+ * `stream.offline`, which just calls this again and would otherwise see a
+ * `baseTitle` already wiped and no-op instead of retrying.
  */
 export async function resetWindDownForStreamEnd(): Promise<void> {
-  await applyTitleSafely(false, 'stream end');
+  const restored = await applyTitleSafely(false, 'stream end');
+  const current = getWindDownState();
   writeState({
     active: false,
     activatedAt: null,
     source: null,
     sessionId: null,
-    baseTitle: null,
+    baseTitle: restored ? null : current.baseTitle,
+    appliedSuffix: restored ? null : current.appliedSuffix,
     dismissedSessionId: null,
   });
   broadcastWindDown();
@@ -318,7 +365,7 @@ export function rebaseWindDownTitle(submittedTitle: string): string {
   if (!settings.titleEnabled) return submittedTitle;
 
   const base = stripWindDownSuffix(submittedTitle, settings.titleSuffix);
-  setWindDownBaseTitle(base);
+  setWindDownTitleState(base, settings.titleSuffix);
   return composeWindDownTitle(base, settings.titleSuffix);
 }
 

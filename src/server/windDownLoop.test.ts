@@ -9,7 +9,14 @@ import {
   setWindDownActive,
   setWindDownTitleApplier,
 } from './windDown';
-import { applyWindDownTitle, reconcileWindDownOnBoot, startWindDownLoop, tick, type WindDownTitlePort } from './windDownLoop';
+import {
+  applyWindDownTitle,
+  reconcileWindDownOnBoot,
+  resetWindDownRetryBackoffForTests,
+  startWindDownLoop,
+  tick,
+  type WindDownTitlePort,
+} from './windDownLoop';
 
 /** A fake Twitch channel whose title we can read back. */
 function fakePort(initialTitle: string) {
@@ -40,6 +47,9 @@ beforeEach(() => {
   db.exec('delete from stream_sessions');
   sessionId = getOrStartStreamSession('test', '2026-07-19T18:00:00.000Z').id;
   setWindDownTitleApplier(null);
+  // The retry backoff counters are module state (Finding 4) — reset them so a test
+  // that deliberately runs a streak of failures can't leak it into the next test.
+  resetWindDownRetryBackoffForTests();
 });
 
 describe('applyWindDownTitle', () => {
@@ -126,6 +136,52 @@ describe('reconcileWindDownOnBoot', () => {
     expect(getWindDownState().baseTitle).toBe('Modding Fallout');
     expect(afterRestart.title).toBe('Modding Fallout | Ending soon');
   });
+
+  // Finding 1: the old reconcile trusted the stale stored base whenever the live
+  // title merely ENDED with the configured suffix. An operator editing the suffixed
+  // title they can see has no way to know the trailing text is app-managed, and can
+  // plausibly retype only the base while leaving a suffix that happens to still
+  // match — the old heuristic read that as "unchanged" and silently overwrote the
+  // edit with the stale stored base ('Modding Skyrim' instead of 'Modding Fallout').
+  test('an operator edit that happens to keep the suffix is not clobbered by the stale stored base', async () => {
+    const fake = fakePort('Modding Skyrim');
+    await applyWindDownTitle(fake.port, true); // baseTitle 'Modding Skyrim', appliedSuffix '| Ending soon'
+    setWindDownActive({ active: true, source: 'scheduled' });
+
+    // Operator retitles on Twitch directly while we're down, changing only the base
+    // and — plausibly, since they can't tell the tail is app-managed — leaving the
+    // suffix in place.
+    const afterRestart = fakePort('Modding Fallout | Ending soon');
+    await reconcileWindDownOnBoot(afterRestart.port);
+
+    expect(getWindDownState().baseTitle).toBe('Modding Fallout');
+    expect(afterRestart.title).toBe('Modding Fallout | Ending soon');
+  });
+
+  // Finding 2: nothing reapplies the live title when the suffix setting changes
+  // while active, so the live title still carries the OLD suffix. The old reconcile
+  // checked the live title against the NEW configured suffix, saw no match, and
+  // adopted the WHOLE live title — old suffix included — as the base, so composing
+  // with the new suffix double-stacked it. Recording the suffix that was actually
+  // applied fixes this: reconcile strips exactly that, regardless of what the
+  // setting has since changed to.
+  test('a changed suffix setting does not double-stack on restart', async () => {
+    const fake = fakePort('Modding Skyrim');
+    await applyWindDownTitle(fake.port, true); // applies '| Ending soon'
+    setWindDownActive({ active: true, source: 'scheduled' });
+
+    // The operator changes the suffix setting while wind-down is active. Nothing
+    // reapplies the live title for that (a separate, accepted gap), so the channel
+    // title still carries the OLD suffix going into the restart.
+    saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Wrapping up', titleEnabled: true, overlayEnabled: true });
+
+    // Simulate a restart with the live title unchanged.
+    const afterRestart = fakePort(fake.title);
+    await reconcileWindDownOnBoot(afterRestart.port);
+
+    expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
+    expect(afterRestart.title).toBe('Modding Skyrim | Wrapping up');
+  });
 });
 
 describe('tick', () => {
@@ -194,6 +250,59 @@ describe('tick', () => {
 
     await tick(fake.port); // nothing left to retry
     expect(fake.writes).toHaveLength(1);
+  });
+
+  // Finding 3: the mirror image of the activation retry above. Before this fix,
+  // tick() had no code path at all for "inactive with a base title still on file" —
+  // a failed restore (e.g. from resetWindDownForStreamEnd at stream end) would sit
+  // there forever unless a redelivered stream.offline happened to come along.
+  test('retries a failed restore write on the next tick, and stops once it lands', async () => {
+    const fake = fakePort('Modding Skyrim');
+    await applyWindDownTitle(fake.port, true); // baseTitle captured, suffix applied
+    setWindDownActive({ active: true, source: 'scheduled' });
+    // Deactivate WITHOUT going through a successful restore, as a failed
+    // resetWindDownForStreamEnd would leave things: inactive, baseTitle still set.
+    setWindDownActive({ active: false, source: 'action' });
+    fake.failNextWrite = true;
+
+    await tick(fake.port); // tick attempts the restore; the Twitch write fails
+    expect(getWindDownState().active).toBe(false);
+    expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
+    expect(fake.title).toBe('Modding Skyrim | Ending soon'); // still un-restored
+
+    await tick(fake.port); // retry — this time it succeeds
+    expect(getWindDownState().baseTitle).toBeNull();
+    expect(fake.title).toBe('Modding Skyrim');
+
+    fake.writes.length = 0;
+    await tick(fake.port); // nothing left to retry
+    expect(fake.writes).toHaveLength(0);
+  });
+
+  // Finding 4: against a permanent failure (revoked OAuth, say) the retry above
+  // would otherwise attempt — and log — every single tick for the rest of the
+  // stream. Assert the backoff actually reduces attempts rather than firing on
+  // every one of many consecutive ticks.
+  test('backs off retrying a permanently failing restore instead of hammering every tick', async () => {
+    const fake = fakePort('Modding Skyrim');
+    await applyWindDownTitle(fake.port, true);
+    setWindDownActive({ active: true, source: 'scheduled' });
+    setWindDownActive({ active: false, source: 'action' }); // inactive, baseTitle still set
+
+    let attempts = 0;
+    const alwaysFailingPort: WindDownTitlePort = {
+      getTitle: fake.port.getTitle,
+      setTitle: async () => { attempts += 1; throw new Error('Twitch is down'); },
+    };
+
+    for (let i = 0; i < 20; i++) {
+      await tick(alwaysFailingPort);
+    }
+
+    // Full-speed for the first burst of failures, then backed off — 20 consecutive
+    // ticks must not mean 20 attempts (and 20 log lines).
+    expect(attempts).toBeGreaterThan(0);
+    expect(attempts).toBeLessThan(20);
   });
 });
 

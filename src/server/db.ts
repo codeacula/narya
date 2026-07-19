@@ -377,6 +377,10 @@ db.exec(`
     source text,
     session_id text,
     base_title text,
+    -- The suffix actually applied alongside base_title, so reconcile-on-boot can
+    -- strip exactly what was written rather than guessing from the currently
+    -- configured suffix (which may have changed since).
+    applied_suffix text,
     dismissed_session_id text
   );
 
@@ -536,6 +540,7 @@ const allowedMigrationTables = new Set([
   'app_config',
   'alert_settings',
   'actions',
+  'wind_down_state',
 ]);
 const allowedMigrationColumns = new Set([
   'account_user_id',
@@ -569,6 +574,7 @@ const allowedMigrationColumns = new Set([
   'sound_button_volume',
   'quick_disable',
   'planned_end_at',
+  'applied_suffix',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -607,6 +613,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   sound_button_volume: 'real not null default 0.2',
   quick_disable: 'integer not null default 0',
   planned_end_at: 'text',
+  applied_suffix: 'text',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -678,6 +685,10 @@ addColumnIfMissing('alert_settings', 'sound_src', 'text');
 addColumnIfMissing('alert_settings', 'sound_volume', 'real');
 addColumnIfMissing('alert_settings', 'clip_src', 'text');
 addColumnIfMissing('alert_settings', 'clip_volume', 'real');
+
+// Rows created before this column existed stay null; reconcileWindDownOnBoot falls
+// back to the currently configured suffix for those.
+addColumnIfMissing('wind_down_state', 'applied_suffix', 'text');
 
 // tmi logins are already lowercase, but historically some rows were stored with
 // mixed case. Normalize them once so username queries can use plain equality and
