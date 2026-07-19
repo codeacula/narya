@@ -15,6 +15,18 @@ describe('test isolation', () => {
     expect(mediaScanRoot().endsWith('public')).toBe(false);
   });
 
+  /**
+   * The isolation must not depend on inherited environment state. `bun test` sets
+   * NODE_ENV=test only when it is UNSET, so under `NODE_ENV=production bun test`
+   * the NODE_ENV check alone silently fell back to the operator's gitignored
+   * public/ — the exact failure the fixtures exist to remove. The preload sets an
+   * explicit root instead, mirroring STREAMER_TOOLS_DB.
+   */
+  test('the root comes from the explicit env var, not from NODE_ENV', () => {
+    expect(process.env.STREAMER_TOOLS_MEDIA_ROOT).toBeTruthy();
+    expect(mediaScanRoot()).toBe(process.env.STREAMER_TOOLS_MEDIA_ROOT!);
+  });
+
   test('every scanned file comes from the fixtures tree', () => {
     // A fixture directory that silently emptied would make the assertions below
     // vacuous rather than failing, so prove the scan actually found something.

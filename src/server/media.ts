@@ -9,17 +9,24 @@ const fixturesDir = path.resolve(__dirname, '__fixtures__', 'media');
 
 /**
  * Isolate tests from the operator's media, the way db.ts isolates them from the
- * operator's database. `bun test` sets NODE_ENV=test, so scan the committed
- * fixtures there; a normal run still scans public/.
+ * operator's database.
  *
  * public/clips and public/sounds are gitignored operator media, so a fresh clone
  * or a new git worktree has no public/ directory at all. Scanning it under test
  * meant every assertion that needed a resolvable file passed only on the machine
  * that happened to hold the operator's library, and failed for CI and for any new
- * contributor. Resolved once at import time — like dbPath — because the scan is
- * cached and a mid-run change would be neither observed nor meaningful.
+ * contributor.
+ *
+ * STREAMER_TOOLS_MEDIA_ROOT is the authority and testSetup.ts (the bunfig preload)
+ * sets it, mirroring STREAMER_TOOLS_DB. The NODE_ENV check is only a fallback,
+ * because it is not trustworthy on its own: `bun test` sets NODE_ENV=test only when
+ * it is UNSET, so `NODE_ENV=production bun test` scanned the operator's media again.
+ *
+ * Resolved once at import time — like dbPath — because the scan is cached and a
+ * mid-run change would be neither observed nor meaningful.
  */
-const mediaDir = process.env.NODE_ENV === 'test' ? fixturesDir : publicDir;
+const mediaDir = process.env.STREAMER_TOOLS_MEDIA_ROOT
+  ?? (process.env.NODE_ENV === 'test' ? fixturesDir : publicDir);
 
 /**
  * The directory the scan actually walks. Exported so a test can assert the
