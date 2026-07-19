@@ -560,7 +560,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       count={attention.unackedCount || undefined}
       popped={!!popped['attention']}
       onPop={handlePop}
-      className="panel--attention"
       bodyClass="no-pad"
       headerActions={
         <AttentionDismissAll disabled={attention.unackedCount === 0} onDismiss={attention.dismissAll} />

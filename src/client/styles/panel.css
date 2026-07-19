@@ -9,7 +9,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 :root {
   --accent: var(--gold-500);
   --accent-fg: var(--gold-400);
-  --accent-soft: rgba(255, 184, 108, 0.12);
+  --accent-soft: rgba(var(--gold-rgb), 0.12);
   --row-pad-y: 7px;
   --panel-gap: 12px;
 }
@@ -213,10 +213,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .stat-action.gold {
   color: var(--accent-fg);
   border-color: var(--border-3);
-  background: rgba(255, 184, 108, 0.12);
+  background: rgba(var(--gold-rgb), 0.12);
 }
 .stat-action.gold:hover:not(:disabled) {
-  background: rgba(255, 184, 108, 0.2);
+  background: rgba(var(--gold-rgb), 0.2);
 }
 .stat-action:disabled {
   cursor: not-allowed;
@@ -262,7 +262,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   overflow: hidden;
 }
 .panel:not(.ghost) {
-  border-left: 2px solid rgba(255, 184, 108, 0.2);
+  border-left: 2px solid rgba(var(--gold-rgb), 0.2);
 }
 .panel-head {
   display: flex; align-items: center; gap: 10px;
@@ -277,7 +277,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   color: var(--fg-2);
   display: flex; align-items: center; gap: 8px;
 }
-.panel-title .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px rgba(255, 184, 108, 0.6); }
+.panel-title .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px rgba(var(--gold-rgb), 0.6); }
 .panel-count {
   font-family: var(--font-mono); font-size: 10px; color: var(--fg-3);
   padding: 1px 7px; border: 1px solid var(--border-1); border-radius: var(--radius-pill);
@@ -319,7 +319,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   transition: border-color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
 }
 .chat-search::placeholder { color: var(--fg-3); }
-.chat-search:focus { border-color: var(--border-3); background: var(--bg-void); box-shadow: 0 0 0 2px rgba(255,184,108,0.12); }
+.chat-search:focus { border-color: var(--border-3); background: var(--bg-void); box-shadow: 0 0 0 2px rgba(var(--gold-rgb), 0.12); }
 .chat-bar-scroll-btn {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 0 8px; height: 26px; border-radius: var(--radius-pill);
@@ -349,7 +349,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   margin: 4px 0;
   padding: 5px 14px;
   font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--accent-fg); background: rgba(255,184,108,0.05);
+  color: var(--accent-fg); background: rgba(var(--gold-rgb), 0.05);
   border-top: 1px solid var(--border-1); border-bottom: 1px solid var(--border-1);
 }
 .chat-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-1); }
@@ -388,8 +388,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .msg.hl-first,
 .msg.hl-first-ever { border-left-color: var(--info-base); background: rgba(106,168,212,0.11); }
 .msg.hl-first-session { border-left-color: var(--success-base); background: rgba(127,200,163,0.11); }
-.msg.hl-broadcaster { border-left-color: var(--gold-500); background: rgba(255,184,108,0.12); }
-.msg.hl-sub { border-left-color: var(--gold-500); background: rgba(255,184,108,0.10); }
+.msg.hl-broadcaster { border-left-color: var(--gold-500); background: rgba(var(--gold-rgb), 0.12); }
+.msg.hl-sub { border-left-color: var(--gold-500); background: rgba(var(--gold-rgb), 0.10); }
 .msg.hl-mod { border-left-color: var(--success-base); background: rgba(80,250,123,0.09); }
 .msg.hl-vip { border-left-color: var(--note-base); background: rgba(159,110,235,0.11); }
 /* Someone said your name — the visual half of the ping cue, gold to match the
@@ -398,7 +398,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
    colour of whoever said it. */
 .msg.msg--mention {
   border-left-color: var(--gold-500);
-  background: rgba(255,184,108,0.16);
+  background: rgba(var(--gold-rgb), 0.16);
 }
 .msg.hl-mod .hl-tag { color: var(--success-fg); border: 1px solid var(--success-border); background: var(--success-bg); }
 .msg.hl-vip .hl-tag { color: var(--note-fg); border: 1px solid var(--note-border); background: var(--note-bg); }
@@ -412,7 +412,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .msg.hl-first-session .hl-tag { color: var(--success-fg); border: 1px solid var(--success-border); background: var(--success-bg); }
 .msg.hl-broadcaster .hl-tag { color: var(--warning-fg); border: 1px solid var(--warning-border); background: var(--warning-bg); }
 .msg.hl-sub .hl-tag { color: var(--warning-fg); border: 1px solid var(--warning-border); background: var(--warning-bg); }
-.msg.selected { background: rgba(255,184,108,0.07); border-left-color: var(--accent); }
+.msg.selected { background: rgba(var(--gold-rgb), 0.07); border-left-color: var(--accent); }
 .msg.msg-whisper { border-left-color: var(--note-base); background: rgba(158,130,232,0.10); }
 .msg.msg-whisper .whisper-tag { color: var(--note-fg); border: 1px solid var(--note-border); background: var(--note-bg); }
 
@@ -442,10 +442,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   text-transform: lowercase;
   transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-.chat-sender:focus { border-color: var(--border-3); box-shadow: 0 0 0 3px rgba(255,184,108,0.12); }
+.chat-sender:focus { border-color: var(--border-3); box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.12); }
 .chat-sender:disabled { opacity: 0.6; }
 .chat-input input::placeholder { color: var(--fg-3); }
-.chat-input input:focus { border-color: var(--border-3); box-shadow: 0 0 0 3px rgba(255,184,108,0.12); }
+.chat-input input:focus { border-color: var(--border-3); box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.12); }
 .chat-send {
   font-family: var(--font-body); font-size: 11px; font-weight: 500;
   letter-spacing: 0.12em; text-transform: uppercase;
@@ -454,7 +454,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   padding: 6px 14px; cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
 }
-.chat-send:hover:not(:disabled) { background: rgba(255, 184, 108, 0.2); color: #ffe2bf; box-shadow: 0 0 8px rgba(255, 184, 108, 0.15); }
+.chat-send:hover:not(:disabled) { background: rgba(var(--gold-rgb), 0.2); color: #ffe2bf; box-shadow: 0 0 8px rgba(var(--gold-rgb), 0.15); }
 .chat-send:disabled { cursor: not-allowed; opacity: 0.5; }
 .chat-input-error {
   flex-basis: 100%;
@@ -667,7 +667,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   height: 44px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-2);
-  background: radial-gradient(circle at 35% 30%, rgba(255, 184, 108, 0.22), transparent 62%);
+  background: radial-gradient(circle at 35% 30%, rgba(var(--gold-rgb), 0.22), transparent 62%);
 }
 .split-empty .es-title {
   font-family: var(--font-display);
@@ -825,7 +825,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   height: 6px;
   border-radius: var(--radius-pill);
   background: var(--warning-base);
-  box-shadow: 0 0 8px rgba(255, 184, 108, 0.55);
+  box-shadow: 0 0 8px rgba(var(--gold-rgb), 0.55);
 }
 
 .settings-canvas {
@@ -1093,7 +1093,7 @@ button.settings-item-row:hover {
 }
 button.settings-item-row:focus-visible { outline: 2px solid var(--gold-400); outline-offset: -2px; }
 button.settings-item-row.is-selected {
-  background: rgba(255, 184, 108, 0.09);
+  background: rgba(var(--gold-rgb), 0.09);
   border-color: var(--border-2);
   border-left-color: var(--gold-500);
 }
@@ -1381,7 +1381,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   border-color: var(--gold-400);
   background: var(--gold-500);
   color: var(--navy-950);
-  box-shadow: 0 0 18px rgba(255,184,108,0.16);
+  box-shadow: 0 0 18px rgba(var(--gold-rgb), 0.16);
   opacity: 1;
 }
 .ctrl-scene-button:disabled { cursor: not-allowed; opacity: 0.5; }
@@ -2188,7 +2188,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   transition: border-color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
 }
 .evt-search::placeholder { color: var(--fg-3); }
-.evt-search:focus { border-color: var(--border-3); background: var(--bg-void); box-shadow: 0 0 0 2px rgba(255,184,108,0.12); }
+.evt-search:focus { border-color: var(--border-3); background: var(--bg-void); box-shadow: 0 0 0 2px rgba(var(--gold-rgb), 0.12); }
 .evt-filter-anchor { position: relative; flex: none; }
 .evt-filter-btn {
   height: 26px; padding: 0 9px;
@@ -2302,7 +2302,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .att-row--unacked.tone-silver { border-left-color: var(--silver-400); }
 @keyframes att-pulse {
   0%, 100% { background: rgba(255,255,255,0.03); }
-  50% { background: rgba(255,184,108,0.10); }
+  50% { background: rgba(var(--gold-rgb), 0.10); }
 }
 @media (prefers-reduced-motion: reduce) {
   .att-row--unacked { animation: none; }
@@ -2649,7 +2649,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .roster-row:hover { background: rgba(162, 170, 188, 0.045); }
 .roster-row:focus-visible { outline: 2px solid var(--gold-400); outline-offset: -2px; }
 .roster-row.is-selected {
-  background: rgba(255, 184, 108, 0.09);
+  background: rgba(var(--gold-rgb), 0.09);
   border-left-color: var(--gold-500);
 }
 .roster-row.is-selected .roster-name { color: var(--fg-accent); }
@@ -2698,8 +2698,8 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   .roster-orb.is-live::after { animation: roster-pulse 1.8s var(--ease-stars) infinite; }
 }
 @keyframes roster-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 184, 108, 0.55); }
-  50% { box-shadow: 0 0 0 4px rgba(255, 184, 108, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--gold-rgb), 0.55); }
+  50% { box-shadow: 0 0 0 4px rgba(var(--gold-rgb), 0); }
 }
 
 .roster-identity { min-width: 0; }
@@ -3026,7 +3026,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .settings-item-main .media-asset-tag--global {
   color: var(--fg-accent);
   border-color: var(--border-3);
-  background: var(--accent-soft, rgba(255,184,108,0.1));
+  background: var(--accent-soft, rgba(var(--gold-rgb), 0.1));
 }
 .settings-item-main .media-asset-tag--scoped {
   color: var(--fg-arcane);
@@ -3087,7 +3087,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .module-status--live {
   color: var(--fg-accent);
   border-color: var(--border-3);
-  background: var(--accent-soft, rgba(255,184,108,0.1));
+  background: var(--accent-soft, rgba(var(--gold-rgb), 0.1));
 }
 .module-status--live::before {
   content: '';
@@ -3214,7 +3214,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .quick-action:hover:not(:disabled) {
   border-color: var(--border-3);
-  background: var(--accent-soft, rgba(255,184,108,0.08));
+  background: var(--accent-soft, rgba(var(--gold-rgb), 0.08));
 }
 .quick-action:disabled { cursor: not-allowed; }
 /* Scoped to an idle module: shown, not firable — hiding it would make the button
