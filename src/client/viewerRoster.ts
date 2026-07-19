@@ -30,6 +30,15 @@ export type RosterSources = {
    * default of "none" is exactly the wrong failure direction.
    */
   ignoredLogins: Set<string>;
+  /**
+   * Whether `ignoredLogins` reflects a successful fetch. False means "unknown", not
+   * "empty" — and the two must not be conflated, because an empty set reads as
+   * "nobody is flushed" and lets every flushed VIP back into the roster. When the
+   * ignore list has never loaded, synthesis from the Twitch role lists is skipped
+   * entirely: omitting a VIP row until the next refresh is recoverable, resurrecting
+   * a viewer the operator deliberately flushed is not.
+   */
+  ignoresLoaded: boolean;
 };
 
 /**
@@ -38,7 +47,7 @@ export type RosterSources = {
  * Extracted from the page and kept React-free so it can be tested directly. It was
  * a useMemo body when a flush bug lived in it undetected by a passing suite.
  */
-export function mergeRoster({ roster, vips, mods, liveLogins, ignoredLogins }: RosterSources): Person[] {
+export function mergeRoster({ roster, vips, mods, liveLogins, ignoredLogins, ignoresLoaded }: RosterSources): Person[] {
   const vipSet = new Set(vips.map(v => v.userLogin.toLowerCase()));
   const modSet = new Set(mods.map(m => m.userLogin.toLowerCase()));
   const byLogin = new Map<string, Person>();
@@ -78,7 +87,8 @@ export function mergeRoster({ roster, vips, mods, liveLogins, ignoredLogins }: R
   // synthesis reads the Twitch role lists, which know nothing about it. Without the
   // check a flushed VIP or moderator reappears on the very next refresh, so Flush
   // looked like it silently failed on exactly the viewers most worth flushing.
-  for (const person of [...vips, ...mods]) {
+  // Skipped wholesale while the ignore list is unknown — see ignoresLoaded.
+  for (const person of ignoresLoaded ? [...vips, ...mods] : []) {
     const login = person.userLogin.toLowerCase();
     if (byLogin.has(login) || ignoredLogins.has(login)) continue;
     byLogin.set(login, {

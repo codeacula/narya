@@ -147,6 +147,13 @@ export function ViewersPage({
   const [liveLogins, setLiveLogins] = React.useState<Set<string>>(new Set());
   const [vips, setVips] = React.useState<Chatter[]>([]);
   const [ignoredLogins, setIgnoredLogins] = React.useState<Set<string>>(new Set());
+  // "Unknown" is not "empty": an empty set reads as nobody-is-flushed and lets a
+  // flushed VIP straight back into the roster, so the two are tracked separately.
+  const [ignoresLoaded, setIgnoresLoaded] = React.useState(false);
+  // Refreshes overlap — the roster poll is fast, the Twitch calls are not — so a
+  // response that started before a flush can otherwise resolve after one that
+  // started later and reinstate the pre-flush snapshot.
+  const refreshGeneration = React.useRef(0);
   const [mods, setMods] = React.useState<Chatter[]>([]);
   const [segment, setSegment] = React.useState<Segment>('all');
   const [search, setSearch] = React.useState('');
@@ -157,18 +164,23 @@ export function ViewersPage({
 
   const refresh = React.useCallback(async () => {
     setError(null);
+    const generation = ++refreshGeneration.current;
     const [rosterRes, chattersRes, vipsRes, modsRes, ignoredRes] = await Promise.allSettled([
       getViewerRoster(), getChatters(), getVips(), getModerators(), getIgnoredLogins(),
     ]);
+    // A slower earlier refresh must not overwrite a newer one's results.
+    if (generation !== refreshGeneration.current) return;
     if (rosterRes.status === 'fulfilled') setRoster(rosterRes.value);
     if (chattersRes.status === 'fulfilled') setLiveLogins(new Set(chattersRes.value.chatters.map(c => c.userLogin.toLowerCase())));
     if (vipsRes.status === 'fulfilled') setVips(vipsRes.value);
     if (modsRes.status === 'fulfilled') setMods(modsRes.value);
-    // A failed fetch leaves the previous set in place rather than emptying it: an
-    // empty ignore list is the state that lets flushed viewers reappear, so falling
-    // back to "nobody is flushed" would recreate the bug on a transient error.
+    // A failed fetch keeps whatever is already known rather than emptying it, and
+    // leaves ignoresLoaded false on a first-load failure so the merge refuses to
+    // synthesize VIP/mod rows at all. Falling back to "nobody is flushed" is the one
+    // outcome that recreates the bug this whole change exists to fix.
     if (ignoredRes.status === 'fulfilled') {
       setIgnoredLogins(new Set(ignoredRes.value.map(entry => entry.login.toLowerCase())));
+      setIgnoresLoaded(true);
     }
     // The roster loads without Twitch; only the VIP/mod lists need the new scopes.
     if (vipsRes.status === 'rejected' || modsRes.status === 'rejected') {
@@ -220,8 +232,8 @@ export function ViewersPage({
   }, [refresh]);
 
   const people = React.useMemo(
-    () => mergeRoster({ roster, vips, mods, liveLogins, ignoredLogins }),
-    [roster, vips, mods, liveLogins, ignoredLogins],
+    () => mergeRoster({ roster, vips, mods, liveLogins, ignoredLogins, ignoresLoaded }),
+    [roster, vips, mods, liveLogins, ignoredLogins, ignoresLoaded],
   );
 
   const counts = React.useMemo(() => ({
@@ -368,7 +380,13 @@ export function ViewersPage({
             person={selectedPerson}
             busy={busy}
             onAction={runAction}
-            onFlushed={() => { void refresh(); }}
+            onFlushed={(flushedLogin: string) => {
+              // Applied immediately, before any refresh: the ignore fetch races the
+              // Twitch role lists, so waiting for a round trip leaves a window where
+              // the flushed viewer is still synthesized back in.
+              setIgnoredLogins(current => new Set(current).add(flushedLogin.toLowerCase()));
+              void refresh();
+            }}
           />
         ) : (
           <div className="split-empty">

@@ -64,7 +64,7 @@ function ViewerRecordActions({
   /** Profile re-synced. The roster may have changed; the chat history has not. */
   onRefreshed?: () => void;
   /** Messages were deleted, so anything rendering them is now stale. */
-  onFlushed?: () => void;
+  onFlushed?: (login: string) => void;
 }) {
   const [busy, setBusy] = React.useState(false);
   const [armed, setArmed] = React.useState(false);
@@ -96,7 +96,7 @@ function ViewerRecordActions({
           ? `, ${result.quotesAnonymized} quote(s) anonymized`
           : '';
         setNote(`Flushed — ${result.messagesRemoved} message(s) removed${quotes}.`);
-        onFlushed?.();
+        onFlushed?.(login);
       })
       .catch(caught => setNote(errorMessage(caught, 'Flush failed')))
       .finally(() => setBusy(false));
@@ -139,7 +139,7 @@ export function ViewerDetailPane({
   busy: boolean;
   onAction: RunViewerAction;
   /** Reload the roster after a flush — the viewer this pane is showing is now gone. */
-  onFlushed?: () => void;
+  onFlushed?: (login: string) => void;
 }) {
   const login = person.login;
 
@@ -167,6 +167,10 @@ export function ViewerDetailPane({
   // rendering rows the server has already deleted — directly contradicting its own
   // "messages removed" notice until the operator navigates away.
   const [historyNonce, setHistoryNonce] = React.useState(0);
+  // The pagination callback closes over its own render's nonce, so it needs a live
+  // read of the current one to tell "still valid" from "superseded by a flush".
+  const historyNonceRef = React.useRef(0);
+  historyNonceRef.current = historyNonce;
   const [loadingHistory, setLoadingHistory] = React.useState(true);
   const [hasMore, setHasMore] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
@@ -190,12 +194,18 @@ export function ViewerDetailPane({
     const oldest = messages[0];
     if (!oldest || loadingMore) return;
     setLoadingMore(true);
+    // Stamped with the generation in flight when the request went out. A flush
+    // during pagination bumps the nonce, and without this the in-flight page
+    // resolves afterward and appends messages the server has already deleted —
+    // the same staleness the nonce fixes for the main history effect.
+    const generation = historyNonce;
     getViewerMessages(login, oldest.id)
       .then(older => {
+        if (generation !== historyNonceRef.current) return;
         setMessages(current => [...older, ...current]);
         setHasMore(older.length === PAGE_SIZE);
       })
-      .catch(() => setHasMore(false))
+      .catch(() => { if (generation === historyNonceRef.current) setHasMore(false); })
       .finally(() => setLoadingMore(false));
   };
 
@@ -227,8 +237,11 @@ export function ViewerDetailPane({
             : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantModerator(login), `mod @${login}`)}>Mod</button>}
           <ViewerRecordActions
             login={login}
-            onRefreshed={onFlushed}
-            onFlushed={() => { setHistoryNonce(nonce => nonce + 1); onFlushed?.(); }}
+            onRefreshed={() => onFlushed?.(login)}
+            onFlushed={(flushedLogin: string) => {
+              setHistoryNonce(nonce => nonce + 1);
+              onFlushed?.(flushedLogin);
+            }}
           />
         </div>
       </header>

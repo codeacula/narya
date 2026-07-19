@@ -26,7 +26,7 @@ const NONE = new Set<string>();
 
 function merge(over: Partial<Parameters<typeof mergeRoster>[0]> = {}) {
   return mergeRoster({
-    roster: [], vips: [], mods: [], liveLogins: NONE, ignoredLogins: NONE, ...over,
+    roster: [], vips: [], mods: [], liveLogins: NONE, ignoredLogins: NONE, ignoresLoaded: true, ...over,
   });
 }
 
@@ -108,5 +108,38 @@ describe('mergeRoster and flushed viewers', () => {
   test('an empty ignore set changes nothing', () => {
     const people = merge({ roster: [rosterEntry()], vips: [chatter('vippy')], ignoredLogins: NONE });
     expect(people).toHaveLength(2);
+  });
+});
+
+/**
+ * "Unknown" and "empty" must not be conflated. The ignore list is fetched, so it
+ * can fail — and an empty set reads as "nobody is flushed", which is exactly the
+ * state that lets a flushed VIP back into the roster. When the fetch has never
+ * succeeded the roster refuses to synthesize from the Twitch role lists at all.
+ */
+describe('mergeRoster when the ignore list has not loaded', () => {
+  test('does not synthesize VIPs or mods at all', () => {
+    const people = merge({ vips: [chatter('vippy')], mods: [chatter('moddy')], ignoresLoaded: false });
+    expect(people).toHaveLength(0);
+  });
+
+  test('still shows stored roster entries, which the server already filters', () => {
+    const people = merge({ roster: [rosterEntry({ login: 'sorlus' })], ignoresLoaded: false });
+    expect(people.map(p => p.login)).toEqual(['sorlus']);
+  });
+
+  test('a roster entry still gets its VIP role from the live list', () => {
+    // Roles are decoration on a row the server vouched for; only synthesis is unsafe.
+    const people = merge({
+      roster: [rosterEntry({ login: 'sorlus' })],
+      vips: [chatter('sorlus')],
+      ignoresLoaded: false,
+    });
+    expect(people[0]!.roles.has('vip')).toBe(true);
+  });
+
+  test('synthesis resumes once the ignore list loads', () => {
+    const people = merge({ vips: [chatter('vippy')], ignoresLoaded: true });
+    expect(people.map(p => p.login)).toEqual(['vippy']);
   });
 });
