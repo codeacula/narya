@@ -182,6 +182,37 @@ describe('reconcileWindDownOnBoot', () => {
     expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
     expect(afterRestart.title).toBe('Modding Skyrim | Wrapping up');
   });
+
+  // Finding 1 (CRITICAL): reconcile used to persist the NEW appliedSuffix (via
+  // setWindDownTitleState) before applyWindDownTitle's own Twitch write had actually
+  // landed. If that write then failed — an ordinary transient boot failure, token
+  // refresh, a Twitch 5xx — the DB recorded a suffix that was never applied. A later
+  // reconcile would then strip a suffix the live title doesn't carry and double-stack
+  // it (exactly the "Modding Skyrim | Ending soon | Wrapping up" scenario).
+  test('a failed reconcile write leaves the persisted state describing what is actually still live', async () => {
+    const fake = fakePort('Modding Skyrim');
+    await applyWindDownTitle(fake.port, true); // live: 'Modding Skyrim | Ending soon'
+    setWindDownActive({ active: true, source: 'scheduled' });
+
+    // The operator changes the suffix setting while wind-down is active. Nothing
+    // reapplies the live title for that, so the channel still carries the OLD suffix
+    // going into the restart.
+    saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Wrapping up', titleEnabled: true, overlayEnabled: true });
+
+    // Simulate a restart whose Twitch write fails (transient boot failure).
+    const afterRestart = fakePort(fake.title); // still 'Modding Skyrim | Ending soon'
+    afterRestart.failNextWrite = true;
+
+    await expect(reconcileWindDownOnBoot(afterRestart.port)).rejects.toThrow('Twitch is down');
+
+    // The write never landed — the live title is unchanged. Persisted state must
+    // still describe exactly that: appliedSuffix must NOT claim '| Wrapping up' went
+    // out, since it never did. Before the fix this observed appliedSuffix ===
+    // '| Wrapping up' here, corrupting the pair the next reconcile relies on.
+    expect(afterRestart.title).toBe('Modding Skyrim | Ending soon');
+    expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
+    expect(getWindDownState().appliedSuffix).toBe('| Ending soon');
+  });
 });
 
 describe('tick', () => {

@@ -299,7 +299,13 @@ export function setWindDownActive(input: { active: boolean; source: WindDownSour
   return state;
 }
 
-/** The loop's handle on the stored pre-wind-down title. */
+/**
+ * Persist just the base title, leaving whatever `appliedSuffix` is already stored
+ * untouched. Used when the base needs correcting from something already true on
+ * Twitch (a read) rather than from a write that hasn't happened — e.g. boot reconcile
+ * derives a corrected base from the LIVE title and must not also claim a new suffix
+ * was applied until its own Twitch write actually lands.
+ */
 export function setWindDownBaseTitle(baseTitle: string | null) {
   writeState({ ...getWindDownState(), baseTitle });
 }
@@ -353,6 +359,11 @@ export async function resetWindDownForStreamEnd(): Promise<void> {
  * verbatim would make the next compose append a second suffix. Returns what should
  * actually be sent to Twitch.
  *
+ * Pure — does NOT persist anything. Write-then-persist: the caller (twitch/api.ts)
+ * sends this title to Twitch first and only calls `commitWindDownRebase` once that
+ * PATCH has actually confirmed, so a failed write never leaves a base recorded that
+ * was never applied. See `commitWindDownRebase` below for the persistence half.
+ *
  * Lives here rather than in windDownLoop.ts on purpose: twitch/api.ts calls this, and
  * windDownLoop.ts imports twitch/api.ts, so putting it there would make a cycle
  * between two modules that both prepare statements at load time.
@@ -365,8 +376,27 @@ export function rebaseWindDownTitle(submittedTitle: string): string {
   if (!settings.titleEnabled) return submittedTitle;
 
   const base = stripWindDownSuffix(submittedTitle, settings.titleSuffix);
-  setWindDownTitleState(base, settings.titleSuffix);
   return composeWindDownTitle(base, settings.titleSuffix);
+}
+
+/**
+ * The persistence half of `rebaseWindDownTitle`. Call this ONLY after the Twitch PATCH
+ * built from `rebaseWindDownTitle`'s return value has actually confirmed — recomputes
+ * the same base from `submittedTitle` (the operator's original submission, not the
+ * composed title that was sent) rather than trusting a value captured before the
+ * write, and mirrors the same active/titleEnabled guard so a state change that landed
+ * while the PATCH was in flight (wind-down switched off, the effect disabled) is a
+ * no-op here too, exactly as it would have been in `rebaseWindDownTitle` itself.
+ */
+export function commitWindDownRebase(submittedTitle: string): void {
+  const state = getWindDownState();
+  if (!state.active) return;
+
+  const settings = getWindDownSettings();
+  if (!settings.titleEnabled) return;
+
+  const base = stripWindDownSuffix(submittedTitle, settings.titleSuffix);
+  setWindDownTitleState(base, settings.titleSuffix);
 }
 
 /**

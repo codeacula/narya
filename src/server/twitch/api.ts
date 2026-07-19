@@ -7,7 +7,7 @@ import type { RuntimeState } from '../runtime';
 import { parseTwitchGameId } from '../streamCategories';
 import { mergeTagSuggestions, normalizeTag, normalizeTags, recordTagHistory, suggestTagHistory } from '../tags';
 import { onCategorySignal } from '../categoryModules';
-import { rebaseWindDownTitle } from '../windDown';
+import { commitWindDownRebase, rebaseWindDownTitle } from '../windDown';
 import {
   getTwitchBotAccessToken,
   getTwitchAuthStatus,
@@ -781,6 +781,12 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
         errorMessage: 'Twitch channel update failed.',
       },
     );
+    // Write-then-persist: only commit the rebased title to wind_down_state now that
+    // the PATCH above has actually confirmed. Committing before the PATCH (the old
+    // bug) would record a base/suffix pair for a title that was never applied if the
+    // PATCH then failed — a later restore would push a never-live base back to Twitch
+    // and discard whatever was genuinely on the channel.
+    commitWindDownRebase(title);
 
     // Remember these tags so the type-ahead can suggest them next time.
     recordTagHistory(tags);

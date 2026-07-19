@@ -4,6 +4,7 @@ import express from 'express';
 import { db } from './db';
 import { getOrStartStreamSession, setPlannedStreamEnd } from './streamSession';
 import {
+  commitWindDownRebase,
   getWindDownPublicState,
   getWindDownSettings,
   getWindDownState,
@@ -14,6 +15,7 @@ import {
   setWindDownActive,
   setWindDownBaseTitle,
   setWindDownTitleApplier,
+  setWindDownTitleState,
 } from './windDown';
 
 beforeEach(() => {
@@ -148,7 +150,10 @@ describe('rebaseWindDownTitle', () => {
     setWindDownActive({ active: true, source: 'manual' });
     setWindDownBaseTitle('Modding Skyrim');
     const live = rebaseWindDownTitle('Modding Fallout | Ending soon');
-    expect(getWindDownState().baseTitle).toBe('Modding Fallout');
+    // Pure: computing the title to send must not itself have persisted anything —
+    // commitWindDownRebase (tested below) owns that, and only after the caller's
+    // Twitch write confirms.
+    expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
     expect(live).toBe('Modding Fallout | Ending soon');
   });
 
@@ -157,7 +162,7 @@ describe('rebaseWindDownTitle', () => {
     setWindDownActive({ active: true, source: 'manual' });
     setWindDownBaseTitle('Modding Skyrim');
     const live = rebaseWindDownTitle('Modding Fallout');
-    expect(getWindDownState().baseTitle).toBe('Modding Fallout');
+    expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
     expect(live).toBe('Modding Fallout | Ending soon');
   });
 
@@ -171,6 +176,62 @@ describe('rebaseWindDownTitle', () => {
     saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Ending soon', titleEnabled: false, overlayEnabled: true });
     setWindDownActive({ active: true, source: 'manual' });
     expect(rebaseWindDownTitle('Modding Fallout')).toBe('Modding Fallout');
+  });
+});
+
+// Finding 2 (Important): rebaseWindDownTitle used to persist baseTitle/appliedSuffix
+// the moment it was called — BEFORE twitch/api.ts's PATCH actually sent the title to
+// Twitch. commitWindDownRebase is the split-out persistence half, called by the
+// caller only once that PATCH confirms. These drive the two functions directly
+// (rather than the full HTTP route) because the bug and the fix both live entirely
+// in this pairing's ordering, not in anything twitch/api.ts itself computes.
+describe('commitWindDownRebase (Finding 2)', () => {
+  test('a failed write leaves the persisted state describing what is actually still live', () => {
+    getOrStartStreamSession('test-commit-fail', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'manual' });
+    // What is genuinely live right now: "Modding Skyrim | Ending soon".
+    setWindDownTitleState('Modding Skyrim', '| Ending soon');
+
+    const submitted = 'Modding Fallout | Ending soon';
+    const titleToSend = rebaseWindDownTitle(submitted);
+    expect(titleToSend).toBe('Modding Fallout | Ending soon');
+
+    // Simulate the caller's PATCH failing (network blip, rate limit): twitch/api.ts
+    // never reaches its call to commitWindDownRebase, so nothing more happens here.
+    // The bug this guards: the OLD rebaseWindDownTitle persisted unconditionally as
+    // soon as it was called — before any write was even attempted — so this
+    // assertion already fails against it, recording "Modding Fallout" as though it
+    // were live when the channel title never changed.
+    expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
+    expect(getWindDownState().appliedSuffix).toBe('| Ending soon');
+  });
+
+  test('committing after a confirmed write persists the rebased base and suffix', () => {
+    getOrStartStreamSession('test-commit-ok', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'manual' });
+    setWindDownTitleState('Modding Skyrim', '| Ending soon');
+
+    const submitted = 'Modding Fallout | Ending soon';
+    rebaseWindDownTitle(submitted);
+    // The write "confirms" here — commit only happens after it, per the caller.
+    commitWindDownRebase(submitted);
+
+    expect(getWindDownState().baseTitle).toBe('Modding Fallout');
+    expect(getWindDownState().appliedSuffix).toBe('| Ending soon');
+  });
+
+  test('does nothing when wind-down is off', () => {
+    commitWindDownRebase('Modding Fallout');
+    expect(getWindDownState().baseTitle).toBeNull();
+  });
+
+  test('does nothing when the title effect is disabled', () => {
+    getOrStartStreamSession('test-commit-disabled', '2026-07-19T18:00:00.000Z');
+    saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Ending soon', titleEnabled: false, overlayEnabled: true });
+    setWindDownActive({ active: true, source: 'manual' });
+    setWindDownBaseTitle('Modding Skyrim');
+    commitWindDownRebase('Modding Fallout');
+    expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
   });
 });
 

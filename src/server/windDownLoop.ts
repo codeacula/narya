@@ -7,6 +7,7 @@ import {
   getWindDownSettings,
   getWindDownState,
   setWindDownActive,
+  setWindDownBaseTitle,
   setWindDownTitleState,
 } from './windDown';
 import { evaluateWindDown } from './windDownSchedule';
@@ -97,7 +98,16 @@ export async function reconcileWindDownOnBoot(port: WindDownTitlePort): Promise<
   if (settings.titleEnabled) {
     const liveTitle = await port.getTitle();
     const suffixToStrip = state.appliedSuffix ?? settings.titleSuffix;
-    setWindDownTitleState(stripWindDownSuffix(liveTitle, suffixToStrip), settings.titleSuffix);
+    // Write-then-persist: only correct baseTitle here, derived from a READ of the live
+    // title, not from a write that hasn't happened yet. appliedSuffix still accurately
+    // describes what's live right now (nothing has been written to Twitch in this
+    // function), so leave it alone — applyWindDownTitle below is what persists the new
+    // appliedSuffix, and only once ITS OWN Twitch write actually succeeds. Persisting
+    // both here (the old bug) records an appliedSuffix ahead of the write that is
+    // supposed to make it true: if that write then fails, the DB claims a suffix went
+    // out that never did, and the next reconcile strips a suffix the live title
+    // doesn't carry, double-stacking it on top of the real one.
+    setWindDownBaseTitle(stripWindDownSuffix(liveTitle, suffixToStrip));
   }
 
   await applyWindDownTitle(port, true);
