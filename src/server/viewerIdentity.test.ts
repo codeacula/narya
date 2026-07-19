@@ -117,6 +117,16 @@ describe('loginsMissingProfile', () => {
     );
     expect(loginsMissingProfile().length).toBe(100);
   });
+
+  // Asserted with an oversized argument on purpose. Calling this with the default
+  // passes whether or not the clamp exists — the default *is* the limit — so it
+  // pins nothing. Mutation-tested: removing the Math.min fails this and only this.
+  test('clamps a caller that asks for more than Helix will accept', () => {
+    recordChatterPresence(
+      Array.from({ length: 250 }, (_, i) => ({ userId: String(i), userLogin: `u${i}`, userName: `u${i}` })),
+    );
+    expect(loginsMissingProfile(500).length).toBe(100);
+  });
 });
 
 describe('saveChatterProfile', () => {

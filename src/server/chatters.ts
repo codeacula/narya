@@ -37,6 +37,16 @@ type TwitchUsersData = {
 type Credentials = Awaited<ReturnType<typeof getTwitchActionCredentials>>;
 
 /**
+ * The Helix call, as a port.
+ *
+ * Injected rather than imported directly so the pagination loop and the
+ * asked-for-but-not-returned branch can be exercised without a live Twitch
+ * connection — both are logic a viewer roster depends on, and neither is
+ * reachable from a test otherwise.
+ */
+export type TwitchFetcher = typeof twitchFetch;
+
+/**
  * Every chatter Helix will give us, following the pagination cursor.
  *
  * The previous version requested one page and dropped the cursor it had already
@@ -44,9 +54,10 @@ type Credentials = Awaited<ReturnType<typeof getTwitchActionCredentials>>;
  * Capped at MAX_CHATTER_PAGES, and hitting the cap is logged rather than passed off
  * as a complete list — truncation that reads like completeness is the worse failure.
  */
-async function fetchAllChatters(
+export async function fetchAllChatters(
   credentials: Credentials,
-): Promise<{ chatters: ChatterPresence[]; total: number }> {
+  fetcher: TwitchFetcher = twitchFetch,
+): Promise<{ chatters: ChatterPresence[]; total: number; truncated: boolean }> {
   const chatters: ChatterPresence[] = [];
   let cursor: string | undefined;
   let total = 0;
@@ -60,7 +71,7 @@ async function fetchAllChatters(
     });
     if (cursor) params.set('after', cursor);
 
-    const res = await twitchFetch(`${HELIX}/chat/chatters?${params.toString()}`, {
+    const res = await fetcher(`${HELIX}/chat/chatters?${params.toString()}`, {
       credentials,
       errorMessage: 'Twitch chatters request failed.',
     });
@@ -74,14 +85,15 @@ async function fetchAllChatters(
     pages += 1;
   } while (cursor && pages < MAX_CHATTER_PAGES);
 
-  if (cursor) {
+  const truncated = Boolean(cursor);
+  if (truncated) {
     console.warn(
       `chatters: stopped after ${pages} pages (${chatters.length} of ${total}); ` +
       'the remaining chatters were not recorded this poll.',
     );
   }
 
-  return { chatters, total: total || chatters.length };
+  return { chatters, total: total || chatters.length, truncated };
 }
 
 /**
@@ -92,14 +104,17 @@ async function fetchAllChatters(
  * login Twitch does not return is marked rather than retried forever, so one deleted
  * account cannot make every future poll re-request it.
  */
-async function backfillProfiles(credentials: Credentials): Promise<void> {
+export async function backfillProfiles(
+  credentials: Credentials,
+  fetcher: TwitchFetcher = twitchFetch,
+): Promise<{ resolved: number; missing: number }> {
   const logins = loginsMissingProfile(USERS_BATCH);
-  if (logins.length === 0) return;
+  if (logins.length === 0) return { resolved: 0, missing: 0 };
 
   const params = new URLSearchParams();
   for (const login of logins) params.append('login', login);
 
-  const res = await twitchFetch(`${HELIX}/users?${params.toString()}`, {
+  const res = await fetcher(`${HELIX}/users?${params.toString()}`, {
     credentials,
     errorMessage: 'Twitch user lookup failed.',
   });
@@ -117,10 +132,16 @@ async function backfillProfiles(credentials: Credentials): Promise<void> {
     });
   }
 
-  // Asked for but not returned: renamed, deleted, or banned.
+  // Asked for but not returned: renamed, deleted, or banned. Marked rather than
+  // retried, so one dead account cannot make every future poll re-request it.
+  let missing = 0;
   for (const login of logins) {
-    if (!returned.has(login.toLowerCase())) saveChatterProfile({ login, missing: true });
+    if (returned.has(login.toLowerCase())) continue;
+    saveChatterProfile({ login, missing: true });
+    missing += 1;
   }
+
+  return { resolved: returned.size, missing };
 }
 
 export function registerChattersRoutes(app: Express, state: RuntimeState) {
