@@ -34,6 +34,10 @@ const OVERLAY_PATHS = new Set([
   // Read-only, and GET-only by the rule above: an overlay learns whether to draw its
   // bounds, and cannot turn the boxes on for every other source.
   '/api/overlay/placeholders',
+  // The countdown overlay seeds itself from this. GET only by the rule above, so a
+  // browser source can read that the stream is winding down but never declare it.
+  // /api/wind-down/settings is deliberately absent — it is operator configuration.
+  '/api/wind-down',
 ]);
 
 // Events an overlay connection is allowed to receive. Everything else — whispers,
@@ -52,6 +56,9 @@ const OVERLAY_EVENTS = new Set([
   'status:updated',
   // Carries one boolean (draw your bounds or don't) — no operator configuration.
   'overlay:placeholders',
+  // An active flag, a source, and the planned end time — no operator configuration.
+  // The stored base title is deliberately not on this payload.
+  'winddown:updated',
 ]);
 
 // Derived rather than separately configured so the operator has exactly one

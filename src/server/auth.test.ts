@@ -144,6 +144,27 @@ describe('requireDashboardToken', () => {
     expect(call.nextCalled).toBe(false);
   });
 
+  test('lets the overlay token read wind-down state', () => {
+    setToken(OPERATOR);
+    const call = callMiddleware({ path: '/api/wind-down', token: getOverlayToken()! });
+    expect(call.nextCalled).toBe(true);
+  });
+
+  // A browser source that could PUT here would switch wind-down on for every other
+  // source and rewrite the operator's Twitch title.
+  test('blocks the overlay token from switching wind-down on', () => {
+    setToken(OPERATOR);
+    const call = callMiddleware({ method: 'PUT', path: '/api/wind-down', token: getOverlayToken()! });
+    expect(call.status).toBe(403);
+    expect(call.nextCalled).toBe(false);
+  });
+
+  test('blocks the overlay token from reading wind-down settings', () => {
+    setToken(OPERATOR);
+    const call = callMiddleware({ path: '/api/wind-down/settings', token: getOverlayToken()! });
+    expect(call.status).toBe(403);
+  });
+
   test('exempts the OAuth callback, which cannot carry our token', () => {
     setToken(OPERATOR);
     const call = callMiddleware({ path: '/api/auth/twitch/callback' });
@@ -176,6 +197,13 @@ describe('overlay event scope', () => {
     expect(isOverlayEvent('dashboard:status')).toBe(false);
     expect(isOverlayEvent('automod:held')).toBe(false);
     expect(isOverlayEvent('settings:updated')).toBe(false);
+  });
+
+  // The countdown overlay is a browser source and cannot authenticate, so it must be
+  // able to receive this. The payload carries no operator configuration — see
+  // getWindDownPublicState.
+  test('overlay connections receive wind-down updates', () => {
+    expect(isOverlayEvent('winddown:updated')).toBe(true);
   });
 });
 
