@@ -156,8 +156,8 @@ export function registerViewerRoleRoutes(app: express.Express, state: RuntimeSta
     if (!login) throw new HttpRouteError(400, 'Viewer login is required.');
 
     const reason = typeof request.body?.reason === 'string' ? request.body.reason.slice(0, 200) : '';
-    const { messages } = flushViewer(login, reason);
-    response.json({ login, messagesRemoved: messages } satisfies ViewerFlushResult);
+    const { messages, quotes } = flushViewer(login, reason);
+    response.json({ login, messagesRemoved: messages, quotesAnonymized: quotes } satisfies ViewerFlushResult);
   }));
 
   app.get('/api/viewers/ignored', handle((_request, response) => {

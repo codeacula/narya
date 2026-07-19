@@ -541,6 +541,12 @@ export type ViewerRefreshResult = {
 export type ViewerFlushResult = {
   login: string;
   messagesRemoved: number;
+  /**
+   * Quotes whose attribution was anonymized. The quotes themselves survive — see
+   * flushViewer — so this is not a deletion count, and the operator is told about it
+   * because a flush silently editing the quote book would be a surprise.
+   */
+  quotesAnonymized: number;
 };
 
 export type IgnoredLogin = {

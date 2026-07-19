@@ -231,6 +231,27 @@ export function resolveQuote(
   return pick(searchQuotesRow.all(pattern, pattern) as QuoteRow[]);
 }
 
+const anonymizeQuotesByLoginRow = db.prepare(`
+  update quotes set submitted_by = 'unknown', submitted_by_login = '' where submitted_by_login = ?
+`);
+
+/**
+ * Strip a flushed viewer's attribution from every quote they submitted.
+ *
+ * The quote and its number survive: a flush must not retire a number that is already
+ * circulating in Discord, and the streamer's reason for keeping a good line is not the
+ * same as their reason for removing the person. What must not survive is the name — a
+ * `quote_show` step would otherwise keep announcing a flushed viewer on stream.
+ *
+ * Deliberately one-way. `unflushViewer` cannot restore the name because the login is
+ * gone from the row, which is the point: the flush is what the operator asked for.
+ */
+export function anonymizeQuotesByLogin(login: string): number {
+  const key = login.trim().toLowerCase();
+  if (!key) return 0;
+  return anonymizeQuotesByLoginRow.run(key).changes;
+}
+
 /**
  * Bump the shown counter. Called *after* the announcement is delivered, so a Discord
  * outage does not inflate the count for a quote nobody saw.

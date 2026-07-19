@@ -7,6 +7,7 @@ import {
   getQuote,
   listQuotes,
   normalizeQuoteSlug,
+  anonymizeQuotesByLogin,
   recordQuoteShown,
   resolveQuote,
   updateQuote,
@@ -233,5 +234,49 @@ describe('deleteQuote', () => {
     expect(deleteQuote(quote.id)).toBe(true);
     expect(deleteQuote(quote.id)).toBe(false);
     expect(countQuotes()).toBe(0);
+  });
+});
+
+describe('anonymizeQuotesByLogin', () => {
+  test('clears attribution but keeps the quote, its number, and its counter', () => {
+    const quote = addQuote({ text: 'keep me', submittedBy: 'SpamBob', submittedByLogin: 'spambob' });
+    recordQuoteShown(quote.id);
+
+    expect(anonymizeQuotesByLogin('spambob')).toBe(1);
+
+    const after = getQuote(quote.id)!;
+    expect(after.number).toBe(quote.number);
+    expect(after.text).toBe('keep me');
+    expect(after.shownCount).toBe(1);
+    expect(after.submittedBy).toBe('unknown');
+    expect(after.submittedByLogin).toBe('');
+  });
+
+  test('normalizes the login it is given', () => {
+    // Called directly (not via flushViewer, which pre-lowercases), so this is the only
+    // place the function's own trim/lowercase is actually under test.
+    addQuote({ text: 'one', submittedBy: 'Bob', submittedByLogin: 'bob' });
+    expect(anonymizeQuotesByLogin('  BOB  ')).toBe(1);
+  });
+
+  test('anonymizes every quote that login submitted', () => {
+    addQuote({ text: 'one', submittedBy: 'Bob', submittedByLogin: 'bob' });
+    addQuote({ text: 'two', submittedBy: 'Bob', submittedByLogin: 'bob' });
+    addQuote({ text: 'three', submittedBy: 'Ann', submittedByLogin: 'ann' });
+    expect(anonymizeQuotesByLogin('bob')).toBe(2);
+    expect(listQuotes().filter(q => q.submittedBy === 'unknown')).toHaveLength(2);
+  });
+
+  test('a blank login is a no-op, not a mass anonymize', () => {
+    // Slug-less quotes store '' for submittedByLogin, so a blank key that reached the
+    // WHERE clause would wipe attribution across the whole book.
+    addQuote({ text: 'no login recorded', submittedBy: 'Ann' });
+    expect(anonymizeQuotesByLogin('   ')).toBe(0);
+    expect(listQuotes()[0]!.submittedBy).toBe('Ann');
+  });
+
+  test('reports zero when that login submitted nothing', () => {
+    addQuote({ text: 'one', submittedBy: 'Ann', submittedByLogin: 'ann' });
+    expect(anonymizeQuotesByLogin('nobody')).toBe(0);
   });
 });
