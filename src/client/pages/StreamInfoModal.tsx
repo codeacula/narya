@@ -5,7 +5,15 @@ import { useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import type { SavedStreamCategory, TwitchCategorySuggestion } from '../../shared/api';
 
-export type StreamInfoForm = { title: string; category: string; categoryId?: string; tags: string[]; status: string };
+export type StreamInfoForm = {
+  title: string;
+  category: string;
+  categoryId?: string;
+  tags: string[];
+  status: string;
+  /** `datetime-local` value ('' when no plan). Local time, converted on save. */
+  plannedEndAt: string;
+};
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -288,6 +296,20 @@ export function StreamInfoModal({
           </div>
           <small className="field-count">{form.tags.length}/10</small>
         </div>
+
+        <label className="field">
+          <span>Planned end (optional)</span>
+          <input
+            type="datetime-local"
+            value={form.plannedEndAt}
+            disabled={loading || saving}
+            onChange={event => setForm(prev => ({ ...prev, plannedEndAt: event.target.value }))}
+          />
+          <small className="field-hint">
+            Wind-down signals that the stream is wrapping up shortly before this. You can change
+            it mid-stream if you run long.
+          </small>
+        </label>
 
         <label className="field">
           <span>Status line</span>

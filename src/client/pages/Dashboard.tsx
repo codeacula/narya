@@ -18,6 +18,8 @@ import {
   updateStreamInfo,
   getStreamStatus,
   updateStreamStatus,
+  getPlannedStreamEnd,
+  setPlannedStreamEnd,
   runPrerollAds,
   updateViewerProfile,
   runGoLive,
@@ -41,6 +43,7 @@ import { ViewersPage } from './ViewersPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
 import type { ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, WhisperMessage, ObsStatus } from '../../shared/api';
+import { NO_ACTIVE_SESSION_FOR_PLANNED_END } from '../../shared/api';
 import { errorMessage } from '../errors';
 
 /* ---------------- constants ---------------- */
@@ -125,7 +128,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
   const [streamInfoOpen, setStreamInfoOpen] = useState(false);
-  const [streamInfoForm, setStreamInfoForm] = useState<StreamInfoForm>({ title: '', category: '', tags: [], status: '' });
+  const [streamInfoForm, setStreamInfoForm] = useState<StreamInfoForm>({ title: '', category: '', tags: [], status: '', plannedEndAt: '' });
   const [streamInfoLoading, setStreamInfoLoading] = useState(false);
   const [streamInfoSaving, setStreamInfoSaving] = useState(false);
   const [streamInfoMessage, setStreamInfoMessage] = useState<string | null>(null);
@@ -389,19 +392,36 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       .finally(() => setSceneSwitching(false));
   }, []);
 
+  // <input type="datetime-local"> speaks local wall-clock with no zone; the API
+  // speaks RFC3339 UTC. These two are the only place that conversion happens.
+  const toLocalInputValue = (iso: string | null): string => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  const fromLocalInputValue = (value: string): string | null => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  };
+
   const handleOpenStreamInfo = React.useCallback(() => {
     setStreamInfoOpen(true);
     setStreamInfoLoading(true);
     setStreamInfoMessage(null);
     setStreamInfoError(null);
-    void Promise.all([getStreamInfo(), getStreamStatus()])
-      .then(([info, status]) => {
+    void Promise.all([getStreamInfo(), getStreamStatus(), getPlannedStreamEnd()])
+      .then(([info, status, planned]) => {
         setStreamInfoForm({
           title: info.title,
           category: info.category,
           categoryId: info.categoryId || undefined,
           tags: info.tags,
           status: status.text,
+          plannedEndAt: toLocalInputValue(planned.plannedEndAt),
         });
       })
       .catch(error => {
@@ -423,6 +443,15 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         tags: streamInfoForm.tags,
       }),
       updateStreamStatus(streamInfoForm.status),
+      // Off-stream there is no session to hang a plan on, so the route 409s with
+      // NO_ACTIVE_SESSION_FOR_PLANNED_END — that specific, expected failure must not
+      // fail the whole stream-info save. Anything else (a malformed date, a network
+      // error, a 500) is a real problem and should surface like the other two saves
+      // do, not vanish silently alongside the title/status.
+      setPlannedStreamEnd(fromLocalInputValue(streamInfoForm.plannedEndAt)).catch(error => {
+        if (error instanceof Error && error.message === NO_ACTIVE_SESSION_FOR_PLANNED_END) return undefined;
+        throw error;
+      }),
     ])
       .then(() => {
         // A save that worked is done with the modal. The confirmation lands in the

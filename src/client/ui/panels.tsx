@@ -21,6 +21,7 @@ import { kindChip, kindTone } from '../eventKinds';
 import { sceneLabel, switchableScenes } from '../scenes';
 import { loadStoredJson, saveStoredJson } from '../storage';
 import { useMediaMute } from '../mediaMute';
+import { useWindDown } from '../windDown';
 import { errorMessage } from '../errors';
 
 /* ---------------- types ---------------- */
@@ -1263,6 +1264,7 @@ export function ControlsPanel({
       )}
       <OverlayPlaceholderToggle />
       <MediaMuteToggle />
+      <WindDownToggle />
     </div>
   );
 }
@@ -1344,6 +1346,37 @@ function MediaMuteToggle() {
       {muted && (
         <p className="ctrl-overlay-warning" role="status">
           Quick-Disable actions are silenced. Redemptions on unflagged actions still play.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The wind-down switch. Signals that the stream is wrapping up — the ending-soon
+ * title suffix and the overlay countdown. It does NOT block incoming raids: Twitch
+ * exposes no API for that, and a raid during wind-down still celebrates in full.
+ */
+function WindDownToggle() {
+  const { state, busy, toggle } = useWindDown();
+  const active = Boolean(state?.active);
+
+  return (
+    <div className="ctrl-section ctrl-winddown-section">
+      <span className="ctrl-label">wind-down</span>
+      <label className={'ctrl-toggle' + (active ? ' is-winding-down' : '')}>
+        <input
+          type="checkbox"
+          checked={active}
+          disabled={busy}
+          onChange={event => toggle(event.target.checked)}
+        />
+        <span>Signal ending soon</span>
+      </label>
+      {active && (
+        <p className="ctrl-overlay-warning" role="status">
+          {state?.source === 'scheduled' ? 'Started automatically. ' : ''}
+          Title suffix and countdown overlay are live. Raids still land and still celebrate.
         </p>
       )}
     </div>

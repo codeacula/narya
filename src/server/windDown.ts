@@ -1,10 +1,11 @@
 import type express from 'express';
-import type { WindDownPublicState, WindDownSettings, WindDownSource } from '../shared/api';
+import type { PlannedStreamEnd, WindDownPublicState, WindDownSettings, WindDownSource } from '../shared/api';
+import { NO_ACTIVE_SESSION_FOR_PLANNED_END } from '../shared/api';
 import { db } from './db';
 import { handle, HttpRouteError } from './http';
 import { clampFinite } from './numeric';
 import { broadcast } from './realtime';
-import { getCurrentStreamSessionId, getPlannedStreamEnd } from './streamSession';
+import { getCurrentStreamSessionId, getPlannedStreamEnd, setPlannedStreamEnd } from './streamSession';
 import { composeWindDownTitle, MAX_TWITCH_TITLE_LENGTH, stripWindDownSuffix } from './windDownTitle';
 
 /**
@@ -424,5 +425,35 @@ export function registerWindDownRoutes(app: express.Express) {
 
   app.put('/api/wind-down/settings', handle((request, response) => {
     response.json(saveWindDownSettings(request.body));
+  }));
+
+  app.get('/api/stream-session/planned-end', (_request, response) => {
+    const body: PlannedStreamEnd = { plannedEndAt: getPlannedStreamEnd() };
+    response.json(body);
+  });
+
+  app.put('/api/stream-session/planned-end', handle((request, response) => {
+    const sessionId = getCurrentStreamSessionId();
+    if (!sessionId) throw new HttpRouteError(409, NO_ACTIVE_SESSION_FOR_PLANNED_END);
+
+    const raw = (request.body as Partial<PlannedStreamEnd> | null)?.plannedEndAt;
+    if (raw === null || raw === undefined || raw === '') {
+      setPlannedStreamEnd(sessionId, null);
+      broadcastWindDown();
+      const body: PlannedStreamEnd = { plannedEndAt: null };
+      response.json(body);
+      return;
+    }
+
+    const parsed = new Date(String(raw));
+    if (Number.isNaN(parsed.getTime())) throw new HttpRouteError(400, 'Planned end time is not a valid date.');
+
+    const plannedEndAt = parsed.toISOString();
+    setPlannedStreamEnd(sessionId, plannedEndAt);
+    // The overlay countdown reads plannedEndAt off this event, so changing the plan
+    // has to re-broadcast or a running countdown keeps the old target.
+    broadcastWindDown();
+    const body: PlannedStreamEnd = { plannedEndAt };
+    response.json(body);
   }));
 }

@@ -2,7 +2,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import express from 'express';
 import { db } from './db';
-import { getOrStartStreamSession, setPlannedStreamEnd } from './streamSession';
+import { getOrStartStreamSession, getPlannedStreamEnd, setPlannedStreamEnd } from './streamSession';
 import {
   commitWindDownRebase,
   getWindDownPublicState,
@@ -399,5 +399,150 @@ describe('resetWindDownForStreamEnd preserves state on a failed restore (Finding
 
     expect(getWindDownState().active).toBe(false);
     expect(getWindDownState().baseTitle).toBeNull();
+  });
+});
+
+// Task 9: the operator-facing planned-end route. The overlay countdown and the
+// scheduler both read plannedEndAt off the active session, so this is the one
+// place a human can set or clear it.
+describe('GET/PUT /api/stream-session/planned-end', () => {
+  test('stores and reads back a planned end', async () => {
+    const app = await startTestApp();
+    try {
+      getOrStartStreamSession('test-planned-a', '2026-07-19T18:00:00.000Z');
+
+      const putRes = await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plannedEndAt: '2026-07-19T21:00:00.000Z' }),
+      });
+      expect(putRes.status).toBe(200);
+      const putBody = await putRes.json() as { plannedEndAt: string | null };
+      expect(putBody.plannedEndAt).toBe('2026-07-19T21:00:00.000Z');
+
+      const getRes = await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`);
+      expect(getRes.status).toBe(200);
+      const getBody = await getRes.json() as { plannedEndAt: string | null };
+      expect(getBody.plannedEndAt).toBe('2026-07-19T21:00:00.000Z');
+
+      // The overlay countdown reads this off winddown:updated — the same value must
+      // be visible through the public wind-down state, not just this route's own GET.
+      expect(getWindDownPublicState().plannedEndAt).toBe('2026-07-19T21:00:00.000Z');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('accepts any RFC3339-parseable input and normalizes it to an ISO string', async () => {
+    const app = await startTestApp();
+    try {
+      getOrStartStreamSession('test-planned-normalize', '2026-07-19T18:00:00.000Z');
+      const putRes = await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plannedEndAt: '2026-07-19T21:00:00Z' }),
+      });
+      expect(putRes.status).toBe(200);
+      const body = await putRes.json() as { plannedEndAt: string | null };
+      expect(body.plannedEndAt).toBe('2026-07-19T21:00:00.000Z');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('clears the plan on an empty string', async () => {
+    const app = await startTestApp();
+    try {
+      getOrStartStreamSession('test-planned-b', '2026-07-19T18:00:00.000Z');
+      await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plannedEndAt: '2026-07-19T21:00:00.000Z' }),
+      });
+
+      const clearRes = await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plannedEndAt: '' }),
+      });
+      expect(clearRes.status).toBe(200);
+      const body = await clearRes.json() as { plannedEndAt: string | null };
+      expect(body.plannedEndAt).toBeNull();
+      expect(getPlannedStreamEnd()).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('clears the plan on a null body value', async () => {
+    const app = await startTestApp();
+    try {
+      getOrStartStreamSession('test-planned-c', '2026-07-19T18:00:00.000Z');
+      await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plannedEndAt: '2026-07-19T21:00:00.000Z' }),
+      });
+
+      const clearRes = await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plannedEndAt: null }),
+      });
+      expect(clearRes.status).toBe(200);
+      const body = await clearRes.json() as { plannedEndAt: string | null };
+      expect(body.plannedEndAt).toBeNull();
+      expect(getPlannedStreamEnd()).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  // Off-stream there is no session row to hang a plan on. The dashboard's stream-info
+  // save relies on this being exactly a 409 with this message so it can swallow just
+  // this expected failure and still surface any other one.
+  test('409s when there is no active stream session', async () => {
+    const app = await startTestApp();
+    try {
+      const res = await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plannedEndAt: '2026-07-19T21:00:00.000Z' }),
+      });
+      expect(res.status).toBe(409);
+      const body = await res.json() as { error: string };
+      expect(body.error).toBe('There is no active stream session to plan an end for.');
+      expect(getPlannedStreamEnd()).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('rejects a malformed date with 400 and does not persist it', async () => {
+    const app = await startTestApp();
+    try {
+      getOrStartStreamSession('test-planned-d', '2026-07-19T18:00:00.000Z');
+      const res = await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plannedEndAt: 'not a date' }),
+      });
+      expect(res.status).toBe(400);
+      expect(getPlannedStreamEnd()).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('a GET with no active session and no prior plan returns null', async () => {
+    const app = await startTestApp();
+    try {
+      const res = await fetch(`http://127.0.0.1:${app.port}/api/stream-session/planned-end`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { plannedEndAt: string | null };
+      expect(body.plannedEndAt).toBeNull();
+    } finally {
+      await app.close();
+    }
   });
 });

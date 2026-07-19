@@ -74,6 +74,7 @@ import type {
   StreamStatus,
   WindDownPublicState,
   WindDownSettings,
+  PlannedStreamEnd,
 } from '../../shared/api';
 import { getDashboardToken, isDashboardTokenRejection, reportDashboardTokenRejected } from '../auth';
 
@@ -555,6 +556,17 @@ export async function getWindDownSettings(): Promise<WindDownSettings> {
 
 export async function saveWindDownSettings(settings: Omit<WindDownSettings, 'updatedAt'>): Promise<WindDownSettings> {
   return sendJson<WindDownSettings>('/api/wind-down/settings', 'PUT', settings);
+}
+
+// The stream's planned end time. Off-stream there is no session to hang a plan on,
+// so the PUT 409s — see NO_ACTIVE_SESSION_FOR_PLANNED_END for how callers should
+// treat that specific failure differently from any other.
+export async function getPlannedStreamEnd(): Promise<PlannedStreamEnd> {
+  return fetchJson<PlannedStreamEnd>('/api/stream-session/planned-end');
+}
+
+export async function setPlannedStreamEnd(plannedEndAt: string | null): Promise<PlannedStreamEnd> {
+  return sendJson<PlannedStreamEnd>('/api/stream-session/planned-end', 'PUT', { plannedEndAt });
 }
 
 // --- Configured media catalog ------------------------------------------------

@@ -1020,3 +1020,15 @@ export type WindDownPublicState = {
   /** Whether the overlay should render at all — mirrors WindDownSettings.overlayEnabled. */
   overlayEnabled: boolean;
 };
+
+/** GET/PUT /api/stream-session/planned-end body and response. */
+export type PlannedStreamEnd = { plannedEndAt: string | null };
+
+/**
+ * The exact message body of the 409 `PUT /api/stream-session/planned-end` returns
+ * when there is no active stream session to hang a plan on. The client matches this
+ * string to swallow only this specific, expected, off-stream failure — any other
+ * failure (a malformed date, a network error, a 500) is a real problem and must
+ * still surface as a save error rather than being silently dropped alongside it.
+ */
+export const NO_ACTIVE_SESSION_FOR_PLANNED_END = 'There is no active stream session to plan an end for.';
