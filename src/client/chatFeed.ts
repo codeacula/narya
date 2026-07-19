@@ -23,12 +23,56 @@ import type {
 import { errorMessage } from './errors';
 
 // A full older-chat page; a short page means we've reached the beginning.
-const OLDER_CHAT_PAGE = 80;
+export const OLDER_CHAT_PAGE = 80;
 // Twitch's chatter presence lags, so re-poll it while the surface is open.
 const CHATTERS_POLL_MS = 30_000;
 // Cap the live tail so long streams don't grow render cost forever. loadOlderChat
 // prepends older pages, so only the live tail is capped.
-const LIVE_CHAT_CAP = 400;
+export const LIVE_CHAT_CAP = 400;
+
+/**
+ * Appends a live entry to the tail, dropping the oldest past {@link LIVE_CHAT_CAP}.
+ * tmi reconnects replay messages, so a repeated id returns the list untouched.
+ */
+export function appendLiveChatEntry(current: ChatEntry[], entry: ChatEntry): ChatEntry[] {
+  return current.some(existing => existing.id === entry.id) ? current : [...current, entry].slice(-LIVE_CHAT_CAP);
+}
+
+/**
+ * Folds a sender into the recently-chatted list, dropping anyone whose last
+ * message has aged past {@link CHAT_PRESENCE_TTL_MS} and replacing their own
+ * earlier entry so a login appears once.
+ */
+export function mergeChatterPresence(current: RecentChatter[], chatter: Chatter, now: number): RecentChatter[] {
+  const cutoff = now - CHAT_PRESENCE_TTL_MS;
+  const login = chatter.userLogin.toLowerCase();
+  const kept = current.filter(entry => entry.at >= cutoff && entry.chatter.userLogin.toLowerCase() !== login);
+  return [...kept, { chatter, at: now }];
+}
+
+/**
+ * Records a login as seen, returning whether it was new — a brand-new chatter
+ * triggers one viewer refetch rather than one per message.
+ */
+export function registerChatterLogin(known: Set<string>, login: string): boolean {
+  if (known.has(login)) return false;
+  known.add(login);
+  return true;
+}
+
+/**
+ * Fetches the page before the current oldest entry. `hasMore` is true only for a
+ * full page; a short one means we've reached the beginning of the backlog.
+ */
+export async function fetchOlderChatPage(
+  current: ChatEntry[],
+  fetchBefore: (id: string) => Promise<ChatEntry[]>,
+): Promise<{ older: ChatEntry[]; hasMore: boolean }> {
+  const oldest = current[0];
+  if (!oldest) return { older: [], hasMore: false };
+  const older = await fetchBefore(oldest.id);
+  return { older, hasMore: older.length === OLDER_CHAT_PAGE };
+}
 
 export type ChatFeedHelpers = {
   refreshViewers: () => void;
@@ -122,22 +166,15 @@ export function useChatFeed(
       emotes: message.emotes,
     };
     // tmi reconnects can replay a message; dedupe before appending.
-    setChat(current => current.some(entry => entry.id === nextEntry.id) ? current : [...current, nextEntry].slice(-LIVE_CHAT_CAP));
+    setChat(current => appendLiveChatEntry(current, nextEntry));
 
     // A message proves the sender is here before Twitch's presence poll lists them;
     // fold them in and drop anyone whose last message has aged past the TTL so
     // people who left don't linger.
-    setRecentChatters(current => {
-      const cutoff = now - CHAT_PRESENCE_TTL_MS;
-      const kept = current.filter(entry => entry.at >= cutoff && entry.chatter.userLogin.toLowerCase() !== login);
-      const chatter: Chatter = { userId: 'chat:' + login, userLogin: message.username, userName: message.displayName || message.username };
-      return [...kept, { chatter, at: now }];
-    });
+    const chatter: Chatter = { userId: 'chat:' + login, userLogin: message.username, userName: message.displayName || message.username };
+    setRecentChatters(current => mergeChatterPresence(current, chatter, now));
 
-    if (!viewerLoginsRef.current.has(login)) {
-      viewerLoginsRef.current.add(login);
-      refreshViewers();
-    }
+    if (registerChatterLogin(viewerLoginsRef.current, login)) refreshViewers();
   }, [refreshViewers]));
 
   // A moderated message flips to its deleted state on the server; refetch so every
@@ -153,12 +190,10 @@ export function useChatFeed(
   }, []));
 
   const loadOlderChat = React.useCallback(async () => {
-    const oldest = chat[0];
-    if (!oldest) return false;
-    const older = await getChatEntriesBefore(oldest.id);
+    const { older, hasMore } = await fetchOlderChatPage(chat, getChatEntriesBefore);
     if (older.length === 0) return false;
     setChat(current => [...older, ...current]);
-    return older.length === OLDER_CHAT_PAGE;
+    return hasMore;
   }, [chat]);
 
   // Twitch presence plus anyone who chatted recently, recomputed on each change so
