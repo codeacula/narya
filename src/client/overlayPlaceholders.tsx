@@ -41,6 +41,7 @@ const OVERLAY_LABELS: Record<string, string> = {
   clips: 'Redeem clips & alert media',
   status: 'Stream status',
   text: 'Alert & action text',
+  winddown: 'Wind-down countdown',
   unknown: 'Unknown overlay',
 };
 
