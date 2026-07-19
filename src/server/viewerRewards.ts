@@ -8,7 +8,7 @@ import type {
   ViewerRewardUpsert,
 } from '../shared/api';
 import { db } from './db';
-import { handle, HttpRouteError, readResponseError } from './http';
+import { handle, HttpRouteError } from './http';
 import { broadcast } from './realtime';
 
 import type { RuntimeState } from './runtime';
