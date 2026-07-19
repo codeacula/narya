@@ -13,6 +13,26 @@ export const MAX_TWITCH_TITLE_LENGTH = 140;
 /** Below this fraction of the available room, a word-boundary cut wastes too much. */
 const WORD_BOUNDARY_MIN_RATIO = 0.6;
 
+/**
+ * Slice `value` to at most `maxLength` UTF-16 code units, then drop a trailing dangling
+ * high surrogate (U+D800–U+DBFF) if the cut landed inside an astral character (e.g. an
+ * emoji, which spans two UTF-16 code units). A plain `value.slice(0, maxLength)` can
+ * leave exactly that dangling high surrogate when the cut point falls between it and its
+ * low-surrogate partner — the result's `.length` still satisfies any `<= maxLength`
+ * guard, so a length check alone never catches this. But encoding a lone surrogate to
+ * UTF-8 (which any HTTP client does before sending the Twitch PATCH body) turns it into
+ * U+FFFD, corrupting the title. Do not "simplify" this away: the check below is what
+ * makes the guard actually work.
+ */
+function sliceWithoutDanglingSurrogate(value: string, maxLength: number): string {
+  const cut = value.slice(0, maxLength);
+  const lastCode = cut.charCodeAt(cut.length - 1);
+  if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+    return cut.slice(0, -1);
+  }
+  return cut;
+}
+
 export function composeWindDownTitle(baseTitle: string, suffix: string): string {
   const base = baseTitle.trim();
   const tail = suffix.trim();
@@ -25,19 +45,9 @@ export function composeWindDownTitle(baseTitle: string, suffix: string): string 
   const room = MAX_TWITCH_TITLE_LENGTH - tail.length - 2;
   // A suffix that cannot fit at all: keep as much of it as Twitch will take. The
   // Settings form rejects this case up front; this is the belt-and-braces path.
-  if (room <= 0) return tail.slice(0, MAX_TWITCH_TITLE_LENGTH);
+  if (room <= 0) return sliceWithoutDanglingSurrogate(tail, MAX_TWITCH_TITLE_LENGTH);
 
-  let cut = base.slice(0, room);
-  // A high surrogate (U+D800–U+DBFF) left dangling at the end of `cut` means its low-
-  // surrogate partner got sliced away — the astral character (e.g. an emoji) straddled
-  // the cut point. `cut.length` still satisfies the room budget, so the length guard
-  // never catches this, but encoding a lone surrogate to UTF-8 (which any HTTP client
-  // does before sending the Twitch PATCH body) turns it into U+FFFD, corrupting the
-  // title. Drop the dangling unit so `cut` never ends mid-character.
-  const lastCode = cut.charCodeAt(cut.length - 1);
-  if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
-    cut = cut.slice(0, -1);
-  }
+  const cut = sliceWithoutDanglingSurrogate(base, room);
   const lastSpace = cut.lastIndexOf(' ');
   const trimmed = (lastSpace > room * WORD_BOUNDARY_MIN_RATIO ? cut.slice(0, lastSpace) : cut).trimEnd();
   return `${trimmed}… ${tail}`;

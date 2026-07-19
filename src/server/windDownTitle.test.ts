@@ -67,6 +67,18 @@ describe('composeWindDownTitle', () => {
     expect(result).toContain('\u{1F600}');
     expect(new TextDecoder().decode(new TextEncoder().encode(result))).toBe(result);
   });
+
+  // The suffix itself can be too long to fit at all (the `room <= 0` branch), which
+  // hard-truncates the suffix with a raw slice. If an astral character straddles
+  // position 140 within the suffix, the same dangling-surrogate corruption applies —
+  // this must fail without the shared guard even though the earlier "comfortably
+  // before" case does not exercise this branch.
+  test('an astral character straddling the cut point inside an over-long suffix produces no unpaired surrogate', () => {
+    const suffix = `${'X'.repeat(139)}\u{1F600}${'Z'.repeat(20)}`;
+    const result = composeWindDownTitle('Base', suffix);
+    expect(result.length).toBeLessThanOrEqual(MAX_TWITCH_TITLE_LENGTH);
+    expect(new TextDecoder().decode(new TextEncoder().encode(result))).toBe(result);
+  });
 });
 
 describe('stripWindDownSuffix', () => {
