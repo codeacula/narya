@@ -18,6 +18,7 @@ import { registerMediaAssetRoutes } from './mediaAssets';
 import { registerMediaMuteRoutes } from './mediaMute';
 import { registerOverlayPlaceholderRoutes } from './overlayPlaceholders';
 import { registerWindDownRoutes } from './windDown';
+import { startWindDownLoop } from './windDownLoop';
 import { applyTwitchChannel, connectTwitchChat } from './chat';
 import { config, isLoopbackHost } from './config';
 import { registerDashboardRoutes, startDashboardHeartbeat } from './dashboard/status';
@@ -158,6 +159,7 @@ server.listen(config.port, config.host, () => {
   startMusicPolling();
   startDashboardHeartbeat(runtimeState);
   startAutomaticAds(runtimeState);
+  startWindDownLoop(runtimeState);
   void connectEventSub(runtimeState);
 
   // automation_runs is both the invocation log and the dedupe table, so it grows

@@ -7,6 +7,7 @@ import type { RuntimeState } from '../runtime';
 import { parseTwitchGameId } from '../streamCategories';
 import { mergeTagSuggestions, normalizeTag, normalizeTags, recordTagHistory, suggestTagHistory } from '../tags';
 import { onCategorySignal } from '../categoryModules';
+import { rebaseWindDownTitle } from '../windDown';
 import {
   getTwitchBotAccessToken,
   getTwitchAuthStatus,
@@ -634,6 +635,39 @@ async function resolveTwitchCategoryId(category: string, credentials: Awaited<Re
   return match.id;
 }
 
+/**
+ * Set ONLY the channel title.
+ *
+ * Deliberately not routed through PATCH /api/twitch/stream-info: that route requires
+ * a category alongside the title and calls onCategorySignal on every success, so a
+ * wind-down title tweak would re-fire category-module switching as a side effect of
+ * the clock reaching a number. Twitch accepts a partial channel update, so send only
+ * what is actually changing.
+ */
+export async function setTwitchChannelTitle(state: RuntimeState, title: string): Promise<void> {
+  const credentials = await getTwitchActionCredentials(state, ['channel:manage:broadcast']);
+  await twitchFetch(
+    `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
+    {
+      credentials,
+      method: 'PATCH',
+      body: { title },
+      errorMessage: 'Twitch channel title update failed.',
+    },
+  );
+}
+
+/** The channel's current title, for capturing a base title before wind-down edits it. */
+export async function getTwitchChannelTitle(state: RuntimeState): Promise<string> {
+  const credentials = await getTwitchActionCredentials(state, []);
+  const res = await twitchFetch(
+    `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
+    { credentials, errorMessage: 'Twitch channel information is unavailable.' },
+  );
+  const data = await res.json() as { data?: Array<{ title?: string }> };
+  return data.data?.[0]?.title ?? '';
+}
+
 export function registerTwitchApiRoutes(app: express.Express, state: RuntimeState) {
   app.get('/api/twitch/stream-info', handle(async (_request, response) => {
     const credentials = await getTwitchActionCredentials(state, []);
@@ -734,12 +768,16 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
     } else {
       gameId = await resolveTwitchCategoryId(category, credentials);
     }
+    // While wind-down is active the operator is editing the SUFFIXED title they can
+    // see. Re-base so their edit is kept as the new base title rather than being
+    // clobbered, and so the suffix is not appended twice.
+    const titleToSend = rebaseWindDownTitle(title);
     await twitchFetch(
       `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
       {
         credentials,
         method: 'PATCH',
-        body: { title, game_id: gameId, tags },
+        body: { title: titleToSend, game_id: gameId, tags },
         errorMessage: 'Twitch channel update failed.',
       },
     );
