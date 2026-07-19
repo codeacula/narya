@@ -757,24 +757,9 @@ describe('quote steps', () => {
     payload: {
       queryTemplate: '{input}',
       messageTemplate: 'Quote {quoteNumber}: {quoteText}',
-      destination: 'discord',
-      discordChannelId: '123456789',
       ...payload,
     },
   } as ActionStepInput);
-
-  test('a Discord destination with no channel is rejected before it can be saved', () => {
-    // Otherwise the step saves clean and fails the first time a viewer runs it, live.
-    expect(validateStep(showStep({ discordChannelId: '' }), 0)).toContain('Discord channel');
-  });
-
-  test('a channel id that is not a snowflake is rejected', () => {
-    expect(validateStep(showStep({ discordChannelId: '#general' }), 0)).toContain('not a valid Discord channel id');
-  });
-
-  test('a chat destination needs no channel', () => {
-    expect(validateStep(showStep({ destination: 'chat', discordChannelId: '' }), 0)).toBeNull();
-  });
 
   test('an empty query is allowed — it means "any quote"', () => {
     expect(validateStep(showStep({ queryTemplate: '' }), 0)).toBeNull();
@@ -789,23 +774,16 @@ describe('quote steps', () => {
       type: 'quote_add',
       enabled: true,
       delayMs: 0,
-      payload: {
-        textTemplate: '',
-        slugTemplate: '',
-        replyTemplate: '',
-        destination: 'chat',
-        discordChannelId: '',
-      },
+      payload: { textTemplate: '', slugTemplate: '', replyTemplate: '' },
     };
     expect(validateStep(step, 0)).toContain('needs the text to save');
   });
 
-  test('newStep produces a valid step for both quote kinds', () => {
-    // A fresh quote step defaults to Discord with no channel yet, so it is
-    // deliberately invalid until the operator picks one.
-    expect(validateStep(newStep('quote_show'), 0)).toContain('Discord channel');
-    expect(validateStep({ ...newStep('quote_show'), payload: { ...newStep('quote_show').payload, destination: 'chat' } } as ActionStepInput, 0)).toBeNull();
-    expect(validateStep({ ...newStep('quote_add'), payload: { ...newStep('quote_add').payload, destination: 'chat' } } as ActionStepInput, 0)).toBeNull();
+  test('a fresh quote step is valid with no configuration at all', () => {
+    // Quotes go to Twitch chat, which needs nothing set up — so a step the operator
+    // just added must not be born invalid.
+    expect(validateStep(newStep('quote_show'), 0)).toBeNull();
+    expect(validateStep(newStep('quote_add'), 0)).toBeNull();
   });
 
   test('every step type has a label and a constructible default', () => {

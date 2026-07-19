@@ -14,7 +14,6 @@ import type {
   ChatPhraseMatch,
   Counter,
   MediaAsset,
-  QuoteDestination,
   TriggerRole,
 } from '../../../shared/api';
 
@@ -176,8 +175,6 @@ export function newStep(type: ActionStepType): ActionStepInput {
           textTemplate: '{input}',
           slugTemplate: '',
           replyTemplate: 'Saved quote {quoteNumber}.',
-          destination: 'discord',
-          discordChannelId: '',
         },
       };
     case 'quote_show':
@@ -189,8 +186,6 @@ export function newStep(type: ActionStepType): ActionStepInput {
           // Empty renders to "any quote", so a bare !quote picks a random one.
           queryTemplate: '{input}',
           messageTemplate: 'Quote {quoteNumber}: {quoteText}',
-          destination: 'discord',
-          discordChannelId: '',
         },
       };
   }
@@ -274,16 +269,10 @@ export function describeStep(step: ActionStepInput, assets: MediaAsset[] = [], c
       return /^[+-]/.test(amount) ? `${name} ${amount}` : `${name} by ${amount}`;
     }
     case 'quote_add':
-      return `save ${step.payload.textTemplate || '(nothing)'} → ${destinationLabel(step.payload)}`;
+      return `save ${step.payload.textTemplate || '(nothing)'}`;
     case 'quote_show':
-      return `${step.payload.queryTemplate || 'random quote'} → ${destinationLabel(step.payload)}`;
+      return step.payload.queryTemplate || 'random quote';
   }
-}
-
-/** Where a quote step announces, for the collapsed row. */
-function destinationLabel(payload: { destination: QuoteDestination; discordChannelId: string }): string {
-  if (payload.destination === 'chat') return 'Twitch chat';
-  return payload.discordChannelId ? `Discord #${payload.discordChannelId}` : 'Discord (no channel)';
 }
 
 /** The assets a play_media step references that would refuse to play right now. */
@@ -447,28 +436,14 @@ export function validateStep(step: ActionStepInput, index: number): string | nul
     }
     case 'quote_add':
       if (templateMissing(step.payload.textTemplate)) return `${where}: needs the text to save.`;
-      return validateQuoteDelivery(step.payload, where);
+      return null;
     case 'quote_show':
       // queryTemplate is deliberately optional — empty means "any quote".
       if (templateMissing(step.payload.messageTemplate)) return `${where}: needs a message to announce.`;
-      return validateQuoteDelivery(step.payload, where);
+      return null;
   }
 }
 
-/**
- * A Discord destination needs its channel now. Letting it save blank moves the
- * failure to the moment a viewer runs the command, on stream.
- */
-function validateQuoteDelivery(
-  payload: { destination: QuoteDestination; discordChannelId: string },
-  where: string,
-): string | null {
-  if (payload.destination !== 'discord') return null;
-  const channelId = payload.discordChannelId.trim();
-  if (!channelId) return `${where}: pick the Discord channel to post in.`;
-  if (!/^\d{5,32}$/.test(channelId)) return `${where}: that is not a valid Discord channel id.`;
-  return null;
-}
 
 /** The first problem that would make the server reject this Action, or null. */
 export function validateAction(action: ActionUpsert): string | null {
