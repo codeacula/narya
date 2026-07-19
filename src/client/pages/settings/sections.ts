@@ -81,6 +81,13 @@ export const SETTINGS_SECTIONS: ReadonlyArray<SettingsSection> = [
     blurb: 'A module owns Twitch categories and channel-point reward groups. Switching game deactivates one module and activates another, turning its reward groups on and the outgoing module’s off.',
   },
   {
+    id: 'counters',
+    group: 'automation',
+    label: 'Counters',
+    title: 'Counters',
+    blurb: 'Durable tallies — deaths, wipes, bits of running-joke bookkeeping. An action step moves one; put {counter:key} in any template or in your stream status to show it.',
+  },
+  {
     id: 'content',
     group: 'studio',
     label: 'Media',

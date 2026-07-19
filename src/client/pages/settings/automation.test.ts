@@ -3,6 +3,7 @@ import type {
   Action,
   ActionRunResult,
   ActionStepInput,
+  ActionStepType,
   ActionUpsert,
   AutomationTrigger,
   AutomationTriggerInput,
@@ -108,10 +109,27 @@ describe('removeStep', () => {
 });
 
 describe('newStep', () => {
-  test('every step type produces a payload its own validator accepts or flags concretely', () => {
-    for (const type of ['obs_transition'] as const) {
-      expect(validateStep(newStep(type), 0)).toBeNull();
+  // Every step type, from the real list rather than a hand-written sample: the old
+  // version of this test looped over ['obs_transition'] alone, so it passed while
+  // catching nothing. A new step type must land in STEP_TYPES to appear in either
+  // dropdown, and nothing but this asserts it.
+  test('every step type has a label and produces a payload validateStep understands', () => {
+    for (const type of STEP_TYPES) {
+      expect(STEP_TYPE_LABELS[type]).toBeTruthy();
+      const step = newStep(type);
+      expect(step.type).toBe(type);
+      // Either it is immediately valid, or it names the field the operator must fill.
+      const problem = validateStep(step, 0);
+      if (problem !== null) expect(problem).toContain(STEP_TYPE_LABELS[type]);
     }
+  });
+
+  test('STEP_TYPES covers the whole ActionStepType union', () => {
+    expect(new Set(STEP_TYPES).size).toBe(STEP_TYPES.length);
+    // STEP_TYPE_LABELS is a Record<ActionStepType, …>, so the compiler already forces
+    // it to cover the union. Comparing against it makes STEP_TYPES — a plain array the
+    // compiler does NOT check — inherit that coverage.
+    expect([...STEP_TYPES].sort()).toEqual(Object.keys(STEP_TYPE_LABELS).sort() as ActionStepType[]);
   });
 
   test('a fresh media step starts empty and is flagged until an asset is picked', () => {
@@ -662,6 +680,72 @@ describe('triggerToInput', () => {
     expect(triggerToInput(trigger)).not.toHaveProperty('id');
     expect(triggerToInput(trigger)).not.toHaveProperty('createdAt');
     expect(triggerToInput(trigger)).not.toHaveProperty('updatedAt');
+  });
+});
+
+describe('adjust_counter steps', () => {
+  const counter = (overrides = {}) => ({
+    id: 'counter-1',
+    key: 'deaths',
+    label: 'Deaths',
+    value: 3,
+    createdAt: '2026-07-19T00:00:00.000Z',
+    updatedAt: '2026-07-19T00:00:00.000Z',
+    ...overrides,
+  });
+
+  test('a fresh step defaults to +1 and is flagged until a counter is picked', () => {
+    const step = newStep('adjust_counter');
+    expect(step.payload).toEqual({ counterId: '', mode: 'add', amountTemplate: '1' });
+    expect(validateStep(step, 0)).toContain('pick a counter');
+  });
+
+  test('accepts a literal amount once a counter is chosen', () => {
+    const step = newStep('adjust_counter');
+    step.payload = { counterId: 'counter-1', mode: 'add', amountTemplate: '-1' };
+    expect(validateStep(step, 0)).toBeNull();
+  });
+
+  test('accepts a templated amount, which can only be checked at render time', () => {
+    const step = newStep('adjust_counter');
+    step.payload = { counterId: 'counter-1', mode: 'add', amountTemplate: '{arg1}' };
+    expect(validateStep(step, 0)).toBeNull();
+  });
+
+  test('rejects a non-numeric literal amount', () => {
+    const step = newStep('adjust_counter');
+    step.payload = { counterId: 'counter-1', mode: 'add', amountTemplate: 'banana' };
+    expect(validateStep(step, 0)).toContain('whole number');
+  });
+
+  test('rejects an empty amount', () => {
+    const step = newStep('adjust_counter');
+    step.payload = { counterId: 'counter-1', mode: 'add', amountTemplate: '  ' };
+    expect(validateStep(step, 0)).toContain('needs an amount');
+  });
+
+  test('describes an add without doubling up on the sign', () => {
+    const step = newStep('adjust_counter');
+    step.payload = { counterId: 'counter-1', mode: 'add', amountTemplate: '+1' };
+    expect(describeStep(step, [], [counter()])).toBe('Deaths +1');
+  });
+
+  test('describes an unsigned add as "by"', () => {
+    const step = newStep('adjust_counter');
+    step.payload = { counterId: 'counter-1', mode: 'add', amountTemplate: '2' };
+    expect(describeStep(step, [], [counter()])).toBe('Deaths by 2');
+  });
+
+  test('describes a set', () => {
+    const step = newStep('adjust_counter');
+    step.payload = { counterId: 'counter-1', mode: 'set', amountTemplate: '0' };
+    expect(describeStep(step, [], [counter()])).toBe('set Deaths to 0');
+  });
+
+  test('names a deleted counter rather than rendering a bare id', () => {
+    const step = newStep('adjust_counter');
+    step.payload = { counterId: 'gone', mode: 'add', amountTemplate: '1' };
+    expect(describeStep(step, [], [counter()])).toContain('unknown counter');
   });
 });
 

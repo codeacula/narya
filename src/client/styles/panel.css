@@ -456,16 +456,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .chat-send:hover:not(:disabled) { background: rgba(var(--gold-rgb), 0.2); color: #ffe2bf; box-shadow: 0 0 8px rgba(var(--gold-rgb), 0.15); }
 .chat-send:disabled { cursor: not-allowed; opacity: 0.5; }
-.chat-input-error {
+.chat-input-error,
+.chat-input-notice {
   flex-basis: 100%;
   min-width: 0;
   overflow: hidden;
-  color: var(--danger-fg);
   font-family: var(--font-mono);
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.chat-input-error { color: var(--danger-fg); }
+/* A slash command that answered a question — "/counter deaths" reporting a value. */
+.chat-input-notice { color: var(--success-fg); }
 
 /* ================= SPOTLIGHT ================= */
 .spot { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
@@ -948,6 +951,59 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-size: 13px;
   padding: 8px 0;
 }
+
+/* ================= COUNTERS ================= */
+/* The editor is a card rather than loose fields on the page: it appears above the
+   list it edits, so it needs an edge to say where the form stops and the rows
+   begin. Same border, radius, and surface as .counter-row, one step brighter, so
+   it reads as the same family lifted forward. */
+.counter-editor {
+  display: grid;
+  gap: 14px;
+  margin: 14px 14px 0;
+  padding: 14px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-2);
+  background: var(--bg-3);
+}
+.counter-list {
+  display: grid;
+  gap: 8px;
+  padding: 14px 14px 0;
+}
+.counter-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  padding: 10px 12px;
+}
+.counter-row-main { min-width: 0; flex: 1; }
+.counter-row-label {
+  color: var(--fg-1);
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.counter-row-token {
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+/* Tabular figures so a column of counts does not jitter as digits change. */
+.counter-row-value {
+  color: var(--fg-accent);
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  min-width: 4ch;
+  text-align: right;
+}
+.counter-row-actions { display: flex; gap: 6px; flex: none; }
 .command-action-summary {
   color: var(--fg-3);
   font-size: 12px;

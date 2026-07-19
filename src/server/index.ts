@@ -6,6 +6,7 @@ import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './aut
 import { startAutomaticAds } from './automaticAds';
 import { registerCategoryModuleRoutes, reconcileCategoryModules } from './categoryModules';
 import { registerChattersRoutes } from './chatters';
+import { registerCounterRoutes } from './counters';
 import {
   migrateLegacyAlerts,
   migrateLegacyCategoryModules,
@@ -136,6 +137,7 @@ registerActionRoutes(app, getActionExecutor());
 registerAutomationTriggerRoutes(app, getTriggerDispatcher());
 registerCategoryModuleRoutes(app, runtimeState);
 registerStreamCategoryRoutes(app);
+registerCounterRoutes(app);
 registerQuoteRoutes(app);
 registerStreamStatusRoutes(app);
 registerOverlayPlaceholderRoutes(app);

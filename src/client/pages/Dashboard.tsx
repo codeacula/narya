@@ -17,7 +17,7 @@ import {
   getObsStatus,
   getStreamInfo,
   updateStreamInfo,
-  getStreamStatus,
+  getStreamStatusRaw,
   updateStreamStatus,
   runPrerollAds,
   updateViewerProfile,
@@ -395,14 +395,18 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setStreamInfoLoading(true);
     setStreamInfoMessage(null);
     setStreamInfoError(null);
-    void Promise.all([getStreamInfo(), getStreamStatus()])
+    // The RAW status, not the rendered one. This form PUTs its status field back on
+    // save, so seeding it with rendered text would rewrite "{counter:deaths}" as a
+    // frozen snapshot of the count — silently, and on any save, even one that never
+    // touched the status field.
+    void Promise.all([getStreamInfo(), getStreamStatusRaw()])
       .then(([info, status]) => {
         setStreamInfoForm({
           title: info.title,
           category: info.category,
           categoryId: info.categoryId || undefined,
           tags: info.tags,
-          status: status.text,
+          status: status.rawText,
         });
       })
       .catch(error => {

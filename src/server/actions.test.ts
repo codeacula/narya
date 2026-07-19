@@ -165,6 +165,44 @@ describe('normalizeActionUpsert', () => {
       expect(() => normalizeActionUpsert(upsert([step({ type: 'llm_response', payload: { template: '' } } as never)])))
         .toThrow('LLM steps need a prompt.');
     });
+
+    test('adjust_counter round-trips a valid payload', () => {
+      const normalized = normalizeActionUpsert(upsert([
+        step({ type: 'adjust_counter', payload: { counterId: 'counter-1', mode: 'add', amountTemplate: '-1' } } as never),
+      ]));
+      expect(normalized.steps[0]!.payload).toEqual({ counterId: 'counter-1', mode: 'add', amountTemplate: '-1' });
+    });
+
+    test('adjust_counter requires a counter', () => {
+      expect(() => normalizeActionUpsert(upsert([
+        step({ type: 'adjust_counter', payload: { counterId: '  ', mode: 'add', amountTemplate: '1' } } as never),
+      ]))).toThrow('Counter steps need a counter.');
+    });
+
+    test('adjust_counter rejects an unknown mode', () => {
+      expect(() => normalizeActionUpsert(upsert([
+        step({ type: 'adjust_counter', payload: { counterId: 'counter-1', mode: 'reset', amountTemplate: '0' } } as never),
+      ]))).toThrow('Unsupported counter mode');
+    });
+
+    test('adjust_counter rejects a non-numeric literal amount', () => {
+      expect(() => normalizeActionUpsert(upsert([
+        step({ type: 'adjust_counter', payload: { counterId: 'counter-1', mode: 'add', amountTemplate: 'banana' } } as never),
+      ]))).toThrow('whole number');
+    });
+
+    test('adjust_counter accepts a templated amount, checked only at render time', () => {
+      const normalized = normalizeActionUpsert(upsert([
+        step({ type: 'adjust_counter', payload: { counterId: 'counter-1', mode: 'add', amountTemplate: '{arg1}' } } as never),
+      ]));
+      expect((normalized.steps[0]!.payload as { amountTemplate: string }).amountTemplate).toBe('{arg1}');
+    });
+
+    test('adjust_counter requires an amount', () => {
+      expect(() => normalizeActionUpsert(upsert([
+        step({ type: 'adjust_counter', payload: { counterId: 'counter-1', mode: 'add', amountTemplate: '' } } as never),
+      ]))).toThrow('Counter steps need an amount.');
+    });
   });
 });
 
