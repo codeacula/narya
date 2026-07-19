@@ -3,7 +3,6 @@ import {
   EVENTSUB_RECONNECT_DELAY_MS,
   EVENTSUB_STALE_SOCKET_CLOSE_MS,
 } from '../shared/constants';
-import { appConfig } from './appConfig';
 import { getTriggerDispatcher } from './automation';
 import { recordAutomodHold, resolveAutomodHold } from './automod';
 import { onCategorySignal, reconcileCategoryModules } from './categoryModules';
@@ -13,6 +12,7 @@ import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { endActiveStreamSession, getCurrentStreamSessionId } from './streamSession';
 import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials, runTwitchCommercial } from './twitch/api';
+import { getTwitchChannel } from './twitchIdentity';
 
 const insertStreamEvent = db.prepare(`
   insert or ignore into stream_events (id, kind, actor, detail, tone, received_at, session_id, actor_login)
@@ -286,7 +286,7 @@ export async function handleEventSubNotification(
       const automod = event.automod as { category?: string; level?: number } | undefined;
       recordAutomodHold({
         id: messageId,
-        channel: (event.broadcaster_user_login as string) ?? appConfig.twitchChannel,
+        channel: (event.broadcaster_user_login as string) ?? getTwitchChannel(),
         username: (event.user_login as string) ?? 'unknown',
         displayName: (event.user_name as string) ?? (event.user_login as string) ?? 'unknown',
         message: message?.text ?? '',
@@ -616,7 +616,7 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
             state.eventSubFailedSubscriptions = health.failed;
             state.eventSubError = health.failed.length > 0 ? 'subscriptions_degraded' : null;
           } else {
-            console.error(`EventSub: could not resolve broadcaster ID for "${appConfig.twitchChannel}"`);
+            console.error(`EventSub: could not resolve broadcaster ID for "${getTwitchChannel()}"`);
             state.eventSubError = 'broadcaster_unresolved';
             clearKeepaliveTimer(state);
             try { ws.close(); } catch { /* ignore */ }

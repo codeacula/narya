@@ -10,7 +10,6 @@ import type { SessionShoutout, ViewerRosterEntry } from '../../shared/api';
 import { chatHighlight, getViewerRolesFromBadges } from '../../shared/roles';
 import { formatAgo } from '../../shared/time';
 import { twitchClient } from '../chat';
-import { appConfig } from '../appConfig';
 import { db } from '../db';
 import { handle, HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
@@ -19,6 +18,7 @@ import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus }
 import { getActiveStreamSession, getCurrentStreamSessionId, getSessionChatterCount } from '../streamSession';
 import { getTwitchAuthStatus, REQUIRED_TWITCH_OAUTH_SCOPES } from '../twitch/auth';
 import { fetchBroadcasterId, fetchViewerTwitchDetails, getTwitchApiHeaders, getTwitchUserApiHeaders } from '../twitch/api';
+import { getTwitchChannel } from '../twitchIdentity';
 
 type ChatMessageRow = {
   id: string;
@@ -170,7 +170,7 @@ export async function getTwitchStreamStatus(state: RuntimeState): Promise<Stream
 
   try {
     const res = await fetch(
-      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(appConfig.twitchChannel)}`,
+      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(getTwitchChannel())}`,
       { headers },
     );
 
@@ -229,7 +229,7 @@ export async function getTwitchAdSchedule(state: RuntimeState): Promise<AdSchedu
   }
 
   const bid = state.broadcasterId ?? await fetchBroadcasterId(headers['Client-Id'], headers.userToken);
-  if (!bid) return emptyAdSchedule('unavailable', `Could not resolve broadcaster ID for "${appConfig.twitchChannel}".`);
+  if (!bid) return emptyAdSchedule('unavailable', `Could not resolve broadcaster ID for "${getTwitchChannel()}".`);
   state.broadcasterId = bid;
 
   try {
@@ -313,7 +313,7 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
   const activeStreamSession = getActiveStreamSession();
 
   return {
-    channel: appConfig.twitchChannel,
+    channel: getTwitchChannel(),
     chatConnection: twitchClient.readyState?.() ?? 'UNKNOWN',
     obsConnected: isObsConnected(),
     eventSubConnected: state.eventSubConnected,

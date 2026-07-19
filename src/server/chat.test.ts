@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { appConfig } from './appConfig';
 import { twitchClient } from './chat';
 import { db } from './db';
 import { endActiveStreamSession, getOrStartStreamSession } from './streamSession';
+import { getTwitchChannel } from './twitchIdentity';
 
 type ChatRow = { stream_session_id: string | null; is_first_in_session: number };
 
-const CHANNEL = appConfig.twitchChannel || 'codeacula';
+const CHANNEL = getTwitchChannel() || 'codeacula';
 
 // tmi's local type declarations omit EventEmitter's emit; the client is one.
 const emitter = twitchClient as unknown as { emit: (event: string, ...args: unknown[]) => void };
