@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { appConfig, getAppConfig, reloadAppConfig, saveAppConfig } from './appConfig';
+import { getAppConfig, reloadAppConfig, saveAppConfig } from './appConfig';
 import { db } from './db';
 import {
   clearTwitchIdentity,
   getAuthenticatedTwitchLogin,
+  getTwitchChannel,
   resetTwitchIdentityCache,
   setTwitchIdentity,
 } from './twitchIdentity';
@@ -28,37 +29,37 @@ describe('channel derived from the Twitch login', () => {
 
   test('with nobody signed in and no override, there is no channel', () => {
     expect(getAuthenticatedTwitchLogin()).toBe('');
-    expect(appConfig.twitchChannel).toBe('');
+    expect(getTwitchChannel()).toBe('');
   });
 
   test('signing in supplies the channel without the operator typing it', () => {
     signIn('codeacula');
-    expect(appConfig.twitchChannel).toBe('codeacula');
+    expect(getTwitchChannel()).toBe('codeacula');
   });
 
   test('the login is normalized to lowercase', () => {
     signIn('CodeAcula');
-    expect(appConfig.twitchChannel).toBe('codeacula');
+    expect(getTwitchChannel()).toBe('codeacula');
   });
 
   test('a stored channel overrides the signed-in login', () => {
     signIn('codeacula');
     saveAppConfig({ twitchChannel: 'someotherchannel' });
-    expect(appConfig.twitchChannel).toBe('someotherchannel');
+    expect(getTwitchChannel()).toBe('someotherchannel');
   });
 
   test('clearing the override falls back to the login again', () => {
     signIn('codeacula');
     saveAppConfig({ twitchChannel: 'someotherchannel' });
     saveAppConfig({ twitchChannel: '' });
-    expect(appConfig.twitchChannel).toBe('codeacula');
+    expect(getTwitchChannel()).toBe('codeacula');
   });
 
   test('signing out drops the derived channel', () => {
     signIn('codeacula');
     db.prepare(`delete from twitch_oauth where provider = 'twitch'`).run();
     clearTwitchIdentity('user');
-    expect(appConfig.twitchChannel).toBe('');
+    expect(getTwitchChannel()).toBe('');
   });
 
   // The Settings form binds to the stored value. If toPublic leaked the derived
@@ -66,12 +67,12 @@ describe('channel derived from the Twitch login', () => {
   // and a later re-login under a different account would silently keep the old one.
   test('the public config reports the stored override and the login separately', () => {
     signIn('codeacula');
-    const withoutOverride = getAppConfig();
+    const withoutOverride = getAppConfig(getAuthenticatedTwitchLogin());
     expect(withoutOverride.twitchChannel).toBe('');
     expect(withoutOverride.twitchChannelFromLogin).toBe('codeacula');
 
     saveAppConfig({ twitchChannel: 'someotherchannel' });
-    const withOverride = getAppConfig();
+    const withOverride = getAppConfig(getAuthenticatedTwitchLogin());
     expect(withOverride.twitchChannel).toBe('someotherchannel');
     expect(withOverride.twitchChannelFromLogin).toBe('codeacula');
   });

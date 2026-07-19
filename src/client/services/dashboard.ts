@@ -37,6 +37,8 @@ import type {
   Chatter,
   ChattersResponse,
   ViewerRosterEntry,
+  ViewerRefreshResult,
+  ViewerFlushResult,
   SoundButton,
   SoundButtonUpdate,
   SoundPlayback,
@@ -55,6 +57,9 @@ import type {
   DiscordGuild,
   DiscordChannel,
   GoLiveSettings,
+  Quote,
+  QuoteInput,
+  QuoteUpdate,
   GoLiveSettingsUpdate,
   GoLiveResult,
   ViewerRewardCategory,
@@ -427,6 +432,16 @@ export async function getViewerRoster(): Promise<ViewerRosterEntry[]> {
   return fetchJson<ViewerRosterEntry[]>('/api/viewers/roster');
 }
 
+/** Re-query Twitch for one viewer, persisting the result and detecting a dead account. */
+export async function refreshViewer(login: string): Promise<ViewerRefreshResult> {
+  return sendJson<ViewerRefreshResult>(`/api/viewers/${encodeURIComponent(login)}/refresh`, 'POST');
+}
+
+/** Remove a viewer and keep them out. See flushViewer on the server. */
+export async function flushViewer(login: string, reason = ''): Promise<ViewerFlushResult> {
+  return sendJson<ViewerFlushResult>(`/api/viewers/${encodeURIComponent(login)}/flush`, 'POST', { reason });
+}
+
 export async function getVips(): Promise<Chatter[]> {
   return fetchJson<Chatter[]>('/api/twitch/vips');
 }
@@ -634,4 +649,23 @@ export async function deleteCategoryModule(id: string): Promise<void> {
 /** Re-reads the live Twitch category and re-applies module-owned reward groups. Clears `degraded` when it succeeds. */
 export async function reconcileCategoryModules(): Promise<CategoryModulesResponse> {
   return sendJson<CategoryModulesResponse>('/api/category-modules/reconcile', 'POST', {});
+}
+
+// --- Quotes ------------------------------------------------------------------
+
+export async function getQuotes(): Promise<Quote[]> {
+  return fetchJson<Quote[]>('/api/quotes');
+}
+
+export async function createQuote(quote: QuoteInput): Promise<Quote> {
+  return sendJson<Quote>('/api/quotes', 'POST', quote);
+}
+
+/** Only the fields present are changed; an explicit null slug clears it. */
+export async function updateQuote(id: string, update: QuoteUpdate): Promise<Quote> {
+  return sendJson<Quote>(`/api/quotes/${encodeURIComponent(id)}`, 'PATCH', update);
+}
+
+export async function deleteQuote(id: string): Promise<void> {
+  return sendVoid(`/api/quotes/${encodeURIComponent(id)}`, 'DELETE');
 }

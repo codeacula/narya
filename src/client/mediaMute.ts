@@ -1,7 +1,9 @@
 import React from 'react';
 import type { MediaMuteState } from '../shared/api';
 import { getMediaMute, setMediaMute } from './services/dashboard';
-import { useSocket } from './realtime';
+import { useLiveValue } from './liveValue';
+
+const UNMUTED: MediaMuteState = { muted: false };
 
 /**
  * Shared state for the master media mute so the dashboard and the tablet stay in
@@ -9,27 +11,16 @@ import { useSocket } from './realtime';
  * toggle on one surface lights the button on the other without a refresh.
  */
 export function useMediaMute() {
-  const [muted, setMuted] = React.useState(false);
+  const [state, setState] = useLiveValue<MediaMuteState>(getMediaMute, 'media:mute', UNMUTED);
   const [busy, setBusy] = React.useState(false);
-
-  React.useEffect(() => {
-    getMediaMute()
-      .then(state => setMuted(state.muted))
-      .catch(() => setMuted(false));
-  }, []);
-
-  useSocket<MediaMuteState>(
-    'media:mute',
-    React.useCallback((next: MediaMuteState) => setMuted(next.muted), []),
-  );
 
   const toggle = React.useCallback((next: boolean) => {
     setBusy(true);
     setMediaMute(next)
-      .then(state => setMuted(state.muted))
+      .then(setState)
       .catch(() => undefined)
       .finally(() => setBusy(false));
-  }, []);
+  }, [setState]);
 
-  return { muted, busy, toggle };
+  return { muted: state.muted, busy, toggle };
 }

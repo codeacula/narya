@@ -8,7 +8,7 @@ import type {
   RewardStreamCategory,
   StreamCategoryRewardGroup,
 } from '../shared/api';
-import { db } from './db';
+import { db, isUniqueConstraintError } from './db';
 import { handle, HttpRouteError } from './http';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
@@ -192,7 +192,7 @@ function claimGroups(moduleId: string, groupIds: string[]) {
 }
 
 function asHttpError(error: unknown, name: string): unknown {
-  if (error instanceof Error && error.message.includes('UNIQUE constraint failed: category_modules.name')) {
+  if (isUniqueConstraintError(error) && error.message.includes('category_modules.name')) {
     return new HttpRouteError(409, `A category module named "${name}" already exists.`);
   }
   if (error instanceof Error && error.message.includes('category_module_games')) {

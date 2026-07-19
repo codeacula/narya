@@ -177,6 +177,7 @@ src/
         GoLiveSection.tsx     # go-live settings (Discord guild/channel, OBS)
         LlmSection.tsx        # LLM provider settings + connection test
         TtsSection.tsx        # Chatterbox TTS settings, voices, and test speak
+        QuotesPage.tsx        # quote book editor (add/edit/remove, keyword + counter)
         ActionsPage.tsx       # Action editor (ordered steps)
         AutomationPage.tsx    # automation trigger editor
         ModulesPage.tsx       # category module editor
@@ -205,7 +206,8 @@ src/
     mediaAssets.ts      # configured media catalog (media_assets)
     mediaMute.ts        # persisted master sound/video mute switch + routes
     triggerDispatcher.ts # matching, cooldowns, dedup, bot-loop prevention
-    chatters.ts         # chatter tracking routes
+    chatters.ts         # Helix presence poll + lazy identity backfill
+    viewerIdentity.ts   # chatters presence/profile writes, ignore list, flush
     config.ts           # boot/infra-only env config (PORT, OAuth URIs)
     db.ts               # SQLite connection and schema migrations
     discord.ts          # Discord status integration
@@ -220,6 +222,7 @@ src/
     obs.ts              # OBS WebSocket integration and dashboard stats
     overlayPlaceholders.ts # in-memory overlay bounds flag + routes
     realtime.ts         # Express app, HTTP server, WebSocket broadcasts
+    quotes.ts           # quote book: repo, number allocation, lookup, routes
     routes.ts           # core REST route registrations
     runtime.ts          # RuntimeState (Twitch auth token cache)
     sounds.ts           # sound buttons + playback events (labeled-button repo)
@@ -267,6 +270,17 @@ src/
 
 **Chat commands are Actions too — do not hard-code one.** `!quack` used to be a branch in `chat.ts` that picked a random file from a constant array; it is now an Action with a single `play_media` step in `random` selection, fired by a `viewer_command` trigger (`migrateQuackCommandIntoAction`). Randomness is a property of the step — `PlayMediaPayload` is `{ assetIds: string[], selection: 'first' | 'random' }` — so "play a random one of these" never needs new code. `!tts` is the only built-in chat branch left. Adding another hard-coded command both bypasses cooldowns, roles, and dedup, and leaves the operator unable to see or edit it.
 
+**Quotes are Action steps, for the same reason.** `quotes.ts` owns the book; `quote_add` and `quote_show` are the only ways in and out at runtime. Nothing is seeded — a seeded `!quote` would need a Discord channel id that is not configured on a fresh install, so it would ship broken. Two invariants the code depends on:
+
+- **Quote numbers come from `quote_sequence`, never `max(number) + 1`.** "Quote 12" gets repeated in Discord and screenshots long after the fact, so deleting the newest quote must not let the next one inherit its number. A gap in the sequence is correct; a reused number is not.
+- **`shown_count` is bumped after delivery, not after lookup**, so a Discord outage cannot inflate the count for a quote nobody saw. A lookup that matches nothing is `skipped`, not `failed` — a viewer asking for a quote that isn't there is normal traffic.
+
+Because steps run concurrently and cannot pass values to one another, a quote step resolves the quote AND emits its own message rather than feeding a downstream `send_chat` — the shape `llm_response` already uses. The message template renders against the invocation context extended with `{quoteNumber} {quoteText} {quoteSlug} {quoteSubmitter} {quoteShownCount} {quoteDate}`.
+
+**Flushing a viewer anonymizes their quotes rather than deleting them.** `flushViewer` clears the attribution (`submitted_by` → `unknown`, `submitted_by_login` → `''`) inside its existing transaction, so a `quote_show` step cannot keep announcing a flushed viewer on stream — but the quote and its number survive, because retiring a number already circulating in Discord is the failure the sequence counter exists to prevent. That half is one-way: `unflushViewer` has no login left to restore from. The count rides back on `ViewerFlushResult.quotesAnonymized` so a flush never edits the quote book silently.
+
+**Discord is send-only.** `sendDiscordMessage(channelId, content)` over REST; there is no gateway connection, no registered slash commands, and no interactions endpoint. Discord can be announced *to*; it cannot trigger anything.
+
 **Overlay sources** — `/overlay/clips` receives `media:play` and drains **audio and video as independent lanes**: only video is visually exclusive, so an alert sound never waits out a clip. `/overlay/text` receives `overlay:text` (Action `show_text` steps, including migrated alert banners, which carry an optional `tone` for their accent colour). Media files live in `public/clips` and `public/sounds` (Vite copies them into `dist/` on build; `public/clips/` is gitignored). Never put media directly in `dist/` — `vite build` empties it.
 
 **An overlay URL is in someone's OBS scene collection — you cannot just delete it.** Overlay paths are resolved by `overlayFromPath` in `routing.ts`, and *everything* under `/overlay` resolves there: an unrecognized path returns `'unknown'` and renders an inert transparent notice. It must never fall through to the dashboard, which is exactly what the retired `/overlay/alerts` did — an OBS browser source rendered the operator's chat, controls, and viewer data into a live scene. `/overlay/alerts` is therefore **aliased to the text overlay**, not deleted, so the existing source keeps showing alert banners. It maps to text *only*: the alert's sound and clip are a `play_media` step and `/overlay/clips` is already a source in the same scene receiving `media:play`, so rendering media on both would **play every alert twice**. Retiring an overlay route means aliasing it and covering it in `routing.test.ts`.
@@ -280,6 +294,10 @@ src/
 When verifying a migration against real data, snapshot with `VACUUM INTO`, not `cp`. The database runs in WAL mode, so a plain file copy silently omits recent writes and will make a correct migration look like it is dropping rows.
 
 **Never verify against the real database from an ad-hoc script.** `db.ts` resolves its path at import time, and ES imports are hoisted — a script that sets `NODE_ENV`/`STREAMER_TOOLS_DB` in its body has *already* opened `data/streamer-tools.sqlite` by the time that line runs, and any write lands in the operator's live data. Put the check in a `*.test.ts` file (`bun test` sets `NODE_ENV=test` before anything imports, so the DB is in-memory), or pass the override in the environment of the command itself.
+
+**A `chatters` row is not "has chatted" — `message_count > 0` is.** The table used to be written only by chat ingestion, so row existence and "has spoken" were the same fact, and `hasSeenChatterBefore` (`streamSession.ts`) tested existence to drive the first-ever-chatter highlight. `GET /api/chatters` now also records **presence** from Helix Get Chatters, so a lurker who has never typed gets a row with `message_count = 0` — which is the whole point, since such a viewer previously could not be opened or managed at all. Keying the oracle off existence again would silently kill the first-timer highlight for every lurker who later speaks; `src/server/viewerIdentity.test.ts` covers both directions. Profile detail (display name, avatar, account age) is backfilled **lazily** from Get Users for rows missing it, riding the poll the dashboard already makes — do not add a second polling loop.
+
+**Flushing a viewer needs the ignore list, not just a delete.** `flushViewer` removes the `chatters`, `viewer_profiles`, and `chat_messages` rows *and* records the login in `ignored_logins`. A delete alone is self-healing-hostile: the account's next chat message recreates the row via `chat.ts`'s upsert, and the next presence poll recreates it in `viewerIdentity.ts`. Both write paths check the ignore list. Append-only `chat_events` is deliberately left intact, so a flush is auditable and reversible (`unflushViewer`) rather than a hole in the record.
 
 **Chat dual-layer storage** — `chat_events` is append-only (raw events). `chat_messages` is a mutable projection with soft-delete columns (`deleted_at`, `deleted_reason`, `moderation_event_id`). Dashboard shows moderated messages with a reason; overlay hides them entirely (the `compact` prop on `ChatPanel`).
 

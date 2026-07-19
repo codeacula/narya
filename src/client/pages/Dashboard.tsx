@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
+import { OverlayBoundsToggle } from '../overlayPlaceholders';
 import { useAttention, useAttentionSettings } from '../attention';
 import { useChatFeed, type ChatFeedHelpers } from '../chatFeed';
 import { openViewerPopout } from '../viewerPopout';
@@ -560,7 +561,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       count={attention.unackedCount || undefined}
       popped={!!popped['attention']}
       onPop={handlePop}
-      className="panel--attention"
       bodyClass="no-pad"
       headerActions={
         <AttentionDismissAll disabled={attention.unackedCount === 0} onDismiss={attention.dismissAll} />
@@ -733,6 +733,10 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
           <div><span>EventSub</span><b>{status.eventSubConnected ? 'open' : 'closed'}</b></div>
           <div><span>OBS</span><b>{status.obsConnected ? 'connected' : 'unavailable'}</b></div>
         </div>
+        {/* Lives here rather than in Stream Controls, which only mounts when OBS is
+            connected — see OverlayBoundsToggle. */}
+        <TweakSection label="Overlays" />
+        <OverlayBoundsToggle />
       </TweaksPanel>
     </div>
   );
