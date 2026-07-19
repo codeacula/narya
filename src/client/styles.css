@@ -24,12 +24,12 @@ body {
   min-height: 100vh;
 }
 
-:root.overlayPage,
-body.overlayPage {
+:root.overlay-page,
+body.overlay-page {
   background: transparent;
 }
 
-body.overlayPage #root {
+body.overlay-page #root {
   background: transparent;
 }
 
@@ -51,7 +51,7 @@ button:disabled {
 
 /* The tablet surface uses unclassed buttons that lean on this default chrome.
    The dashboard/overlay set their own button styles, so keep the visuals scoped here. */
-.tabletShell button {
+.tablet-shell button {
   min-height: 56px;
   border: 1px solid var(--border-2);
   border-radius: var(--radius-3);
@@ -65,18 +65,18 @@ button:disabled {
     transform var(--dur-fast) var(--ease-out);
 }
 
-.tabletShell button:hover:not(:disabled) {
+.tablet-shell button:hover:not(:disabled) {
   border-color: var(--border-3);
   background: rgba(255, 255, 255, 0.06);
 }
 
 /* Touch surface: a clear pressed state matters more than hover. */
-.tabletShell button:active:not(:disabled) {
+.tablet-shell button:active:not(:disabled) {
   transform: scale(0.97);
   background: rgba(255, 184, 108, 0.12);
 }
 
-.tabletShell button:focus-visible {
+.tablet-shell button:focus-visible {
   outline: 2px solid var(--gold-400);
   outline-offset: 2px;
 }
@@ -85,14 +85,14 @@ button:disabled {
   background: var(--arcane);
 }
 
-.appShell,
-.tabletShell {
+.app-shell,
+.tablet-shell {
   min-height: 100vh;
   padding: 24px;
 }
 
-.appShell > header,
-.tabletShell > header {
+.app-shell > header,
+.tablet-shell > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -125,26 +125,26 @@ nav {
   color: var(--silver);
 }
 
-.dashboardGrid {
+.dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 420px;
   gap: 24px;
 }
 
-.controlSurface {
+.control-surface {
   display: grid;
   gap: 20px;
 }
 
-.controlSurface section,
-.chatPanel {
+.control-surface section,
+.chat-panel {
   border: 1px solid #2a3a58;
   border-radius: 8px;
   background: var(--navy);
   padding: 16px;
 }
 
-.buttonGrid {
+.button-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 10px;
@@ -153,7 +153,7 @@ nav {
 
 /* ── Chat panel (dashboard) ─────────────────────────────── */
 
-.chatPanel {
+.chat-panel {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -162,7 +162,7 @@ nav {
   overflow: hidden;
 }
 
-.chatPanel.compact {
+.chat-panel.compact {
   min-height: 0;
   max-height: 100%;
   border: 0;
@@ -172,7 +172,7 @@ nav {
   flex-direction: column-reverse;
 }
 
-.chatMessage {
+.chat-message {
   --border-color: var(--border-2);
   display: grid;
   gap: 3px;
@@ -184,32 +184,32 @@ nav {
   font-family: var(--font-body);
 }
 
-.chatMessage.moderated {
+.chat-message.moderated {
   opacity: 0.55;
   --border-color: var(--border-2);
 }
 
 /* Role-based left border — brand semantic colors, matching the dashboard chat */
-.chatMessage[data-role='broadcaster'] { --border-color: var(--gold-500); }
-.chatMessage[data-role='moderator']   { --border-color: var(--success-base); }
-.chatMessage[data-role='vip']         { --border-color: var(--note-base); }
-.chatMessage[data-role='subscriber']  { --border-color: var(--gold-500); }
+.chat-message[data-role='broadcaster'] { --border-color: var(--gold-500); }
+.chat-message[data-role='moderator']   { --border-color: var(--success-base); }
+.chat-message[data-role='vip']         { --border-color: var(--note-base); }
+.chat-message[data-role='subscriber']  { --border-color: var(--gold-500); }
 
 /* First-time chatter — info border with a soft orb glow (matches dashboard first-ever) */
-.chatMessage.firstTime {
+.chat-message.first-time {
   --border-color: var(--info-base);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--info-border),
     0 0 22px rgba(106, 168, 212, 0.25);
 }
 
 /* Mention — the streamer was @'d; gold border with a soft orb glow */
-.chatMessage.mention {
+.chat-message.mention {
   --border-color: var(--gold-500);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--warning-border),
     0 0 22px rgba(255, 184, 108, 0.28);
 }
 
-.chatEmote {
+.chat-emote {
   display: inline-block;
   vertical-align: middle;
   height: 32px;
@@ -217,13 +217,13 @@ nav {
   margin: 0 1px;
 }
 
-.chatMessage strong,
-.chatMessage span,
-.chatMessage em {
+.chat-message strong,
+.chat-message span,
+.chat-message em {
   overflow-wrap: anywhere;
 }
 
-.chatMessage span {
+.chat-message span {
   color: var(--ivory-50);
   font-size: 16px;
   line-height: 1.5;
@@ -232,12 +232,12 @@ nav {
 /* Links are anchors on every chat surface, but nothing can click one inside an OBS
    browser source — so on the overlay a URL stays plain text visually. The dashboard
    overrides this to look (and behave) like a link. */
-.chatMessage .chatLink {
+.chat-message .chat-link {
   color: inherit;
   text-decoration: none;
 }
 
-.chatMessage em {
+.chat-message em {
   color: var(--silver-400);
   font-size: 12px;
   font-style: normal;
@@ -246,13 +246,13 @@ nav {
 /* ── Overlay layout ─────────────────────────────────────── */
 
 /* Individual embeddable widget pages */
-.overlayWidget {
+.overlay-widget {
   background: transparent;
   margin: 0;
   padding: 0;
 }
 
-.overlayChatWidget {
+.overlay-chat-widget {
   width: 100%;
   height: 100vh;
   display: flex;
@@ -262,14 +262,14 @@ nav {
   overflow: hidden;
 }
 
-.overlayNowPlayingWidget {
+.overlay-now-playing-widget {
   width: 100%;
   display: inline-flex;
 }
 
 /* Clip stage: empty (and so fully transparent) until a redeem plays. Use a
    full-canvas browser source in OBS; the visible video stays in the center. */
-.overlayClipsWidget {
+.overlay-clips-widget {
   width: 100vw;
   height: 100vh;
   display: flex;
@@ -280,7 +280,7 @@ nav {
 
 /* The clip plays in a rounded rectangle whose edges dissolve into a violet glow,
    using the same --note violet as the app's empty-state orb. */
-.clipFrame {
+.clip-frame {
   /* Feather every edge: opaque core, fade to nothing at the boundary. Shared by
      the clip and its tint so the two dissolve together. The two axes are
      intersected rather than layered, so the corners fade on both. */
@@ -296,7 +296,7 @@ nav {
 
 /* Wait for video metadata before revealing the frame so the first painted frame
    already has the right dimensions for either portrait or landscape media. */
-.clipFrameReady {
+.clip-frame-ready {
   opacity: 1;
   animation:
     clipIn 520ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -306,7 +306,7 @@ nav {
 /* The glow sits behind the clip. It cannot live on the masked element: a CSS
    mask clips an element's shadows and background along with its content, so a
    box-shadow halo would be erased by the same feather that softens the edge. */
-.clipFrame::before {
+.clip-frame::before {
   content: '';
   position: absolute;
   inset: -9%;
@@ -321,7 +321,7 @@ nav {
 }
 
 /* Tint and highlight, feathered to match the clip beneath. */
-.clipFrame::after {
+.clip-frame::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -345,10 +345,10 @@ nav {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .clipFrameReady { animation: none; }
+  .clip-frame-ready { animation: none; }
 }
 
-.clipVideo {
+.clip-video {
   display: block;
   /* A rectangle crops nothing, so the whole frame — captions included — shows. */
   width: 100%;
@@ -362,7 +362,7 @@ nav {
 /* Stream alerts: one alert at a time (text banner plus optional clip). Empty and
    fully transparent when idle, so it's safe as its own full-canvas OBS source
    positioned independently of the clips/sounds overlays. */
-.overlayAlertsWidget {
+.overlay-alerts-widget {
   width: 100vw;
   height: 100vh;
   display: flex;
@@ -371,7 +371,7 @@ nav {
   overflow: hidden;
 }
 
-.alertCard {
+.alert-card {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -380,7 +380,7 @@ nav {
   animation: alertIn 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.alertVideo {
+.alert-video {
   display: block;
   width: min(70vw, 960px);
   max-height: 60vh;
@@ -389,11 +389,11 @@ nav {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
-.alertText {
+.alert-text {
   padding: 16px 28px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  /* Tone accent, set per-kind on the parent .alertCard and inherited here. */
+  /* Tone accent, set per-kind on the parent .alert-card and inherited here. */
   border-top: 4px solid var(--alert-accent, #ffb86c);
   background: rgba(12, 16, 28, 0.72);
   backdrop-filter: blur(10px) saturate(140%);
@@ -408,10 +408,10 @@ nav {
   overflow-wrap: anywhere;
 }
 
-.alertCard--warning { --alert-accent: #ffb86c; }
-.alertCard--info    { --alert-accent: #8be9fd; }
-.alertCard--note    { --alert-accent: #bd93f9; }
-.alertCard--silver  { --alert-accent: #d0d4dc; }
+.alert-card--warning { --alert-accent: #ffb86c; }
+.alert-card--info    { --alert-accent: #8be9fd; }
+.alert-card--note    { --alert-accent: #bd93f9; }
+.alert-card--silver  { --alert-accent: #d0d4dc; }
 
 @keyframes alertIn {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
@@ -419,24 +419,24 @@ nav {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .alertCard { animation: none; }
+  .alert-card { animation: none; }
 }
 
 /* Shoutout ticker: renders nothing when the roster is empty, so the browser
    source stays fully transparent off-stream. */
-.overlayShoutoutsWidget {
+.overlay-shoutouts-widget {
   width: 100%;
   display: inline-flex;
 }
 
 /* Stream status line: a single pill of freeform text. Empty (fully transparent)
    until the status is set. Size the browser source in OBS. */
-.overlayStatusWidget {
+.overlay-status-widget {
   width: 100%;
   display: inline-flex;
 }
 
-.overlayStatusText {
+.overlay-status-text {
   padding: 12px 20px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -457,7 +457,7 @@ nav {
    sized in OBS. Fixed to the viewport, which for a browser source IS the source's
    rectangle. Never interactive: an overlay isn't clickable, and a full-bleed box that
    swallowed clicks would be a trap in an OBS interact window. */
-.overlayPlaceholder {
+.overlay-placeholder {
   position: fixed;
   inset: 0;
   pointer-events: none;
@@ -470,7 +470,7 @@ nav {
   z-index: 2147483647;
 }
 
-.overlayPlaceholderLabel {
+.overlay-placeholder-label {
   margin: 6px;
   padding: 4px 8px;
   border-radius: 5px;
@@ -488,14 +488,14 @@ nav {
    legible rather than blank — a silent transparent page is indistinguishable from a
    working overlay with nothing to show, so a dead URL would sit unnoticed in a scene.
    Kept small and cornered to minimise what it costs if it does reach a live stream. */
-.overlayUnknownWidget {
+.overlay-unknown-widget {
   width: 100%;
   height: 100vh;
   display: flex;
   align-items: flex-start;
 }
 
-.overlayUnknownNotice {
+.overlay-unknown-notice {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -512,7 +512,7 @@ nav {
   overflow-wrap: anywhere;
 }
 
-.shoutoutTicker {
+.shoutout-ticker {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -528,24 +528,24 @@ nav {
   min-width: 240px;
 }
 
-.shoutoutLabel {
+.shoutout-label {
   font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: rgba(244, 241, 232, 0.55);
 }
 
-.shoutoutCard {
+.shoutout-card {
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 400ms ease, transform 400ms ease;
 }
-.shoutoutCard.isVisible {
+.shoutout-card.is-visible {
   opacity: 1;
   transform: translateY(0);
 }
 
-.shoutoutName {
+.shoutout-name {
   font-size: 22px;
   font-weight: 700;
   line-height: 1.2;
@@ -554,13 +554,13 @@ nav {
   white-space: nowrap;
 }
 
-.shoutoutVerb {
+.shoutout-verb {
   font-size: 12px;
   color: #ffb86c;
   letter-spacing: 0.04em;
 }
 
-.shoutoutCount {
+.shoutout-count {
   margin-top: 4px;
   font-size: 9px;
   letter-spacing: 0.14em;
@@ -568,10 +568,10 @@ nav {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shoutoutCard { transition: none; }
+  .shoutout-card { transition: none; }
 }
 
-.overlayFrame {
+.overlay-frame {
   position: relative;
   width: 100vw;
   height: 100vh;
@@ -579,12 +579,12 @@ nav {
   background: transparent;
 }
 
-.soundBank {
+.sound-bank {
   display: none;
 }
 
 /* Chat: top-right, newest at bottom, old messages push off top */
-.overlayChat {
+.overlay-chat {
   position: absolute;
   top: 40px;
   right: 16px;
@@ -598,7 +598,7 @@ nav {
 }
 
 /* Music + goals: bottom-left */
-.overlayGoals {
+.overlay-goals {
   position: absolute;
   left: 40px;
   bottom: 0;
@@ -607,7 +607,7 @@ nav {
 
 /* ── Music panel ────────────────────────────────────────── */
 
-.musicNow {
+.music-now {
   width: 100%;
   border-radius: 8px;
   background: rgba(28, 39, 62, 0.9);
@@ -621,7 +621,7 @@ nav {
   box-sizing: border-box;
 }
 
-.musicNowLabel {
+.music-now-label {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -629,26 +629,26 @@ nav {
   color: var(--gold);
 }
 
-.musicNowContent {
+.music-now-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 14px;
 }
 
-.musicNowIdle {
+.music-now-idle {
   color: var(--silver);
   font-size: 13px;
 }
 
-.trackInfo {
+.track-info {
   display: grid;
   justify-items: start;
   min-width: 0;
   text-align: left;
 }
 
-.trackInfo strong {
+.track-info strong {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -657,7 +657,7 @@ nav {
   color: var(--ivory);
 }
 
-.trackInfo small {
+.track-info small {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -669,7 +669,7 @@ nav {
 
 /* ── Tablet ─────────────────────────────────────────────── */
 
-.tabletShell {
+.tablet-shell {
   padding: 16px;
   background:
     radial-gradient(1200px 600px at 80% -10%, rgba(61, 43, 107, 0.12), transparent 60%),
@@ -678,11 +678,11 @@ nav {
   font-family: var(--font-body);
 }
 
-.tabletShell > header {
+.tablet-shell > header {
   margin-bottom: 20px;
 }
 
-.tabletShell .eyebrow {
+.tablet-shell .eyebrow {
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.16em;
@@ -691,7 +691,7 @@ nav {
   margin-bottom: 4px;
 }
 
-.tabletShell h1 {
+.tablet-shell h1 {
   font-family: var(--font-display);
   font-size: 34px;
   font-weight: 500;
@@ -699,7 +699,7 @@ nav {
   color: var(--ivory-50);
 }
 
-.tabletBackLink {
+.tablet-back-link {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
@@ -714,7 +714,7 @@ nav {
   transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
 }
 
-.tabletBackLink:hover {
+.tablet-back-link:hover {
   color: var(--gold-400);
   border-color: var(--border-3);
   background: rgba(255, 184, 108, 0.1);
@@ -723,21 +723,21 @@ nav {
 /* Two columns for the whole surface: a wide left rail of controls (OBS scenes,
    quick actions, soundboard) and a narrower right rail (AutoMod queue over the
    read-only chat). Each column is its own vertical stack. */
-.tabletControlGrid {
+.tablet-control-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
   gap: 16px;
   align-items: start;
 }
 
-.tabletColumn {
+.tablet-column {
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-width: 0;
 }
 
-.tabletPanel {
+.tablet-panel {
   border: 1px solid var(--border-1);
   border-left: 2px solid rgba(255, 184, 108, 0.2);
   border-radius: var(--radius-3);
@@ -751,12 +751,12 @@ nav {
    a bounded flex parent so its message list scrolls internally instead of growing the
    whole page. A fixed viewport-relative height keeps the right rail from running away
    while the AutoMod queue above it stays fully visible. */
-.tabletChatPanel {
+.tablet-chat-panel {
   display: flex;
   flex-direction: column;
 }
 
-.tabletChatBody {
+.tablet-chat-body {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -765,10 +765,10 @@ nav {
 }
 
 /* The chat is the dashboard's own component, which ships compact controls in
-   panel.css. The tablet's large touch-button chrome (.tabletShell button) is more
+   panel.css. The tablet's large touch-button chrome (.tablet-shell button) is more
    specific and would otherwise inflate the "latest" pill, so restate the compact
    pill here for anything inside the chat toolbar. */
-.tabletChatPanel .chat-bar button {
+.tablet-chat-panel .chat-bar button {
   min-height: 0;
   height: 26px;
   padding: 0 8px;
@@ -779,15 +779,15 @@ nav {
   font-size: 10px;
 }
 
-.tabletChatPanel .chat-bar button:hover:not(:disabled) {
+.tablet-chat-panel .chat-bar button:hover:not(:disabled) {
   border-color: var(--border-2);
   background: rgba(255, 255, 255, 0.03);
 }
 
 /* Segmented toggle in the chat header: chat feed vs. live chatters list. Compact
-   and scoped under .tabletShell so it out-specifies the large control-button chrome
+   and scoped under .tablet-shell so it out-specifies the large control-button chrome
    (the active button must win over that chrome's :hover too). */
-.tabletChatToggle {
+.tablet-chat-toggle {
   display: inline-flex;
   gap: 3px;
   padding: 3px;
@@ -796,7 +796,7 @@ nav {
   background: var(--bg-void);
 }
 
-.tabletShell .tabletChatToggle button {
+.tablet-shell .tablet-chat-toggle button {
   min-height: 0;
   padding: 6px 14px;
   border: 0;
@@ -809,20 +809,20 @@ nav {
   text-transform: uppercase;
 }
 
-.tabletShell .tabletChatToggle button.active {
+.tablet-shell .tablet-chat-toggle button.active {
   background: var(--gold-500);
   color: var(--navy-950);
 }
 
 /* The chatters list normally scrolls inside .panel-body; give it the same bounded
    scroll here so it fills the chat body instead of overflowing the panel. */
-.tabletChatBody .chatter-list {
+.tablet-chat-body .chatter-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
 
-.tabletPanelHeader {
+.tablet-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -830,14 +830,14 @@ nav {
   margin-bottom: 16px;
 }
 
-.tabletPanelHeader h2 {
+.tablet-panel-header h2 {
   margin: 0;
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 500;
 }
 
-.tabletStatusGroup {
+.tablet-status-group {
   display: inline-flex;
   align-items: center;
   gap: 16px;
@@ -845,7 +845,7 @@ nav {
   justify-content: flex-end;
 }
 
-.tabletStatus {
+.tablet-status {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -856,35 +856,35 @@ nav {
   text-transform: uppercase;
 }
 
-.tabletStatusDot {
+.tablet-status-dot {
   width: 9px;
   height: 9px;
   border-radius: 999px;
 }
 
-.tabletStatusDot.connected {
+.tablet-status-dot.connected {
   background: var(--success-base);
   box-shadow: 0 0 8px rgba(127, 200, 163, 0.6);
 }
 
-.tabletStatusDot.disconnected {
+.tablet-status-dot.disconnected {
   background: var(--danger-base);
   box-shadow: 0 0 8px rgba(224, 122, 107, 0.5);
 }
 
 /* Studio Mode off is a resting state, not an error — dim rather than red. */
-.tabletStatusDot.idle {
+.tablet-status-dot.idle {
   background: var(--silver-600);
 }
 
-.obsSceneSummary {
+.obs-scene-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 16px;
 }
 
-.obsSceneSummary > div {
+.obs-scene-summary > div {
   flex: 1 1 140px;
   min-width: 0;
   border: 1px solid var(--border-1);
@@ -893,9 +893,9 @@ nav {
   padding: 10px 12px;
 }
 
-.obsSceneSummary span,
-.sceneButton small,
-.transitionButton small {
+.obs-scene-summary span,
+.scene-button small,
+.transition-button small {
   display: block;
   color: var(--fg-3);
   font-family: var(--font-mono);
@@ -904,7 +904,7 @@ nav {
   text-transform: uppercase;
 }
 
-.obsSceneSummary b {
+.obs-scene-summary b {
   display: block;
   margin-top: 4px;
   overflow: hidden;
@@ -913,7 +913,7 @@ nav {
   font-size: 15px;
 }
 
-.tabletError {
+.tablet-error {
   margin-bottom: 14px;
   border: 1px solid var(--danger-border);
   border-radius: var(--radius-2);
@@ -923,13 +923,13 @@ nav {
   font-size: 13px;
 }
 
-.tabletButtonGrid {
+.tablet-button-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
 
-.tabletButtonGrid button {
+.tablet-button-grid button {
   min-height: 60px;
   padding: 10px 12px;
   overflow-wrap: anywhere;
@@ -939,15 +939,15 @@ nav {
    keeps the empty tracks so a group of three reads at the same size as a group of a
    dozen. The 165px floor lands on ~7-8 per row at Surface Pro width while keeping
    every button comfortably readable and touchable, and wraps down on smaller screens. */
-.mediaPanel .tabletButtonGrid {
+.media-panel .tablet-button-grid {
   grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
 }
 
-.mediaGroup + .mediaGroup {
+.media-group + .media-group {
   margin-top: 16px;
 }
 
-.mediaGroupLabel {
+.media-group-label {
   margin: 0 0 8px;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -956,21 +956,21 @@ nav {
   color: var(--fg-3);
 }
 
-.sceneButton {
+.scene-button {
   display: grid;
   align-content: center;
   gap: 4px;
   font-size: 16px;
 }
 
-.sceneButton small {
+.scene-button small {
   color: var(--gold-400);
 }
 
 /* Solid gold so the live scene reads at a glance — the color alone marks it,
    no "Live" label needed. Matches the dashboard's active scene chip. */
-.sceneButton.current,
-.sceneButton.current:disabled {
+.scene-button.current,
+.scene-button.current:disabled {
   border-color: var(--gold-400);
   background: var(--gold-500);
   color: var(--navy-950);
@@ -978,14 +978,14 @@ nav {
   opacity: 1;
 }
 
-.sceneButton.current small {
+.scene-button.current small {
   color: var(--navy-800);
 }
 
 /* Transition is an action, not a scene — pulled out of the grid and given a
    distinct arcane outline so it can't be mistaken for a scene tile. Scoped under
-   .tabletShell to win over the base button hover styles without !important. */
-.tabletShell .transitionButton {
+   .tablet-shell to win over the base button hover styles without !important. */
+.tablet-shell .transition-button {
   margin-top: 12px;
   width: 100%;
   min-height: 60px;
@@ -998,20 +998,20 @@ nav {
   letter-spacing: 0.02em;
 }
 
-.tabletShell .transitionButton:hover:not(:disabled) {
+.tablet-shell .transition-button:hover:not(:disabled) {
   border-color: var(--fg-arcane);
   background: rgba(107, 79, 184, 0.24);
 }
 
-.transitionButton small {
+.transition-button small {
   color: var(--fg-arcane);
 }
 
 /* Sits in the Media panel header rather than the button grid, so it keeps the
    tablet's default border but takes a compact header size instead of a full
    touch-target tile. The engaged state reuses the same danger trio as
-   .tabletError so a lit mute reads the same as any other alarm on this surface. */
-.tabletMuteButton {
+   .tablet-error so a lit mute reads the same as any other alarm on this surface. */
+.tablet-mute-button {
   min-height: 40px;
   padding: 8px 14px;
   border: 1px solid var(--border-2);
@@ -1019,7 +1019,7 @@ nav {
   font-size: 13px;
 }
 
-.tabletMuteButton.active {
+.tablet-mute-button.active {
   border-color: var(--danger-border);
   background: var(--danger-bg);
   color: var(--danger-fg);
@@ -1036,26 +1036,26 @@ nav {
   to   { opacity: 0; transform: translateX(18px); }
 }
 
-.chatPanel.compact .chatMessage {
+.chat-panel.compact .chat-message {
   animation: chatIn 0.24s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: opacity, transform;
 }
 
-.chatPanel.compact .chatMessage.exiting {
+.chat-panel.compact .chat-message.exiting {
   animation: chatOut 0.45s ease-in forwards;
   pointer-events: none;
 }
 
 @media (max-width: 900px) {
-  .dashboardGrid,
+  .dashboard-grid,
   .tablet,
-  .tabletControlGrid,
-  .obsSceneSummary {
+  .tablet-control-grid,
+  .obs-scene-summary {
     grid-template-columns: 1fr;
   }
 
-  .appShell > header,
-  .tabletShell > header {
+  .app-shell > header,
+  .tablet-shell > header {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1063,13 +1063,13 @@ nav {
 
 /* ── AutoMod queue ────────────────────────────────────────── */
 
-.automodPanel {
+.automod-panel {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.automodItem {
+.automod-item {
   border: 1px solid var(--border-1);
   border-radius: var(--radius-3);
   background: var(--bg-void);
@@ -1079,33 +1079,33 @@ nav {
   gap: 8px;
 }
 
-.automodItemHead {
+.automod-item-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
-.automodTag {
+.automod-tag {
   font-size: 11px;
   color: var(--silver);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
-.automodMessage {
+.automod-message {
   margin: 0;
   color: var(--ivory);
   overflow-wrap: anywhere;
 }
 
-.automodError {
+.automod-error {
   margin: 0;
   color: var(--danger-fg);
   font-size: 12px;
 }
 
-.automodNotice {
+.automod-notice {
   margin: 0;
   padding: 8px 10px;
   font-size: 12px;
@@ -1115,17 +1115,17 @@ nav {
   border-radius: 8px;
 }
 
-.automodNotice code {
+.automod-notice code {
   font-size: 11px;
   opacity: 0.9;
 }
 
-.automodItemActions {
+.automod-item-actions {
   display: flex;
   gap: 8px;
 }
 
-.automodItemActions button {
+.automod-item-actions button {
   min-height: 36px;
   padding: 6px 14px;
   border: 1px solid var(--border-2);
@@ -1134,22 +1134,22 @@ nav {
   color: var(--fg-1);
 }
 
-.automodItemActions button:hover:not(:disabled) {
+.automod-item-actions button:hover:not(:disabled) {
   border-color: var(--gold);
 }
 
-.automodItemActions button.accent {
+.automod-item-actions button.accent {
   background: var(--arcane);
   border-color: var(--gold);
 }
 
-.automodItemActions button.dangerButton {
+.automod-item-actions button.danger-button {
   background: var(--danger-bg);
   border-color: var(--danger-border);
   color: var(--danger-fg);
 }
 
-.automodHistory {
+.automod-history {
   border-top: 1px solid var(--border-1);
   margin-top: 4px;
   padding-top: 10px;
@@ -1158,7 +1158,7 @@ nav {
   gap: 6px;
 }
 
-.automodHistoryLabel {
+.automod-history-label {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -1167,7 +1167,7 @@ nav {
   margin: 0;
 }
 
-.automodHistoryItem {
+.automod-history-item {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -1178,21 +1178,21 @@ nav {
 /* Action `show_text` steps. Fully transparent when idle, so this is safe as its
    own full-canvas OBS source positioned independently of the other overlays.
    The three styles differ only in placement and weight; keep them within the
-   same visual language as .alertText. */
-.overlayTextWidget {
+   same visual language as .alert-text. */
+.overlay-text-widget {
   width: 100vw;
   height: 100vh;
   display: flex;
   overflow: hidden;
 }
 
-.overlayTextCard {
+.overlay-text-card {
   display: flex;
   margin: 0;
   animation: overlayTextIn 380ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.overlayTextBody {
+.overlay-text-body {
   padding: 16px 28px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1210,35 +1210,35 @@ nav {
 }
 
 /* banner: across the top. */
-.overlayTextCard--banner {
+.overlay-text-card--banner {
   align-self: flex-start;
   margin: 48px auto 0;
   max-width: 80vw;
 }
-.overlayTextCard--banner .overlayTextBody { font-size: 30px; }
+.overlay-text-card--banner .overlay-text-body { font-size: 30px; }
 
 /* toast: small, out of the way, bottom-right. */
-.overlayTextCard--toast {
+.overlay-text-card--toast {
   align-self: flex-end;
   margin: 0 32px 32px auto;
   max-width: 40vw;
 }
-.overlayTextCard--toast .overlayTextBody { font-size: 20px; padding: 10px 18px; }
+.overlay-text-card--toast .overlay-text-body { font-size: 20px; padding: 10px 18px; }
 
 /* centered: the loud one. */
-.overlayTextCard--centered {
+.overlay-text-card--centered {
   align-self: center;
   margin: auto;
   max-width: 80vw;
 }
-.overlayTextCard--centered .overlayTextBody { font-size: 44px; }
+.overlay-text-card--centered .overlay-text-body { font-size: 44px; }
 
 /* Tone accents, matching the alert card these replaced so a migrated sub alert
    still reads gold and a cheer blue. */
-.overlayTextCard--warning .overlayTextBody { --overlay-text-accent: #ffb86c; }
-.overlayTextCard--info    .overlayTextBody { --overlay-text-accent: #8be9fd; }
-.overlayTextCard--note    .overlayTextBody { --overlay-text-accent: #bd93f9; }
-.overlayTextCard--silver  .overlayTextBody { --overlay-text-accent: #d0d4dc; }
+.overlay-text-card--warning .overlay-text-body { --overlay-text-accent: #ffb86c; }
+.overlay-text-card--info    .overlay-text-body { --overlay-text-accent: #8be9fd; }
+.overlay-text-card--note    .overlay-text-body { --overlay-text-accent: #bd93f9; }
+.overlay-text-card--silver  .overlay-text-body { --overlay-text-accent: #d0d4dc; }
 
 @keyframes overlayTextIn {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
@@ -1246,16 +1246,16 @@ nav {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .overlayTextCard { animation: none; }
+  .overlay-text-card { animation: none; }
 }
 
-/* Quick actions: manual automation triggers on the tablet. Reuses .tabletPanel and
-   .tabletButtonGrid; only the last-run tone is new. A disarmed button (its module is
+/* Quick actions: manual automation triggers on the tablet. Reuses .tablet-panel and
+   .tablet-button-grid; only the last-run tone is new. A disarmed button (its module is
    not active) falls back to the shared :disabled styling. */
-.quickActionsPanel {
+.quick-actions-panel {
   grid-column: 1 / -1;
 }
 
-.quickActionTone-ok { border-color: var(--success-border); }
-.quickActionTone-warn { border-color: var(--warning-border); }
-.quickActionTone-error { border-color: var(--danger-border); }
+.quick-action-tone-ok { border-color: var(--success-border); }
+.quick-action-tone-warn { border-color: var(--warning-border); }
+.quick-action-tone-error { border-color: var(--danger-border); }

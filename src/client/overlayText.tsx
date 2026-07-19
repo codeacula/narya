@@ -50,10 +50,10 @@ export function OverlayTextStage({ item, onFinished }: { item: OverlayTextPlayba
 
   return (
     <div
-      className={`overlayTextCard overlayTextCard--${item.style}${item.tone ? ` overlayTextCard--${item.tone}` : ''}`}
+      className={`overlay-text-card overlay-text-card--${item.style}${item.tone ? ` overlay-text-card--${item.tone}` : ''}`}
       key={item.id}
     >
-      <div className="overlayTextBody">{item.text}</div>
+      <div className="overlay-text-body">{item.text}</div>
     </div>
   );
 }

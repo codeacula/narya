@@ -80,7 +80,7 @@ export function TabletPage() {
   const obsUnavailable = !obsStatus.connected;
   const hasScenes = scenes.length > 0;
   const controlsDisabled = obsUnavailable || Boolean(pendingAction);
-  const connectionClass = obsStatus.connected ? 'tabletStatusDot connected' : 'tabletStatusDot disconnected';
+  const connectionClass = obsStatus.connected ? 'tablet-status-dot connected' : 'tablet-status-dot disconnected';
 
   async function runObsCommand(action: string, command: () => Promise<{ obsStatus?: ObsStatus }>) {
     setPendingAction(action);
@@ -108,37 +108,37 @@ export function TabletPage() {
   }
 
   return (
-    <main className="tabletShell">
+    <main className="tablet-shell">
       <header>
         <div>
           <p className="eyebrow">Tablet Panel</p>
           <h1>Stream Controls</h1>
         </div>
-        <a className="tabletBackLink" href="/">Dashboard</a>
+        <a className="tablet-back-link" href="/">Dashboard</a>
       </header>
 
-      <div className="tabletControlGrid">
-        <div className="tabletColumn">
-          <section className="tabletPanel obsPanel">
-            <div className="tabletPanelHeader">
+      <div className="tablet-control-grid">
+        <div className="tablet-column">
+          <section className="tablet-panel obsPanel">
+            <div className="tablet-panel-header">
               <div>
                 <p className="eyebrow">OBS</p>
                 <h2>Scene Control</h2>
               </div>
-              <div className="tabletStatusGroup">
-                <span className="tabletStatus">
+              <div className="tablet-status-group">
+                <span className="tablet-status">
                   <span className={connectionClass} />
                   {obsStatus.connected ? 'Connected' : 'Unavailable'}
                 </span>
-                <span className="tabletStatus">
-                  <span className={'tabletStatusDot ' + (obsStatus.studioMode ? 'connected' : 'idle')} />
+                <span className="tablet-status">
+                  <span className={'tablet-status-dot ' + (obsStatus.studioMode ? 'connected' : 'idle')} />
                   Studio {obsStatus.studioMode ? 'On' : 'Off'}
                 </span>
               </div>
             </div>
 
             {programOffList || obsStatus.studioMode ? (
-              <div className="obsSceneSummary">
+              <div className="obs-scene-summary">
                 {programOffList ? (
                   <div>
                     <span>Program</span>
@@ -155,13 +155,13 @@ export function TabletPage() {
             ) : null}
 
             {statusError || obsStatus.lastError || commandError ? (
-              <p className="tabletError">{commandError ?? statusError ?? obsStatus.lastError}</p>
+              <p className="tablet-error">{commandError ?? statusError ?? obsStatus.lastError}</p>
             ) : null}
 
-            <div className="tabletButtonGrid sceneGrid">
+            <div className="tablet-button-grid sceneGrid">
               {hasScenes ? scenes.map(scene => {
                 const isCurrent = scene === obsStatus.currentProgramScene;
-                const className = isCurrent ? 'sceneButton current' : 'sceneButton';
+                const className = isCurrent ? 'scene-button current' : 'scene-button';
                 const isPending = pendingAction === `scene:${scene}`;
                 return (
                   <button
@@ -183,7 +183,7 @@ export function TabletPage() {
 
             {obsStatus.studioMode ? (
               <button
-                className="transitionButton"
+                className="transition-button"
                 disabled={controlsDisabled}
                 onClick={() => {
                   void runObsCommand('transition', triggerObsTransition);
@@ -197,15 +197,15 @@ export function TabletPage() {
 
           <TabletQuickActions />
 
-          <section className="tabletPanel mediaPanel">
-            <div className="tabletPanelHeader">
+          <section className="tablet-panel media-panel">
+            <div className="tablet-panel-header">
               <div>
                 <p className="eyebrow">Soundboard</p>
                 <h2>Media</h2>
               </div>
               <button
                 type="button"
-                className={'tabletMuteButton' + (media.muted ? ' active' : '')}
+                className={'tablet-mute-button' + (media.muted ? ' active' : '')}
                 aria-pressed={media.muted}
                 disabled={media.busy}
                 onClick={event => { blurIfPointer(event); media.toggle(!media.muted); }}
@@ -214,9 +214,9 @@ export function TabletPage() {
               </button>
             </div>
 
-            <div className="mediaGroup">
-              <p className="mediaGroupLabel">Sounds</p>
-              <div className="tabletButtonGrid">
+            <div className="media-group">
+              <p className="media-group-label">Sounds</p>
+              <div className="tablet-button-grid">
                 {soundButtons.length > 0 ? soundButtons.map(sound => (
                   <button
                     key={sound.id}
@@ -228,9 +228,9 @@ export function TabletPage() {
               </div>
             </div>
 
-            <div className="mediaGroup">
-              <p className="mediaGroupLabel">Clips</p>
-              <div className="tabletButtonGrid">
+            <div className="media-group">
+              <p className="media-group-label">Clips</p>
+              <div className="tablet-button-grid">
                 {clipButtons.length > 0 ? clipButtons.map(clip => (
                   <button
                     key={clip.id}
@@ -244,9 +244,9 @@ export function TabletPage() {
           </section>
         </div>
 
-        <div className="tabletColumn">
-          <section className="tabletPanel automodPanel">
-            <div className="tabletPanelHeader">
+        <div className="tablet-column">
+          <section className="tablet-panel automod-panel">
+            <div className="tablet-panel-header">
               <div>
                 <p className="eyebrow">Moderation</p>
                 <h2>AutoMod Queue</h2>

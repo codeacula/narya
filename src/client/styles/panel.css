@@ -375,16 +375,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 /* overflow-wrap: a pasted URL is one unbroken token and would otherwise push the
    chat column wider than the panel. */
 .msg-text { color: var(--ivory-100); overflow-wrap: anywhere; }
-.msg-text .chatLink {
+.msg-text .chat-link {
   color: var(--fg-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
   text-decoration-color: color-mix(in srgb, var(--fg-accent) 45%, transparent);
 }
-.msg-text .chatLink:hover { text-decoration-color: currentColor; }
+.msg-text .chat-link:hover { text-decoration-color: currentColor; }
 /* Inline chat emotes (Twitch + BTTV/7TV) sized for the dense dashboard list;
-   the overlay's larger .chatEmote base is overridden here by higher specificity. */
-.msg-text .chatEmote { height: 22px; width: auto; vertical-align: middle; margin: 0 1px; }
+   the overlay's larger .chat-emote base is overridden here by higher specificity. */
+.msg-text .chat-emote { height: 22px; width: auto; vertical-align: middle; margin: 0 1px; }
 .msg-time { float: right; font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); opacity: 0; transition: opacity var(--dur-fast); }
 .msg:hover .msg-time { opacity: 1; }
 .msg.hl-first,
@@ -395,7 +395,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .msg.hl-mod { border-left-color: var(--success-base); background: rgba(80,250,123,0.09); }
 .msg.hl-vip { border-left-color: var(--note-base); background: rgba(159,110,235,0.11); }
 /* Someone said your name — the visual half of the ping cue, gold to match the
-   overlay's .chatMessage.mention. Placed after the hl- tints deliberately: at equal
+   overlay's .chat-message.mention. Placed after the hl- tints deliberately: at equal
    specificity the later rule wins, so "they're talking to you" outranks the role
    colour of whoever said it. */
 .msg.msg--mention {
@@ -522,7 +522,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .spot-recent { display: flex; flex-direction: column; gap: 6px; }
 .spot-recent .rmsg { display: flex; gap: 10px; font-size: 12px; color: var(--ivory-100); }
 .spot-recent .rmsg .ago { font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); flex: none; width: 38px; }
-.spot-recent .rmsg .body .chatEmote { height: 18px; width: auto; vertical-align: middle; margin: 0 1px; }
+.spot-recent .rmsg .body .chat-emote { height: 18px; width: auto; vertical-align: middle; margin: 0 1px; }
 .spot-recent .rmsg.event .body { color: var(--warning-fg); }
 .spot-recent .rmsg.mod .body { color: var(--success-fg); }
 .spot-actions { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2376,7 +2376,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 /* ============================================================
    Toast notifications + Settings inline alerts
    ============================================================ */
-.toastStack {
+.toast-stack {
   position: fixed;
   top: var(--space-4);
   right: var(--space-4);

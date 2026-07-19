@@ -25,11 +25,11 @@ export function MusicPanel() {
   const hasTrack = (music?.status === 'playing' || music?.status === 'paused') && music.title;
 
   return (
-    <div className="musicNow">
-      <span className="musicNowLabel">Now playing</span>
-      <div className="musicNowContent">
+    <div className="music-now">
+      <span className="music-now-label">Now playing</span>
+      <div className="music-now-content">
         {hasTrack ? (
-          <div className="trackInfo">
+          <div className="track-info">
             <strong>{music!.title}</strong>
             <small>
               {music!.status === 'paused' ? 'Paused' : ''}
@@ -38,7 +38,7 @@ export function MusicPanel() {
             </small>
           </div>
         ) : (
-          <span className="musicNowIdle">No music playing</span>
+          <span className="music-now-idle">No music playing</span>
         )}
       </div>
     </div>

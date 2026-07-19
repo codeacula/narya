@@ -143,17 +143,17 @@ export function TabletQuickActions() {
   const { actions, loading, error, runs, runningId, run } = useQuickActions();
 
   return (
-    <section className="tabletPanel quickActionsPanel">
-      <div className="tabletPanelHeader">
+    <section className="tablet-panel quick-actions-panel">
+      <div className="tablet-panel-header">
         <div>
           <p className="eyebrow">Automation</p>
           <h2>Quick actions</h2>
         </div>
       </div>
 
-      {error && <p className="tabletError">{error}</p>}
+      {error && <p className="tablet-error">{error}</p>}
 
-      <div className="tabletButtonGrid">
+      <div className="tablet-button-grid">
         {loading ? (
           <p className="muted">Loading…</p>
         ) : actions.length === 0 ? (
@@ -164,7 +164,7 @@ export function TabletQuickActions() {
           return (
             <button
               key={action.id}
-              className={tone ? `quickActionTone-${tone}` : undefined}
+              className={tone ? `quick-action-tone-${tone}` : undefined}
               disabled={runningId === action.id || !action.armed}
               title={action.armed ? undefined : `Only fires while ${action.moduleName} is the active module.`}
               onClick={() => run(action.id)}

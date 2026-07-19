@@ -80,13 +80,13 @@ export function TabletChatPanel() {
   const [view, setView] = React.useState<ChatView>('chat');
 
   return (
-    <section className="tabletPanel tabletChatPanel">
-      <div className="tabletPanelHeader">
+    <section className="tablet-panel tablet-chat-panel">
+      <div className="tablet-panel-header">
         <div>
           <p className="eyebrow">Twitch</p>
           <h2>{view === 'chat' ? 'Chat' : 'Chatters'}</h2>
         </div>
-        <div className="tabletChatToggle" role="group" aria-label="Chat panel view">
+        <div className="tablet-chat-toggle" role="group" aria-label="Chat panel view">
           <button
             type="button"
             className={view === 'chat' ? 'active' : undefined}
@@ -105,7 +105,7 @@ export function TabletChatPanel() {
           </button>
         </div>
       </div>
-      <div className="tabletChatBody">
+      <div className="tablet-chat-body">
         {view === 'chat' ? (
           <Chat ctx={ctx} />
         ) : (

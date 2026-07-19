@@ -39,11 +39,11 @@ function App() {
   const isOverlay = overlay !== null;
 
   React.useEffect(() => {
-    document.documentElement.classList.toggle('overlayPage', isOverlay);
-    document.body.classList.toggle('overlayPage', isOverlay);
+    document.documentElement.classList.toggle('overlay-page', isOverlay);
+    document.body.classList.toggle('overlay-page', isOverlay);
     return () => {
-      document.documentElement.classList.remove('overlayPage');
-      document.body.classList.remove('overlayPage');
+      document.documentElement.classList.remove('overlay-page');
+      document.body.classList.remove('overlay-page');
     };
   }, [isOverlay]);
 

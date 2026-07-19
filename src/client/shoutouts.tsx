@@ -92,14 +92,14 @@ export function ShoutoutTicker({ shoutouts }: { shoutouts: SessionShoutout[] }) 
   if (!current) return null;
 
   return (
-    <div className="shoutoutTicker">
-      <div className="shoutoutLabel">thanks to</div>
-      <div className={'shoutoutCard' + (visible ? ' isVisible' : '')}>
-        <div className="shoutoutName">{current.actor}</div>
-        <div className="shoutoutVerb">{shoutoutVerb(current.kinds)}</div>
+    <div className="shoutout-ticker">
+      <div className="shoutout-label">thanks to</div>
+      <div className={'shoutout-card' + (visible ? ' is-visible' : '')}>
+        <div className="shoutout-name">{current.actor}</div>
+        <div className="shoutout-verb">{shoutoutVerb(current.kinds)}</div>
       </div>
       {ordered.length > 1 && (
-        <div className="shoutoutCount">{(index % ordered.length) + 1} / {ordered.length}</div>
+        <div className="shoutout-count">{(index % ordered.length) + 1} / {ordered.length}</div>
       )}
     </div>
   );

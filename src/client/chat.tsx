@@ -26,7 +26,7 @@ export function renderWords(
   text.split(/(\s+)/).forEach((part, i) => {
     const emote = emoteMap[part];
     if (emote) {
-      nodes.push(<img key={`bttv-${baseKey}-${i}`} className="chatEmote" src={emote} alt={part} title={part} />);
+      nodes.push(<img key={`bttv-${baseKey}-${i}`} className="chat-emote" src={emote} alt={part} title={part} />);
       return;
     }
 
@@ -38,7 +38,7 @@ export function renderWords(
       nodes.push(
         <a
           key={`url-${baseKey}-${i}`}
-          className="chatLink"
+          className="chat-link"
           href={link.href}
           target="_blank"
           rel="noopener noreferrer nofollow"
@@ -86,7 +86,7 @@ export function renderContent(
   for (const range of ranges) {
     if (cursor < range.start) nodes.push(...renderWords(chars.slice(cursor, range.start).join(''), emoteMap, cursor));
     nodes.push(
-      <img key={`t-${range.start}`} className="chatEmote" src={range.url} alt={range.name} title={range.name} />,
+      <img key={`t-${range.start}`} className="chat-emote" src={range.url} alt={range.name} title={range.name} />,
     );
     cursor = range.end + 1;
   }
@@ -203,7 +203,7 @@ export function ChatPanel({ compact = false }: { compact?: boolean }) {
   const visibleMessages = compact ? [...filtered].reverse() : filtered;
 
   return (
-    <section className={compact ? 'chatPanel compact' : 'chatPanel'}>
+    <section className={compact ? 'chat-panel compact' : 'chat-panel'}>
       {visibleMessages.length === 0 && !compact ? (
         <p className="muted">Waiting for Twitch chat…</p>
       ) : null}
@@ -211,9 +211,9 @@ export function ChatPanel({ compact = false }: { compact?: boolean }) {
         const role = getRole(message.badges);
         const isMention = isMentionOf(message.message, channel);
         const classes = [
-          'chatMessage',
+          'chat-message',
           message.deletedAt ? 'moderated' : '',
-          message.isFirstTimer ? 'firstTime' : '',
+          message.isFirstTimer ? 'first-time' : '',
           isMention ? 'mention' : '',
           message.isExiting ? 'exiting' : '',
         ].filter(Boolean).join(' ');

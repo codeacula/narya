@@ -144,13 +144,13 @@ export function ClipStage({ item, onFinished }: { item: MediaPlayback | null; on
   // the clip plays inside a wrapper that draws them around it.
   return (
     <div
-      className={`clipFrame${aspectRatio === null ? '' : ' clipFrameReady'}`}
+      className={`clip-frame${aspectRatio === null ? '' : ' clip-frame-ready'}`}
       key={item.id}
       style={frameStyle}
     >
       <video
         ref={el => { mediaRef.current = el; }}
-        className="clipVideo"
+        className="clip-video"
         src={item.src}
         playsInline
         onLoadedMetadata={event => {

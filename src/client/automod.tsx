@@ -116,18 +116,18 @@ function AutomodItem({
   }
 
   return (
-    <article className="automodItem">
-      <div className="automodItemHead">
+    <article className="automod-item">
+      <div className="automod-item-head">
         <strong>{hold.displayName}</strong>
         {hold.category ? (
-          <span className="automodTag">{hold.category}{hold.level != null ? ` · L${hold.level}` : ''}</span>
+          <span className="automod-tag">{hold.category}{hold.level != null ? ` · L${hold.level}` : ''}</span>
         ) : null}
       </div>
-      <p className="automodMessage">{hold.message}</p>
-      {error ? <p className="automodError">{error}</p> : null}
-      <div className="automodItemActions">
+      <p className="automod-message">{hold.message}</p>
+      {error ? <p className="automod-error">{error}</p> : null}
+      <div className="automod-item-actions">
         <button className="accent" disabled={busy} onClick={() => void act(onAllow)}>Allow</button>
-        <button className="dangerButton" disabled={busy} onClick={() => void act(onDeny)}>Deny</button>
+        <button className="danger-button" disabled={busy} onClick={() => void act(onDeny)}>Deny</button>
       </div>
     </article>
   );
@@ -145,25 +145,25 @@ export function AutomodPanel({
   const { pending, recentlyResolved, error, allow, deny } = queue;
 
   return (
-    <div className="automodPanel">
+    <div className="automod-panel">
       {subscriptionInactive ? (
-        <p className="automodNotice">
+        <p className="automod-notice">
           AutoMod isn’t connected — reconnect Twitch in Settings to grant
           <code> moderator:manage:automod</code> and start receiving held messages.
         </p>
       ) : null}
       {error ? (
-        <p className="automodError">{error}</p>
+        <p className="automod-error">{error}</p>
       ) : pending.length === 0 ? (
         <div className="panel-empty">No messages currently held.</div>
       ) : (
         pending.map(hold => <AutomodItem key={hold.id} hold={hold} onAllow={allow} onDeny={deny} />)
       )}
       {showHistory && recentlyResolved.length > 0 ? (
-        <div className="automodHistory">
-          <p className="automodHistoryLabel">Recently resolved</p>
+        <div className="automod-history">
+          <p className="automod-history-label">Recently resolved</p>
           {recentlyResolved.map(hold => (
-            <div className="automodHistoryItem" key={hold.id}>
+            <div className="automod-history-item" key={hold.id}>
               <span>{hold.displayName}</span>
               <em>{hold.resolution}{hold.resolvedBy ? ` · ${hold.resolvedBy}` : ''}</em>
             </div>

@@ -183,8 +183,8 @@ src/
         automation.ts         # React-free step/trigger limits, validation, run-result formatting
     styles/
       tokens.css        # design tokens (colors, type, spacing, motion)
-      panel.css         # cockpit layout + component styles (kebab-case classes)
-    styles.css          # overlay/tablet styles (camelCase classes)
+      panel.css         # cockpit layout + component styles
+    styles.css          # overlay/tablet styles
   server/
     index.ts            # Express routes and server startup
     appConfig.ts        # database-backed runtime config store (GET/PUT /api/config)
@@ -292,7 +292,7 @@ When verifying a migration against real data, snapshot with `VACUUM INTO`, not `
 - TypeScript strict mode; no linter or formatter configured — match existing two-space indentation.
 - Client/server API and WebSocket contracts live in `src/shared/api.ts`; import those instead of duplicating payload interfaces.
 - When a shared API or WebSocket contract changes, trace every producer and consumer. Check REST initialization and subsequent WebSocket updates together; they must agree on payload shape, ordering, deduplication, and stale-state behavior.
-- React components in PascalCase, hooks in `useCamelCase`, CSS classes in camelCase (`.chatPanel`, `.overlayFrame`).
+- React components in PascalCase, hooks in `useCamelCase`, CSS classes in kebab-case (`.chat-panel`, `.overlay-frame`).
 - Overlay CSS must stay browser-source friendly: transparent background, fixed-position regions, no app chrome.
 - Commits use semantic messages: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:` prefix, short imperative description (e.g. `feat: add chat command replies`).
 

@@ -59,8 +59,8 @@ export function OverlayPlaceholder({ name }: { name: string }) {
   if (!enabled) return null;
 
   return (
-    <div className="overlayPlaceholder" aria-hidden="true">
-      <span className="overlayPlaceholderLabel">{OVERLAY_LABELS[name] ?? name}</span>
+    <div className="overlay-placeholder" aria-hidden="true">
+      <span className="overlay-placeholder-label">{OVERLAY_LABELS[name] ?? name}</span>
     </div>
   );
 }

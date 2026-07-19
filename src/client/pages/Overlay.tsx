@@ -13,7 +13,7 @@ export function OverlaySoundsPage() {
   useSoundEvents(audioRefs);
   useTtsEvents();
   return (
-    <main className="soundBank" aria-label="Sound playback overlay">
+    <main className="sound-bank" aria-label="Sound playback overlay">
       {quackSoundSources.map(src => (
         <audio
           key={src}
@@ -28,7 +28,7 @@ export function OverlaySoundsPage() {
 
 export function OverlayChatPage() {
   return (
-    <main className="overlayWidget overlayChatWidget">
+    <main className="overlay-widget overlay-chat-widget">
       <ChatPanel compact />
     </main>
   );
@@ -36,7 +36,7 @@ export function OverlayChatPage() {
 
 export function OverlayNowPlayingPage() {
   return (
-    <main className="overlayWidget overlayNowPlayingWidget">
+    <main className="overlay-widget overlay-now-playing-widget">
       <MusicPanel />
     </main>
   );
@@ -45,7 +45,7 @@ export function OverlayNowPlayingPage() {
 export function OverlayClipsPage() {
   const { current, currentAudio, onFinished } = useMediaQueue();
   return (
-    <main className="overlayWidget overlayClipsWidget" aria-label="Redeem clip overlay">
+    <main className="overlay-widget overlay-clips-widget" aria-label="Redeem clip overlay">
       {/* Two lanes: only video is visually exclusive, so a sound never waits out a
           clip. See useMediaQueue. */}
       <ClipStage item={current} onFinished={onFinished} />
@@ -58,8 +58,8 @@ export function OverlayStatusPage() {
   const status = useStreamStatus();
   const text = status?.text ?? '';
   return (
-    <main className="overlayWidget overlayStatusWidget" aria-label="Stream status overlay">
-      {text ? <div className="overlayStatusText">{text}</div> : null}
+    <main className="overlay-widget overlay-status-widget" aria-label="Stream status overlay">
+      {text ? <div className="overlay-status-text">{text}</div> : null}
     </main>
   );
 }
@@ -67,7 +67,7 @@ export function OverlayStatusPage() {
 export function OverlayTextPage() {
   const { current, onFinished } = useOverlayTextQueue();
   return (
-    <main className="overlayWidget overlayTextWidget" aria-label="Action text overlay">
+    <main className="overlay-widget overlay-text-widget" aria-label="Action text overlay">
       <OverlayTextStage item={current} onFinished={onFinished} />
     </main>
   );
@@ -76,7 +76,7 @@ export function OverlayTextPage() {
 export function OverlayShoutoutsPage() {
   const shoutouts = useSessionShoutouts();
   return (
-    <main className="overlayWidget overlayShoutoutsWidget" aria-label="Stream shoutouts overlay">
+    <main className="overlay-widget overlay-shoutouts-widget" aria-label="Stream shoutouts overlay">
       <ShoutoutTicker shoutouts={shoutouts} />
     </main>
   );
@@ -95,8 +95,8 @@ export function OverlayShoutoutsPage() {
  */
 export function OverlayUnknownPage({ path }: { path: string }) {
   return (
-    <main className="overlayWidget overlayUnknownWidget" aria-label="Unknown overlay">
-      <div className="overlayUnknownNotice">
+    <main className="overlay-widget overlay-unknown-widget" aria-label="Unknown overlay">
+      <div className="overlay-unknown-notice">
         <strong>Narya: no overlay at {path}</strong>
         <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, or /status.</span>
       </div>
@@ -106,11 +106,11 @@ export function OverlayUnknownPage({ path }: { path: string }) {
 
 export function OverlayPage() {
   return (
-    <main className="overlayFrame">
-      <div className="overlayChat">
+    <main className="overlay-frame">
+      <div className="overlay-chat">
         <ChatPanel compact />
       </div>
-      <div className="overlayGoals">
+      <div className="overlay-goals">
         <MusicPanel />
       </div>
     </main>
