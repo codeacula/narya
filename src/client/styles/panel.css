@@ -334,6 +334,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-3);
 }
 .msg {
+  position: relative; /* containing block for the hover moderation actions */
   padding: var(--row-pad-y) 14px;
   font-size: 15px; line-height: 1.5;
   border-left: 2px solid transparent;
@@ -385,6 +386,68 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .msg-text .chat-emote { height: 22px; width: auto; vertical-align: middle; margin: 0 1px; }
 .msg-time { float: right; font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); opacity: 0; transition: opacity var(--dur-fast); }
 .msg:hover .msg-time { opacity: 1; }
+
+/* Inline moderation. Taken out of flow rather than floated: a reserved float box
+   would cost every row ~70px of text width forever to buy a no-reflow hover,
+   whereas absolute positioning gets the no-reflow for free. The row never moves
+   under the pointer as chat scrolls, and idle rows keep their full width.
+   pointer-events follows opacity so a hidden button can't be clicked through.
+
+   Pinned to the first line rather than vertically centred: a multi-line message
+   would otherwise put the buttons in the middle of the sentence. `right` clears
+   .msg-time, which reveals on the same hover — covering it would trade one
+   affordance for another. */
+.msg-mod {
+  position: absolute; right: 52px; top: var(--row-pad-y);
+  display: inline-flex; gap: 4px;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur-fast);
+}
+.msg:hover .msg-mod,
+.msg-mod:focus-within { opacity: 1; pointer-events: auto; }
+/* Opaque, because the button sits over the tail of a long message. Masking with
+   a panel-coloured backing plate behind the whole group instead reads as a patch
+   over any row carrying a highlight tint. */
+.msg-mod-btn {
+  padding: 1px 5px;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: var(--track-caps); text-transform: lowercase;
+  color: var(--fg-2); background: var(--bg-2);
+  border: 1px solid var(--border-2); border-radius: var(--radius-1);
+  cursor: pointer;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+}
+.msg-mod-btn:hover { color: var(--fg-1); border-color: var(--border-3); background: var(--bg-3); }
+.msg-mod-btn:disabled { opacity: 0.5; cursor: default; }
+.msg-mod-btn.danger { color: var(--danger-fg); border-color: var(--danger-border); }
+.msg-mod-btn.danger:hover { background: var(--danger-bg); }
+/* Armed ban: filled rather than outlined, so the second click lands on a control
+   that has visibly changed since the first. */
+.msg-mod-btn.danger.armed {
+  color: var(--fg-inverse); background: var(--danger-base); border-color: var(--danger-base);
+}
+
+/* Replaces the buttons once an action has landed. */
+.msg-mod-status {
+  float: right;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  border: 1px solid var(--border-2); border-radius: var(--radius-pill);
+  color: var(--fg-3);
+}
+.msg-mod-status.timeout { color: var(--warning-fg); border-color: var(--warning-border); background: var(--warning-bg); }
+.msg-mod-status.ban { color: var(--danger-fg); border-color: var(--danger-border); background: var(--danger-bg); }
+/* The message recedes once its author has been actioned — but stays readable,
+   since it is usually the evidence for why. */
+.msg--moderated .msg-text,
+.msg--moderated .msg-user { opacity: 0.55; }
+
+.chat-mod-error {
+  padding: 4px 14px;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--danger-fg); background: var(--danger-bg);
+  border-bottom: 1px solid var(--danger-border);
+}
 .msg.hl-first,
 .msg.hl-first-ever { border-left-color: var(--info-base); background: rgba(106,168,212,0.11); }
 .msg.hl-first-session { border-left-color: var(--success-base); background: rgba(127,200,163,0.11); }
@@ -2132,6 +2195,32 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 /* A counter ("12/140") reads as a right-aligned readout; a sentence of help does not. */
 .field small.field-count { align-self: flex-end; }
+.field small.error { color: var(--danger-fg); }
+
+/* Timeout duration: the durations an operator reaches for mid-stream are chips,
+   with the number field kept alongside for everything else. */
+.timeout-presets {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+}
+.timeout-preset {
+  padding: 5px 11px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: var(--track-caps);
+  color: var(--fg-2); background: transparent;
+  border: 1px solid var(--border-2); border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+}
+.timeout-preset:hover:not(:disabled) { color: var(--fg-1); border-color: var(--border-3); }
+.timeout-preset:disabled { opacity: 0.5; cursor: default; }
+.timeout-preset.selected {
+  color: var(--fg-accent); border-color: var(--gold-500); background: var(--accent-soft);
+}
+/* Narrow enough to read as "the other option" rather than as the main control. */
+.field .timeout-presets .timeout-custom {
+  width: 74px;
+  margin-left: auto;
+  text-align: center;
+}
 .suggestion-anchor {
   position: relative;
 }
