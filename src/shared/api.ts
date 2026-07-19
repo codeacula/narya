@@ -981,3 +981,37 @@ export type CategoryModulesResponse = {
    */
   lookupError: string | null;
 };
+
+// --- Wind-down ---------------------------------------------------------------
+// Signalling that the stream is wrapping up. Twitch exposes no way to block an
+// incoming raid, so this tells a prospective raider rather than stopping them.
+
+/** How a wind-down activation was triggered. */
+export type WindDownSource = 'manual' | 'scheduled' | 'action';
+
+/** GET/PUT /api/wind-down/settings. */
+export type WindDownSettings = {
+  /** Minutes before the planned end at which wind-down activates. 0 disables scheduling. */
+  leadMinutes: number;
+  /** Appended to the Twitch title while active. */
+  titleSuffix: string;
+  titleEnabled: boolean;
+  overlayEnabled: boolean;
+  updatedAt: string | null;
+};
+
+/**
+ * The `winddown:updated` WebSocket payload and GET/PUT /api/wind-down body.
+ *
+ * Deliberately NOT the stored row: `baseTitle` and `dismissedSessionId` are operator
+ * state and never go on the wire, because this event reaches overlay browser sources.
+ */
+export type WindDownPublicState = {
+  active: boolean;
+  source: WindDownSource | null;
+  activatedAt: string | null;
+  /** RFC3339, or null when no end time is planned. Drives the overlay countdown. */
+  plannedEndAt: string | null;
+  /** Whether the overlay should render at all — mirrors WindDownSettings.overlayEnabled. */
+  overlayEnabled: boolean;
+};
