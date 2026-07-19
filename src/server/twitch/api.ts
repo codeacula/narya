@@ -771,7 +771,7 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
     // While wind-down is active the operator is editing the SUFFIXED title they can
     // see. Re-base so their edit is kept as the new base title rather than being
     // clobbered, and so the suffix is not appended twice.
-    const titleToSend = rebaseWindDownTitle(title);
+    const { titleToSend, suffixUsed } = rebaseWindDownTitle(title);
     await twitchFetch(
       `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
       {
@@ -785,8 +785,11 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
     // the PATCH above has actually confirmed. Committing before the PATCH (the old
     // bug) would record a base/suffix pair for a title that was never applied if the
     // PATCH then failed — a later restore would push a never-live base back to Twitch
-    // and discard whatever was genuinely on the channel.
-    commitWindDownRebase(title);
+    // and discard whatever was genuinely on the channel. `suffixUsed` is threaded
+    // through from the compute step above rather than re-read here (Finding 7) so a
+    // settings save racing this PATCH can't make the persisted suffix disagree with
+    // the one actually sent.
+    commitWindDownRebase(title, suffixUsed);
 
     // Remember these tags so the type-ahead can suggest them next time.
     recordTagHistory(tags);

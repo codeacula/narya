@@ -133,8 +133,16 @@ function seedSettingsIfMissing() {
 }
 
 export function getWindDownSettings(): WindDownSettings {
-  seedSettingsIfMissing();
-  const row = selectSettings.get(SETTINGS_ID) as SettingsRow;
+  // Finding 6: this used to run `insert or ignore` on every call — including the
+  // overlay's GET /api/wind-down and every winddown:updated broadcast — turning a
+  // read path into a write on every single invocation. Read first, and only pay
+  // for the seed on the rare path where the row is genuinely missing (first boot,
+  // or a test that reset the table), rather than on every read.
+  const row = selectSettings.get(SETTINGS_ID) as SettingsRow | undefined;
+  if (!row) {
+    seedSettingsIfMissing();
+    return getWindDownSettings();
+  }
   return {
     leadMinutes: row.leadMinutes,
     titleSuffix: row.titleSuffix,
@@ -220,12 +228,21 @@ function writeState(state: WindDownStoredState) {
  * source has no business seeing the operator's stored title.
  */
 export function getWindDownPublicState(): WindDownPublicState {
-  const state = getWindDownState();
   const settings = getWindDownSettings();
+  // Finding 4: only ever hold a Pick of the safe fields in this scope — never the
+  // full WindDownStoredState. TypeScript does not excess-property-check a spread,
+  // so if a `state` variable of the full stored type were sitting right here, a
+  // future `return { ...state, plannedEndAt, overlayEnabled }` would compile clean
+  // and put baseTitle/sessionId/dismissedSessionId onto winddown:updated, which
+  // unauthenticated overlay sources receive. Destructuring through an explicit
+  // Pick at the one call to getWindDownState() means widening it would be a
+  // compile error right here, not a silent leak discovered later.
+  const { active, source, activatedAt }: Pick<WindDownStoredState, 'active' | 'source' | 'activatedAt'> =
+    getWindDownState();
   return {
-    active: state.active,
-    source: state.source,
-    activatedAt: state.activatedAt,
+    active,
+    source,
+    activatedAt,
     plannedEndAt: getPlannedStreamEnd(),
     overlayEnabled: settings.overlayEnabled,
   };
@@ -353,6 +370,19 @@ export async function resetWindDownForStreamEnd(): Promise<void> {
   broadcastWindDown();
 }
 
+/** Return value of `rebaseWindDownTitle` — see Finding 7 below for why the suffix rides along. */
+export type RebasedWindDownTitle = {
+  /** What the caller should actually send to Twitch. */
+  titleToSend: string;
+  /**
+   * The suffix used to compute `titleToSend`, or null when there was nothing to
+   * rebase (wind-down inactive, or the title effect disabled) — pass this straight
+   * through to `commitWindDownRebase` unchanged rather than letting it re-read
+   * settings itself.
+   */
+  suffixUsed: string | null;
+};
+
 /**
  * Re-base a title the operator submitted while wind-down is active.
  *
@@ -365,39 +395,48 @@ export async function resetWindDownForStreamEnd(): Promise<void> {
  * PATCH has actually confirmed, so a failed write never leaves a base recorded that
  * was never applied. See `commitWindDownRebase` below for the persistence half.
  *
+ * Invariant (Finding 7): the suffix used here is threaded through to
+ * `commitWindDownRebase` as `suffixUsed` rather than being re-read from settings a
+ * second time. The two used to read `getWindDownSettings()` independently; a
+ * settings save (the operator editing the suffix text) landing in the window
+ * between this call and the PATCH it feeds actually confirming would let commit
+ * persist a DIFFERENT suffix than the one this function actually composed into
+ * `titleToSend` — recording a base/appliedSuffix pair that describes a title that
+ * was never sent to Twitch. Passing the same value forward makes that impossible.
+ *
  * Lives here rather than in windDownLoop.ts on purpose: twitch/api.ts calls this, and
  * windDownLoop.ts imports twitch/api.ts, so putting it there would make a cycle
  * between two modules that both prepare statements at load time.
  */
-export function rebaseWindDownTitle(submittedTitle: string): string {
+export function rebaseWindDownTitle(submittedTitle: string): RebasedWindDownTitle {
   const state = getWindDownState();
-  if (!state.active) return submittedTitle;
+  if (!state.active) return { titleToSend: submittedTitle, suffixUsed: null };
 
   const settings = getWindDownSettings();
-  if (!settings.titleEnabled) return submittedTitle;
+  if (!settings.titleEnabled) return { titleToSend: submittedTitle, suffixUsed: null };
 
   const base = stripWindDownSuffix(submittedTitle, settings.titleSuffix);
-  return composeWindDownTitle(base, settings.titleSuffix);
+  return { titleToSend: composeWindDownTitle(base, settings.titleSuffix), suffixUsed: settings.titleSuffix };
 }
 
 /**
  * The persistence half of `rebaseWindDownTitle`. Call this ONLY after the Twitch PATCH
  * built from `rebaseWindDownTitle`'s return value has actually confirmed — recomputes
  * the same base from `submittedTitle` (the operator's original submission, not the
- * composed title that was sent) rather than trusting a value captured before the
- * write, and mirrors the same active/titleEnabled guard so a state change that landed
- * while the PATCH was in flight (wind-down switched off, the effect disabled) is a
- * no-op here too, exactly as it would have been in `rebaseWindDownTitle` itself.
+ * composed title that was sent), using `suffixUsed` exactly as `rebaseWindDownTitle`
+ * returned it (Finding 7) rather than re-reading settings, which could have changed
+ * in the interim. `suffixUsed === null` means `rebaseWindDownTitle` already decided
+ * there was nothing to rebase — nothing to commit either. The `active` check still
+ * covers a DIFFERENT race than the suffix one: wind-down being switched off entirely
+ * while the PATCH was in flight already ran its own restore off the previous base,
+ * so committing a new one here would leave a base recorded while inactive.
  */
-export function commitWindDownRebase(submittedTitle: string): void {
-  const state = getWindDownState();
-  if (!state.active) return;
+export function commitWindDownRebase(submittedTitle: string, suffixUsed: string | null): void {
+  if (suffixUsed === null) return;
+  if (!getWindDownState().active) return;
 
-  const settings = getWindDownSettings();
-  if (!settings.titleEnabled) return;
-
-  const base = stripWindDownSuffix(submittedTitle, settings.titleSuffix);
-  setWindDownTitleState(base, settings.titleSuffix);
+  const base = stripWindDownSuffix(submittedTitle, suffixUsed);
+  setWindDownTitleState(base, suffixUsed);
 }
 
 /**

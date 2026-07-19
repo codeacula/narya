@@ -149,25 +149,28 @@ describe('rebaseWindDownTitle', () => {
     getOrStartStreamSession('test-f', '2026-07-19T18:00:00.000Z');
     setWindDownActive({ active: true, source: 'manual' });
     setWindDownBaseTitle('Modding Skyrim');
-    const live = rebaseWindDownTitle('Modding Fallout | Ending soon');
+    const { titleToSend, suffixUsed } = rebaseWindDownTitle('Modding Fallout | Ending soon');
     // Pure: computing the title to send must not itself have persisted anything —
     // commitWindDownRebase (tested below) owns that, and only after the caller's
     // Twitch write confirms.
     expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
-    expect(live).toBe('Modding Fallout | Ending soon');
+    expect(titleToSend).toBe('Modding Fallout | Ending soon');
+    expect(suffixUsed).toBe('| Ending soon');
   });
 
   test('re-bases an edit made without the suffix', () => {
     getOrStartStreamSession('test-g', '2026-07-19T18:00:00.000Z');
     setWindDownActive({ active: true, source: 'manual' });
     setWindDownBaseTitle('Modding Skyrim');
-    const live = rebaseWindDownTitle('Modding Fallout');
+    const { titleToSend } = rebaseWindDownTitle('Modding Fallout');
     expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
-    expect(live).toBe('Modding Fallout | Ending soon');
+    expect(titleToSend).toBe('Modding Fallout | Ending soon');
   });
 
   test('passes the title straight through when wind-down is off', () => {
-    expect(rebaseWindDownTitle('Modding Fallout')).toBe('Modding Fallout');
+    const { titleToSend, suffixUsed } = rebaseWindDownTitle('Modding Fallout');
+    expect(titleToSend).toBe('Modding Fallout');
+    expect(suffixUsed).toBeNull();
     expect(getWindDownState().baseTitle).toBeNull();
   });
 
@@ -175,17 +178,20 @@ describe('rebaseWindDownTitle', () => {
     getOrStartStreamSession('test-h', '2026-07-19T18:00:00.000Z');
     saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Ending soon', titleEnabled: false, overlayEnabled: true });
     setWindDownActive({ active: true, source: 'manual' });
-    expect(rebaseWindDownTitle('Modding Fallout')).toBe('Modding Fallout');
+    const { titleToSend, suffixUsed } = rebaseWindDownTitle('Modding Fallout');
+    expect(titleToSend).toBe('Modding Fallout');
+    expect(suffixUsed).toBeNull();
   });
 });
 
-// Finding 2 (Important): rebaseWindDownTitle used to persist baseTitle/appliedSuffix
-// the moment it was called — BEFORE twitch/api.ts's PATCH actually sent the title to
-// Twitch. commitWindDownRebase is the split-out persistence half, called by the
-// caller only once that PATCH confirms. These drive the two functions directly
-// (rather than the full HTTP route) because the bug and the fix both live entirely
-// in this pairing's ordering, not in anything twitch/api.ts itself computes.
-describe('commitWindDownRebase (Finding 2)', () => {
+// Finding 2 (Important, prior review round): rebaseWindDownTitle used to persist
+// baseTitle/appliedSuffix the moment it was called — BEFORE twitch/api.ts's PATCH
+// actually sent the title to Twitch. commitWindDownRebase is the split-out
+// persistence half, called by the caller only once that PATCH confirms. These drive
+// the two functions directly (rather than the full HTTP route) because the bug and
+// the fix both live entirely in this pairing's ordering, not in anything
+// twitch/api.ts itself computes.
+describe('commitWindDownRebase (prior-review Finding 2)', () => {
   test('a failed write leaves the persisted state describing what is actually still live', () => {
     getOrStartStreamSession('test-commit-fail', '2026-07-19T18:00:00.000Z');
     setWindDownActive({ active: true, source: 'manual' });
@@ -193,7 +199,7 @@ describe('commitWindDownRebase (Finding 2)', () => {
     setWindDownTitleState('Modding Skyrim', '| Ending soon');
 
     const submitted = 'Modding Fallout | Ending soon';
-    const titleToSend = rebaseWindDownTitle(submitted);
+    const { titleToSend } = rebaseWindDownTitle(submitted);
     expect(titleToSend).toBe('Modding Fallout | Ending soon');
 
     // Simulate the caller's PATCH failing (network blip, rate limit): twitch/api.ts
@@ -212,16 +218,17 @@ describe('commitWindDownRebase (Finding 2)', () => {
     setWindDownTitleState('Modding Skyrim', '| Ending soon');
 
     const submitted = 'Modding Fallout | Ending soon';
-    rebaseWindDownTitle(submitted);
+    const { suffixUsed } = rebaseWindDownTitle(submitted);
     // The write "confirms" here — commit only happens after it, per the caller.
-    commitWindDownRebase(submitted);
+    commitWindDownRebase(submitted, suffixUsed);
 
     expect(getWindDownState().baseTitle).toBe('Modding Fallout');
     expect(getWindDownState().appliedSuffix).toBe('| Ending soon');
   });
 
   test('does nothing when wind-down is off', () => {
-    commitWindDownRebase('Modding Fallout');
+    // Matches what rebaseWindDownTitle itself returns when inactive: nothing to commit.
+    commitWindDownRebase('Modding Fallout', null);
     expect(getWindDownState().baseTitle).toBeNull();
   });
 
@@ -230,8 +237,37 @@ describe('commitWindDownRebase (Finding 2)', () => {
     saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Ending soon', titleEnabled: false, overlayEnabled: true });
     setWindDownActive({ active: true, source: 'manual' });
     setWindDownBaseTitle('Modding Skyrim');
-    commitWindDownRebase('Modding Fallout');
+    commitWindDownRebase('Modding Fallout', null);
     expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
+  });
+
+  // This review's Finding 7: rebaseWindDownTitle and commitWindDownRebase used to
+  // each call getWindDownSettings() independently. A settings save landing in the
+  // window between computing titleToSend and the caller's PATCH actually confirming
+  // could make commit derive appliedSuffix from a DIFFERENT (newer) suffix than the
+  // one actually composed into what was sent to Twitch. Threading suffixUsed through
+  // removes the second read entirely, so commit cannot disagree with compute about
+  // which suffix was used no matter what settings does in between.
+  test('a settings change in between cannot desync commit from what was actually sent', () => {
+    getOrStartStreamSession('test-commit-race', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'manual' });
+    setWindDownTitleState('Modding Skyrim', '| Ending soon');
+
+    const submitted = 'Modding Fallout | Ending soon';
+    const { titleToSend, suffixUsed } = rebaseWindDownTitle(submitted);
+    expect(titleToSend).toBe('Modding Fallout | Ending soon');
+    expect(suffixUsed).toBe('| Ending soon');
+
+    // The operator changes the suffix while the PATCH built from titleToSend above
+    // is still in flight to Twitch.
+    saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Wrapping up', titleEnabled: true, overlayEnabled: true });
+
+    // The PATCH "confirms" here, using the ORIGINAL suffixUsed rather than whatever
+    // settings says now.
+    commitWindDownRebase(submitted, suffixUsed);
+
+    expect(getWindDownState().baseTitle).toBe('Modding Fallout');
+    expect(getWindDownState().appliedSuffix).toBe('| Ending soon');
   });
 });
 

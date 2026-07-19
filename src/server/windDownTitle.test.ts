@@ -86,8 +86,16 @@ describe('stripWindDownSuffix', () => {
     expect(stripWindDownSuffix('Modding Skyrim | Ending soon', '| Ending soon')).toBe('Modding Skyrim');
   });
 
-  test('removes the truncation ellipsis along with the suffix', () => {
-    expect(stripWindDownSuffix('Modding Skyrim… | Ending soon', '| Ending soon')).toBe('Modding Skyrim');
+  // Finding 5: this used to also eat a trailing "…" unconditionally, on the
+  // assumption it was always a truncation artifact this function itself never
+  // added. But a title that genuinely ends in "…" for its own reasons loses that
+  // character on every rebase with no way to recover it, and this function has no
+  // way to distinguish "our truncation" from "the operator's own ellipsis" — it
+  // never sees the full untruncated base to compare against. Leave it alone here;
+  // reconcileWindDownOnBoot (windDownLoop.ts) is the one place with enough context
+  // to safely recognise and undo its own truncation.
+  test('leaves a trailing ellipsis alone — it cannot tell truncation from a genuine one', () => {
+    expect(stripWindDownSuffix('Modding Skyrim… | Ending soon', '| Ending soon')).toBe('Modding Skyrim…');
   });
 
   test('leaves a title that does not carry the suffix alone', () => {

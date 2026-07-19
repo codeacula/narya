@@ -91,6 +91,23 @@ describe('applyWindDownTitle', () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  // Finding 1: titleEnabled must gate putting a NEW suffix up, not taking an
+  // already-applied one back down. Before the fix, this early-returned exactly like
+  // the activation case above, leaving the suffix live on the title forever with
+  // nothing left recording what to restore it to — observed here as fake.title
+  // staying 'Modding Skyrim | Ending soon' instead of being restored.
+  test('restoring a live suffix happens even while the title effect is disabled', async () => {
+    const fake = fakePort('Modding Skyrim');
+    await applyWindDownTitle(fake.port, true); // suffix goes up while enabled
+    expect(fake.title).toBe('Modding Skyrim | Ending soon');
+
+    saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Ending soon', titleEnabled: false, overlayEnabled: true });
+
+    await applyWindDownTitle(fake.port, false);
+    expect(fake.title).toBe('Modding Skyrim');
+    expect(getWindDownState().baseTitle).toBeNull();
+  });
+
   // A failed title update must not lose the base title, or the restore path has
   // nothing to restore to.
   test('a Twitch failure propagates without stranding the base title', async () => {
@@ -213,6 +230,35 @@ describe('reconcileWindDownOnBoot', () => {
     expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
     expect(getWindDownState().appliedSuffix).toBe('| Ending soon');
   });
+
+  // This review's Finding 2: a base long enough that base + suffix must be
+  // truncated to fit Twitch's 140-character limit. applyWindDownTitle stores the
+  // FULL base (by design — see windDownTitle.ts), but the LIVE title only ever
+  // carries the truncated one. Before the fix, reconcile derived straight from the
+  // live (truncated) title and overwrote the stored full base with it — observed
+  // here as getWindDownState().baseTitle shrinking from the 160+ character
+  // original down to whatever fit before the "…", permanently discarding the rest.
+  test('a restart does not permanently shorten a base that had to be truncated to fit', async () => {
+    const fullBase = `${'word '.repeat(30)}really truly`;
+    const fake = fakePort(fullBase);
+    await applyWindDownTitle(fake.port, true);
+    setWindDownActive({ active: true, source: 'scheduled' });
+
+    // Confirm the premise: activation actually needed to truncate for this test to
+    // mean anything.
+    expect(fake.title.length).toBeLessThanOrEqual(140);
+    expect(fake.title).toContain('…');
+    expect(getWindDownState().baseTitle).toBe(fullBase);
+
+    // Simulate a restart: the live title is whatever got truncated onto Twitch.
+    const afterRestart = fakePort(fake.title);
+    await reconcileWindDownOnBoot(afterRestart.port);
+
+    expect(getWindDownState().baseTitle).toBe(fullBase);
+    // Nothing changed out-of-band, so the live title must come out identical too —
+    // not re-truncated a second time from a shorter starting point.
+    expect(afterRestart.title).toBe(fake.title);
+  });
 });
 
 describe('tick', () => {
@@ -310,6 +356,27 @@ describe('tick', () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  // This review's Finding 1: the restore retry used to also require
+  // settings.titleEnabled, so an operator who disabled "Update the Twitch title"
+  // exactly while a restore attempt was failing would strand the suffix on the
+  // title with no further retries — the tick loop would just silently stop trying.
+  test('retries a failed restore even while the title effect is disabled', async () => {
+    const fake = fakePort('Modding Skyrim');
+    await applyWindDownTitle(fake.port, true);
+    setWindDownActive({ active: true, source: 'scheduled' });
+    setWindDownActive({ active: false, source: 'action' });
+    fake.failNextWrite = true;
+
+    await tick(fake.port); // restore attempt fails
+    expect(getWindDownState().baseTitle).toBe('Modding Skyrim');
+
+    saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Ending soon', titleEnabled: false, overlayEnabled: true });
+
+    await tick(fake.port); // retry must still fire despite titleEnabled being false
+    expect(getWindDownState().baseTitle).toBeNull();
+    expect(fake.title).toBe('Modding Skyrim');
+  });
+
   // Finding 4: against a permanent failure (revoked OAuth, say) the retry above
   // would otherwise attempt — and log — every single tick for the rest of the
   // stream. Assert the backoff actually reduces attempts rather than firing on
@@ -388,6 +455,37 @@ describe('resetWindDownForStreamEnd → next stream (Finding 2)', () => {
       expect(getWindDownState().active).toBe(true);
       expect(getWindDownState().sessionId).toBe(sessionB.id);
       expect(fake.title).toBe('Stream A title | Ending soon');
+    } finally {
+      setWindDownTitleApplier(null);
+    }
+  });
+});
+
+// This review's Finding 1, end to end, wired through the real applier exactly as
+// index.ts registers it: wind-down active and suffixing the title -> operator
+// unchecks "Update the Twitch title" in Settings -> stream ends. Before the fix,
+// this observed the live title stuck at "Modding Skyrim | Ending soon" forever while
+// the DB's baseTitle/appliedSuffix were wiped to null — the exact corruption the
+// load-bearing invariant forbids (stored state no longer describes the live title,
+// and the one record of what to restore is gone).
+describe('resetWindDownForStreamEnd when the title effect gets disabled mid-wind-down (Finding 1)', () => {
+  test('the live title is actually restored, not just marked as restored', async () => {
+    const fake = fakePort('Modding Skyrim');
+    setWindDownTitleApplier(active => applyWindDownTitle(fake.port, active));
+    try {
+      getOrStartStreamSession('test-finding-1-e2e', '2026-07-19T18:00:00.000Z');
+      setWindDownActive({ active: true, source: 'scheduled' });
+      await applyWindDownTitle(fake.port, true);
+      expect(fake.title).toBe('Modding Skyrim | Ending soon');
+
+      // The operator turns off title updates while wind-down is still active.
+      saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Ending soon', titleEnabled: false, overlayEnabled: true });
+
+      await resetWindDownForStreamEnd();
+
+      expect(fake.title).toBe('Modding Skyrim');
+      expect(getWindDownState().baseTitle).toBeNull();
+      expect(getWindDownState().appliedSuffix).toBeNull();
     } finally {
       setWindDownTitleApplier(null);
     }

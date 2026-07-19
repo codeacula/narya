@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { getAutomodQueue } from './automod';
 import { db } from './db';
-import { handleEventSubNotification, resetSubMergeState } from './eventsub';
+import { handleEventSubNotification, reconcileStreamEndOnReconnect, resetSubMergeState } from './eventsub';
 import { RuntimeState } from './runtime';
+import { getActiveStreamSession, getOrStartStreamSession } from './streamSession';
+import { getWindDownState, setWindDownActive, setWindDownBaseTitle, setWindDownTitleApplier } from './windDown';
 
 function latestEventFor(actor: string): { kind: string; detail: string; tone: string } | null {
   return db.prepare('select kind, detail, tone from stream_events where actor = ? order by received_at desc limit 1')
@@ -261,5 +263,56 @@ describe('handleEventSubNotification', () => {
     const queue = getAutomodQueue();
     const resolved = queue.recentlyResolved.find(h => h.id === messageId);
     expect(resolved).toMatchObject({ resolution: 'expired' });
+  });
+});
+
+// Finding 3: endActiveStreamSession/resetWindDownForStreamEnd had exactly one call
+// site — the stream.offline notification — and EventSub never replays a missed
+// notification. If Narya's socket was down (or dropped) at the exact moment the
+// stream ended, nothing else ever cleaned up: the session row stayed open forever,
+// and wind_down_state.active with it, since evaluateWindDown's already_active guard
+// refuses to ever arm again once that happens. reconcileStreamEndOnReconnect is the
+// mirror wired into every EventSub reconnect (connectEventSubSocket, right next to
+// the existing "if (currentStream) announceTwitchStreamOnline(...)" online mirror).
+describe('reconcileStreamEndOnReconnect (Finding 3)', () => {
+  beforeEach(() => {
+    db.exec('delete from wind_down_state');
+    db.exec('delete from wind_down_settings');
+    db.exec('delete from stream_session_chatters');
+    db.exec('delete from stream_sessions');
+  });
+
+  afterEach(() => {
+    setWindDownTitleApplier(null);
+  });
+
+  // Before the fix there was no code path at all for "reconnected and Twitch says
+  // nothing is live" — the session stayed open and wind-down stayed active
+  // regardless of what this test asserts, which is exactly the corruption Finding 3
+  // describes: a stale open session survives across a Narya restart with no way for
+  // the operator to see it, let alone clear it.
+  test('ends a stale session and restores the title when Twitch reports no live stream', async () => {
+    const calls: boolean[] = [];
+    setWindDownTitleApplier(async active => { calls.push(active); });
+
+    getOrStartStreamSession('test-reconcile-offline', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'scheduled' });
+    setWindDownBaseTitle('Modding Skyrim');
+
+    await reconcileStreamEndOnReconnect();
+
+    expect(getActiveStreamSession()).toBeNull();
+    expect(getWindDownState().active).toBe(false);
+    expect(getWindDownState().baseTitle).toBeNull();
+    expect(calls).toEqual([false]);
+  });
+
+  // Both underlying calls are no-ops when there's nothing to clean up — this must
+  // be safe to run on every ordinary reconnect where the stream never actually
+  // ended, which is the common case.
+  test('is a harmless no-op when there is nothing open', async () => {
+    await expect(reconcileStreamEndOnReconnect()).resolves.toBeUndefined();
+    expect(getActiveStreamSession()).toBeNull();
+    expect(getWindDownState().active).toBe(false);
   });
 });

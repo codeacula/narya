@@ -97,6 +97,29 @@ function subMergeKey(event: Record<string, unknown>): string {
 }
 
 /**
+ * The offline mirror of the online reconcile that already runs on every EventSub
+ * connect (`if (currentStream) announceTwitchStreamOnline(...)` in
+ * connectEventSubSocket below). `endActiveStreamSession` is normally driven by the
+ * `stream.offline` notification, but EventSub never replays a notification it failed
+ * to deliver — if Narya was down, or its socket had dropped, at the exact moment the
+ * stream actually ended, that notification is gone for good. `stream_sessions` would
+ * then stay open forever, and `wind_down_state.active` with it: `evaluateWindDown`'s
+ * `already_active` guard refuses to ever arm again, and `reconcileWindDownOnBoot`
+ * keeps re-applying the stale suffix on every subsequent boot.
+ *
+ * Called from every connect (the very first one at boot, and every automatic
+ * reconnect after a dropped socket) whenever Twitch reports no live stream right
+ * now. Both calls are no-ops when there is nothing open — ending an already-ended
+ * session updates zero rows, and resetWindDownForStreamEnd is itself idempotent —
+ * so running this on a reconnect where the stream never actually ended (the common
+ * case) is harmless.
+ */
+export async function reconcileStreamEndOnReconnect(): Promise<void> {
+  endActiveStreamSession();
+  await resetWindDownForStreamEnd();
+}
+
+/**
  * Automation must never take EventSub down with it. A trigger that throws (a bad
  * template, an OBS scene that no longer exists) is logged and dropped; the stream
  * event, the alert, and the reward media have already been handled by then.
@@ -609,6 +632,14 @@ async function connectEventSubSocket(state: RuntimeState, generation: number, re
                 await announceTwitchStreamOnline(currentStream.id, currentStream.startedAt, state);
               } catch (error) {
                 console.error('EventSub: failed to reconcile the current Twitch stream:', error);
+              }
+            } else {
+              // Mirror of the branch above: no live stream right now, so end whatever
+              // session/wind-down we still think is open. See reconcileStreamEndOnReconnect.
+              try {
+                await reconcileStreamEndOnReconnect();
+              } catch (error) {
+                console.error('EventSub: failed to reconcile the ended Twitch stream:', error);
               }
             }
             // Any channel.update we missed while disconnected is gone for good —

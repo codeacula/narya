@@ -59,10 +59,21 @@ export function composeWindDownTitle(baseTitle: string, suffix: string): string 
  * Needed when the operator edits the title mid-wind-down: they are editing the
  * suffixed title they can see, so their submission must be re-based rather than
  * stored verbatim, or the next compose would append a second suffix.
+ *
+ * Invariant (Finding 5): this used to also strip a trailing "…" unconditionally,
+ * on the assumption that a truncation ellipsis (see composeWindDownTitle above)
+ * always precedes the suffix. But a title that genuinely ends in "…" on its own —
+ * nothing to do with truncation — loses that character on every rebase, forever,
+ * with no way to get it back. This function has no way to tell the two apart on
+ * its own (it never sees the FULL untruncated base to compare against), so the
+ * only safe move here is to leave the ellipsis alone; a caller that DOES have the
+ * stored full base on hand (reconcileWindDownOnBoot, for the truncation case —
+ * see windDownLoop.ts) is responsible for recognising and undoing its own
+ * truncation instead.
  */
 export function stripWindDownSuffix(title: string, suffix: string): string {
   const value = title.trim();
   const tail = suffix.trim();
   if (!tail || !value.endsWith(tail)) return value;
-  return value.slice(0, value.length - tail.length).trimEnd().replace(/…$/, '').trimEnd();
+  return value.slice(0, value.length - tail.length).trimEnd();
 }

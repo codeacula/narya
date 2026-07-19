@@ -41,14 +41,25 @@ export function windDownTitlePort(state: RuntimeState): WindDownTitlePort {
  * whatever is currently on the channel, so repeated activation cannot stack suffixes.
  * The base title is only captured on the transition into wind-down, and only cleared
  * once the restore has actually landed.
+ *
+ * Invariant (Finding 1): `titleEnabled` gates whether wind-down puts a NEW suffix up
+ * — it must NOT gate whether an already-applied one comes back down. The old code
+ * checked `titleEnabled` before branching on `active` at all, so an operator
+ * disabling "Update the Twitch title" while wind-down was already suffixing the
+ * title made every future deactivation (a manual toggle-off, a dismissal, or the
+ * stream ending) silently no-op: `applyTitleSafely` saw a clean return — not a
+ * throw — and reported success, so `resetWindDownForStreamEnd` cleared
+ * `baseTitle`/`appliedSuffix` on the strength of a restore that never happened,
+ * permanently welding the suffix onto the title with no record left of what to put
+ * back. Once something is live (`stored.baseTitle` is set), taking it back off must
+ * happen regardless of the current setting value.
  */
 export async function applyWindDownTitle(port: WindDownTitlePort, active: boolean): Promise<void> {
-  const settings = getWindDownSettings();
-  if (!settings.titleEnabled) return;
-
   const stored = getWindDownState();
 
   if (active) {
+    const settings = getWindDownSettings();
+    if (!settings.titleEnabled) return;
     // An already-captured base title wins: it is the operator's real title, and the
     // live one has the suffix on it.
     const baseTitle = stored.baseTitle ?? await port.getTitle();
@@ -63,9 +74,32 @@ export async function applyWindDownTitle(port: WindDownTitlePort, active: boolea
   }
 
   // Nothing captured means the suffix never went up — there is nothing to restore.
+  // Deliberately NOT gated on titleEnabled — see the invariant note above.
   if (stored.baseTitle === null) return;
   await port.setTitle(stored.baseTitle);
   setWindDownTitleState(null, null);
+}
+
+/**
+ * Detect our own truncation ellipsis in a base just derived from the live title
+ * (Finding 2). `composeWindDownTitle` (windDownTitle.ts) inserts "…" directly after
+ * the word-boundary-trimmed base, with no space before it, whenever base + suffix
+ * would not fit in 140 characters. `stripWindDownSuffix` no longer guesses at
+ * whether a trailing ellipsis is one we added (Finding 5) — it always leaves it in
+ * place — so a `derivedBase` ending in "…" here is ambiguous on its own: it's either
+ * our own truncation of a base that never actually changed, or a fresh out-of-band
+ * edit that genuinely happens to end in "…". Disambiguate with the one thing only
+ * this function has on hand: the FULL base already on file. Our own truncation is
+ * always a strict prefix of it (composeWindDownTitle only ever slices the base, it
+ * never rewrites it), so if that prefix relationship holds, prefer the accurate
+ * stored value over the truncated fragment that happens to be live on Twitch right
+ * now — the alternative is silently and permanently discarding everything past the
+ * truncation point on every single restart.
+ */
+function preferStoredBaseIfSelfTruncated(derivedBase: string, storedBase: string | null): string {
+  if (storedBase === null || !derivedBase.endsWith('…')) return derivedBase;
+  const withoutOwnEllipsis = derivedBase.slice(0, -1);
+  return storedBase.startsWith(withoutOwnEllipsis) ? storedBase : derivedBase;
 }
 
 /**
@@ -107,7 +141,14 @@ export async function reconcileWindDownOnBoot(port: WindDownTitlePort): Promise<
     // supposed to make it true: if that write then fails, the DB claims a suffix went
     // out that never did, and the next reconcile strips a suffix the live title
     // doesn't carry, double-stacking it on top of the real one.
-    setWindDownBaseTitle(stripWindDownSuffix(liveTitle, suffixToStrip));
+    //
+    // Finding 2: the live title can itself be a TRUNCATED compose (base + suffix
+    // exceeded 140 chars — see composeWindDownTitle). Deriving straight from it would
+    // then overwrite the stored FULL base with the shorter live fragment, permanently
+    // discarding everything past the truncation point. preferStoredBaseIfSelfTruncated
+    // recognises that case against the base already on file and keeps the full one.
+    const derivedBase = stripWindDownSuffix(liveTitle, suffixToStrip);
+    setWindDownBaseTitle(preferStoredBaseIfSelfTruncated(derivedBase, state.baseTitle));
   }
 
   await applyWindDownTitle(port, true);
@@ -207,7 +248,12 @@ export async function tick(port: WindDownTitlePort): Promise<void> {
     // stream end) leaves baseTitle populated while inactive, and reconcileWindDownOnBoot
     // only runs while `active` is true — this path just set it false. Retry it here
     // too, rather than relying solely on a redelivered `stream.offline` to try again.
-    if (!state.active && state.baseTitle !== null && settings.titleEnabled) {
+    //
+    // Deliberately NOT gated on settings.titleEnabled (Finding 1): restoring an
+    // already-applied suffix must happen regardless of the current setting value —
+    // see the invariant note on applyWindDownTitle above. If the operator disabled
+    // the effect after activation, this retry is exactly what puts the title back.
+    if (!state.active && state.baseTitle !== null) {
       if (shouldAttemptRetry(restoreRetryFailures)) {
         try {
           await applyWindDownTitle(port, false);
