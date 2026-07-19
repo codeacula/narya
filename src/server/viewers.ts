@@ -1,18 +1,14 @@
 import type express from 'express';
 import type { Chatter } from '../shared/api';
-import { handle, HttpRouteError, readResponseError } from './http';
+import { handle } from './http';
 import type { RuntimeState } from './runtime';
-import { getTwitchActionCredentials, resolveTwitchUserId } from './twitch/api';
+import { getTwitchActionCredentials, resolveTwitchUserId, twitchFetch } from './twitch/api';
 
 const HELIX = 'https://api.twitch.tv/helix';
 const VIP_SCOPE = 'channel:manage:vips';
 const MOD_SCOPE = 'channel:manage:moderators';
 
 type ActionCredentials = Awaited<ReturnType<typeof getTwitchActionCredentials>>;
-
-function getHeaders(credentials: ActionCredentials) {
-  return { 'Client-Id': credentials.clientId, Authorization: credentials.authorization };
-}
 
 async function listRoleUsers(url: string, credentials: ActionCredentials): Promise<Chatter[]> {
   // Helix caps each page at 100 and returns a cursor; a channel with more than
@@ -22,11 +18,7 @@ async function listRoleUsers(url: string, credentials: ActionCredentials): Promi
   let cursor: string | undefined;
   do {
     const pageUrl = cursor ? `${url}&after=${encodeURIComponent(cursor)}` : url;
-    const res = await fetch(pageUrl, { headers: getHeaders(credentials) });
-    if (!res.ok) {
-      const message = await readResponseError(res, 'Twitch request failed.');
-      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
-    }
+    const res = await twitchFetch(pageUrl, { credentials, errorMessage: 'Twitch request failed.' });
     const data = await res.json() as {
       data?: Array<{ user_id: string; user_login: string; user_name: string }>;
       pagination?: { cursor?: string };
@@ -49,12 +41,12 @@ async function writeRole(
   const credentials = await getTwitchActionCredentials(state, [scope]);
   const targetId = await resolveTwitchUserId(login, { clientId: credentials.clientId, authorization: credentials.authorization });
   const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, user_id: targetId });
-  const res = await fetch(`${HELIX}${path}?${params.toString()}`, { method, headers: getHeaders(credentials) });
-  if (!res.ok) {
-    const message = await readResponseError(res, 'Twitch request failed.');
-    const status = [400, 401, 403, 409, 422].includes(res.status) ? res.status : 502;
-    throw new HttpRouteError(status, message);
-  }
+  await twitchFetch(`${HELIX}${path}?${params.toString()}`, {
+    credentials,
+    method,
+    errorMessage: 'Twitch request failed.',
+    passthroughStatuses: [400, 401, 403, 409, 422],
+  });
 }
 
 export function registerViewerRoleRoutes(app: express.Express, state: RuntimeState) {

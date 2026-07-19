@@ -22,6 +22,41 @@ const TWITCH_DEFAULT_TIMEOUT_SECONDS = 600;
 const TWITCH_MAX_TIMEOUT_SECONDS = 1_209_600;
 type TwitchChatSender = 'user' | 'bot';
 
+type TwitchAuth = { clientId: string; authorization: string };
+
+const DEFAULT_PASSTHROUGH_STATUSES: readonly number[] = [401, 403];
+
+export type TwitchFetchOptions = {
+  credentials: TwitchAuth;
+  errorMessage: string;
+  method?: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+  passthroughStatuses?: readonly number[];
+  allowStatuses?: readonly number[];
+};
+
+export async function twitchFetch(url: string, options: TwitchFetchOptions): Promise<Response> {
+  const init: RequestInit = {
+    headers: {
+      'Client-Id': options.credentials.clientId,
+      Authorization: options.credentials.authorization,
+      ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(options.headers ?? {}),
+    },
+  };
+  if (options.method) init.method = options.method;
+  if (options.body !== undefined) init.body = JSON.stringify(options.body);
+
+  const res = await fetch(url, init);
+  if (res.ok) return res;
+  if (options.allowStatuses?.includes(res.status)) return res;
+
+  const passthroughStatuses = options.passthroughStatuses ?? DEFAULT_PASSTHROUGH_STATUSES;
+  const message = await readResponseError(res, options.errorMessage);
+  throw new HttpRouteError(passthroughStatuses.includes(res.status) ? res.status : 502, message);
+}
+
 export async function getEventSubCredentials(state: RuntimeState): Promise<{ clientId: string; userToken: string } | null> {
   const clientId = appConfig.twitchClientId;
   const userToken = await getTwitchUserAccessToken(state);
@@ -153,14 +188,10 @@ export async function resolveTwitchUserId(login: string, credentials: { clientId
   const normalizedLogin = login.trim().replace(/^@/, '').toLowerCase();
   if (!normalizedLogin) throw new HttpRouteError(400, 'Twitch login is required.');
 
-  const res = await fetch(
+  const res = await twitchFetch(
     `https://api.twitch.tv/helix/users?login=${encodeURIComponent(normalizedLogin)}`,
-    { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+    { credentials, errorMessage: 'Twitch user lookup failed.' },
   );
-  if (!res.ok) {
-    const message = await readResponseError(res, 'Twitch user lookup failed.');
-    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
-  }
 
   const data = await res.json() as { data?: Array<{ id?: string }> };
   const userId = data.data?.[0]?.id;
@@ -308,17 +339,12 @@ export async function sendTwitchShoutout(state: RuntimeState, login: string) {
     moderator_id: moderatorId,
   });
 
-  const res = await fetch(`https://api.twitch.tv/helix/chat/shoutouts?${params.toString()}`, {
+  await twitchFetch(`https://api.twitch.tv/helix/chat/shoutouts?${params.toString()}`, {
+    credentials,
     method: 'POST',
-    headers: {
-      'Client-Id': credentials.clientId,
-      Authorization: credentials.authorization,
-    },
+    errorMessage: 'Twitch shoutout failed.',
+    passthroughStatuses: [401, 403, 429],
   });
-  if (!res.ok) {
-    const message = await readResponseError(res, 'Twitch shoutout failed.');
-    throw new HttpRouteError(res.status === 401 || res.status === 403 || res.status === 429 ? res.status : 502, message);
-  }
 }
 
 export async function sendTwitchWhisper(state: RuntimeState, login: string, message: string) {
@@ -336,19 +362,13 @@ export async function sendTwitchWhisper(state: RuntimeState, login: string, mess
     to_user_id: toUserId,
   });
 
-  const res = await fetch(`https://api.twitch.tv/helix/whispers?${params.toString()}`, {
+  await twitchFetch(`https://api.twitch.tv/helix/whispers?${params.toString()}`, {
+    credentials,
     method: 'POST',
-    headers: {
-      'Client-Id': credentials.clientId,
-      Authorization: credentials.authorization,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ message: trimmedMessage }),
+    body: { message: trimmedMessage },
+    errorMessage: 'Twitch whisper failed.',
+    passthroughStatuses: [401, 403, 429],
   });
-  if (!res.ok) {
-    const errorMessage = await readResponseError(res, 'Twitch whisper failed.');
-    throw new HttpRouteError(res.status === 401 || res.status === 403 || res.status === 429 ? res.status : 502, errorMessage);
-  }
 }
 
 export async function moderateTwitchUser(
@@ -371,19 +391,12 @@ export async function moderateTwitchUser(
   if (action === 'timeout') data.duration = normalizeTimeoutSeconds(options.durationSeconds);
   if (reason) data.reason = reason;
 
-  const res = await fetch(`https://api.twitch.tv/helix/moderation/bans?${params.toString()}`, {
+  await twitchFetch(`https://api.twitch.tv/helix/moderation/bans?${params.toString()}`, {
+    credentials,
     method: 'POST',
-    headers: {
-      'Client-Id': credentials.clientId,
-      Authorization: credentials.authorization,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ data }),
+    body: { data },
+    errorMessage: `Twitch ${action} failed.`,
   });
-  if (!res.ok) {
-    const errorMessage = await readResponseError(res, `Twitch ${action} failed.`);
-    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
-  }
 }
 
 export type AutomodResolveResult = { outcome: 'ok' | 'gone'; moderatorLogin: string };
@@ -396,23 +409,17 @@ export async function resolveAutomodMessage(
   const credentials = await getTwitchActionCredentials(state, ['moderator:manage:automod']);
   const moderator = await getAuthenticatedActionUser(state, credentials);
 
-  const res = await fetch('https://api.twitch.tv/helix/moderation/automod/message', {
-    method: 'POST',
-    headers: {
-      'Client-Id': credentials.clientId,
-      Authorization: credentials.authorization,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ user_id: moderator.id, msg_id: messageId, action }),
-  });
   // 404 means Twitch no longer holds this message (expired or already handled
   // elsewhere). That's not an error for us — the caller resolves it locally as
   // expired so the stuck hold can leave the queue. Anything else is a real fault.
+  const res = await twitchFetch('https://api.twitch.tv/helix/moderation/automod/message', {
+    credentials,
+    method: 'POST',
+    body: { user_id: moderator.id, msg_id: messageId, action },
+    errorMessage: `Twitch AutoMod ${action.toLowerCase()} failed.`,
+    allowStatuses: [404],
+  });
   if (res.status === 404) return { outcome: 'gone', moderatorLogin: moderator.login };
-  if (!res.ok) {
-    const errorMessage = await readResponseError(res, `Twitch AutoMod ${action.toLowerCase()} failed.`);
-    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
-  }
   return { outcome: 'ok', moderatorLogin: moderator.login };
 }
 
@@ -498,24 +505,16 @@ export async function sendTwitchChatMessage(
     state.twitchSenderId = senderId;
   }
 
-  const res = await fetch('https://api.twitch.tv/helix/chat/messages', {
+  const res = await twitchFetch('https://api.twitch.tv/helix/chat/messages', {
+    credentials,
     method: 'POST',
-    headers: {
-      'Client-Id': credentials.clientId,
-      Authorization: credentials.authorization,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+    body: {
       broadcaster_id: credentials.broadcasterId,
       sender_id: senderId,
       message: trimmedMessage,
-    }),
+    },
+    errorMessage: 'Twitch chat message failed.',
   });
-
-  if (!res.ok) {
-    const errorMessage = await readResponseError(res, 'Twitch chat message failed.');
-    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, errorMessage);
-  }
 
   const data = await res.json() as {
     data?: Array<{
@@ -544,23 +543,15 @@ const twitchCommercialTasks = new WeakMap<RuntimeState, Promise<TwitchCommercial
 
 async function executeTwitchCommercial(state: RuntimeState): Promise<TwitchCommercialResult> {
   const credentials = await getTwitchActionCredentials(state, ['channel:edit:commercial']);
-  const res = await fetch('https://api.twitch.tv/helix/channels/commercial', {
+  const res = await twitchFetch('https://api.twitch.tv/helix/channels/commercial', {
+    credentials,
     method: 'POST',
-    headers: {
-      'Client-Id': credentials.clientId,
-      Authorization: credentials.authorization,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+    body: {
       broadcaster_id: credentials.broadcasterId,
       length: TWITCH_COMMERCIAL_SECONDS,
-    }),
+    },
+    errorMessage: 'Twitch commercial request failed.',
   });
-
-  if (!res.ok) {
-    const message = await readResponseError(res, 'Twitch commercial request failed.');
-    throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
-  }
 
   const data = await res.json() as {
     data?: Array<{ length?: number; message?: string; retry_after?: number }>;
@@ -605,14 +596,10 @@ export async function runTwitchCommercial(state: RuntimeState): Promise<TwitchCo
 }
 
 export async function searchTwitchCategories(query: string, credentials: { clientId: string; authorization: string }) {
-  const res = await fetch(
+  const res = await twitchFetch(
     `https://api.twitch.tv/helix/search/categories?query=${encodeURIComponent(query)}&first=20`,
-    { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+    { credentials, errorMessage: 'Twitch category search failed.', passthroughStatuses: [401] },
   );
-  if (!res.ok) {
-    const message = await readResponseError(res, 'Twitch category search failed.');
-    throw new HttpRouteError(res.status === 401 ? 401 : 502, message);
-  }
 
   const data = await res.json() as { data?: Array<{ id: string; name: string; box_art_url?: string }> };
   return (data.data ?? []).map(category => ({
@@ -627,14 +614,10 @@ export async function getTwitchCategoryById(
   id: string,
   credentials: { clientId: string; authorization: string },
 ): Promise<{ id: string; name: string; boxArtUrl: string | null } | null> {
-  const res = await fetch(
+  const res = await twitchFetch(
     `https://api.twitch.tv/helix/games?id=${encodeURIComponent(id)}`,
-    { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+    { credentials, errorMessage: 'Twitch category lookup failed.', passthroughStatuses: [401] },
   );
-  if (!res.ok) {
-    const message = await readResponseError(res, 'Twitch category lookup failed.');
-    throw new HttpRouteError(res.status === 401 ? 401 : 502, message);
-  }
 
   const data = await res.json() as { data?: Array<{ id: string; name: string; box_art_url?: string }> };
   const game = data.data?.[0];
@@ -654,15 +637,10 @@ async function resolveTwitchCategoryId(category: string, credentials: Awaited<Re
 export function registerTwitchApiRoutes(app: express.Express, state: RuntimeState) {
   app.get('/api/twitch/stream-info', handle(async (_request, response) => {
     const credentials = await getTwitchActionCredentials(state, []);
-    const res = await fetch(
+    const res = await twitchFetch(
       `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
-      { headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization } },
+      { credentials, errorMessage: 'Twitch channel information is unavailable.' },
     );
-
-    if (!res.ok) {
-      const message = await readResponseError(res, 'Twitch channel information is unavailable.');
-      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
-    }
 
     const data = await res.json() as {
       data?: Array<{
@@ -756,23 +734,15 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
     } else {
       gameId = await resolveTwitchCategoryId(category, credentials);
     }
-    const res = await fetch(
+    await twitchFetch(
       `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(credentials.broadcasterId)}`,
       {
+        credentials,
         method: 'PATCH',
-        headers: {
-          'Client-Id': credentials.clientId,
-          Authorization: credentials.authorization,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title, game_id: gameId, tags }),
+        body: { title, game_id: gameId, tags },
+        errorMessage: 'Twitch channel update failed.',
       },
     );
-
-    if (!res.ok) {
-      const message = await readResponseError(res, 'Twitch channel update failed.');
-      throw new HttpRouteError(res.status === 401 || res.status === 403 ? res.status : 502, message);
-    }
 
     // Remember these tags so the type-ahead can suggest them next time.
     recordTagHistory(tags);

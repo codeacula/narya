@@ -9,11 +9,11 @@ import type {
   StreamCategoryRewardGroup,
 } from '../shared/api';
 import { db } from './db';
-import { handle, HttpRouteError, readResponseError } from './http';
+import { handle, HttpRouteError } from './http';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
-import { getTwitchActionCredentials } from './twitch/api';
+import { getTwitchActionCredentials, twitchFetch } from './twitch/api';
 import {
   fetchRewards,
   REWARD_SCOPE,
@@ -567,13 +567,10 @@ async function fetchLiveStreamCategory(
   credentials: TwitchRewardCredentials,
 ): Promise<{ gameId: string | null; gameName: string | null }> {
   const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
-  const response = await fetch(`${CHANNELS_URL}?${params.toString()}`, {
-    headers: { 'Client-Id': credentials.clientId, Authorization: credentials.authorization },
+  const response = await twitchFetch(`${CHANNELS_URL}?${params.toString()}`, {
+    credentials,
+    errorMessage: 'Twitch channel lookup failed.',
   });
-  if (!response.ok) {
-    const message = await readResponseError(response, 'Twitch channel lookup failed.');
-    throw new HttpRouteError(response.status === 401 || response.status === 403 ? response.status : 502, message);
-  }
   const data = await response.json() as { data?: Array<{ game_id?: string; game_name?: string }> };
   const channel = data.data?.[0];
   if (!channel) throw new HttpRouteError(502, 'Twitch did not return the channel.');

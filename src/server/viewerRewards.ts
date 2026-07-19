@@ -13,7 +13,7 @@ import { broadcast } from './realtime';
 
 import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
-import { getTwitchActionCredentials } from './twitch/api';
+import { getTwitchActionCredentials, twitchFetch } from './twitch/api';
 
 export const REWARD_SCOPE = ['channel:manage:redemptions'] as const;
 const REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards';
@@ -97,13 +97,7 @@ const replaceCategoryGames = db.transaction((categoryId: string, games: RewardSt
   for (const game of games) insertCategoryGame.run(categoryId, game.id, game.name, now);
 });
 
-function twitchHeaders(credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>) {
-  return {
-    'Client-Id': credentials.clientId,
-    Authorization: credentials.authorization,
-    'Content-Type': 'application/json',
-  };
-}
+const JSON_CONTENT_TYPE = { 'Content-Type': 'application/json' };
 
 async function fetchTwitchRewardList(
   credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
@@ -113,13 +107,11 @@ async function fetchTwitchRewardList(
     broadcaster_id: credentials.broadcasterId,
     only_manageable_rewards: String(onlyManageable),
   });
-  const response = await fetch(`${REWARDS_URL}?${params.toString()}`, {
-    headers: twitchHeaders(credentials),
+  const response = await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
+    credentials,
+    headers: JSON_CONTENT_TYPE,
+    errorMessage: 'Twitch rewards are unavailable.',
   });
-  if (!response.ok) {
-    const message = await readResponseError(response, 'Twitch rewards are unavailable.');
-    throw new HttpRouteError(response.status === 401 || response.status === 403 ? response.status : 502, message);
-  }
   const data = await response.json() as { data?: TwitchReward[] };
   return data.data ?? [];
 }
@@ -282,15 +274,13 @@ async function sendTwitchRewardUpdate(
   fields: Record<string, unknown>,
 ) {
   const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, id: rewardId });
-  const response = await fetch(`${REWARDS_URL}?${params.toString()}`, {
+  await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
+    credentials,
     method: 'PATCH',
-    headers: twitchHeaders(credentials),
-    body: JSON.stringify(fields),
+    body: fields,
+    errorMessage: 'Twitch reward update failed.',
+    passthroughStatuses: [400, 401, 403, 404],
   });
-  if (!response.ok) {
-    const message = await readResponseError(response, 'Twitch reward update failed.');
-    throw new HttpRouteError(response.status === 400 || response.status === 401 || response.status === 403 || response.status === 404 ? response.status : 502, message);
-  }
 }
 
 
@@ -445,15 +435,13 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     const category = reward.categoryId ? getCategory.get(reward.categoryId) as CategoryRow : null;
     const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
     const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
-    const twitchResponse = await fetch(`${REWARDS_URL}?${params.toString()}`, {
+    const twitchResponse = await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
+      credentials,
       method: 'POST',
-      headers: twitchHeaders(credentials),
-      body: JSON.stringify(twitchRewardBody(reward, category?.enabled === 0 ? false : reward.isEnabled, false)),
+      body: twitchRewardBody(reward, category?.enabled === 0 ? false : reward.isEnabled, false),
+      errorMessage: 'Twitch reward creation failed.',
+      passthroughStatuses: [400, 401, 403],
     });
-    if (!twitchResponse.ok) {
-      const message = await readResponseError(twitchResponse, 'Twitch reward creation failed.');
-      throw new HttpRouteError(twitchResponse.status === 400 || twitchResponse.status === 401 || twitchResponse.status === 403 ? twitchResponse.status : 502, message);
-    }
     const data = await twitchResponse.json() as { data?: TwitchReward[] };
     const created = data.data?.[0];
     if (!created) throw new HttpRouteError(502, 'Twitch did not return the created reward.');
@@ -506,14 +494,13 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
   app.delete('/api/twitch/rewards/:id', handle(async (request, response) => {
     const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
     const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, id: request.params.id });
-    const twitchResponse = await fetch(`${REWARDS_URL}?${params.toString()}`, {
+    await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
+      credentials,
       method: 'DELETE',
-      headers: twitchHeaders(credentials),
+      headers: JSON_CONTENT_TYPE,
+      errorMessage: 'Twitch reward deletion failed.',
+      passthroughStatuses: [400, 401, 403, 404],
     });
-    if (!twitchResponse.ok) {
-      const message = await readResponseError(twitchResponse, 'Twitch reward deletion failed.');
-      throw new HttpRouteError(twitchResponse.status === 400 || twitchResponse.status === 401 || twitchResponse.status === 403 || twitchResponse.status === 404 ? twitchResponse.status : 502, message);
-    }
     clearRewardCategory.run(request.params.id);
     response.status(204).send();
   }));
