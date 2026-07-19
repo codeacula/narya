@@ -1,33 +1,8 @@
 import type { ClipButton, ClipButtonUpdate, MediaPlayback } from '../shared/api';
-import { db } from './db';
 import { HttpRouteError } from './http';
+import { createLabeledButtonRepo } from './labeledButtons';
 import { findMediaFile } from './media';
 import { playMedia } from './rewardMedia';
-
-const listClipButtons = db.prepare(`
-  select id, label, filename
-  from clip_buttons
-  order by label collate nocase
-`);
-const getClipButton = db.prepare(`
-  select id, label, filename
-  from clip_buttons
-  where id = ?
-`);
-const createClipButtonRow = db.prepare(`
-  insert into clip_buttons (id, label, filename)
-  values (?, ?, ?)
-`);
-const updateClipButtonRow = db.prepare(`
-  update clip_buttons
-  set label = ?, filename = ?
-  where id = ?
-`);
-const deleteClipButtonRow = db.prepare('delete from clip_buttons where id = ?');
-
-export function getClipButtons(): ClipButton[] {
-  return listClipButtons.all() as ClipButton[];
-}
 
 function normalizeClipButtonBody(body: unknown): ClipButtonUpdate {
   const value = body as Partial<ClipButtonUpdate>;
@@ -48,37 +23,40 @@ function normalizeClipButtonBody(body: unknown): ClipButtonUpdate {
   return { label, filename };
 }
 
-export function createClipButton(body: unknown): ClipButton {
-  const clip = normalizeClipButtonBody(body);
-  const id = crypto.randomUUID();
-  createClipButtonRow.run(id, clip.label, clip.filename);
-  return getClipButton.get(id) as ClipButton;
-}
-
-export function updateClipButton(id: string, body: unknown): ClipButton {
-  const existing = getClipButton.get(id) as ClipButton | null;
-  if (!existing) throw new HttpRouteError(404, 'Clip button not found.');
-
-  const clip = normalizeClipButtonBody(body);
-  updateClipButtonRow.run(clip.label, clip.filename, id);
-  return getClipButton.get(id) as ClipButton;
-}
-
-export function deleteClipButton(id: string) {
-  const existing = getClipButton.get(id) as ClipButton | null;
-  if (!existing) throw new HttpRouteError(404, 'Clip button not found.');
-  deleteClipButtonRow.run(id);
-}
-
 /**
  * Broadcast the clip to the /overlay/clips browser source, the same path a
- * channel-point redeem takes. Returns null when the button is gone or its file
- * no longer exists, so the route can 404.
+ * channel-point redeem takes. Returns null when the button's file no longer
+ * exists, so the route can 404.
  */
-export function triggerClipButton(id: string): MediaPlayback | null {
-  const clip = getClipButton.get(id) as ClipButton | null;
-  if (!clip) return null;
+function playClipButton(clip: ClipButton): MediaPlayback | null {
   const media = findMediaFile(clip.filename);
   if (!media) return null;
   return playMedia({ kind: media.kind, src: clip.filename, volume: 1 });
+}
+
+const clipButtons = createLabeledButtonRepo<ClipButton, MediaPlayback>({
+  table: 'clip_buttons',
+  notFoundMessage: 'Clip button not found.',
+  validate: normalizeClipButtonBody,
+  play: playClipButton,
+});
+
+export function getClipButtons(): ClipButton[] {
+  return clipButtons.list();
+}
+
+export function createClipButton(body: unknown): ClipButton {
+  return clipButtons.create(body);
+}
+
+export function updateClipButton(id: string, body: unknown): ClipButton {
+  return clipButtons.update(id, body);
+}
+
+export function deleteClipButton(id: string) {
+  clipButtons.remove(id);
+}
+
+export function triggerClipButton(id: string): MediaPlayback | null {
+  return clipButtons.trigger(id);
 }

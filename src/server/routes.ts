@@ -153,57 +153,53 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     response.json(listMediaFiles());
   });
 
-  app.get('/api/sounds', (_request, response) => {
-    response.json(getSoundButtons());
-  });
+  const labeledButtonRoutes = [
+    {
+      path: 'sounds',
+      notFound: 'Sound button not found',
+      list: getSoundButtons,
+      create: createSoundButton,
+      update: updateSoundButton,
+      remove: deleteSoundButton,
+      trigger: triggerSoundButton,
+    },
+    {
+      path: 'clips',
+      notFound: 'Clip button not found',
+      list: getClipButtons,
+      create: createClipButton,
+      update: updateClipButton,
+      remove: deleteClipButton,
+      trigger: triggerClipButton,
+    },
+  ] as const;
+  for (const route of labeledButtonRoutes) {
+    app.get(`/api/${route.path}`, (_request, response) => {
+      response.json(route.list());
+    });
 
-  app.post('/api/sounds', handle((request, response) => {
-    response.status(201).json(createSoundButton(request.body));
-  }));
+    app.post(`/api/${route.path}`, handle((request, response) => {
+      response.status(201).json(route.create(request.body));
+    }));
 
-  app.put('/api/sounds/:id', handle((request, response) => {
-    response.json(updateSoundButton(request.params.id, request.body));
-  }));
+    app.put(`/api/${route.path}/:id`, handle((request, response) => {
+      response.json(route.update(request.params.id, request.body));
+    }));
 
-  app.delete('/api/sounds/:id', handle((request, response) => {
-    deleteSoundButton(request.params.id);
-    response.status(204).end();
-  }));
+    app.delete(`/api/${route.path}/:id`, handle((request, response) => {
+      route.remove(request.params.id);
+      response.status(204).end();
+    }));
 
-  app.post('/api/sounds/:id/play', (request, response) => {
-    const playback = triggerSoundButton(request.params.id);
-    if (!playback) {
-      response.status(404).json({ error: 'Sound button not found' });
-      return;
-    }
-    response.json(playback);
-  });
-
-  app.get('/api/clips', (_request, response) => {
-    response.json(getClipButtons());
-  });
-
-  app.post('/api/clips', handle((request, response) => {
-    response.status(201).json(createClipButton(request.body));
-  }));
-
-  app.put('/api/clips/:id', handle((request, response) => {
-    response.json(updateClipButton(request.params.id, request.body));
-  }));
-
-  app.delete('/api/clips/:id', handle((request, response) => {
-    deleteClipButton(request.params.id);
-    response.status(204).end();
-  }));
-
-  app.post('/api/clips/:id/play', (request, response) => {
-    const playback = triggerClipButton(request.params.id);
-    if (!playback) {
-      response.status(404).json({ error: 'Clip button not found' });
-      return;
-    }
-    response.json(playback);
-  });
+    app.post(`/api/${route.path}/:id/play`, (request, response) => {
+      const playback = route.trigger(request.params.id);
+      if (!playback) {
+        response.status(404).json({ error: route.notFound });
+        return;
+      }
+      response.json(playback);
+    });
+  }
 
   app.get('/api/automod/queue', (_request, response) => {
     response.json(getAutomodQueue());

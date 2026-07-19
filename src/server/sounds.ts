@@ -2,6 +2,7 @@ import type { SoundButton, SoundButtonUpdate, SoundPlayback } from '../shared/ap
 import { appConfig } from './appConfig';
 import { db } from './db';
 import { HttpRouteError } from './http';
+import { createLabeledButtonRepo } from './labeledButtons';
 import { broadcast } from './realtime';
 
 /**
@@ -26,26 +27,6 @@ const insertSoundButton = db.prepare(`
   insert or ignore into sound_buttons (id, label, filename)
   values (?, ?, ?)
 `);
-const listSoundButtons = db.prepare(`
-  select id, label, filename
-  from sound_buttons
-  order by label collate nocase
-`);
-const getSoundButton = db.prepare(`
-  select id, label, filename
-  from sound_buttons
-  where id = ?
-`);
-const createSoundButtonRow = db.prepare(`
-  insert into sound_buttons (id, label, filename)
-  values (?, ?, ?)
-`);
-const updateSoundButtonRow = db.prepare(`
-  update sound_buttons
-  set label = ?, filename = ?
-  where id = ?
-`);
-const deleteSoundButtonRow = db.prepare('delete from sound_buttons where id = ?');
 
 function seedSoundButtonsIfEmpty() {
   const row = countSoundButtons.get() as { count: number };
@@ -58,10 +39,6 @@ function seedSoundButtonsIfEmpty() {
 // Seed the defaults once at module load only. Re-seeding from the accessors
 // resurrected deleted buttons on the next read.
 seedSoundButtonsIfEmpty();
-
-export function getSoundButtons(): SoundButton[] {
-  return listSoundButtons.all() as SoundButton[];
-}
 
 function normalizeSoundButtonBody(body: unknown): SoundButtonUpdate {
   const value = body as Partial<SoundButtonUpdate>;
@@ -79,28 +56,6 @@ function normalizeSoundButtonBody(body: unknown): SoundButtonUpdate {
   return { label, filename };
 }
 
-export function createSoundButton(body: unknown): SoundButton {
-  const sound = normalizeSoundButtonBody(body);
-  const id = crypto.randomUUID();
-  createSoundButtonRow.run(id, sound.label, sound.filename);
-  return getSoundButton.get(id) as SoundButton;
-}
-
-export function updateSoundButton(id: string, body: unknown): SoundButton {
-  const existing = getSoundButton.get(id) as SoundButton | null;
-  if (!existing) throw new HttpRouteError(404, 'Sound button not found.');
-
-  const sound = normalizeSoundButtonBody(body);
-  updateSoundButtonRow.run(sound.label, sound.filename, id);
-  return getSoundButton.get(id) as SoundButton;
-}
-
-export function deleteSoundButton(id: string) {
-  const existing = getSoundButton.get(id) as SoundButton | null;
-  if (!existing) throw new HttpRouteError(404, 'Sound button not found.');
-  deleteSoundButtonRow.run(id);
-}
-
 function playSound(src: string, volume = appConfig.soundVolume): SoundPlayback {
   const payload = {
     id: crypto.randomUUID(),
@@ -111,8 +66,29 @@ function playSound(src: string, volume = appConfig.soundVolume): SoundPlayback {
   return payload;
 }
 
+const soundButtons = createLabeledButtonRepo<SoundButton, SoundPlayback>({
+  table: 'sound_buttons',
+  notFoundMessage: 'Sound button not found.',
+  validate: normalizeSoundButtonBody,
+  play: sound => playSound(sound.filename),
+});
+
+export function getSoundButtons(): SoundButton[] {
+  return soundButtons.list();
+}
+
+export function createSoundButton(body: unknown): SoundButton {
+  return soundButtons.create(body);
+}
+
+export function updateSoundButton(id: string, body: unknown): SoundButton {
+  return soundButtons.update(id, body);
+}
+
+export function deleteSoundButton(id: string) {
+  soundButtons.remove(id);
+}
+
 export function triggerSoundButton(id: string): SoundPlayback | null {
-  const sound = getSoundButton.get(id) as SoundButton | null;
-  if (!sound) return null;
-  return playSound(sound.filename);
+  return soundButtons.trigger(id);
 }
