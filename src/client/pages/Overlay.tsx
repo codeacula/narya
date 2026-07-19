@@ -7,6 +7,8 @@ import { ShoutoutTicker, useSessionShoutouts } from '../shoutouts';
 import { quackSoundSources, useSoundEvents } from '../sounds';
 import { useStreamStatus } from '../streamStatus';
 import { useTtsEvents } from '../tts';
+import { useWindDownOverlay } from '../windDown';
+import { formatWindDownCountdown } from '../windDownCountdown';
 
 export function OverlaySoundsPage() {
   const audioRefs = React.useRef<Record<string, HTMLAudioElement | null>>({});
@@ -60,6 +62,41 @@ export function OverlayStatusPage() {
   return (
     <main className="overlay-widget overlay-status-widget" aria-label="Stream status overlay">
       {text ? <div className="overlay-status-text">{text}</div> : null}
+    </main>
+  );
+}
+
+/**
+ * The wind-down signal: a prospective raider deciding whether to send their viewers
+ * here can see the stream is wrapping up. Twitch offers no way to block an incoming
+ * raid, so telling them is the whole mechanism.
+ *
+ * The countdown ticks client-side from `plannedEndAt` rather than from server
+ * messages, so it stays smooth without a broadcast every second.
+ */
+export function OverlayWindDownPage() {
+  const state = useWindDownOverlay();
+  const [now, setNow] = React.useState(() => Date.now());
+
+  const active = Boolean(state?.active && state.overlayEnabled);
+
+  React.useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+
+  if (!active) return <main className="overlay-widget overlay-winddown-widget" aria-label="Wind-down overlay" />;
+
+  const endMs = state?.plannedEndAt ? new Date(state.plannedEndAt).getTime() : Number.NaN;
+  const countdown = Number.isFinite(endMs) ? formatWindDownCountdown(endMs - now) : null;
+
+  return (
+    <main className="overlay-widget overlay-winddown-widget" aria-label="Wind-down overlay">
+      <div className="overlay-winddown-card">
+        <span className="overlay-winddown-label">Wrapping up</span>
+        {countdown ? <span className="overlay-winddown-countdown">{countdown}</span> : null}
+      </div>
     </main>
   );
 }

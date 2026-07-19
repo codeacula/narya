@@ -1259,3 +1259,40 @@ nav {
 .quick-action-tone-ok { border-color: var(--success-border); }
 .quick-action-tone-warn { border-color: var(--warning-border); }
 .quick-action-tone-error { border-color: var(--danger-border); }
+
+/* Wind-down countdown browser source. Transparent and fixed-position like every
+   other overlay — no app chrome, per the overlay rules. */
+.overlay-winddown-widget {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.overlay-winddown-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(12, 10, 24, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-family: system-ui, sans-serif;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.overlay-winddown-label {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.overlay-winddown-countdown {
+  font-size: 22px;
+  font-weight: 600;
+}

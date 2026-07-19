@@ -32,6 +32,11 @@ test('the retired /overlay/alerts source still works, as the text overlay', () =
   expect(overlayFromPath('/overlay/alerts')).toBe('text');
 });
 
+test('the wind-down countdown resolves to its own source', () => {
+  expect(overlayFromPath('/overlay/winddown')).toBe('winddown');
+  expect(overlayFromPath('/overlay/winddown/')).toBe('winddown');
+});
+
 test('trailing slashes and non-overlay paths are unaffected', () => {
   expect(overlayFromPath('/overlay/chat/')).toBe('chat');
   expect(overlayFromPath('/overlays')).toBeNull();

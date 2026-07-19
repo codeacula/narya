@@ -72,6 +72,8 @@ import type {
   OverlayPlaceholders,
   MediaMuteState,
   StreamStatus,
+  WindDownPublicState,
+  WindDownSettings,
 } from '../../shared/api';
 import { getDashboardToken, isDashboardTokenRejection, reportDashboardTokenRejected } from '../auth';
 
@@ -537,6 +539,22 @@ export async function getMediaMute(): Promise<MediaMuteState> {
 
 export async function setMediaMute(muted: boolean): Promise<MediaMuteState> {
   return sendJson<MediaMuteState>('/api/automation/media-mute', 'PUT', { muted });
+}
+
+export async function getWindDown(): Promise<WindDownPublicState> {
+  return fetchJson<WindDownPublicState>('/api/wind-down');
+}
+
+export async function setWindDown(active: boolean): Promise<WindDownPublicState> {
+  return sendJson<WindDownPublicState>('/api/wind-down', 'PUT', { active });
+}
+
+export async function getWindDownSettings(): Promise<WindDownSettings> {
+  return fetchJson<WindDownSettings>('/api/wind-down/settings');
+}
+
+export async function saveWindDownSettings(settings: Omit<WindDownSettings, 'updatedAt'>): Promise<WindDownSettings> {
+  return sendJson<WindDownSettings>('/api/wind-down/settings', 'PUT', settings);
 }
 
 // --- Configured media catalog ------------------------------------------------
