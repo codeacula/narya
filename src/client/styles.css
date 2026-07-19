@@ -85,13 +85,11 @@ button:disabled {
   background: var(--arcane);
 }
 
-.app-shell,
 .tablet-shell {
   min-height: 100vh;
   padding: 24px;
 }
 
-.app-shell > header,
 .tablet-shell > header {
   display: flex;
   align-items: center;
@@ -131,12 +129,6 @@ nav {
   gap: 24px;
 }
 
-.control-surface {
-  display: grid;
-  gap: 20px;
-}
-
-.control-surface section,
 .chat-panel {
   border: 1px solid #2a3a58;
   border-radius: 8px;
@@ -362,15 +354,6 @@ nav {
 /* Stream alerts: one alert at a time (text banner plus optional clip). Empty and
    fully transparent when idle, so it's safe as its own full-canvas OBS source
    positioned independently of the clips/sounds overlays. */
-.overlay-alerts-widget {
-  width: 100vw;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
 .alert-card {
   display: flex;
   flex-direction: column;
@@ -379,39 +362,6 @@ nav {
   max-width: 80vw;
   animation: alertIn 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-
-.alert-video {
-  display: block;
-  width: min(70vw, 960px);
-  max-height: 60vh;
-  object-fit: contain;
-  border-radius: 20px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-}
-
-.alert-text {
-  padding: 16px 28px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  /* Tone accent, set per-kind on the parent .alert-card and inherited here. */
-  border-top: 4px solid var(--alert-accent, #ffb86c);
-  background: rgba(12, 16, 28, 0.72);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  color: #f4f1e8;
-  font-family: var(--font-body, system-ui, sans-serif);
-  font-size: 30px;
-  font-weight: 700;
-  line-height: 1.25;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-
-.alert-card--warning { --alert-accent: #ffb86c; }
-.alert-card--info    { --alert-accent: #8be9fd; }
-.alert-card--note    { --alert-accent: #bd93f9; }
-.alert-card--silver  { --alert-accent: #d0d4dc; }
 
 @keyframes alertIn {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
@@ -1054,7 +1004,6 @@ nav {
     grid-template-columns: 1fr;
   }
 
-  .app-shell > header,
   .tablet-shell > header {
     align-items: flex-start;
     flex-direction: column;

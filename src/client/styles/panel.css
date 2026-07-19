@@ -180,8 +180,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .gauge.ad-safe .gauge-value { color: var(--success-fg); }
 .gauge.ad-warn .gauge-value { color: var(--warning-fg); }
-.delta-up { color: var(--success-fg); }
-.delta-down { color: var(--danger-fg); }
 
 .stat-actions {
   display: flex;
@@ -933,42 +931,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   margin-top: 6px;
 }
 .set-control { margin-left: auto; flex: none; }
-.set-foot { text-align: center; color: var(--fg-3); font-family: var(--font-display); font-style: italic; font-size: 15px; margin-top: var(--space-6); }
 .set-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; }
 .set-badge--ok { background: rgba(80,250,123,0.12); color: #50fa7b; border: 1px solid rgba(80,250,123,0.3); }
 .set-badge--ok::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #50fa7b; }
 .btn-primary { display: inline-block; padding: 7px 16px; border-radius: var(--radius-2); background: var(--arcane-400); color: #fff; font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background var(--dur-fast); }
 .btn-primary:hover { background: var(--arcane-500); }
-.command-list {
-  display: grid;
-  gap: 8px;
-  padding: 14px 14px 0;
-}
 .command-empty {
   color: var(--fg-3);
   font-size: 13px;
   padding: 8px 0;
-}
-.command-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-2);
-  background: rgba(255,255,255,0.018);
-  padding: 10px;
-}
-.command-row-main {
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-}
-.command-trigger {
-  color: var(--fg-1);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  margin-right: 8px;
 }
 .command-action-summary {
   color: var(--fg-3);
@@ -1237,16 +1208,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 10px;
 }
 .alert-kind-legend { padding: 0; }
-.alert-kind-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--fg-1);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.alert-kind-toggle input { accent-color: var(--gold-500); cursor: pointer; }
 .command-example code {
   color: var(--accent-fg);
   font-family: var(--font-mono);
@@ -1473,32 +1434,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .settings-title { margin: 0 0 4px; font-family: var(--font-display); font-size: 28px; font-weight: 500; }
 
 /* ================= VIEWER REWARDS SETTINGS ================= */
-.settings-subnav {
-  display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  margin-bottom: var(--space-5);
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-2);
-  background: var(--bg-void);
-}
-.settings-subnav button {
-  min-height: 30px;
-  padding: 5px 11px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.settings-subnav button:hover,
-.settings-subnav button.active {
-  color: var(--fg-1);
-  background: var(--bg-3);
-}
 .rewards-page > .set-status { margin: 0 0 var(--panel-gap); }
 .reward-category-manager { overflow: visible; }
 .reward-category-form {
@@ -2437,9 +2372,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   line-height: 1.4;
   margin: var(--space-2) 0;
 }
-.settings-alert--error { border-color: var(--danger-border); background: var(--danger-bg); color: var(--danger-fg); }
 .settings-alert--warn { border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning-fg); }
-.settings-alert--ok { border-color: var(--success-border); background: var(--success-bg); color: var(--success-fg); }
 .settings-alert--info { border-color: var(--info-border); background: var(--info-bg); color: var(--info-fg); }
 .settings-alert-icon { flex: none; font-weight: 700; }
 
