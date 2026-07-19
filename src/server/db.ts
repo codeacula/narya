@@ -462,6 +462,15 @@ db.exec(`
   );
 `);
 
+/**
+ * A SQLite unique-index violation. Callers that care about *which* constraint
+ * failed must keep that check on top of this one: widening a column-specific
+ * test to any unique violation reports an unrelated collision as the wrong 409.
+ */
+export function isUniqueConstraintError(error: unknown): error is Error {
+  return error instanceof Error && error.message.toLowerCase().includes('unique constraint failed');
+}
+
 const hasMigrationRun = db.prepare('select 1 as present from schema_migrations where id = ?');
 const recordMigration = db.prepare('insert into schema_migrations (id, applied_at) values (?, ?)');
 

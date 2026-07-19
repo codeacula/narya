@@ -7,7 +7,7 @@ import type {
   ViewerRewardsResponse,
   ViewerRewardUpsert,
 } from '../shared/api';
-import { db } from './db';
+import { db, isUniqueConstraintError } from './db';
 import { handle, HttpRouteError } from './http';
 import { broadcast } from './realtime';
 
@@ -351,7 +351,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     try {
       insertCategory.run(id, name, now, now);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      if (isUniqueConstraintError(error)) {
         throw new HttpRouteError(409, `A category named "${name}" already exists.`);
       }
       throw error;
@@ -387,7 +387,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     try {
       updateCategory.run(name, enabled ? 1 : 0, defaultBackgroundColor ?? null, new Date().toISOString(), current.id);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      if (isUniqueConstraintError(error)) {
         throw new HttpRouteError(409, `A category named "${name}" already exists.`);
       }
       throw error;
