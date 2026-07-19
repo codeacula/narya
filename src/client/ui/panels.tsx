@@ -11,6 +11,7 @@ import {
   updateOverlayPlaceholders,
 } from '../services/dashboard';
 import type { Viewer, ChatEntry, StreamEvent, SessionShoutout, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter, OverlayPlaceholders } from '../../shared/api';
+import { formatAgo } from '../../shared/time';
 import { useSocket } from '../realtime';
 import { renderContent, useEmotes } from '../chat';
 import { isMentionOf } from '../chatText';
@@ -888,29 +889,6 @@ function loadHiddenKinds(): Set<string> {
 
 function saveHiddenKinds(hidden: Set<string>): void {
   saveStoredJson(EVT_FILTER_KEY, [...hidden]);
-}
-
-// Compute the relative age client-side from receivedAt so it doesn't go stale
-// between refreshes (server bakes `ago` at fetch time). Ported from
-// src/server/dashboard/status.ts formatAgo buckets.
-function formatAgo(receivedAt: string): string {
-  const diffMs = Date.now() - new Date(receivedAt).getTime();
-  const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
-  if (totalSecs < 60) return 'just now';
-  if (totalSecs < 3600) {
-    const mins = Math.floor(totalSecs / 60);
-    const secs = totalSecs % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  }
-  if (totalSecs < 86_400) {
-    const hours = Math.floor(totalSecs / 3600);
-    const mins = Math.floor((totalSecs % 3600) / 60);
-    return `${hours}h ${mins}m`;
-  }
-  const days = Math.floor(totalSecs / 86_400);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
 }
 
 /* ---------------- Session Shoutouts ---------------- */
