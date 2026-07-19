@@ -39,6 +39,13 @@ export const SETTINGS_SECTIONS: ReadonlyArray<SettingsSection> = [
     blurb: 'What happens the moment Twitch confirms you are live: the Discord announcement and the scene OBS starts from.',
   },
   {
+    id: 'winddown',
+    group: 'channel',
+    label: 'Wind-down',
+    title: 'Wind-down',
+    blurb: 'Signals that the stream is wrapping up, a set number of minutes before your planned end — a title suffix and a countdown overlay. Twitch has no API to block an incoming raid, so this never stops one; a raid during wind-down still gets its full on-screen celebration.',
+  },
+  {
     id: 'categories',
     group: 'channel',
     label: 'Categories',

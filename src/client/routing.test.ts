@@ -55,6 +55,7 @@ test('each settings section resolves from its path and back to it', () => {
   const sections = [
     ['/settings', 'settings'],
     ['/settings/go-live', 'golive'],
+    ['/settings/wind-down', 'winddown'],
     ['/settings/categories', 'categories'],
     ['/settings/rewards', 'rewards'],
     ['/settings/actions', 'actions'],

@@ -5,6 +5,7 @@ import { SETTINGS_GROUPS, sectionsInGroup } from './sections';
 import { SettingsHeader } from './shared';
 import { ConnectionsSettingsPage } from '../SettingsPage';
 import { GoLiveSection } from './GoLiveSection';
+import { WindDownSection } from './WindDownSection';
 import { ContentSection } from './ContentSection';
 import { TtsSection } from './TtsSection';
 import { LlmSection } from './LlmSection';
@@ -86,6 +87,8 @@ function SettingsBody({
       );
     case 'golive':
       return <><SettingsHeader section="golive" /><GoLiveSection /></>;
+    case 'winddown':
+      return <><SettingsHeader section="winddown" /><WindDownSection /></>;
     case 'categories':
       return <StreamCategoriesPage />;
     case 'rewards':
