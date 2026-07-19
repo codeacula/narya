@@ -2,6 +2,7 @@ import type express from 'express';
 import type { AppConfig, AppConfigUpdate } from '../shared/api';
 import { db, runOnce } from './db';
 import { HttpRouteError, sendRouteError } from './http';
+import { getAuthenticatedTwitchLogin } from './twitchIdentity';
 
 const APP_CONFIG_ID = 'default';
 
@@ -182,7 +183,17 @@ function current(): AppConfigInternal {
 // Live accessor object: properties read the latest cached values, so consumers that
 // swapped `config.X` for `appConfig.X` automatically pick up changes after a save.
 export const appConfig = {
-  get twitchChannel() { return current().twitchChannel; },
+  /**
+   * The channel every service actually operates on: the stored override if the
+   * operator typed one, otherwise the login they signed in with. Nobody runs a
+   * dashboard for a channel they aren't logged into, so making them type their own
+   * name was a required field that could only ever be wrong.
+   *
+   * `AppConfigInternal.twitchChannel` stays the *stored* value — Settings has to
+   * render an empty field as empty, or saving the form would silently freeze the
+   * derived login into an override.
+   */
+  get twitchChannel() { return current().twitchChannel || getAuthenticatedTwitchLogin(); },
   get twitchClientId() { return current().twitchClientId; },
   get twitchClientSecret() { return current().twitchClientSecret; },
   get obsUrl() { return current().obsUrl; },
@@ -202,7 +213,9 @@ export function getAppConfigInternal(): AppConfigInternal {
 
 function toPublic(internal: AppConfigInternal): AppConfig {
   return {
+    // The stored override, not the resolved channel — see appConfig.twitchChannel.
     twitchChannel: internal.twitchChannel,
+    twitchChannelFromLogin: getAuthenticatedTwitchLogin(),
     twitchClientId: internal.twitchClientId,
     twitchClientSecretConfigured: Boolean(internal.twitchClientSecret),
     obsUrl: internal.obsUrl,

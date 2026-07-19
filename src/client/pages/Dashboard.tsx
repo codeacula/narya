@@ -3,7 +3,8 @@ import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx, mergeRecentChatters, type RecentChatter } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
 import { useAttention, useAttentionSettings } from '../attention';
-import { playTone } from '../sounds';
+import { isMentionOf } from '../chatText';
+import { playMentionAlert, playTone } from '../sounds';
 import {
   disconnectTwitch,
   getViewers,
@@ -158,6 +159,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   // Mirror the channel into a ref so the stable chat:message handler can read
   // the current login without hardcoding it or re-subscribing.
   const channelRef = React.useRef('');
+  // Same reason as channelRef: the chat:message handler is deliberately stable, so
+  // the toggle has to reach it through a ref rather than the dependency array.
+  const mentionSoundRef = React.useRef(true);
   // Known viewer logins + a trailing refresh timer so the chat handler avoids a
   // getViewers() request per message.
   const viewerLoginsRef = React.useRef<Set<string>>(new Set());
@@ -192,6 +196,10 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   useEffect(() => {
     channelRef.current = status.channel.toLowerCase();
   }, [status.channel]);
+
+  useEffect(() => {
+    mentionSoundRef.current = attentionSettings.mentionSoundEnabled;
+  }, [attentionSettings.mentionSoundEnabled]);
 
   useEffect(() => {
     viewerLoginsRef.current = new Set(Object.keys(viewers));
@@ -274,11 +282,12 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     }
     lastChatAt.current = now;
 
+    // Your own messages contain your own login constantly (replies, /me, shoutouts);
+    // pinging yourself for them made the cue meaningless.
     const channel = channelRef.current;
-    const isMention = channel ? message.message.toLowerCase().includes(channel) : false;
-    if (isMention) {
-      playTone(660, 80, 0.3);
-      setTimeout(() => playTone(880, 120, 0.25), 90);
+    const fromSelf = message.username.toLowerCase() === channel;
+    if (!fromSelf && mentionSoundRef.current && isMentionOf(message.message, channel)) {
+      playMentionAlert();
     }
 
     const login = message.username.toLowerCase();

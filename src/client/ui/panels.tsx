@@ -13,6 +13,7 @@ import {
 import type { Viewer, ChatEntry, StreamEvent, SessionShoutout, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter, OverlayPlaceholders } from '../../shared/api';
 import { useSocket } from '../realtime';
 import { renderContent, useEmotes } from '../chat';
+import { isMentionOf } from '../chatText';
 import { QuickActionsPanel } from '../quickActions';
 import { DEFAULT_ATTENTION_TAG, type AttentionItem, type AttentionSettings } from '../attention';
 import { kindChip, kindTone } from '../eventKinds';
@@ -126,18 +127,24 @@ export function ChatMessageRow({
   fromThisStream = true,
   onUserClick,
   emoteMap = {},
+  channel = '',
 }: {
   m: ChatEntry;
   viewer?: Viewer;
   fromThisStream?: boolean;
   onUserClick?: (login: string) => void;
   emoteMap?: Record<string, string>;
+  /** Operator's login, so rows that ping them stand out. Empty disables the check. */
+  channel?: string;
 }) {
   const color = viewer?.color ?? '#d7dce2';
   const display = viewer?.display ?? m.user;
   const nameStyle = onUserClick ? { color } : { color, cursor: 'default' as const };
   const onNameClick = onUserClick ? () => onUserClick(m.user) : undefined;
   const body = renderContent(m.text, m.emotes ?? null, emoteMap);
+  // Matches the ping cue in Dashboard's chat:message handler, self-messages included:
+  // a highlight that fires where the sound doesn't would be worse than neither.
+  const isMention = m.user.toLowerCase() !== channel.toLowerCase() && isMentionOf(m.text, channel);
 
   if (m.kind === 'whisper') {
     return (
@@ -152,7 +159,7 @@ export function ChatMessageRow({
 
   const hlClass = m.highlight ? ' hl-' + m.highlight : '';
   return (
-    <div className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past')}>
+    <div className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past') + (isMention ? ' msg--mention' : '')}>
       <span className="msg-time">{m.time}</span>
       <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
       <span className="msg-text">{body}</span>
@@ -346,6 +353,7 @@ export function Chat({ ctx }: { ctx: PanelCtx }) {
                 fromThisStream={fromThisStream}
                 onUserClick={ctx.openViewerPopout}
                 emoteMap={emoteMap}
+                channel={ctx.channel}
               />
             </React.Fragment>
           );
@@ -1048,6 +1056,14 @@ export function AttentionPanel({
                   onChange={e => onSettingsChange({ soundEnabled: e.target.checked })}
                 />
                 Chime on new items
+              </label>
+              <label className="evt-filter-item">
+                <input
+                  type="checkbox"
+                  checked={settings.mentionSoundEnabled}
+                  onChange={e => onSettingsChange({ mentionSoundEnabled: e.target.checked })}
+                />
+                Sound when chat @mentions you
               </label>
             </div>
           )}

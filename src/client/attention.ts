@@ -25,11 +25,18 @@ export const DEFAULT_ATTENTION_TAG = 'notify';
 export type AttentionSettings = {
   tag: string;
   soundEnabled: boolean;
+  /**
+   * Separate from soundEnabled: the attention chime is about the tagged-viewer
+   * feed, while a mention is anyone in chat saying your name. Sharing one toggle
+   * meant muting the feed also silenced every ping.
+   */
+  mentionSoundEnabled: boolean;
 };
 
 export const DEFAULT_ATTENTION_SETTINGS: AttentionSettings = {
   tag: DEFAULT_ATTENTION_TAG,
   soundEnabled: true,
+  mentionSoundEnabled: true,
 };
 
 function normalizeTag(tag: string): string {
@@ -111,6 +118,9 @@ export function loadAttentionSettings(): AttentionSettings {
       return {
         tag: typeof parsed.tag === 'string' ? parsed.tag : DEFAULT_ATTENTION_TAG,
         soundEnabled: parsed.soundEnabled !== false,
+        // Absent in settings stored before mention sound got its own toggle, so
+        // an existing operator keeps the ping rather than silently losing it.
+        mentionSoundEnabled: parsed.mentionSoundEnabled !== false,
       };
     },
     () => ({ ...DEFAULT_ATTENTION_SETTINGS }),

@@ -160,17 +160,29 @@ describe('acked ids', () => {
 describe('attention settings', () => {
   beforeEach(() => { localStorage.clear(); });
 
-  test('defaults to the notify tag with sound on', () => {
-    expect(loadAttentionSettings()).toEqual({ tag: 'notify', soundEnabled: true });
+  test('defaults to the notify tag with both sounds on', () => {
+    expect(loadAttentionSettings()).toEqual({ tag: 'notify', soundEnabled: true, mentionSoundEnabled: true });
   });
 
-  test('round-trips a custom tag and muted sound', () => {
-    saveAttentionSettings({ tag: 'vip', soundEnabled: false });
-    expect(loadAttentionSettings()).toEqual({ tag: 'vip', soundEnabled: false });
+  test('round-trips a custom tag and muted sounds', () => {
+    saveAttentionSettings({ tag: 'vip', soundEnabled: false, mentionSoundEnabled: false });
+    expect(loadAttentionSettings()).toEqual({ tag: 'vip', soundEnabled: false, mentionSoundEnabled: false });
+  });
+
+  test('the two sound toggles are independent', () => {
+    saveAttentionSettings({ tag: 'notify', soundEnabled: false, mentionSoundEnabled: true });
+    expect(loadAttentionSettings().mentionSoundEnabled).toBe(true);
+  });
+
+  // Settings written before mention sound had its own toggle have no such key;
+  // defaulting it off would silently take the ping away from existing operators.
+  test('settings stored before the mention toggle existed keep the ping', () => {
+    localStorage.setItem('attentionSettings', JSON.stringify({ tag: 'notify', soundEnabled: true }));
+    expect(loadAttentionSettings().mentionSoundEnabled).toBe(true);
   });
 
   test('falls back to defaults on corrupt json', () => {
     localStorage.setItem('attentionSettings', '{{');
-    expect(loadAttentionSettings()).toEqual({ tag: 'notify', soundEnabled: true });
+    expect(loadAttentionSettings()).toEqual({ tag: 'notify', soundEnabled: true, mentionSoundEnabled: true });
   });
 });

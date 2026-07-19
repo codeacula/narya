@@ -5,6 +5,7 @@ import { config } from '../config';
 import { db } from '../db';
 import { parseCookies } from '../http';
 import type { RuntimeState, TwitchTokenResponse, TwitchUserToken } from '../runtime';
+import { clearTwitchIdentity, setTwitchIdentity } from '../twitchIdentity';
 
 export const REQUIRED_TWITCH_OAUTH_SCOPES = [
   'moderator:read:followers',
@@ -276,12 +277,41 @@ export function registerTwitchAuthRoutes({
   state,
   connectEventSub,
   disconnectEventSub,
+  resolveAccountIdentity,
+  onResolvedChannelChanged,
 }: {
   app: express.Express;
   state: RuntimeState;
   connectEventSub: () => void;
   disconnectEventSub: () => void;
+  /**
+   * Injected rather than imported: twitch/api.ts already imports this module, and
+   * calling into it directly would close the cycle.
+   */
+  resolveAccountIdentity: (clientId: string, accessToken: string) => Promise<{ id: string; login: string } | null>;
+  /**
+   * Signing in (or out) can change the channel every service is keyed to, because
+   * appConfig falls back to the authenticated login. That happens without a
+   * PUT /api/config, so reconcileServices has to be told separately.
+   */
+  onResolvedChannelChanged: () => void;
 }) {
+  /**
+   * Record who this token belongs to. Best-effort: a failed lookup leaves the token
+   * working and the operator can still type the channel by hand, so it must not
+   * fail the login.
+   */
+  async function captureAccountIdentity(account: TwitchAuthAccount, accessToken: string): Promise<boolean> {
+    const clientId = appConfig.twitchClientId;
+    if (!clientId) return false;
+    const user = await resolveAccountIdentity(clientId, accessToken);
+    if (!user?.login) {
+      console.error(`OAuth: could not resolve the ${account} account's login.`);
+      return false;
+    }
+    return setTwitchIdentity(account, { userId: user.id, login: user.login });
+  }
+
   function startTwitchLogin(account: TwitchAuthAccount, request: express.Request, response: express.Response) {
     const clientId = appConfig.twitchClientId;
     if (!clientId) {
@@ -361,9 +391,15 @@ export function registerTwitchAuthRoutes({
       }
       if (account === 'bot') {
         persistTwitchBotToken(state, { ...tokenData, access_token: tokenData.access_token });
+        await captureAccountIdentity('bot', tokenData.access_token);
         console.log('OAuth: bot token cached.');
       } else {
         persistTwitchUserToken(state, { ...tokenData, access_token: tokenData.access_token });
+        // Before EventSub: the channel it subscribes to is derived from this login
+        // when no override is stored, so resolving it first is what lets a fresh
+        // install work without the operator typing their own name.
+        const channelChanged = await captureAccountIdentity('user', tokenData.access_token);
+        if (channelChanged) onResolvedChannelChanged();
         console.log('OAuth: user token cached, reconnecting EventSub...');
         // A live socket makes connectEventSub a no-op, so newly granted scopes
         // would not get subscriptions until the next restart or socket drop.
@@ -384,6 +420,9 @@ export function registerTwitchAuthRoutes({
   app.delete('/api/auth/twitch', (_request, response) => {
     deleteTwitchToken.run(TWITCH_AUTH_PROVIDERS.user);
     state.clearAuthenticatedUserState();
+    // Signing out drops the derived channel too, unless an override is stored.
+    clearTwitchIdentity('user');
+    onResolvedChannelChanged();
     disconnectEventSub();
     response.json({ ok: true, ...getTwitchAuthStatus(state) });
   });
@@ -391,6 +430,7 @@ export function registerTwitchAuthRoutes({
   app.delete('/api/auth/twitch/bot', (_request, response) => {
     deleteTwitchToken.run(TWITCH_AUTH_PROVIDERS.bot);
     state.clearAuthenticatedBotState();
+    clearTwitchIdentity('bot');
     response.json({ ok: true, ...getTwitchAuthStatus(state) });
   });
 }
