@@ -40,6 +40,12 @@ function resolveToken(token: string, context: TemplateContext): string | undefin
     case 'months': return scalar(context.months);
     case 'category': return scalar(context.category);
     case 'module': return scalar(context.module);
+    case 'quoteNumber': return scalar(context.quoteNumber);
+    case 'quoteText': return scalar(context.quoteText);
+    case 'quoteSlug': return scalar(context.quoteSlug);
+    case 'quoteSubmitter': return scalar(context.quoteSubmitter);
+    case 'quoteShownCount': return scalar(context.quoteShownCount);
+    case 'quoteDate': return scalar(context.quoteDate);
     default: break;
   }
 
@@ -142,6 +148,14 @@ function isKnownToken(token: string): boolean {
     case 'months':
     case 'category':
     case 'module':
+    // Only a quote step supplies these. Known-but-absent renders empty, so a template
+    // reusing {quoteText} outside a quote step degrades quietly like {months} does.
+    case 'quoteNumber':
+    case 'quoteText':
+    case 'quoteSlug':
+    case 'quoteSubmitter':
+    case 'quoteShownCount':
+    case 'quoteDate':
       return true;
     default:
       return ARG_TOKEN_PATTERN.test(token) || REST_TOKEN_PATTERN.test(token);

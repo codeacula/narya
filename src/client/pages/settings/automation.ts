@@ -14,6 +14,7 @@ import type {
   ChatPhraseMatch,
   Counter,
   MediaAsset,
+  QuoteDestination,
   TriggerRole,
 } from '../../../shared/api';
 
@@ -42,6 +43,8 @@ export const STEP_TYPES: ActionStepType[] = [
   'twitch_timeout',
   'twitch_ban',
   'adjust_counter',
+  'quote_add',
+  'quote_show',
 ];
 
 export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
@@ -57,6 +60,8 @@ export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
   twitch_timeout: 'Twitch timeout',
   twitch_ban: 'Twitch ban',
   adjust_counter: 'Adjust counter',
+  quote_add: 'Save a quote',
+  quote_show: 'Announce a quote',
 };
 
 export const TRIGGER_KINDS: AutomationTriggerKind[] = [
@@ -162,6 +167,32 @@ export function newStep(type: ActionStepType): ActionStepInput {
     // Defaults to the common case: bump the chosen counter by one.
     case 'adjust_counter':
       return { type, enabled: true, delayMs: 0, payload: { counterId: '', mode: 'add', amountTemplate: '1' } };
+    case 'quote_add':
+      return {
+        type,
+        enabled: true,
+        delayMs: 0,
+        payload: {
+          textTemplate: '{input}',
+          slugTemplate: '',
+          replyTemplate: 'Saved quote {quoteNumber}.',
+          destination: 'discord',
+          discordChannelId: '',
+        },
+      };
+    case 'quote_show':
+      return {
+        type,
+        enabled: true,
+        delayMs: 0,
+        payload: {
+          // Empty renders to "any quote", so a bare !quote picks a random one.
+          queryTemplate: '{input}',
+          messageTemplate: 'Quote {quoteNumber}: {quoteText}',
+          destination: 'discord',
+          discordChannelId: '',
+        },
+      };
   }
 }
 
@@ -242,7 +273,17 @@ export function describeStep(step: ActionStepInput, assets: MediaAsset[] = [], c
       // A leading sign already reads as a direction, so "+1" must not become "by +1".
       return /^[+-]/.test(amount) ? `${name} ${amount}` : `${name} by ${amount}`;
     }
+    case 'quote_add':
+      return `save ${step.payload.textTemplate || '(nothing)'} → ${destinationLabel(step.payload)}`;
+    case 'quote_show':
+      return `${step.payload.queryTemplate || 'random quote'} → ${destinationLabel(step.payload)}`;
   }
+}
+
+/** Where a quote step announces, for the collapsed row. */
+function destinationLabel(payload: { destination: QuoteDestination; discordChannelId: string }): string {
+  if (payload.destination === 'chat') return 'Twitch chat';
+  return payload.discordChannelId ? `Discord #${payload.discordChannelId}` : 'Discord (no channel)';
 }
 
 /** The assets a play_media step references that would refuse to play right now. */
@@ -404,7 +445,29 @@ export function validateStep(step: ActionStepInput, index: number): string | nul
       }
       return null;
     }
+    case 'quote_add':
+      if (templateMissing(step.payload.textTemplate)) return `${where}: needs the text to save.`;
+      return validateQuoteDelivery(step.payload, where);
+    case 'quote_show':
+      // queryTemplate is deliberately optional — empty means "any quote".
+      if (templateMissing(step.payload.messageTemplate)) return `${where}: needs a message to announce.`;
+      return validateQuoteDelivery(step.payload, where);
   }
+}
+
+/**
+ * A Discord destination needs its channel now. Letting it save blank moves the
+ * failure to the moment a viewer runs the command, on stream.
+ */
+function validateQuoteDelivery(
+  payload: { destination: QuoteDestination; discordChannelId: string },
+  where: string,
+): string | null {
+  if (payload.destination !== 'discord') return null;
+  const channelId = payload.discordChannelId.trim();
+  if (!channelId) return `${where}: pick the Discord channel to post in.`;
+  if (!/^\d{5,32}$/.test(channelId)) return `${where}: that is not a valid Discord channel id.`;
+  return null;
 }
 
 /** The first problem that would make the server reject this Action, or null. */

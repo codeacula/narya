@@ -11,9 +11,9 @@ import type {
   MediaAsset,
 } from '../../../shared/api';
 import {
-  actionToUpsert,
   STEP_TYPES,
   STEP_TYPE_LABELS,
+  actionToUpsert,
   describeStep,
   describeTriggerConfig,
   formatCooldown,
@@ -746,5 +746,72 @@ describe('adjust_counter steps', () => {
     const step = newStep('adjust_counter');
     step.payload = { counterId: 'gone', mode: 'add', amountTemplate: '1' };
     expect(describeStep(step, [], [counter()])).toContain('unknown counter');
+  });
+});
+
+describe('quote steps', () => {
+  const showStep = (payload: Partial<Record<string, unknown>> = {}): ActionStepInput => ({
+    type: 'quote_show',
+    enabled: true,
+    delayMs: 0,
+    payload: {
+      queryTemplate: '{input}',
+      messageTemplate: 'Quote {quoteNumber}: {quoteText}',
+      destination: 'discord',
+      discordChannelId: '123456789',
+      ...payload,
+    },
+  } as ActionStepInput);
+
+  test('a Discord destination with no channel is rejected before it can be saved', () => {
+    // Otherwise the step saves clean and fails the first time a viewer runs it, live.
+    expect(validateStep(showStep({ discordChannelId: '' }), 0)).toContain('Discord channel');
+  });
+
+  test('a channel id that is not a snowflake is rejected', () => {
+    expect(validateStep(showStep({ discordChannelId: '#general' }), 0)).toContain('not a valid Discord channel id');
+  });
+
+  test('a chat destination needs no channel', () => {
+    expect(validateStep(showStep({ destination: 'chat', discordChannelId: '' }), 0)).toBeNull();
+  });
+
+  test('an empty query is allowed — it means "any quote"', () => {
+    expect(validateStep(showStep({ queryTemplate: '' }), 0)).toBeNull();
+  });
+
+  test('an empty announcement message is rejected', () => {
+    expect(validateStep(showStep({ messageTemplate: '  ' }), 0)).toContain('needs a message');
+  });
+
+  test('a save step needs the text to save', () => {
+    const step: ActionStepInput = {
+      type: 'quote_add',
+      enabled: true,
+      delayMs: 0,
+      payload: {
+        textTemplate: '',
+        slugTemplate: '',
+        replyTemplate: '',
+        destination: 'chat',
+        discordChannelId: '',
+      },
+    };
+    expect(validateStep(step, 0)).toContain('needs the text to save');
+  });
+
+  test('newStep produces a valid step for both quote kinds', () => {
+    // A fresh quote step defaults to Discord with no channel yet, so it is
+    // deliberately invalid until the operator picks one.
+    expect(validateStep(newStep('quote_show'), 0)).toContain('Discord channel');
+    expect(validateStep({ ...newStep('quote_show'), payload: { ...newStep('quote_show').payload, destination: 'chat' } } as ActionStepInput, 0)).toBeNull();
+    expect(validateStep({ ...newStep('quote_add'), payload: { ...newStep('quote_add').payload, destination: 'chat' } } as ActionStepInput, 0)).toBeNull();
+  });
+
+  test('every step type has a label and a constructible default', () => {
+    for (const type of STEP_TYPES) {
+      expect(STEP_TYPE_LABELS[type]).toBeTruthy();
+      expect(newStep(type).type).toBe(type);
+    }
   });
 });

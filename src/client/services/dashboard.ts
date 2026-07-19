@@ -57,6 +57,9 @@ import type {
   DiscordGuild,
   DiscordChannel,
   GoLiveSettings,
+  Quote,
+  QuoteInput,
+  QuoteUpdate,
   GoLiveSettingsUpdate,
   GoLiveResult,
   ViewerRewardCategory,
@@ -688,4 +691,23 @@ export async function adjustCounter(id: string, amount: number): Promise<Counter
 /** 409s when an Action step, an Action template, or the status line still references it. */
 export async function deleteCounter(id: string): Promise<void> {
   return sendVoid(`/api/counters/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+// --- Quotes ------------------------------------------------------------------
+
+export async function getQuotes(): Promise<Quote[]> {
+  return fetchJson<Quote[]>('/api/quotes');
+}
+
+export async function createQuote(quote: QuoteInput): Promise<Quote> {
+  return sendJson<Quote>('/api/quotes', 'POST', quote);
+}
+
+/** Only the fields present are changed; an explicit null slug clears it. */
+export async function updateQuote(id: string, update: QuoteUpdate): Promise<Quote> {
+  return sendJson<Quote>(`/api/quotes/${encodeURIComponent(id)}`, 'PATCH', update);
+}
+
+export async function deleteQuote(id: string): Promise<void> {
+  return sendVoid(`/api/quotes/${encodeURIComponent(id)}`, 'DELETE');
 }

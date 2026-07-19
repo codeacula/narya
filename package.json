@@ -5,6 +5,7 @@
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "packageManager": "bun@1.2.0",
+  "types": "build/ts/index.d.ts",
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"bun run dev:server\" \"bun run dev:client\"",
     "dev:client": "vite",

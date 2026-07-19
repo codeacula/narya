@@ -456,6 +456,32 @@ db.exec(`
   create index if not exists idx_viewer_reward_category_members_category on viewer_reward_category_members(category_id);
   create index if not exists idx_viewer_reward_category_games_category on viewer_reward_category_games(category_id);
   create index if not exists idx_automod_holds_resolved_at on automod_holds(resolved_at);
+
+  create table if not exists quotes (
+    id text primary key,
+    number integer not null unique,
+    slug text,
+    text text not null,
+    submitted_by text not null,
+    submitted_by_login text not null default '',
+    created_at text not null,
+    shown_count integer not null default 0,
+    last_shown_at text
+  );
+
+  -- Quote numbers come from here, NOT from max(number) + 1: deleting the newest
+  -- quote must not let the next one inherit its number. "Quote 12" gets repeated in
+  -- Discord history and screenshots long after the fact, so a number that silently
+  -- comes to mean a different quote is worse than a gap in the sequence.
+  create table if not exists quote_sequence (
+    id integer primary key check (id = 1),
+    next_number integer not null
+  );
+  insert or ignore into quote_sequence (id, next_number) values (1, 1);
+
+  -- Partial: a slug is optional, so many quotes hold NULL, but a slug that IS set is
+  -- a lookup handle and must resolve to exactly one quote.
+  create unique index if not exists idx_quotes_slug on quotes(slug) where slug is not null;
 `);
 
 // The runsheet and ticker features were removed; drop their tables from databases created before that.

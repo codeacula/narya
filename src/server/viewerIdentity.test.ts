@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { db } from './db';
+import { addQuote, getQuote } from './quotes';
 import { hasSeenChatterBefore } from './streamSession';
 import {
   flushViewer,
@@ -12,6 +13,8 @@ import {
 } from './viewerIdentity';
 
 function reset() {
+  db.exec('delete from quotes');
+  db.exec('update quote_sequence set next_number = 1 where id = 1');
   db.exec('delete from chatters');
   db.exec('delete from ignored_logins');
   db.exec('delete from chat_messages');
@@ -221,5 +224,52 @@ describe('flushViewer', () => {
 
     recordChatterPresence([{ userId: '8', userLogin: 'badbot', userName: 'BadBot' }]);
     expect(chatter('badbot')).not.toBeNull();
+  });
+});
+
+describe('flushViewer and the quote book', () => {
+  test('anonymizes quotes the flushed viewer submitted, keeping the quote and its number', () => {
+    // A flush must not leave the viewer's name to be announced on stream by a
+    // quote_show step — but deleting the quote would retire a number already
+    // circulating in Discord, so the text and the number survive the flush.
+    const kept = addQuote({ text: 'a genuinely good line', submittedBy: 'SpamBob', submittedByLogin: 'SpamBob' });
+    const other = addQuote({ text: 'someone else said this', submittedBy: 'Ann', submittedByLogin: 'ann' });
+
+    flushViewer('spambob');
+
+    const after = getQuote(kept.id)!;
+    expect(after.number).toBe(kept.number);
+    expect(after.text).toBe('a genuinely good line');
+    expect(after.submittedBy).toBe('unknown');
+    expect(after.submittedByLogin).toBe('');
+
+    // Only the flushed viewer's attribution is touched.
+    const untouched = getQuote(other.id)!;
+    expect(untouched.submittedBy).toBe('Ann');
+    expect(untouched.submittedByLogin).toBe('ann');
+  });
+
+  test('normalizes the login the operator typed', () => {
+    // Covers flushViewer's own lowercasing of the route parameter. The normalization
+    // inside anonymizeQuotesByLogin is exercised directly in quotes.test.ts — going
+    // through flushViewer cannot reach it, since the key arrives already lowercased.
+    const quote = addQuote({ text: 'mixed case login', submittedBy: 'MixedCase', submittedByLogin: 'MixedCase' });
+    flushViewer('  MIXEDCASE  ');
+    expect(getQuote(quote.id)!.submittedBy).toBe('unknown');
+  });
+
+  test('leaves quotes alone when the flushed viewer submitted none', () => {
+    const quote = addQuote({ text: 'untouched', submittedBy: 'Ann', submittedByLogin: 'ann' });
+    flushViewer('nobody');
+    expect(getQuote(quote.id)!.submittedBy).toBe('Ann');
+  });
+
+  test('unflushing does not resurrect the name', () => {
+    // Anonymization is deliberately one-way: the login is gone from the row, so
+    // there is nothing left to key a restore off.
+    const quote = addQuote({ text: 'gone for good', submittedBy: 'SpamBob', submittedByLogin: 'spambob' });
+    flushViewer('spambob');
+    unflushViewer('spambob');
+    expect(getQuote(quote.id)!.submittedBy).toBe('unknown');
   });
 });

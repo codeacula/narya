@@ -3409,3 +3409,64 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* --- Quotes ---------------------------------------------------------------- */
+
+.quotes-page { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.quote-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-3);
+  background: var(--bg-2);
+}
+
+.quote-search { max-width: 320px; }
+
+.quote-list { display: flex; flex-direction: column; gap: var(--space-3); }
+
+.quote-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-3);
+  background: var(--bg-2);
+}
+.quote-card--editing { border-color: var(--border-3); }
+
+/* The number is the handle a viewer types, so it reads as the card's identity. */
+.quote-number {
+  flex: none;
+  min-width: 3ch;
+  font-family: var(--font-display);
+  font-size: var(--step-1);
+  color: var(--fg-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.quote-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+
+.quote-text {
+  margin: 0;
+  color: var(--fg-1);
+  overflow-wrap: anywhere;
+}
+
+.quote-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--step--1);
+  color: var(--fg-3);
+}
+
+.quote-edit-row { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+
+.quote-acts { flex: none; display: flex; gap: var(--space-2); }

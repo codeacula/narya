@@ -8,6 +8,7 @@ import type {
   ChatSender,
   CounterAdjustMode,
   MediaSelection,
+  QuoteDestination,
   TemplateContext,
   TextStyle,
 } from '../shared/api';
@@ -39,11 +40,32 @@ const STEP_TYPES = new Set<ActionStepType>([
   'twitch_timeout',
   'twitch_ban',
   'adjust_counter',
+  'quote_add',
+  'quote_show',
 ]);
 const COUNTER_MODES = new Set<CounterAdjustMode>(['add', 'set']);
 const TEXT_STYLES = new Set<TextStyle>(['banner', 'toast', 'centered']);
 const MEDIA_SELECTIONS = new Set<MediaSelection>(['first', 'random']);
 const CHAT_SENDERS = new Set<ChatSender>(['user', 'bot']);
+const QUOTE_DESTINATIONS = new Set<QuoteDestination>(['discord', 'chat']);
+
+/**
+ * Where a quote step announces. A Discord destination needs a channel snowflake up
+ * front: the alternative is a step that validates fine and then fails at the moment a
+ * viewer runs it, on stream.
+ */
+function normalizeQuoteDelivery(value: Record<string, unknown>): { destination: QuoteDestination; discordChannelId: string } {
+  const destination = typeof value.destination === 'string' ? value.destination : '';
+  if (!QUOTE_DESTINATIONS.has(destination as QuoteDestination)) {
+    throw new HttpRouteError(400, `Unsupported quote destination: ${destination || 'unknown'}.`);
+  }
+  const discordChannelId = typeof value.discordChannelId === 'string' ? value.discordChannelId.trim() : '';
+  if (destination === 'discord') {
+    if (!discordChannelId) throw new HttpRouteError(400, 'Quote steps posting to Discord need a channel.');
+    if (!/^\d{5,32}$/.test(discordChannelId)) throw new HttpRouteError(400, 'That is not a valid Discord channel id.');
+  }
+  return { destination: destination as QuoteDestination, discordChannelId };
+}
 
 type ActionRow = {
   id: string;
@@ -250,6 +272,22 @@ function normalizeStepPayload(type: ActionStepType, payload: unknown): ActionSte
       }
       return { counterId, mode: mode as CounterAdjustMode, amountTemplate };
     }
+    case 'quote_add':
+      return {
+        textTemplate: requireTemplate(value.textTemplate, 'Quote steps need the text to save.'),
+        slugTemplate: optionalTemplate(value.slugTemplate),
+        replyTemplate: optionalTemplate(value.replyTemplate),
+        ...normalizeQuoteDelivery(value),
+      };
+
+    case 'quote_show':
+      return {
+        // Deliberately optional: a template that renders empty means "any quote", which
+        // is what makes a bare `!quote` pick a random one.
+        queryTemplate: optionalTemplate(value.queryTemplate),
+        messageTemplate: requireTemplate(value.messageTemplate, 'Quote steps need a message to announce.'),
+        ...normalizeQuoteDelivery(value),
+      };
   }
 }
 
