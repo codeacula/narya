@@ -60,6 +60,13 @@ export const SETTINGS_SECTIONS: ReadonlyArray<SettingsSection> = [
     blurb: 'Create and organize Twitch Channel Points rewards. Toggle a category to switch its manageable rewards on or off together.',
   },
   {
+    id: 'quotes',
+    group: 'channel',
+    label: 'Quotes',
+    title: 'Quotes',
+    blurb: 'The quote book. Each quote has a number, an optional keyword, and a count of how often it has been pulled up. Wire the commands that save and announce them in Actions.',
+  },
+  {
     id: 'actions',
     group: 'automation',
     label: 'Actions',
@@ -79,6 +86,13 @@ export const SETTINGS_SECTIONS: ReadonlyArray<SettingsSection> = [
     label: 'Modules',
     title: 'Category modules',
     blurb: 'A module owns Twitch categories and channel-point reward groups. Switching game deactivates one module and activates another, turning its reward groups on and the outgoing module’s off.',
+  },
+  {
+    id: 'counters',
+    group: 'automation',
+    label: 'Counters',
+    title: 'Counters',
+    blurb: 'Durable tallies — deaths, wipes, bits of running-joke bookkeeping. An action step moves one; put {counter:key} in any template or in your stream status to show it.',
   },
   {
     id: 'content',

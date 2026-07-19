@@ -37,6 +37,9 @@ import type {
   Chatter,
   ChattersResponse,
   ViewerRosterEntry,
+  IgnoredLogin,
+  ViewerRefreshResult,
+  ViewerFlushResult,
   SoundButton,
   SoundButtonUpdate,
   SoundPlayback,
@@ -55,6 +58,9 @@ import type {
   DiscordGuild,
   DiscordChannel,
   GoLiveSettings,
+  Quote,
+  QuoteInput,
+  QuoteUpdate,
   GoLiveSettingsUpdate,
   GoLiveResult,
   ViewerRewardCategory,
@@ -75,6 +81,11 @@ import type {
   WindDownPublicState,
   WindDownSettings,
   PlannedStreamEnd,
+  StreamStatusRaw,
+  Counter,
+  CounterInput,
+  CounterUpdate,
+  CountersResponse,
 } from '../../shared/api';
 import { getDashboardToken, isDashboardTokenRejection, reportDashboardTokenRejected } from '../auth';
 
@@ -426,8 +437,26 @@ export async function getChatters(): Promise<ChattersResponse> {
   return fetchJson<ChattersResponse>('/api/chatters');
 }
 
+/**
+ * Logins the operator has flushed. The roster page needs these to keep a flushed
+ * VIP or moderator from being synthesized back out of the live Twitch role lists.
+ */
+export async function getIgnoredLogins(): Promise<IgnoredLogin[]> {
+  return fetchJson<IgnoredLogin[]>('/api/viewers/ignored');
+}
+
 export async function getViewerRoster(): Promise<ViewerRosterEntry[]> {
   return fetchJson<ViewerRosterEntry[]>('/api/viewers/roster');
+}
+
+/** Re-query Twitch for one viewer, persisting the result and detecting a dead account. */
+export async function refreshViewer(login: string): Promise<ViewerRefreshResult> {
+  return sendJson<ViewerRefreshResult>(`/api/viewers/${encodeURIComponent(login)}/refresh`, 'POST');
+}
+
+/** Remove a viewer and keep them out. See flushViewer on the server. */
+export async function flushViewer(login: string, reason = ''): Promise<ViewerFlushResult> {
+  return sendJson<ViewerFlushResult>(`/api/viewers/${encodeURIComponent(login)}/flush`, 'POST', { reason });
 }
 
 export async function getVips(): Promise<Chatter[]> {
@@ -517,6 +546,15 @@ export async function clearManualMusic(): Promise<MusicInfo> {
 
 export async function getStreamStatus(): Promise<StreamStatus> {
   return fetchJson<StreamStatus>('/api/stream-status');
+}
+
+/**
+ * The unrendered status text, for the editor. An editor seeded from the rendered
+ * `text` would save the interpolated result back as the new stored text, replacing
+ * "{counter:deaths}" with a frozen snapshot of its value.
+ */
+export async function getStreamStatusRaw(): Promise<StreamStatusRaw> {
+  return fetchJson<StreamStatusRaw>('/api/stream-status/raw');
 }
 
 export async function updateStreamStatus(text: string): Promise<StreamStatus> {
@@ -664,4 +702,51 @@ export async function deleteCategoryModule(id: string): Promise<void> {
 /** Re-reads the live Twitch category and re-applies module-owned reward groups. Clears `degraded` when it succeeds. */
 export async function reconcileCategoryModules(): Promise<CategoryModulesResponse> {
   return sendJson<CategoryModulesResponse>('/api/category-modules/reconcile', 'POST', {});
+}
+
+// --- Counters ----------------------------------------------------------------
+
+export async function getCounters(): Promise<CountersResponse> {
+  return fetchJson<CountersResponse>('/api/counters');
+}
+
+export async function createCounter(counter: CounterInput): Promise<Counter> {
+  return sendJson<Counter>('/api/counters', 'POST', counter);
+}
+
+export async function updateCounter(id: string, counter: CounterUpdate): Promise<Counter> {
+  return sendJson<Counter>(`/api/counters/${encodeURIComponent(id)}`, 'PUT', counter);
+}
+
+/**
+ * A RELATIVE adjustment, applied server-side against the stored row. Use this
+ * rather than updateCounter for ±1: an absolute value computed from rendered
+ * state discards whatever automation wrote between the render and the click.
+ */
+export async function adjustCounter(id: string, amount: number): Promise<Counter> {
+  return sendJson<Counter>(`/api/counters/${encodeURIComponent(id)}/adjust`, 'POST', { mode: 'add', amount });
+}
+
+/** 409s when an Action step, an Action template, or the status line still references it. */
+export async function deleteCounter(id: string): Promise<void> {
+  return sendVoid(`/api/counters/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+// --- Quotes ------------------------------------------------------------------
+
+export async function getQuotes(): Promise<Quote[]> {
+  return fetchJson<Quote[]>('/api/quotes');
+}
+
+export async function createQuote(quote: QuoteInput): Promise<Quote> {
+  return sendJson<Quote>('/api/quotes', 'POST', quote);
+}
+
+/** Only the fields present are changed; an explicit null slug clears it. */
+export async function updateQuote(id: string, update: QuoteUpdate): Promise<Quote> {
+  return sendJson<Quote>(`/api/quotes/${encodeURIComponent(id)}`, 'PATCH', update);
+}
+
+export async function deleteQuote(id: string): Promise<void> {
+  return sendVoid(`/api/quotes/${encodeURIComponent(id)}`, 'DELETE');
 }

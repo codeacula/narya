@@ -21,6 +21,16 @@ const STYLE = `
   .twk-sect{font-size:9.5px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;
     color:var(--fg-3);padding:8px 0 0;border-top:1px solid var(--border-1);margin-top:2px}
   .twk-sect:first-child{padding-top:0;border-top:0;margin-top:0}
+  .twk-overlay-bounds{display:flex;flex-direction:column;gap:7px}
+  .twk-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--fg-1)}
+  .twk-toggle input{accent-color:var(--gold-500);cursor:pointer;margin:0}
+  .twk-toggle input:disabled{cursor:default;opacity:0.5}
+  /* Deliberately loud: while this is on, boxes are being drawn over whatever OBS is
+     composing, and the flag is in-memory so nothing else will remind the operator. */
+  .twk-warn{margin:0;padding:6px 8px;border-radius:5px;
+    border:1px solid var(--warning-border,rgba(255,184,108,0.45));
+    background:var(--warning-bg,rgba(255,184,108,0.12));
+    color:var(--warning-fg,var(--fg-1));font-size:10.5px;line-height:1.35}
 `;
 
 export function TweaksPanel({

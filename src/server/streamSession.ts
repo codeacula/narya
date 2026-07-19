@@ -101,10 +101,15 @@ const countSessionChatters = db.prepare(`
   where session_id = ?
 `);
 
+// `message_count > 0`, not row existence. A `chatters` row used to mean exactly one
+// thing — "this person has chatted" — but presence tracking now also creates rows for
+// lurkers, who have never typed and carry a count of 0. Keying this off existence
+// would have silently killed the first-ever-chatter highlight for every lurker who
+// later spoke. See viewerIdentity.ts.
 const selectChatter = db.prepare(`
   select 1
   from chatters
-  where login = ?
+  where login = ? and message_count > 0
 `);
 
 function rowToStreamSession(row: unknown): StreamSession | null {

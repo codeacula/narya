@@ -23,3 +23,11 @@ public/sounds/
 
 # Superpowers SDD scratch (ledger, task briefs, review packages)
 .superpowers/
+
+data/backups/
+.ds-sync/
+ds-bundle/
+build/ts/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules

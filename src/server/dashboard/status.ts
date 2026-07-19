@@ -10,7 +10,6 @@ import type { SessionShoutout, ViewerRosterEntry } from '../../shared/api';
 import { chatHighlight, getViewerRolesFromBadges } from '../../shared/roles';
 import { formatAgo } from '../../shared/time';
 import { twitchClient } from '../chat';
-import { appConfig } from '../appConfig';
 import { db } from '../db';
 import { handle, HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
@@ -19,6 +18,7 @@ import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus }
 import { getActiveStreamSession, getCurrentStreamSessionId, getSessionChatterCount } from '../streamSession';
 import { getTwitchAuthStatus, REQUIRED_TWITCH_OAUTH_SCOPES } from '../twitch/auth';
 import { fetchBroadcasterId, fetchViewerTwitchDetails, getTwitchApiHeaders, getTwitchUserApiHeaders } from '../twitch/api';
+import { getTwitchChannel } from '../twitchIdentity';
 
 type ChatMessageRow = {
   id: string;
@@ -98,6 +98,80 @@ function normalizeViewerProfileBody(body: unknown) {
   return { realName, tags, note };
 }
 
+/**
+ * The viewer roster: everyone in `chatters`, joined to their most recent message for
+ * a current display name, colour, and badges. Ordered most-recently-seen first so
+ * "who's come by" reads top-down.
+ *
+ * Exported and parameterised by login because the refresh route needs exactly one
+ * entry back in the same shape — duplicating this join there would have let the two
+ * definitions drift. A channel with tens of thousands of chatters would want
+ * server-side paging; client-side search covers the common case.
+ */
+export function buildViewerRoster(onlyLogin?: string): ViewerRosterEntry[] {
+  const where = onlyLogin ? 'where c.login = ?' : '';
+  const rows = db.prepare(`
+    select
+      c.login as login,
+      c.first_seen_at as firstSeen,
+      c.message_count as msgs,
+      m.display_name as display,
+      m.color as color,
+      m.received_at as lastSeen,
+      m.badges_json as badgesJson,
+      c.twitch_user_id as twitchUserId,
+      c.display_name as profileDisplay,
+      c.profile_image_url as profileImageUrl,
+      c.account_created_at as accountCreatedAt,
+      c.last_seen_at as presenceSeen,
+      c.missing_at as missingAt
+    from chatters c
+    left join (
+      select username, display_name, color, received_at, badges_json,
+             row_number() over (partition by username order by received_at desc) as rn
+      from chat_messages
+    ) m on m.username = c.login and m.rn = 1
+    ${where}
+    order by coalesce(m.received_at, c.last_seen_at, c.first_seen_at) desc
+  `).all(...(onlyLogin ? [onlyLogin] : [])) as Array<{
+    login: string;
+    firstSeen: string;
+    msgs: number;
+    display: string | null;
+    color: string | null;
+    lastSeen: string | null;
+    badgesJson: string | null;
+    twitchUserId: string | null;
+    profileDisplay: string | null;
+    profileImageUrl: string | null;
+    accountCreatedAt: string | null;
+    presenceSeen: string | null;
+    missingAt: string | null;
+  }>;
+
+  const noteRows = db.prepare('select login, note from viewer_profiles').all() as Array<{ login: string; note: string }>;
+  const notes = new Map(noteRows.map(row => [row.login, row.note]));
+
+  return rows.map(row => ({
+    login: row.login,
+    // A lurker has no message to take a display name from, so the Helix profile is the
+    // only source; a message still wins when there is one, being the most recent thing
+    // the viewer actually presented as.
+    display: row.display ?? row.profileDisplay ?? row.login,
+    color: row.color ?? fallbackColor(row.login),
+    roles: getViewerRolesFromBadges(parseBadgesJson(row.badgesJson)),
+    messageCount: row.msgs,
+    firstSeenAt: row.firstSeen,
+    lastSeenAt: row.lastSeen ?? row.presenceSeen ?? row.firstSeen,
+    note: notes.get(row.login) ?? '',
+    isLurker: row.msgs === 0,
+    twitchUserId: row.twitchUserId,
+    profileImageUrl: row.profileImageUrl,
+    accountCreatedAt: row.accountCreatedAt,
+    missing: row.missingAt != null,
+  }));
+}
+
 function fallbackColor(login: string): string {
   const palette = ['#ffc488', '#d7dce2', '#a8e0c4', '#9ccae8', '#bca6f0', '#f0a99d', '#f5f2e0'];
   let hash = 0;
@@ -170,7 +244,7 @@ export async function getTwitchStreamStatus(state: RuntimeState): Promise<Stream
 
   try {
     const res = await fetch(
-      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(appConfig.twitchChannel)}`,
+      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(getTwitchChannel())}`,
       { headers },
     );
 
@@ -229,7 +303,7 @@ export async function getTwitchAdSchedule(state: RuntimeState): Promise<AdSchedu
   }
 
   const bid = state.broadcasterId ?? await fetchBroadcasterId(headers['Client-Id'], headers.userToken);
-  if (!bid) return emptyAdSchedule('unavailable', `Could not resolve broadcaster ID for "${appConfig.twitchChannel}".`);
+  if (!bid) return emptyAdSchedule('unavailable', `Could not resolve broadcaster ID for "${getTwitchChannel()}".`);
   state.broadcasterId = bid;
 
   try {
@@ -313,7 +387,7 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
   const activeStreamSession = getActiveStreamSession();
 
   return {
-    channel: appConfig.twitchChannel,
+    channel: getTwitchChannel(),
     chatConnection: twitchClient.readyState?.() ?? 'UNKNOWN',
     obsConnected: isObsConnected(),
     eventSubConnected: state.eventSubConnected,
@@ -424,53 +498,8 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
     response.json(viewers);
   });
 
-  // The full roster: everyone in the persistent `chatters` table, each joined to
-  // their most recent message for a current display name/color/badges. Ordered
-  // most-recently-seen first so "who's come by" reads top-down. Client-side search
-  // covers the rest; a channel with tens of thousands of chatters would want
-  // server-side paging, but this stays simple for the common case.
   app.get('/api/viewers/roster', (_request, response) => {
-    const rows = db.prepare(`
-      select
-        c.login as login,
-        c.first_seen_at as firstSeen,
-        c.message_count as msgs,
-        m.display_name as display,
-        m.color as color,
-        m.received_at as lastSeen,
-        m.badges_json as badgesJson
-      from chatters c
-      left join (
-        select username, display_name, color, received_at, badges_json,
-               row_number() over (partition by username order by received_at desc) as rn
-        from chat_messages
-      ) m on m.username = c.login and m.rn = 1
-      order by coalesce(m.received_at, c.first_seen_at) desc
-    `).all() as Array<{
-      login: string;
-      firstSeen: string;
-      msgs: number;
-      display: string | null;
-      color: string | null;
-      lastSeen: string | null;
-      badgesJson: string | null;
-    }>;
-
-    const noteRows = db.prepare(`select login, note from viewer_profiles`).all() as Array<{ login: string; note: string }>;
-    const notes = new Map(noteRows.map(row => [row.login, row.note]));
-
-    const roster: ViewerRosterEntry[] = rows.map(row => ({
-      login: row.login,
-      display: row.display ?? row.login,
-      color: row.color ?? fallbackColor(row.login),
-      roles: getViewerRolesFromBadges(parseBadgesJson(row.badgesJson)),
-      messageCount: row.msgs,
-      firstSeenAt: row.firstSeen,
-      lastSeenAt: row.lastSeen ?? row.firstSeen,
-      note: notes.get(row.login) ?? '',
-    }));
-
-    response.json(roster);
+    response.json(buildViewerRoster());
   });
 
   app.patch('/api/dashboard/viewers/:login/profile', handle((request, response) => {

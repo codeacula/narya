@@ -823,3 +823,138 @@ describe('pruneAutomationRuns', () => {
     expect(kept).toEqual(['edge', 'fresh']);
   });
 });
+
+describe('the reserved /counter command', () => {
+  /** An in-memory counters port, so these tests do not touch the counters table. */
+  function counters(initial: Record<string, number> = {}) {
+    const values: Record<string, number> = { ...initial };
+    const asCounter = (key: string) => ({
+      id: `counter-${key}`,
+      key,
+      label: key,
+      value: values[key]!,
+      createdAt: '2026-07-19T00:00:00.000Z',
+      updatedAt: '2026-07-19T00:00:00.000Z',
+    });
+    return {
+      values,
+      deps: {
+        findCounterByKey: (key: string) => (key in values ? asCounter(key) : null),
+        adjustCounterByKey: (key: string, mode: 'add' | 'set', amount: number) => {
+          if (!(key in values)) return null;
+          values[key] = mode === 'add' ? values[key]! + amount : amount;
+          return asCounter(key);
+        },
+      },
+    };
+  }
+
+  test('reports a value without changing it', async () => {
+    const store = counters({ deaths: 42 });
+    const { dispatcher } = setup(store.deps);
+    const response = await dispatcher.handleSlashCommand('/counter deaths');
+
+    expect(response.ok).toBe(true);
+    expect(response.message).toBe('deaths: 42');
+    expect(store.values.deaths).toBe(42);
+  });
+
+  test('increments and reports the transition', async () => {
+    const store = counters({ deaths: 41 });
+    const { dispatcher } = setup(store.deps);
+    const response = await dispatcher.handleSlashCommand('/counter deaths +1');
+
+    expect(response.ok).toBe(true);
+    expect(response.message).toBe('deaths: 41 → 42');
+    expect(store.values.deaths).toBe(42);
+  });
+
+  test('decrements', async () => {
+    const store = counters({ deaths: 3 });
+    const { dispatcher } = setup(store.deps);
+    await dispatcher.handleSlashCommand('/counter deaths -1');
+    expect(store.values.deaths).toBe(2);
+  });
+
+  test('sets, which is how a reset is expressed', async () => {
+    const store = counters({ deaths: 99 });
+    const { dispatcher } = setup(store.deps);
+    await dispatcher.handleSlashCommand('/counter deaths set 0');
+    expect(store.values.deaths).toBe(0);
+  });
+
+  test('normalizes the key the operator typed', async () => {
+    const store = counters({ 'zambie-deaths': 1 });
+    const { dispatcher } = setup(store.deps);
+    const response = await dispatcher.handleSlashCommand('/counter Zambie_Deaths');
+    expect(response.ok).toBe(true);
+  });
+
+  test('rejects an unknown counter without touching anything', async () => {
+    const store = counters({ deaths: 1 });
+    const { dispatcher } = setup(store.deps);
+    const response = await dispatcher.handleSlashCommand('/counter wipes +1');
+
+    expect(response.ok).toBe(false);
+    expect(response.message).toContain('wipes');
+    expect(store.values.deaths).toBe(1);
+  });
+
+  test('rejects a non-numeric amount rather than guessing', async () => {
+    const store = counters({ deaths: 5 });
+    const { dispatcher } = setup(store.deps);
+    const response = await dispatcher.handleSlashCommand('/counter deaths banana');
+
+    expect(response.ok).toBe(false);
+    expect(store.values.deaths).toBe(5);
+  });
+
+  test('rejects a bare number rather than guessing add vs set', async () => {
+    // "/counter deaths 5" is plausibly "+5" or "set 5". Both are destructive when
+    // wrong, so the sign (or the word set) has to be explicit.
+    const store = counters({ deaths: 10 });
+    const { dispatcher } = setup(store.deps);
+    const response = await dispatcher.handleSlashCommand('/counter deaths 5');
+
+    expect(response.ok).toBe(false);
+    expect(response.message).toContain('set 5');
+    expect(store.values.deaths).toBe(10);
+  });
+
+  test('an explicit +5 still works', async () => {
+    const store = counters({ deaths: 10 });
+    const { dispatcher } = setup(store.deps);
+    await dispatcher.handleSlashCommand('/counter deaths +5');
+    expect(store.values.deaths).toBe(15);
+  });
+
+  test('explains itself when no key is given', async () => {
+    const { dispatcher } = setup(counters().deps);
+    const response = await dispatcher.handleSlashCommand('/counter');
+
+    expect(response.ok).toBe(false);
+    expect(response.message).toContain('Usage');
+  });
+
+  test('never carries an action run, since it is not Action-backed', async () => {
+    const store = counters({ deaths: 1 });
+    const { dispatcher, runner } = setup(store.deps);
+    const response = await dispatcher.handleSlashCommand('/counter deaths +1');
+
+    expect(response.run).toBeNull();
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  test('an operator-created /counter trigger takes precedence over the built-in', async () => {
+    // The built-in is consulted only after the trigger lookup misses, so an operator
+    // who wires their own /counter is never shadowed by it.
+    const store = counters({ deaths: 1 });
+    trigger({ kind: 'dashboard_slash', config: { command: '/counter', aliases: [] } });
+    const { dispatcher, runner } = setup(store.deps);
+    const response = await dispatcher.handleSlashCommand('/counter deaths +1');
+
+    expect(runner.calls).toHaveLength(1);
+    expect(response.message).toBe('/counter ran.');
+    expect(store.values.deaths).toBe(1);
+  });
+});

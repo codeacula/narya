@@ -35,6 +35,7 @@ export function renderWords(
     // one, and in that case the emote is what chat meant.
     const link = parseLinkToken(part);
     if (link) {
+      if (link.leading) nodes.push(link.leading);
       nodes.push(
         <a
           key={`url-${baseKey}-${i}`}

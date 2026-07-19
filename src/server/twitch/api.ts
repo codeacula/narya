@@ -17,6 +17,7 @@ import {
   REQUIRED_TWITCH_BOT_OAUTH_SCOPES,
   REQUIRED_TWITCH_OAUTH_SCOPES,
 } from './auth';
+import { getTwitchChannel } from '../twitchIdentity';
 
 export const TWITCH_COMMERCIAL_SECONDS = 180;
 const TWITCH_DEFAULT_TIMEOUT_SECONDS = 600;
@@ -127,14 +128,14 @@ export async function getTwitchBotApiHeaders(state: RuntimeState): Promise<{ 'Cl
 export async function fetchBroadcasterId(clientId: string, userToken: string): Promise<string | null> {
   try {
     const res = await fetch(
-      `https://api.twitch.tv/helix/users?login=${encodeURIComponent(appConfig.twitchChannel)}`,
+      `https://api.twitch.tv/helix/users?login=${encodeURIComponent(getTwitchChannel())}`,
       { headers: { 'Client-Id': clientId, 'Authorization': `Bearer ${userToken}` } },
     );
     if (!res.ok) return null;
     const data = await res.json() as { data: Array<{ id: string }> };
     return data.data[0]?.id ?? null;
   } catch (error) {
-    console.error(`Twitch API: failed to resolve broadcaster ID for "${appConfig.twitchChannel}":`, error);
+    console.error(`Twitch API: failed to resolve broadcaster ID for "${getTwitchChannel()}":`, error);
     return null;
   }
 }
@@ -149,7 +150,7 @@ export type TwitchLiveStream = {
 export async function fetchCurrentTwitchStream(clientId: string, userToken: string): Promise<TwitchLiveStream | null> {
   try {
     const res = await fetch(
-      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(appConfig.twitchChannel)}`,
+      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(getTwitchChannel())}`,
       { headers: { 'Client-Id': clientId, Authorization: `Bearer ${userToken}` } },
     );
     if (!res.ok) {
@@ -452,7 +453,7 @@ async function assembleTwitchCredentials(
   }
 
   const bid = state.broadcasterId ?? await fetchBroadcasterId(headers['Client-Id'], headers.userToken);
-  if (!bid) throw new HttpRouteError(502, `Could not resolve broadcaster ID for "${appConfig.twitchChannel}".`);
+  if (!bid) throw new HttpRouteError(502, `Could not resolve broadcaster ID for "${getTwitchChannel()}".`);
   state.broadcasterId = bid;
 
   return {
@@ -686,10 +687,10 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
       }>;
     };
     const channel = data.data?.[0];
-    if (!channel) throw new HttpRouteError(404, `No Twitch channel information found for "${appConfig.twitchChannel}".`);
+    if (!channel) throw new HttpRouteError(404, `No Twitch channel information found for "${getTwitchChannel()}".`);
 
     response.json({
-      broadcasterName: channel.broadcaster_name ?? appConfig.twitchChannel,
+      broadcasterName: channel.broadcaster_name ?? getTwitchChannel(),
       categoryId: channel.game_id ?? '',
       category: channel.game_name ?? '',
       title: channel.title ?? '',

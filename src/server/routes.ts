@@ -1,6 +1,5 @@
 import express, { type Express } from 'express';
 import { getTwitchRoomId } from './chat';
-import { appConfig } from './appConfig';
 import { getAutomodHold, getAutomodQueue, resolveAutomodHold } from './automod';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
@@ -31,12 +30,13 @@ import {
   speakText,
   updateTtsSettings,
 } from './tts';
+import { getTwitchChannel } from './twitchIdentity';
 
 export function registerCoreRoutes(app: Express, state: RuntimeState) {
   app.get('/api/health', (_request, response) => {
     response.json({
       ok: true,
-      twitchChannel: appConfig.twitchChannel,
+      twitchChannel: getTwitchChannel(),
       obsConnected: isObsConnected(),
       twitchRoomId: getTwitchRoomId(),
       eventSubConnected: state.eventSubConnected,

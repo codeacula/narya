@@ -6,6 +6,7 @@ import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './aut
 import { startAutomaticAds } from './automaticAds';
 import { registerCategoryModuleRoutes, reconcileCategoryModules } from './categoryModules';
 import { registerChattersRoutes } from './chatters';
+import { registerCounterRoutes } from './counters';
 import {
   migrateLegacyAlerts,
   migrateLegacyCategoryModules,
@@ -29,6 +30,7 @@ import { registerLlmRoutes } from './llm';
 import { restartMusicPolling, startMusicPolling } from './music';
 import { broadcastObsStatus, connectObs, reconnectObs } from './obs';
 import { app, broadcast, server } from './realtime';
+import { registerQuoteRoutes } from './quotes';
 import { registerCoreRoutes } from './routes';
 import { RuntimeState } from './runtime';
 import { registerStaticRoutes } from './static';
@@ -37,6 +39,7 @@ import { registerStreamStatusRoutes } from './streamStatus';
 import { pruneAutomationRuns } from './triggerDispatcher';
 import { hydrateTwitchAuthState, registerTwitchAuthRoutes } from './twitch/auth';
 import { fetchAuthenticatedTwitchUser, registerTwitchApiRoutes } from './twitch/api';
+import { getAuthenticatedTwitchLogin } from './twitchIdentity';
 import { registerViewerRewardRoutes } from './viewerRewards';
 import { registerViewerRoleRoutes } from './viewers';
 
@@ -114,7 +117,7 @@ registerCoreRoutes(app, runtimeState);
 registerAppConfigRoutes(app, ({ config: nextConfig, changes }) => {
   reconcileServices(changes);
   broadcast('settings:updated', { updatedAt: nextConfig.updatedAt ?? new Date().toISOString() });
-});
+}, getAuthenticatedTwitchLogin);
 registerTwitchAuthRoutes({
   app,
   state: runtimeState,
@@ -136,6 +139,8 @@ registerActionRoutes(app, getActionExecutor());
 registerAutomationTriggerRoutes(app, getTriggerDispatcher());
 registerCategoryModuleRoutes(app, runtimeState);
 registerStreamCategoryRoutes(app);
+registerCounterRoutes(app);
+registerQuoteRoutes(app);
 registerStreamStatusRoutes(app);
 registerOverlayPlaceholderRoutes(app);
 registerMediaMuteRoutes(app);

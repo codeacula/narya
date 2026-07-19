@@ -166,8 +166,13 @@ function AddCategoryControl({
   };
 
   return (
-    <div className="cats-add">
-      <span className="cats-add-label">Add a category</span>
+    /* `field` is what dresses the input: there is no global `input {}` rule, so every
+       text-input style in the app comes from the descendant selector `.field input`.
+       Without it this box rendered as a raw white system default on a dark card — and
+       at its intrinsic ~184px while the suggestion dropdown anchored to it stretched
+       to the full 420px. StreamInfoModal wraps the identical widget the same way. */
+    <div className="field cats-add">
+      <span>Add a category</span>
       <div className="stream-cat-picker">
         <div className="suggestion-anchor">
           <input

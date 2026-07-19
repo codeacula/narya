@@ -12,8 +12,10 @@ import { LlmSection } from './LlmSection';
 import { ActionsSettingsPage } from './ActionsPage';
 import { AutomationSettingsPage } from './AutomationPage';
 import { ModulesSettingsPage } from './ModulesPage';
+import { CountersPage } from './CountersPage';
 import { ViewerRewardsPage } from '../ViewerRewardsPage';
 import { StreamCategoriesPage } from '../StreamCategoriesPage';
+import { QuotesPage } from './QuotesPage';
 
 /**
  * The left rail. Sections hang off a single hairline meridian; the active one lights its
@@ -93,12 +95,16 @@ function SettingsBody({
       return <StreamCategoriesPage />;
     case 'rewards':
       return <ViewerRewardsPage />;
+    case 'quotes':
+      return <QuotesPage />;
     case 'actions':
       return <ActionsSettingsPage />;
     case 'automation':
       return <AutomationSettingsPage />;
     case 'modules':
       return <ModulesSettingsPage />;
+    case 'counters':
+      return <CountersPage />;
     case 'content':
       return <><SettingsHeader section="content" /><ContentSection /></>;
     case 'speech':

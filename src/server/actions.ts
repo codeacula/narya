@@ -6,13 +6,15 @@ import type {
   ActionStepType,
   ActionUpsert,
   ChatSender,
+  CounterAdjustMode,
   MediaSelection,
   TemplateContext,
   TextStyle,
 } from '../shared/api';
 import { MAX_TIMEOUT_SECONDS } from '../shared/api';
 import type { ActionExecutor } from './actionExecutor';
-import { db } from './db';
+import { parseCounterAmount } from './counters';
+import { db, isUniqueConstraintError } from './db';
 import { handle, HttpRouteError } from './http';
 import { clamp } from './numeric';
 
@@ -38,7 +40,11 @@ const STEP_TYPES = new Set<ActionStepType>([
   'twitch_timeout',
   'twitch_ban',
   'set_wind_down',
+  'adjust_counter',
+  'quote_add',
+  'quote_show',
 ]);
+const COUNTER_MODES = new Set<CounterAdjustMode>(['add', 'set']);
 const TEXT_STYLES = new Set<TextStyle>(['banner', 'toast', 'centered']);
 const MEDIA_SELECTIONS = new Set<MediaSelection>(['first', 'random']);
 const CHAT_SENDERS = new Set<ChatSender>(['user', 'bot']);
@@ -228,6 +234,40 @@ function normalizeStepPayload(type: ActionStepType, payload: unknown): ActionSte
 
     case 'set_wind_down':
       return { active: value.active === true };
+
+    case 'adjust_counter': {
+      const counterId = typeof value.counterId === 'string' ? value.counterId.trim() : '';
+      if (!counterId) throw new HttpRouteError(400, 'Counter steps need a counter.');
+
+      const mode = typeof value.mode === 'string' ? value.mode : '';
+      if (!COUNTER_MODES.has(mode as CounterAdjustMode)) {
+        throw new HttpRouteError(400, `Unsupported counter mode: ${mode || 'unknown'}.`);
+      }
+
+      // A template, so `!death 3` can bind the amount per invocation. A literal is
+      // range-checked here; anything templated can only be checked at render time,
+      // in the executor — which skips rather than guessing a number to write.
+      const amountTemplate = typeof value.amountTemplate === 'string' ? value.amountTemplate.trim() : '';
+      if (!amountTemplate) throw new HttpRouteError(400, 'Counter steps need an amount.');
+      if (!/\{/.test(amountTemplate) && parseCounterAmount(amountTemplate) === null) {
+        throw new HttpRouteError(400, 'Counter amount must be a whole number.');
+      }
+      return { counterId, mode: mode as CounterAdjustMode, amountTemplate };
+    }
+    case 'quote_add':
+      return {
+        textTemplate: requireTemplate(value.textTemplate, 'Quote steps need the text to save.'),
+        slugTemplate: optionalTemplate(value.slugTemplate),
+        replyTemplate: optionalTemplate(value.replyTemplate),
+      };
+
+    case 'quote_show':
+      return {
+        // Deliberately optional: a template that renders empty means "any quote", which
+        // is what makes a bare `!quote` pick a random one.
+        queryTemplate: optionalTemplate(value.queryTemplate),
+        messageTemplate: requireTemplate(value.messageTemplate, 'Quote steps need a message to announce.'),
+      };
   }
 }
 
@@ -315,10 +355,6 @@ const updateActionRecord = db.transaction((id: string, settings: ActionUpsert) =
   saveSteps(id, settings.steps, now);
 });
 
-function isUniqueNameError(error: unknown): boolean {
-  return error instanceof Error && error.message.toLowerCase().includes('unique');
-}
-
 function rowToStep(row: StepRow): ActionStep {
   // payload_json is written only by saveSteps, after normalizeStepPayload validated
   // it against the row's step_type, so the union stays sound on the way back out.
@@ -367,7 +403,7 @@ export function createAction(body: unknown): Action {
   try {
     id = createActionRecord(settings);
   } catch (error) {
-    if (isUniqueNameError(error)) throw new HttpRouteError(409, `An action named "${settings.name}" already exists.`);
+    if (isUniqueConstraintError(error)) throw new HttpRouteError(409, `An action named "${settings.name}" already exists.`);
     throw error;
   }
   const saved = getActionById(id);
@@ -381,7 +417,7 @@ export function updateAction(id: string, body: unknown): Action {
   try {
     updateActionRecord(id, settings);
   } catch (error) {
-    if (isUniqueNameError(error)) throw new HttpRouteError(409, `An action named "${settings.name}" already exists.`);
+    if (isUniqueConstraintError(error)) throw new HttpRouteError(409, `An action named "${settings.name}" already exists.`);
     throw error;
   }
   const saved = getActionById(id);

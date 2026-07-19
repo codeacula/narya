@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
+import { OverlayBoundsToggle } from '../overlayPlaceholders';
 import { useAttention, useAttentionSettings } from '../attention';
 import { useChatFeed, type ChatFeedHelpers } from '../chatFeed';
 import { openViewerPopout } from '../viewerPopout';
@@ -16,7 +17,7 @@ import {
   getObsStatus,
   getStreamInfo,
   updateStreamInfo,
-  getStreamStatus,
+  getStreamStatusRaw,
   updateStreamStatus,
   getPlannedStreamEnd,
   setPlannedStreamEnd,
@@ -413,14 +414,18 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setStreamInfoLoading(true);
     setStreamInfoMessage(null);
     setStreamInfoError(null);
-    void Promise.all([getStreamInfo(), getStreamStatus(), getPlannedStreamEnd()])
+    // The RAW status, not the rendered one. This form PUTs its status field back on
+    // save, so seeding it with rendered text would rewrite "{counter:deaths}" as a
+    // frozen snapshot of the count — silently, and on any save, even one that never
+    // touched the status field.
+    void Promise.all([getStreamInfo(), getStreamStatusRaw(), getPlannedStreamEnd()])
       .then(([info, status, planned]) => {
         setStreamInfoForm({
           title: info.title,
           category: info.category,
           categoryId: info.categoryId || undefined,
           tags: info.tags,
-          status: status.text,
+          status: status.rawText,
           plannedEndAt: toLocalInputValue(planned.plannedEndAt),
         });
       })
@@ -589,7 +594,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       count={attention.unackedCount || undefined}
       popped={!!popped['attention']}
       onPop={handlePop}
-      className="panel--attention"
       bodyClass="no-pad"
       headerActions={
         <AttentionDismissAll disabled={attention.unackedCount === 0} onDismiss={attention.dismissAll} />
@@ -762,6 +766,10 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
           <div><span>EventSub</span><b>{status.eventSubConnected ? 'open' : 'closed'}</b></div>
           <div><span>OBS</span><b>{status.obsConnected ? 'connected' : 'unavailable'}</b></div>
         </div>
+        {/* Lives here rather than in Stream Controls, which only mounts when OBS is
+            connected — see OverlayBoundsToggle. */}
+        <TweakSection label="Overlays" />
+        <OverlayBoundsToggle />
       </TweaksPanel>
     </div>
   );

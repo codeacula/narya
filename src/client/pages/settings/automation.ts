@@ -12,6 +12,7 @@ import type {
   AutomationTriggerKind,
   CategoryModule,
   ChatPhraseMatch,
+  Counter,
   MediaAsset,
   TriggerRole,
 } from '../../../shared/api';
@@ -41,6 +42,9 @@ export const STEP_TYPES: ActionStepType[] = [
   'twitch_timeout',
   'twitch_ban',
   'set_wind_down',
+  'adjust_counter',
+  'quote_add',
+  'quote_show',
 ];
 
 export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
@@ -56,6 +60,9 @@ export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
   twitch_timeout: 'Twitch timeout',
   twitch_ban: 'Twitch ban',
   set_wind_down: 'Set wind-down mode',
+  adjust_counter: 'Adjust counter',
+  quote_add: 'Save a quote',
+  quote_show: 'Announce a quote',
 };
 
 export const TRIGGER_KINDS: AutomationTriggerKind[] = [
@@ -160,6 +167,31 @@ export function newStep(type: ActionStepType): ActionStepInput {
       return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', reasonTemplate: '' } };
     case 'set_wind_down':
       return { type, enabled: true, delayMs: 0, payload: { active: true } };
+    // Defaults to the common case: bump the chosen counter by one.
+    case 'adjust_counter':
+      return { type, enabled: true, delayMs: 0, payload: { counterId: '', mode: 'add', amountTemplate: '1' } };
+    case 'quote_add':
+      return {
+        type,
+        enabled: true,
+        delayMs: 0,
+        payload: {
+          textTemplate: '{input}',
+          slugTemplate: '',
+          replyTemplate: 'Saved quote {quoteNumber}.',
+        },
+      };
+    case 'quote_show':
+      return {
+        type,
+        enabled: true,
+        delayMs: 0,
+        payload: {
+          // Empty renders to "any quote", so a bare !quote picks a random one.
+          queryTemplate: '{input}',
+          messageTemplate: 'Quote {quoteNumber}: {quoteText}',
+        },
+      };
   }
 }
 
@@ -205,7 +237,7 @@ export function formatRoles(roles: TriggerRole[]): string {
 }
 
 /** A one-line summary of a step for the collapsed list row. */
-export function describeStep(step: ActionStepInput, assets: MediaAsset[] = []): string {
+export function describeStep(step: ActionStepInput, assets: MediaAsset[] = [], counters: Counter[] = []): string {
   switch (step.type) {
     case 'show_text':
       return step.payload.template || '(no text)';
@@ -234,6 +266,18 @@ export function describeStep(step: ActionStepInput, assets: MediaAsset[] = []): 
       return step.payload.loginTemplate;
     case 'set_wind_down':
       return step.payload.active ? 'turn wind-down on' : 'turn wind-down off';
+    case 'adjust_counter': {
+      const counter = counters.find(entry => entry.id === step.payload.counterId);
+      const name = counter?.label ?? 'unknown counter';
+      const amount = step.payload.amountTemplate;
+      if (step.payload.mode === 'set') return `set ${name} to ${amount}`;
+      // A leading sign already reads as a direction, so "+1" must not become "by +1".
+      return /^[+-]/.test(amount) ? `${name} ${amount}` : `${name} by ${amount}`;
+    }
+    case 'quote_add':
+      return `save ${step.payload.textTemplate || '(nothing)'}`;
+    case 'quote_show':
+      return step.payload.queryTemplate || 'random quote';
   }
 }
 
@@ -384,8 +428,30 @@ export function validateStep(step: ActionStepInput, index: number): string | nul
       return null;
     case 'set_wind_down':
       return null;
+    case 'adjust_counter': {
+      if (templateMissing(step.payload.counterId)) return `${where}: pick a counter.`;
+      const amount = step.payload.amountTemplate.trim();
+      if (!amount) return `${where}: needs an amount.`;
+      // A templated amount ("{arg1}") can only be checked once it renders, in the
+      // executor — which skips rather than guessing. Only a literal is checkable here.
+      if (!amount.includes('{')) {
+        const literal = Number(amount);
+        if (!Number.isFinite(literal) || !Number.isSafeInteger(Math.round(literal))) {
+          return `${where}: amount must be a whole number.`;
+        }
+      }
+      return null;
+    }
+    case 'quote_add':
+      if (templateMissing(step.payload.textTemplate)) return `${where}: needs the text to save.`;
+      return null;
+    case 'quote_show':
+      // queryTemplate is deliberately optional — empty means "any quote".
+      if (templateMissing(step.payload.messageTemplate)) return `${where}: needs a message to announce.`;
+      return null;
   }
 }
+
 
 /** The first problem that would make the server reject this Action, or null. */
 export function validateAction(action: ActionUpsert): string | null {
