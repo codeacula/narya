@@ -196,7 +196,7 @@ export function CountersPage() {
     <>
       <SettingsHeader
         section="counters"
-        meta={<div className="set-meta">{counters.length} {counters.length === 1 ? 'counter' : 'counters'}</div>}
+        meta={<div className="set-sub">{counters.length} {counters.length === 1 ? 'counter' : 'counters'}</div>}
         actions={
           <button className="modbtn" type="button" disabled={busy || draft !== null} onClick={startCreate}>
             New counter
@@ -207,53 +207,67 @@ export function CountersPage() {
       <SettingsStatus message={message} error={error} />
 
       {draft && (
-        <form className="command-form" onSubmit={submit}>
-          <label className="field">
-            <span>Name</span>
-            <input
-              value={draft.label}
-              disabled={saving}
-              maxLength={120}
-              placeholder="Zambie deaths"
-              autoFocus
-              onChange={event => setDraft({ ...draft, label: event.target.value })}
-            />
-          </label>
+        <form className="counter-editor" onSubmit={submit}>
+          <div className="command-editor-head">
+            <div>
+              <div className="set-label">{editingId ? draft.label || 'Edit counter' : 'New counter'}</div>
+              <div className="set-sub">
+                A counter keeps its value until something changes it — an action step, the
+                /counter command, or these buttons.
+              </div>
+            </div>
+            <div className="command-row-actions">
+              <button className="modbtn" type="button" disabled={saving} onClick={cancel}>Cancel</button>
+            </div>
+          </div>
 
-          <label className="field">
-            <span>Key</span>
-            <input
-              value={draft.key}
-              disabled={saving}
-              maxLength={60}
-              placeholder="zambie-deaths"
-              onChange={event => setDraft({ ...draft, key: event.target.value })}
-            />
-            <small className="action-hint">
-              {keyPreview
-                ? <>Use <code>{`{counter:${keyPreview}}`}</code> in a template or your stream status.</>
-                : 'Letters, numbers, and hyphens. This is the token you type into a template.'}
-            </small>
-          </label>
+          <div className="settings-mini-form">
+            <label className="field">
+              <span>Name</span>
+              <input
+                value={draft.label}
+                disabled={saving}
+                maxLength={120}
+                placeholder="Zambie deaths"
+                autoFocus
+                onChange={event => setDraft({ ...draft, label: event.target.value })}
+              />
+            </label>
 
-          <label className="field">
-            <span>Value</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={draft.value}
-              disabled={saving}
-              placeholder="0"
-              onChange={event => setDraft({ ...draft, value: event.target.value })}
-            />
-            <small className="action-hint">Whole numbers, negatives allowed.</small>
-          </label>
+            <label className="field">
+              <span>Value</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={draft.value}
+                disabled={saving}
+                placeholder="0"
+                onChange={event => setDraft({ ...draft, value: event.target.value })}
+              />
+              <small className="action-hint">Whole numbers, negatives allowed.</small>
+            </label>
 
-          <div className="command-form-actions">
-            <button className="modbtn primary" type="submit" disabled={saving || !draft.label.trim() || !keyPreview}>
-              {editingId ? 'Save counter' : 'Create counter'}
-            </button>
-            <button className="modbtn" type="button" disabled={saving} onClick={cancel}>Cancel</button>
+            <label className="field settings-wide-field">
+              <span>Key</span>
+              <input
+                value={draft.key}
+                disabled={saving}
+                maxLength={60}
+                placeholder="zambie-deaths"
+                onChange={event => setDraft({ ...draft, key: event.target.value })}
+              />
+              <small className="action-hint">
+                {keyPreview
+                  ? <>Use <code>{`{counter:${keyPreview}}`}</code> in a template or your stream status.</>
+                  : 'Letters, numbers, and hyphens. This is the token you type into a template.'}
+              </small>
+            </label>
+
+            <div className="command-settings-actions">
+              <button className="modbtn gold" type="submit" disabled={saving || !draft.label.trim() || !keyPreview}>
+                {editingId ? 'Save counter' : 'Create counter'}
+              </button>
+            </div>
           </div>
         </form>
       )}

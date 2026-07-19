@@ -953,6 +953,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 
 /* ================= COUNTERS ================= */
+/* The editor is a card rather than loose fields on the page: it appears above the
+   list it edits, so it needs an edge to say where the form stops and the rows
+   begin. Same border, radius, and surface as .counter-row, one step brighter, so
+   it reads as the same family lifted forward. */
+.counter-editor {
+  display: grid;
+  gap: 14px;
+  margin: 14px 14px 0;
+  padding: 14px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-2);
+  background: var(--bg-3);
+}
 .counter-list {
   display: grid;
   gap: 8px;
