@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { parseCounterValue, previewCounterKey } from './CountersPage';
+import { counterUpdateFromDraft, parseCounterValue, previewCounterKey } from './CountersPage';
 
 describe('previewCounterKey', () => {
   test('mirrors the server normalization so the hint shows the real token', () => {
@@ -40,5 +40,44 @@ describe('parseCounterValue', () => {
 
   test('parses a positive', () => {
     expect(parseCounterValue('42')).toBe(42);
+  });
+});
+
+describe('counterUpdateFromDraft', () => {
+  const draft = (over: Partial<{ key: string; label: string; value: string; originalValue: string }> = {}) => ({
+    key: 'deaths', label: 'Deaths', value: '10', originalValue: '10', ...over,
+  });
+
+  /**
+   * The form holds a snapshot from when the editor opened. Sending an untouched
+   * value back would overwrite whatever automation or /counter wrote in the
+   * meantime — silently losing a durable count while renaming a label.
+   */
+  test('omits the value entirely when the operator did not touch it', () => {
+    const update = counterUpdateFromDraft(draft({ label: 'Renamed' }));
+    expect(update).toEqual({ key: 'deaths', label: 'Renamed' });
+    expect(update && 'value' in update).toBe(false);
+  });
+
+  test('includes the value when the operator edited it', () => {
+    expect(counterUpdateFromDraft(draft({ value: '42' }))).toEqual({
+      key: 'deaths', label: 'Deaths', value: 42,
+    });
+  });
+
+  test('includes a deliberately typed negative', () => {
+    expect(counterUpdateFromDraft(draft({ value: '-3' }))).toEqual({
+      key: 'deaths', label: 'Deaths', value: -3,
+    });
+  });
+
+  test('an explicit edit back to the same number still counts as untouched', () => {
+    // Same text as loaded, so there is nothing to write and nothing to clobber.
+    const update = counterUpdateFromDraft(draft({ value: '10', originalValue: '10' }));
+    expect(update && 'value' in update).toBe(false);
+  });
+
+  test('returns null when an edited value is not a number', () => {
+    expect(counterUpdateFromDraft(draft({ value: 'banana' }))).toBeNull();
   });
 });

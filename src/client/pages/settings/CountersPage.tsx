@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { Counter, CounterInput, CountersResponse } from '../../../shared/api';
+import type { Counter, CounterInput, CounterUpdate, CountersResponse } from '../../../shared/api';
 import {
   adjustCounter,
   createCounter,
@@ -17,9 +17,31 @@ import { errorMessage } from '../../errors';
  * and `NaN || 0` rewrote the field to "0" before the digits arrived. Counters are
  * deliberately signed, so the editor has to let a partial "-" exist.
  */
-type CounterDraft = { key: string; label: string; value: string };
+type CounterDraft = {
+  key: string;
+  label: string;
+  value: string;
+  /** The value as it was when the editor opened, to tell an edit from an untouched field. */
+  originalValue: string;
+};
 
-const EMPTY_DRAFT: CounterDraft = { key: '', label: '', value: '0' };
+const EMPTY_DRAFT: CounterDraft = { key: '', label: '', value: '0', originalValue: '' };
+
+/**
+ * The body to PUT when saving an edit. `value` is omitted when the operator did not
+ * touch it, because the form holds a snapshot from when the editor opened: sending
+ * it back would overwrite anything automation or /counter wrote in the meantime,
+ * silently losing a durable count while the operator was only renaming a label. The
+ * server keeps the stored value when the field is absent.
+ *
+ * Returns null when the typed value is not a number, so the caller can say so.
+ */
+export function counterUpdateFromDraft(draft: CounterDraft): CounterUpdate | null {
+  const base = { key: draft.key, label: draft.label };
+  if (draft.value === draft.originalValue) return base;
+  const value = parseCounterValue(draft.value);
+  return value === null ? null : { ...base, value };
+}
 
 /** '' and a lone '-' are legal mid-typing states; both mean zero on submit. */
 export function parseCounterValue(text: string): number | null {
@@ -89,7 +111,8 @@ export function CountersPage() {
 
   const startEdit = (counter: Counter) => {
     setEditingId(counter.id);
-    setDraft({ key: counter.key, label: counter.label, value: String(counter.value) });
+    const value = String(counter.value);
+    setDraft({ key: counter.key, label: counter.label, value, originalValue: value });
     setMessage(null);
     setError(null);
   };
@@ -99,12 +122,34 @@ export function CountersPage() {
     setEditingId(null);
   };
 
+  const finish = (request: Promise<unknown>, note: string) =>
+    request
+      .then(async () => {
+        await load();
+        setDraft(null);
+        setEditingId(null);
+        setMessage(note);
+      })
+      .catch(caught => setError(errorMessage(caught, 'Could not save the counter')))
+      .finally(() => setSaving(false));
+
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!draft) return;
     setSaving(true);
     setMessage(null);
     setError(null);
+    if (editingId) {
+      const update = counterUpdateFromDraft(draft);
+      if (!update) {
+        setSaving(false);
+        setError('The value must be a whole number.');
+        return;
+      }
+      void finish(updateCounter(editingId, update), 'Counter updated.');
+      return;
+    }
+
     const value = parseCounterValue(draft.value);
     if (value === null) {
       setSaving(false);
@@ -112,18 +157,8 @@ export function CountersPage() {
       return;
     }
     const input: CounterInput = { key: draft.key, label: draft.label, value };
-    const request = editingId
-      ? updateCounter(editingId, input)
-      : createCounter(input);
-    void request
-      .then(async () => {
-        await load();
-        setDraft(null);
-        setEditingId(null);
-        setMessage(editingId ? 'Counter updated.' : 'Counter created.');
-      })
-      .catch(caught => setError(errorMessage(caught, 'Could not save the counter')))
-      .finally(() => setSaving(false));
+    const request = createCounter(input);
+    void finish(request, 'Counter created.');
   };
 
   /**
