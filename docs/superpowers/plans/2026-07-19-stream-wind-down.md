@@ -2614,7 +2614,15 @@ bun test
 bun run build
 ```
 
-Expected: typecheck clean, all tests pass, build succeeds.
+Expected: typecheck clean, build succeeds, and **no new test failures**.
+
+> **This worktree has 21 pre-existing failures, and they are not yours.** `public/clips/`
+> and `public/sounds/` are gitignored with zero files tracked under `public/`, so a git
+> worktree contains no media at all and every test that scans the media catalog fails
+> (`listMediaFiles`, `createMediaAsset validation`, `resolveMediaAssetForPlayback`,
+> `redeemOnce`, and friends). Verified identical at the branch's start commit `b9061a4`.
+> The bar for this feature is **21 failures and no more** — count them, do not chase them,
+> and do not "fix" a media test by weakening it.
 
 - [ ] **Step 3: Smoke-test the endpoints**
 
