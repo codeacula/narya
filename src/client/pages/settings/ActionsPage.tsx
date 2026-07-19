@@ -403,6 +403,25 @@ function StepPayloadFields({
           </label>
         </>
       );
+
+    case 'set_wind_down':
+      return (
+        <label className="field settings-wide-field">
+          <span>Wind-down</span>
+          <select
+            value={step.payload.active ? 'on' : 'off'}
+            disabled={disabled}
+            onChange={event => onChange({ ...step, payload: { active: event.target.value === 'on' } })}
+          >
+            <option value="on">Turn wind-down on</option>
+            <option value="off">Turn wind-down off</option>
+          </select>
+          <small className="action-hint">
+            Adds or removes the ending-soon title suffix and the overlay countdown.
+            Incoming raids are unaffected — Twitch has no API to block them.
+          </small>
+        </label>
+      );
   }
 }
 

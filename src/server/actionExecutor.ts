@@ -21,6 +21,12 @@ import { playMedia } from './rewardMedia';
 import type { RuntimeState } from './runtime';
 import { speakText } from './tts';
 import { moderateTwitchUser, sendTwitchChatMessage, sendTwitchShoutout, sendTwitchWhisper } from './twitch/api';
+import { setWindDownActive } from './windDown';
+import {
+  applyWindDownTitle as applyWindDownTitleImpl,
+  windDownTitlePort,
+  type WindDownTitlePort,
+} from './windDownLoop';
 
 /**
  * How a play_media step turns an asset id into something playable. Injected rather
@@ -52,6 +58,8 @@ export type ActionExecutorDeps = {
   now?: () => Date;
   /** The master media mute. When true, a quickDisable Action is skipped silently. */
   isMuted?: () => boolean;
+  /** Seam for tests: applies (or removes) the wind-down title suffix. */
+  applyWindDownTitle?: (port: WindDownTitlePort, active: boolean) => Promise<void>;
 };
 
 export type ActionExecutor = {
@@ -118,6 +126,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     newId = () => crypto.randomUUID(),
     now = () => new Date(),
     isMuted = () => false,
+    applyWindDownTitle = applyWindDownTitleImpl,
   } = deps;
 
   /**
@@ -232,6 +241,18 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         const login = normalizeLogin(render(step.payload.loginTemplate));
         if (!login) return skipped('The ban target rendered empty.');
         await banUser(state, login, render(step.payload.reasonTemplate));
+        return SUCCEEDED;
+      }
+
+      case 'set_wind_down': {
+        setWindDownActive({ active: step.payload.active, source: 'action' });
+        // The title is best-effort: the overlay signal has already gone out, and a
+        // Twitch hiccup should not fail a step whose visible effect already landed.
+        try {
+          await applyWindDownTitle(windDownTitlePort(state), step.payload.active);
+        } catch (error) {
+          console.error('Actions: wind-down title update failed:', error);
+        }
         return SUCCEEDED;
       }
     }

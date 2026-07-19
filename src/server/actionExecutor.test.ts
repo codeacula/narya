@@ -1,8 +1,11 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type { Action, ActionStep, MediaAsset, OverlayTextPlayback, RewardMedia } from '../shared/api';
 import { createActionExecutor, type ActionExecutorDeps } from './actionExecutor';
+import { db } from './db';
 import { HttpRouteError } from './http';
 import { RuntimeState } from './runtime';
+import { getOrStartStreamSession } from './streamSession';
+import { getWindDownState } from './windDown';
 
 // A virtual clock: delays resolve in ascending order without real time passing, so
 // a 10-minute delay costs a microtask instead of ten minutes.
@@ -592,5 +595,51 @@ describe('master media mute', () => {
 
     expect(result.status).toBe('succeeded');
     expect(h.calls.chats).toEqual([{ message: 'hi', sender: 'bot' }]);
+  });
+});
+
+describe('the set_wind_down step', () => {
+  beforeEach(() => {
+    db.exec('delete from wind_down_state');
+    db.exec('delete from wind_down_settings');
+    db.exec('delete from stream_session_chatters');
+    db.exec('delete from stream_sessions');
+    getOrStartStreamSession('test', '2026-07-19T18:00:00.000Z');
+  });
+
+  test('turns wind-down on', async () => {
+    const h = harness(action([step({ type: 'set_wind_down', payload: { active: true } } as never)]), {
+      applyWindDownTitle: async () => undefined,
+    });
+    const result = await run(h);
+
+    expect(result.status).toBe('succeeded');
+    expect(getWindDownState().active).toBe(true);
+    expect(getWindDownState().source).toBe('action');
+  });
+
+  test('turns wind-down off', async () => {
+    const on = harness(action([step({ type: 'set_wind_down', payload: { active: true } } as never)]), {
+      applyWindDownTitle: async () => undefined,
+    });
+    await run(on);
+
+    const off = harness(action([step({ type: 'set_wind_down', payload: { active: false } } as never)]), {
+      applyWindDownTitle: async () => undefined,
+    });
+    await run(off);
+
+    expect(getWindDownState().active).toBe(false);
+  });
+
+  // An Action is not the operator deciding to keep streaming, so it must not latch
+  // the schedule off for the rest of the session.
+  test('an Action switching it off does not latch a dismissal', async () => {
+    const h = harness(action([step({ type: 'set_wind_down', payload: { active: false } } as never)]), {
+      applyWindDownTitle: async () => undefined,
+    });
+    await run(h);
+
+    expect(getWindDownState().dismissedSessionId).toBeNull();
   });
 });

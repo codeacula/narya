@@ -37,6 +37,7 @@ const STEP_TYPES = new Set<ActionStepType>([
   'twitch_whisper',
   'twitch_timeout',
   'twitch_ban',
+  'set_wind_down',
 ]);
 const TEXT_STYLES = new Set<TextStyle>(['banner', 'toast', 'centered']);
 const MEDIA_SELECTIONS = new Set<MediaSelection>(['first', 'random']);
@@ -224,6 +225,9 @@ function normalizeStepPayload(type: ActionStepType, payload: unknown): ActionSte
         loginTemplate: requireLoginTemplate(value.loginTemplate, 'Ban'),
         reasonTemplate: optionalTemplate(value.reasonTemplate),
       };
+
+    case 'set_wind_down':
+      return { active: value.active === true };
   }
 }
 

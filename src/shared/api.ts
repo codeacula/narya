@@ -722,7 +722,8 @@ export type ActionStepType =
   | 'twitch_shoutout'
   | 'twitch_whisper'
   | 'twitch_timeout'
-  | 'twitch_ban';
+  | 'twitch_ban'
+  | 'set_wind_down';
 
 /** How a multi-asset play_media step picks which asset to play. */
 export type MediaSelection = 'first' | 'random';
@@ -758,6 +759,9 @@ export const DEFAULT_TIMEOUT_SECONDS = 600;
 export const MAX_TIMEOUT_SECONDS = 1_209_600;
 export type TwitchBanPayload = { loginTemplate: string; reasonTemplate: string };
 
+/** Turns wind-down on or off. `active: false` is how an Action calls the stream back off. */
+export type SetWindDownPayload = { active: boolean };
+
 /**
  * A single step. `delayMs` is relative to the start of the invocation, not to the
  * previous step: due steps start in stored order WITHOUT waiting for media
@@ -775,7 +779,8 @@ export type ActionStep =
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_shoutout'; payload: TwitchShoutoutPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_whisper'; payload: TwitchWhisperPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_timeout'; payload: TwitchTimeoutPayload }
-  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_ban'; payload: TwitchBanPayload };
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_ban'; payload: TwitchBanPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'set_wind_down'; payload: SetWindDownPayload };
 
 /** Omit that preserves a discriminated union instead of collapsing it to one object. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

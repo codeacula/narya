@@ -40,6 +40,7 @@ export const STEP_TYPES: ActionStepType[] = [
   'twitch_whisper',
   'twitch_timeout',
   'twitch_ban',
+  'set_wind_down',
 ];
 
 export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
@@ -54,6 +55,7 @@ export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
   twitch_whisper: 'Twitch whisper',
   twitch_timeout: 'Twitch timeout',
   twitch_ban: 'Twitch ban',
+  set_wind_down: 'Set wind-down mode',
 };
 
 export const TRIGGER_KINDS: AutomationTriggerKind[] = [
@@ -156,6 +158,8 @@ export function newStep(type: ActionStepType): ActionStepInput {
       return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', secondsTemplate: '600', reasonTemplate: '' } };
     case 'twitch_ban':
       return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', reasonTemplate: '' } };
+    case 'set_wind_down':
+      return { type, enabled: true, delayMs: 0, payload: { active: true } };
   }
 }
 
@@ -228,6 +232,8 @@ export function describeStep(step: ActionStepInput, assets: MediaAsset[] = []): 
       return `${step.payload.loginTemplate} for ${step.payload.secondsTemplate}s`;
     case 'twitch_ban':
       return step.payload.loginTemplate;
+    case 'set_wind_down':
+      return step.payload.active ? 'turn wind-down on' : 'turn wind-down off';
   }
 }
 
@@ -375,6 +381,8 @@ export function validateStep(step: ActionStepInput, index: number): string | nul
     }
     case 'twitch_ban':
       if (templateMissing(step.payload.loginTemplate)) return `${where}: needs a target login.`;
+      return null;
+    case 'set_wind_down':
       return null;
   }
 }
