@@ -6,18 +6,17 @@ import type {
   ActionStepType,
   ActionUpsert,
   ChatSender,
-  DiscordChannel,
+  Counter,
+  CounterAdjustMode,
   MediaAsset,
   MediaSelection,
-  QuoteDestination,
   TextStyle,
 } from '../../../shared/api';
 import {
   createAction,
   deleteAction,
   getActions,
-  getDiscordChannels,
-  getGoLiveSettings,
+  getCounters,
   getMediaAssets,
   getObsStatus,
   runAction,
@@ -114,70 +113,25 @@ function AssetPicker({
 }
 
 /**
- * Where a quote step announces. The channel is a free-text id with a datalist of the
- * go-live guild's channels — same shape as the OBS scene field, and for the same
- * reason: Discord may not be reachable while the operator is editing, and a disabled
- * dropdown would make the step un-saveable rather than merely un-assisted.
+ * The return type is declared so the switch is exhaustiveness-checked. Without it a
+ * missing case returns undefined and React renders nothing — the operator gets a
+ * step row with a type dropdown and no fields at all, and nothing errors.
  */
-function QuoteDelivery({ destination, discordChannelId, channels, disabled, onChange }: {
-  destination: QuoteDestination;
-  discordChannelId: string;
-  channels: DiscordChannel[];
-  disabled: boolean;
-  onChange: (next: { destination: QuoteDestination; discordChannelId: string }) => void;
-}) {
-  return (
-    <>
-      <label className="field">
-        <span>Announce in</span>
-        <select
-          value={destination}
-          disabled={disabled}
-          onChange={event => onChange({ destination: event.target.value as QuoteDestination, discordChannelId })}
-        >
-          <option value="discord">Discord</option>
-          <option value="chat">Twitch chat</option>
-        </select>
-      </label>
-      {destination === 'discord' && (
-        <label className="field">
-          <span>Discord channel</span>
-          <input
-            value={discordChannelId}
-            disabled={disabled}
-            list="action-discord-channels"
-            placeholder="Channel ID"
-            onChange={event => onChange({ destination, discordChannelId: event.target.value.trim() })}
-          />
-          <datalist id="action-discord-channels">
-            {channels.map(channel => <option key={channel.id} value={channel.id}>{`#${channel.name}`}</option>)}
-          </datalist>
-          <small className="action-hint">
-            {channels.length > 0
-              ? 'Channels read from the server picked in Settings → Go live.'
-              : 'No channel list available — paste the channel ID (right-click the channel in Discord → Copy Channel ID).'}
-          </small>
-        </label>
-      )}
-    </>
-  );
-}
-
 function StepPayloadFields({
   step,
   assets,
   scenes,
-  discordChannels,
+  counters,
   disabled,
   onChange,
 }: {
   step: ActionStepInput;
   assets: MediaAsset[];
   scenes: string[];
-  discordChannels: DiscordChannel[];
+  counters: Counter[];
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
-}) {
+}): React.ReactElement {
   switch (step.type) {
     case 'show_text':
       return (
@@ -463,6 +417,60 @@ function StepPayloadFields({
         </>
       );
 
+    case 'adjust_counter':
+      return (
+        <>
+          <label className="field">
+            <span>Counter</span>
+            <select
+              value={step.payload.counterId}
+              disabled={disabled}
+              onChange={event => onChange({ ...step, payload: { ...step.payload, counterId: event.target.value } })}
+            >
+              <option value="">Pick a counter…</option>
+              {counters.map(counter => (
+                <option key={counter.id} value={counter.id}>{counter.label}</option>
+              ))}
+            </select>
+            {/* A counter referenced by a saved step but since deleted would otherwise
+                show as an empty select that silently reverts on the next save. */}
+            {step.payload.counterId && !counters.some(entry => entry.id === step.payload.counterId) && (
+              <span className="media-asset-tag media-asset-tag--broken">deleted counter</span>
+            )}
+          </label>
+          <label className="field">
+            <span>Mode</span>
+            <select
+              value={step.payload.mode}
+              disabled={disabled}
+              onChange={event => onChange({
+                ...step,
+                payload: { ...step.payload, mode: event.target.value as CounterAdjustMode },
+              })}
+            >
+              <option value="add">Change by</option>
+              <option value="set">Set to</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Amount</span>
+            <input
+              type="text"
+              value={step.payload.amountTemplate}
+              disabled={disabled}
+              placeholder="1, -1, or {arg1}"
+              onChange={event => onChange({
+                ...step,
+                payload: { ...step.payload, amountTemplate: event.target.value },
+              })}
+            />
+            {/* Text, not number: the amount may be bound from the invocation
+                ("!death 3" → {arg1}) rather than fixed on the Action. Reset is
+                "Set to" 0. */}
+          </label>
+        </>
+      );
+
     case 'quote_add':
       return (
         <>
@@ -501,13 +509,6 @@ function StepPayloadFields({
             />
             <small className="action-hint">Leave blank to save the quote without announcing it.</small>
           </label>
-          <QuoteDelivery
-            destination={step.payload.destination}
-            discordChannelId={step.payload.discordChannelId}
-            channels={discordChannels}
-            disabled={disabled}
-            onChange={next => onChange({ ...step, payload: { ...step.payload, ...next } })}
-          />
         </>
       );
 
@@ -538,13 +539,6 @@ function StepPayloadFields({
             />
             <small className="action-hint">{QUOTE_TEMPLATE_HINT}</small>
           </label>
-          <QuoteDelivery
-            destination={step.payload.destination}
-            discordChannelId={step.payload.discordChannelId}
-            channels={discordChannels}
-            disabled={disabled}
-            onChange={next => onChange({ ...step, payload: { ...step.payload, ...next } })}
-          />
         </>
       );
   }
@@ -558,7 +552,7 @@ function StepRow({
   total,
   assets,
   scenes,
-  discordChannels,
+  counters,
   disabled,
   onChange,
   onMove,
@@ -569,7 +563,7 @@ function StepRow({
   total: number;
   assets: MediaAsset[];
   scenes: string[];
-  discordChannels: DiscordChannel[];
+  counters: Counter[];
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
   onMove: (to: number) => void;
@@ -648,7 +642,7 @@ function StepRow({
       </div>
 
       <div className="action-step-body">
-        <StepPayloadFields step={step} assets={assets} scenes={scenes} discordChannels={discordChannels} disabled={disabled} onChange={onChange} />
+        <StepPayloadFields step={step} assets={assets} scenes={scenes} counters={counters} disabled={disabled} onChange={onChange} />
       </div>
 
       <div className="action-step-foot">
@@ -696,9 +690,9 @@ export function ActionsSettingsPage() {
   const [actions, setActions] = useState<Action[]>([]);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [scenes, setScenes] = useState<string[]>([]);
-  const [discordChannels, setDiscordChannels] = useState<DiscordChannel[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ActionUpsert | null>(null);
+  const [counters, setCounters] = useState<Counter[]>([]);
   const [runs, setRuns] = useState<Record<string, ActionRunResult>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -729,15 +723,14 @@ export function ActionsSettingsPage() {
       .catch(() => setScenes([]));
   }, []);
 
-  // Same deal for Discord: the channel list only assists the quote-step field, which
-  // stays a free-text id, so an unconfigured or unreachable Discord is not an error
-  // here. The guild comes from Go live rather than a second guild picker per step.
+  // Its own tolerant effect rather than part of `load`: a counters fetch that fails
+  // should cost the operator the counter dropdown, not the whole Actions page.
   useEffect(() => {
-    void getGoLiveSettings()
-      .then(settings => (settings.discordGuildId ? getDiscordChannels(settings.discordGuildId) : []))
-      .then(setDiscordChannels)
-      .catch(() => setDiscordChannels([]));
+    void getCounters()
+      .then(response => setCounters(response.counters))
+      .catch(() => setCounters([]));
   }, []);
+
 
   const busy = loading || saving;
   const problem = useMemo(() => (draft ? validateAction(draft) : null), [draft]);
@@ -957,7 +950,7 @@ export function ActionsSettingsPage() {
                     total={draft.steps.length}
                     assets={assets}
                     scenes={scenes}
-                    discordChannels={discordChannels}
+                    counters={counters}
                     disabled={busy}
                     onChange={next => updateStep(index, next)}
                     onMove={to => setDraft(current => (current ? { ...current, steps: moveStep(current.steps, index, to) } : current))}

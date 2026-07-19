@@ -6,18 +6,20 @@ import type {
   ActionStepResult,
   ChatMessage,
   ChatSender,
+  Counter,
+  CounterAdjustMode,
   MediaAsset,
   OverlayTextPlayback,
   Quote,
-  QuoteDestination,
   QuoteInput,
   RewardMedia,
   TemplateContext,
 } from '../shared/api';
 import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from '../shared/api';
 import { getActionById } from './actions';
+import type { CounterResolver } from './actionTemplates';
 import { renderActionTemplate } from './actionTemplates';
-import { sendDiscordMessage } from './discord';
+import { adjustCounter as adjustCounterRow, getCounterValue, parseCounterAmount } from './counters';
 import { askPonderLlm } from './llm';
 import { switchObsScene, triggerObsTransition } from './obs';
 import { broadcast } from './realtime';
@@ -51,7 +53,6 @@ export type ActionExecutorDeps = {
   sendWhisper?: (state: RuntimeState, login: string, message: string) => Promise<unknown>;
   timeoutUser?: (state: RuntimeState, login: string, seconds: number, reason: string) => Promise<unknown>;
   banUser?: (state: RuntimeState, login: string, reason: string) => Promise<unknown>;
-  sendDiscord?: (channelId: string, content: string) => Promise<unknown>;
   addQuote?: (input: QuoteInput) => Quote;
   resolveQuote?: (query: string, randomIndex: (length: number) => number) => Quote | null;
   recordQuoteShown?: (id: string) => void;
@@ -61,6 +62,13 @@ export type ActionExecutorDeps = {
   now?: () => Date;
   /** The master media mute. When true, a quickDisable Action is skipped silently. */
   isMuted?: () => boolean;
+  /**
+   * Applies an adjust_counter step. Returns null when the counter is gone, which
+   * the step reports as a skip.
+   */
+  adjustCounter?: (id: string, mode: CounterAdjustMode, amount: number) => Counter | null;
+  /** Live per-render lookup for {counter:key}. See CounterResolver. */
+  resolveCounter?: CounterResolver;
 };
 
 export type ActionExecutor = {
@@ -122,7 +130,6 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
       moderateTwitchUser(runtime, login, 'timeout', { durationSeconds: seconds, reason }),
     banUser = (runtime: RuntimeState, login: string, reason: string) =>
       moderateTwitchUser(runtime, login, 'ban', { reason }),
-    sendDiscord = sendDiscordMessage,
     addQuote: saveQuote = addQuote,
     resolveQuote: findQuote = resolveQuote,
     recordQuoteShown: markQuoteShown = recordQuoteShown,
@@ -131,6 +138,8 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     newId = () => crypto.randomUUID(),
     now = () => new Date(),
     isMuted = () => false,
+    adjustCounter = adjustCounterRow,
+    resolveCounter = getCounterValue,
   } = deps;
 
   /**
@@ -140,7 +149,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
    * command that lands with the wrong duration beats one that does not land at all.
    */
   function renderTimeoutSeconds(template: string, context: TemplateContext): number {
-    const rendered = renderActionTemplate(template, context).trim();
+    const rendered = renderActionTemplate(template, context, resolveCounter).trim();
     const seconds = Math.round(Number(rendered));
     if (!Number.isFinite(seconds) || seconds < 1 || seconds > MAX_TIMEOUT_SECONDS) {
       return DEFAULT_TIMEOUT_SECONDS;
@@ -160,18 +169,11 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
   }
 
   /**
-   * Deliver a quote step's own message. Quote steps announce their result themselves
-   * rather than handing it to a downstream send_chat step, because steps run
-   * concurrently and cannot pass values to one another.
+   * Deliver a quote step's own message to Twitch chat. Quote steps announce their
+   * result themselves rather than handing it to a downstream send_chat step, because
+   * steps run concurrently and cannot pass values to one another.
    */
-  async function announce(destination: QuoteDestination, channelId: string, message: string): Promise<void> {
-    if (destination === 'discord') {
-      // sendDiscordMessage throws when Discord is unconfigured or the channel is
-      // wrong; that surfaces as a failed step with the reason attached, which is what
-      // the operator needs to see.
-      await sendDiscord(channelId, message);
-      return;
-    }
+  async function announce(message: string): Promise<void> {
     await sendChat(state, message, 'bot');
   }
 
@@ -189,7 +191,9 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
   }
 
   async function dispatch(step: ActionStep, context: TemplateContext): Promise<StepOutcome> {
-    const render = (template: string) => renderActionTemplate(template, context);
+    // The funnel for every template render in this switch, so counter tokens work
+    // in text, chat, TTS, whispers, and LLM prompts from this one place.
+    const render = (template: string) => renderActionTemplate(template, context, resolveCounter);
 
     switch (step.type) {
       case 'show_text': {
@@ -277,6 +281,22 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         return SUCCEEDED;
       }
 
+      case 'adjust_counter': {
+        const rendered = render(step.payload.amountTemplate).trim();
+        // Deliberately unlike twitch_timeout, which falls back to a default: there
+        // is no safe default for how much to write into a durable counter, so a
+        // template that renders empty or out of range skips rather than guessing.
+        // The range check matters because this amount can come from a VIEWER —
+        // "!death {arg1}" puts chat text here, and 1e308 is finite.
+        const amount = parseCounterAmount(rendered);
+        if (!rendered || amount === null) {
+          return skipped(`The counter amount rendered "${rendered}", which is not a whole number.`);
+        }
+        const counter = adjustCounter(step.payload.counterId, step.payload.mode, amount);
+        if (!counter) return skipped('That counter no longer exists.');
+        return { status: 'succeeded', detail: `${counter.key} = ${counter.value}` };
+      }
+
       case 'quote_add': {
         const text = render(step.payload.textTemplate);
         if (!text.trim()) return skipped('The quote text rendered empty.');
@@ -286,11 +306,11 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
           submittedBy: context.actor ?? context.login ?? 'unknown',
           submittedByLogin: context.login ?? '',
         });
-        const reply = renderActionTemplate(step.payload.replyTemplate, withQuote(context, quote));
+        const reply = renderActionTemplate(step.payload.replyTemplate, withQuote(context, quote), resolveCounter);
         // An empty reply template is a deliberate "add it quietly", not a failure —
         // the quote is already saved either way.
         if (reply.trim()) {
-          await announce(step.payload.destination, step.payload.discordChannelId, reply);
+          await announce(reply);
         }
         return SUCCEEDED;
       }
@@ -300,9 +320,9 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         // A viewer asking for a quote that does not exist is normal traffic, so this
         // skips rather than failing — a failed run reads as "Narya is broken".
         if (!quote) return skipped('No quote matched that number, slug, or keyword.');
-        const message = renderActionTemplate(step.payload.messageTemplate, withQuote(context, quote));
+        const message = renderActionTemplate(step.payload.messageTemplate, withQuote(context, quote), resolveCounter);
         if (!message.trim()) return skipped('The quote message template rendered empty.');
-        await announce(step.payload.destination, step.payload.discordChannelId, message);
+        await announce(message);
         // Only after delivery: a Discord outage must not inflate the counter for a
         // quote nobody saw.
         markQuoteShown(quote.id);

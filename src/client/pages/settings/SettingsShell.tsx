@@ -11,6 +11,7 @@ import { LlmSection } from './LlmSection';
 import { ActionsSettingsPage } from './ActionsPage';
 import { AutomationSettingsPage } from './AutomationPage';
 import { ModulesSettingsPage } from './ModulesPage';
+import { CountersPage } from './CountersPage';
 import { ViewerRewardsPage } from '../ViewerRewardsPage';
 import { StreamCategoriesPage } from '../StreamCategoriesPage';
 import { QuotesPage } from './QuotesPage';
@@ -99,6 +100,8 @@ function SettingsBody({
       return <AutomationSettingsPage />;
     case 'modules':
       return <ModulesSettingsPage />;
+    case 'counters':
+      return <CountersPage />;
     case 'content':
       return <><SettingsHeader section="content" /><ContentSection /></>;
     case 'speech':

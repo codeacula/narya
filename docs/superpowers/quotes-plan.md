@@ -46,14 +46,13 @@ non-null; empty slug normalizes to null so many quotes can be slug-less.
 
 ## Step types
 
-- `quote_add`  — `{ textTemplate, slugTemplate, replyTemplate, destination, discordChannelId }`
-- `quote_show` — `{ queryTemplate, messageTemplate, destination, discordChannelId }`
+- `quote_add`  — `{ textTemplate, slugTemplate, replyTemplate }`
+- `quote_show` — `{ queryTemplate, messageTemplate }`
 
-`destination` is `discord | chat`. Discord uses the existing REST
-`sendDiscordMessage(channelId, content)`; chat uses the same `sendChat` seam the other
-steps use. The channel id lives on the step (not app config) so different actions can
-post to different channels; the editor offers the configured go-live guild's channels
-and falls back to a free-text id.
+Both announce to **Twitch chat only**, through the same `sendChat` seam every other
+step uses. An earlier revision carried a `destination` of `discord | chat` and a
+channel id; that was cut — Narya's quote commands are Twitch-side, and requiring a
+Discord channel made a freshly added step invalid until one was pasted in.
 
 The message template renders against the invocation context **extended with quote
 tokens** — `{quoteNumber} {quoteText} {quoteSlug} {quoteSubmitter} {quoteShownCount}

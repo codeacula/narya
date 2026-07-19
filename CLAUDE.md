@@ -277,6 +277,8 @@ src/
 
 Because steps run concurrently and cannot pass values to one another, a quote step resolves the quote AND emits its own message rather than feeding a downstream `send_chat` — the shape `llm_response` already uses. The message template renders against the invocation context extended with `{quoteNumber} {quoteText} {quoteSlug} {quoteSubmitter} {quoteShownCount} {quoteDate}`.
 
+**Quotes announce to Twitch chat only.** There is deliberately no destination setting: a quote step always sends via the same `sendChat` seam every other step uses, so a step the operator just added works with nothing configured. Do not reintroduce a Discord destination here — `sendDiscordMessage` exists for the go-live announcement and nothing else.
+
 **Flushing a viewer anonymizes their quotes rather than deleting them.** `flushViewer` clears the attribution (`submitted_by` → `unknown`, `submitted_by_login` → `''`) inside its existing transaction, so a `quote_show` step cannot keep announcing a flushed viewer on stream — but the quote and its number survive, because retiring a number already circulating in Discord is the failure the sequence counter exists to prevent. That half is one-way: `unflushViewer` has no login left to restore from. The count rides back on `ViewerFlushResult.quotesAnonymized` so a flush never edits the quote book silently.
 
 **Discord is send-only.** `sendDiscordMessage(channelId, content)` over REST; there is no gateway connection, no registered slash commands, and no interactions endpoint. Discord can be announced *to*; it cannot trigger anything.

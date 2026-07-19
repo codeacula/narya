@@ -77,6 +77,11 @@ import type {
   OverlayPlaceholders,
   MediaMuteState,
   StreamStatus,
+  StreamStatusRaw,
+  Counter,
+  CounterInput,
+  CounterUpdate,
+  CountersResponse,
 } from '../../shared/api';
 import { getDashboardToken, isDashboardTokenRejection, reportDashboardTokenRejected } from '../auth';
 
@@ -531,6 +536,15 @@ export async function getStreamStatus(): Promise<StreamStatus> {
   return fetchJson<StreamStatus>('/api/stream-status');
 }
 
+/**
+ * The unrendered status text, for the editor. An editor seeded from the rendered
+ * `text` would save the interpolated result back as the new stored text, replacing
+ * "{counter:deaths}" with a frozen snapshot of its value.
+ */
+export async function getStreamStatusRaw(): Promise<StreamStatusRaw> {
+  return fetchJson<StreamStatusRaw>('/api/stream-status/raw');
+}
+
 export async function updateStreamStatus(text: string): Promise<StreamStatus> {
   return sendJson<StreamStatus>('/api/stream-status', 'PUT', { text });
 }
@@ -649,6 +663,34 @@ export async function deleteCategoryModule(id: string): Promise<void> {
 /** Re-reads the live Twitch category and re-applies module-owned reward groups. Clears `degraded` when it succeeds. */
 export async function reconcileCategoryModules(): Promise<CategoryModulesResponse> {
   return sendJson<CategoryModulesResponse>('/api/category-modules/reconcile', 'POST', {});
+}
+
+// --- Counters ----------------------------------------------------------------
+
+export async function getCounters(): Promise<CountersResponse> {
+  return fetchJson<CountersResponse>('/api/counters');
+}
+
+export async function createCounter(counter: CounterInput): Promise<Counter> {
+  return sendJson<Counter>('/api/counters', 'POST', counter);
+}
+
+export async function updateCounter(id: string, counter: CounterUpdate): Promise<Counter> {
+  return sendJson<Counter>(`/api/counters/${encodeURIComponent(id)}`, 'PUT', counter);
+}
+
+/**
+ * A RELATIVE adjustment, applied server-side against the stored row. Use this
+ * rather than updateCounter for ±1: an absolute value computed from rendered
+ * state discards whatever automation wrote between the render and the click.
+ */
+export async function adjustCounter(id: string, amount: number): Promise<Counter> {
+  return sendJson<Counter>(`/api/counters/${encodeURIComponent(id)}/adjust`, 'POST', { mode: 'add', amount });
+}
+
+/** 409s when an Action step, an Action template, or the status line still references it. */
+export async function deleteCounter(id: string): Promise<void> {
+  return sendVoid(`/api/counters/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 // --- Quotes ------------------------------------------------------------------

@@ -56,6 +56,7 @@ test('each settings section resolves from its path and back to it', () => {
     ['/settings/actions', 'actions'],
     ['/settings/automation', 'automation'],
     ['/settings/modules', 'modules'],
+    ['/settings/counters', 'counters'],
     ['/settings/content', 'content'],
     ['/settings/speech', 'speech'],
     ['/settings/ai', 'ai'],
