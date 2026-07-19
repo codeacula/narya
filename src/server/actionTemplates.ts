@@ -71,6 +71,28 @@ function resolveToken(token: string, context: TemplateContext): string | undefin
 export type CounterResolver = (key: string) => number | undefined;
 
 /**
+ * Expand ONLY {counter:key}, leaving every other brace expression exactly as
+ * typed.
+ *
+ * For text that is not an Action template. The stream status line is freeform —
+ * the operator, or an external system, may put anything in it — and it has no
+ * invocation behind it. Running it through renderActionTemplate would resolve
+ * {actor} and {amount} against an empty context and silently delete them, turning
+ * "Shoutout to {actor}" into "Shoutout to ". The absent-field-renders-empty rule
+ * earns its keep inside an Action, where a real context exists and a missing
+ * field is genuinely missing; applied here it just eats the operator's text.
+ */
+export function renderCounterTokens(text: string, resolveCounter: CounterResolver): string {
+  if (!text) return '';
+  return text.replace(TOKEN_PATTERN, (match, token: string) => {
+    const counterMatch = COUNTER_TOKEN_PATTERN.exec(token);
+    if (!counterMatch) return match;
+    const value = resolveCounter(counterMatch[1]!);
+    return value === undefined ? match : String(value);
+  });
+}
+
+/**
  * Interpolate a TemplateContext into an Action template.
  *
  * A *known* token whose field is absent renders as an empty string, never the

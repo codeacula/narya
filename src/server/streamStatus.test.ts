@@ -122,3 +122,53 @@ describe('stream status and counters', () => {
     expect(getStreamStatusRaw().rawText.length).toBe(280);
   });
 });
+
+describe('the status line is freeform text, not an Action template', () => {
+  beforeEach(() => {
+    db.exec('delete from stream_status');
+    db.exec('delete from counters');
+  });
+
+  /**
+   * The status line predates counters and is documented as arbitrary text the
+   * streamer or an external system may put anything in. Running it through the
+   * Action renderer resolved {actor} and {amount} against an empty context and
+   * deleted them, silently rewriting an existing status on upgrade.
+   */
+  test('leaves Action-style tokens exactly as typed', () => {
+    saveStreamStatus({ text: 'Shoutout to {actor} — {amount} bits!' });
+    expect(getStreamStatus().text).toBe('Shoutout to {actor} — {amount} bits!');
+  });
+
+  test('leaves arbitrary brace text alone', () => {
+    saveStreamStatus({ text: 'json-ish {"a":1} and {rest} and {arg1}' });
+    expect(getStreamStatus().text).toBe('json-ish {"a":1} and {rest} and {arg1}');
+  });
+
+  test('still expands counter tokens alongside untouched braces', () => {
+    createCounter({ key: 'deaths', label: 'Deaths', value: 4 });
+    saveStreamStatus({ text: '{actor} died {counter:deaths} times' });
+    expect(getStreamStatus().text).toBe('{actor} died 4 times');
+  });
+});
+
+describe('creating a counter refreshes a status that referenced it', () => {
+  beforeEach(() => {
+    db.exec('delete from stream_status');
+    db.exec('delete from counters');
+  });
+
+  /**
+   * Overlays seed the status once over REST and then follow status:updated. A
+   * status holding an as-yet-unresolvable {counter:deaths} renders the literal;
+   * creating that counter changes the rendered text, so it has to broadcast or
+   * every overlay keeps showing the token until something else moves the status.
+   */
+  test('rendered text changes when the referenced counter is created', () => {
+    saveStreamStatus({ text: 'Deaths: {counter:deaths}' });
+    expect(getStreamStatus().text).toBe('Deaths: {counter:deaths}');
+
+    createCounter({ key: 'deaths', label: 'Deaths', value: 7 });
+    expect(getStreamStatus().text).toBe('Deaths: 7');
+  });
+});

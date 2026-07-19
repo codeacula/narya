@@ -167,6 +167,11 @@ export function createCounter(body: unknown): Counter {
   const now = new Date().toISOString();
   insertCounter.run(id, input.key, input.label, input.value, now, now);
   emitCounters();
+  // Creating a counter can CHANGE a rendered status: a status already reading
+  // "Deaths: {counter:deaths}" was showing that literal, and now resolves. Overlays
+  // seed status once and then follow status:updated, so without this they keep
+  // displaying the literal token until something else happens to move the status.
+  onCounterChanged();
   return toCounter({ ...input, id, createdAt: now, updatedAt: now });
 }
 

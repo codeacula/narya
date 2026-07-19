@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { renderActionTemplate } from './actionTemplates';
+import { renderActionTemplate, renderCounterTokens } from './actionTemplates';
 
 describe('renderActionTemplate', () => {
   test('substitutes actor, login, and message', () => {
@@ -159,5 +159,36 @@ describe('the widened token pattern does not change existing behavior', () => {
 
   test('the anchors still stop {rest1-x} reading as {rest1}', () => {
     expect(renderActionTemplate('{rest1-x}', { args: ['a', 'b'] })).toBe('{rest1-x}');
+  });
+});
+
+describe('renderCounterTokens', () => {
+  const counters = (values: Record<string, number>) =>
+    (key: string) => (key in values ? values[key] : undefined);
+
+  test('expands counter tokens', () => {
+    expect(renderCounterTokens('Deaths: {counter:deaths}', counters({ deaths: 4 }))).toBe('Deaths: 4');
+  });
+
+  test('leaves every other token untouched, unlike the Action renderer', () => {
+    // renderActionTemplate would resolve these to '' against an empty context.
+    const text = '{actor} {login} {message} {amount} {rest} {arg1} {months}';
+    expect(renderCounterTokens(text, counters({}))).toBe(text);
+  });
+
+  test('leaves an unknown counter key literal', () => {
+    expect(renderCounterTokens('{counter:typo}', counters({ deaths: 1 }))).toBe('{counter:typo}');
+  });
+
+  test('renders zero, not empty', () => {
+    expect(renderCounterTokens('{counter:deaths}', counters({ deaths: 0 }))).toBe('0');
+  });
+
+  test('handles empty input', () => {
+    expect(renderCounterTokens('', counters({}))).toBe('');
+  });
+
+  test('is single-pass, so a value that looks like a token is not re-expanded', () => {
+    expect(renderCounterTokens('{counter:a} {counter:b}', counters({ a: 1, b: 2 }))).toBe('1 2');
   });
 });

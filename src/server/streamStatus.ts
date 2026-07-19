@@ -1,6 +1,6 @@
 import type express from 'express';
 import type { StreamStatus, StreamStatusRaw } from '../shared/api';
-import { renderActionTemplate } from './actionTemplates';
+import { renderCounterTokens } from './actionTemplates';
 import { getCounterValue, setCounterChangeListener } from './counters';
 import { db } from './db';
 import { handle } from './http';
@@ -34,12 +34,13 @@ const upsertStreamStatusRow = db.prepare(`
 type StatusRow = { text: string; rawText: string; updatedAt: string };
 
 /**
- * Counter tokens only. The status line is not an Action, so it has no invocation
- * to draw {actor} or {arg1} from — passing an empty context leaves those rendering
- * as empty strings, which is the established behavior for a known-but-absent field.
+ * Counter tokens ONLY. The status line is freeform operator text, not an Action
+ * template — it has no invocation behind it, so running it through the Action
+ * renderer would resolve {actor} and {amount} against an empty context and delete
+ * them, silently rewriting a status the operator typed on purpose.
  */
 function renderStatus(rawText: string): string {
-  return renderActionTemplate(rawText, {}, getCounterValue);
+  return renderCounterTokens(rawText, getCounterValue);
 }
 
 function readRow(): StatusRow {
