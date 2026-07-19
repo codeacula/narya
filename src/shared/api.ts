@@ -516,6 +516,37 @@ export type ViewerRosterEntry = {
   firstSeenAt: string;
   lastSeenAt: string;
   note: string;
+  /**
+   * Seen in the channel but has never typed. Such a viewer has no chat_messages row,
+   * so display name, colour, and roles come from the Helix profile backfill rather
+   * than from a message's badges.
+   */
+  isLurker: boolean;
+  /** Rename-proof identity. Null until the Helix profile backfill has run. */
+  twitchUserId: string | null;
+  profileImageUrl: string | null;
+  accountCreatedAt: string | null;
+  /** Twitch no longer returns this account — renamed, deleted, or banned. */
+  missing: boolean;
+};
+
+export type ViewerRefreshResult = {
+  login: string;
+  found: boolean;
+  /** Set when Twitch returned the account under a login different from the stored one. */
+  renamedTo: string | null;
+  entry: ViewerRosterEntry | null;
+};
+
+export type ViewerFlushResult = {
+  login: string;
+  messagesRemoved: number;
+};
+
+export type IgnoredLogin = {
+  login: string;
+  reason: string;
+  createdAt: string;
 };
 
 export type TtsVoice = {

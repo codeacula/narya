@@ -12,6 +12,7 @@ import {
   recordCurrentSessionChatter,
 } from './streamSession';
 import { speakText } from './tts';
+import { isLoginIgnored } from './viewerIdentity';
 
 let twitchRoomId: string | null = null;
 let runtimeState: RuntimeState | null = null;
@@ -165,7 +166,14 @@ twitchClient.on('message', (channel, tags, message, self) => {
   ) as { changes: number };
   // Only fold into the chatters summary when the message was actually inserted
   // (insert-or-ignore skips replayed ids), so counts stay accurate.
-  if (insertResult.changes > 0) {
+  //
+  // Two exclusions, both of which used to be missing. Narya's own bot was recorded as
+  // an ordinary viewer because the loop guard below runs *after* this point — it is
+  // the one bot the system can identify with certainty, and it does not belong in the
+  // operator's roster. A flushed login is skipped because otherwise the next message
+  // from a bot the operator just removed would recreate its row immediately.
+  const isOwnBot = Boolean(runtimeState?.twitchBotLogin) && username === runtimeState?.twitchBotLogin;
+  if (insertResult.changes > 0 && !isOwnBot && !isLoginIgnored(chatMessage.username)) {
     upsertChatter.run(chatMessage.username, chatMessage.receivedAt);
   }
   broadcast('chat:message', chatMessage);
