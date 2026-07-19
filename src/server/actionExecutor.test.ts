@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { Action, ActionStep, MediaAsset, OverlayTextPlayback, RewardMedia } from '../shared/api';
+import type { Action, ActionStep, MediaAsset, OverlayTextPlayback, Quote, QuoteInput, RewardMedia } from '../shared/api';
 import { createActionExecutor, type ActionExecutorDeps } from './actionExecutor';
 import { HttpRouteError } from './http';
 import { RuntimeState } from './runtime';
@@ -86,7 +86,25 @@ type Harness = {
   whispers: Array<{ login: string; message: string }>;
   timeouts: Array<{ login: string; seconds: number; reason: string }>;
   bans: Array<{ login: string; reason: string }>;
+  discord: Array<{ channelId: string; content: string }>;
+  addedQuotes: QuoteInput[];
+  shownQuoteIds: string[];
 };
+
+function quote(overrides: Partial<Quote> = {}): Quote {
+  return {
+    id: 'quote-1',
+    number: 3,
+    slug: 'pizza',
+    text: "I'm hungry for pizza!",
+    submittedBy: 'Sorlus',
+    submittedByLogin: 'sorlus',
+    createdAt: '2026-07-19T12:00:00.000Z',
+    shownCount: 7,
+    lastShownAt: null,
+    ...overrides,
+  };
+}
 
 function harness(
   target: Action | null,
@@ -96,6 +114,7 @@ function harness(
   const calls: Harness = {
     broadcasts: [], played: [], chats: [], spoken: [], scenes: [], transitions: 0,
     shoutouts: [], whispers: [], timeouts: [], bans: [],
+    discord: [], addedQuotes: [], shownQuoteIds: [],
   };
 
   const deps: ActionExecutorDeps = {
@@ -115,6 +134,10 @@ function harness(
     sendWhisper: async (_state, login, message) => { calls.whispers.push({ login, message }); },
     timeoutUser: async (_state, login, seconds, reason) => { calls.timeouts.push({ login, seconds, reason }); },
     banUser: async (_state, login, reason) => { calls.bans.push({ login, reason }); },
+    sendDiscord: async (channelId, content) => { calls.discord.push({ channelId, content }); },
+    addQuote: (input) => { calls.addedQuotes.push(input); return quote({ number: 4, text: input.text }); },
+    resolveQuote: () => quote(),
+    recordQuoteShown: (id) => { calls.shownQuoteIds.push(id); },
     ...overrides,
   };
 
@@ -592,5 +615,183 @@ describe('master media mute', () => {
 
     expect(result.status).toBe('succeeded');
     expect(h.calls.chats).toEqual([{ message: 'hi', sender: 'bot' }]);
+  });
+});
+
+describe('quote_show', () => {
+  const showStep = (payload: Partial<Record<string, unknown>> = {}) => step({
+    type: 'quote_show',
+    payload: {
+      queryTemplate: '{input}',
+      messageTemplate: 'Quote {quoteNumber}: {quoteText}',
+      destination: 'discord',
+      discordChannelId: '123456789',
+      ...payload,
+    },
+  } as never);
+
+  test('announces the quote to Discord in the requested format', async () => {
+    const h = harness(action([showStep()]));
+    const result = await run(h, { input: '3' });
+
+    expect(result.status).toBe('succeeded');
+    expect(h.calls.discord).toEqual([
+      { channelId: '123456789', content: "Quote 3: I'm hungry for pizza!" },
+    ]);
+    expect(h.calls.chats).toEqual([]);
+  });
+
+  test('passes the rendered query through to the lookup', async () => {
+    const queries: string[] = [];
+    const h = harness(action([showStep()]), {
+      resolveQuote: (query) => { queries.push(query); return quote(); },
+    });
+    await run(h, { input: 'farts' });
+
+    expect(queries).toEqual(['farts']);
+  });
+
+  test('a bare command sends an empty query, which means "any quote"', async () => {
+    const queries: string[] = [];
+    const h = harness(action([showStep()]), {
+      resolveQuote: (query) => { queries.push(query); return quote(); },
+    });
+    await run(h, {});
+
+    expect(queries).toEqual(['']);
+    expect(h.calls.discord).toHaveLength(1);
+  });
+
+  test('can announce to Twitch chat instead', async () => {
+    const h = harness(action([showStep({ destination: 'chat' })]));
+    await run(h, { input: '3' });
+
+    expect(h.calls.chats).toEqual([{ message: "Quote 3: I'm hungry for pizza!", sender: 'bot' }]);
+    expect(h.calls.discord).toEqual([]);
+  });
+
+  test('exposes every quote token to the message template', async () => {
+    const h = harness(action([showStep({
+      messageTemplate: '{quoteNumber}|{quoteText}|{quoteSlug}|{quoteSubmitter}|{quoteShownCount}|{quoteDate}',
+    })]));
+    await run(h, {});
+
+    expect(h.calls.discord[0]!.content)
+      .toBe("3|I'm hungry for pizza!|pizza|Sorlus|7|2026-07-19");
+  });
+
+  test('still resolves the invocation tokens alongside the quote tokens', async () => {
+    const h = harness(action([showStep({ messageTemplate: '{actor} asked for quote {quoteNumber}' })]));
+    await run(h, { actor: 'Bob', input: '3' });
+
+    expect(h.calls.discord[0]!.content).toBe('Bob asked for quote 3');
+  });
+
+  test('a quote containing a token is not re-expanded', async () => {
+    // Quote text is viewer-submitted; interpolating it must not open a second pass.
+    const h = harness(action([showStep()]), {
+      resolveQuote: () => quote({ text: 'literally {actor}' }),
+    });
+    await run(h, { actor: 'Sorlus', input: '3' });
+
+    expect(h.calls.discord[0]!.content).toBe('Quote 3: literally {actor}');
+  });
+
+  test('skips without announcing when no quote matches', async () => {
+    const h = harness(action([showStep()]), { resolveQuote: () => null });
+    const result = await run(h, { input: 'nope' });
+
+    expect(result.status).toBe('skipped');
+    expect(h.calls.discord).toEqual([]);
+    expect(h.calls.shownQuoteIds).toEqual([]);
+  });
+
+  test('counts the show only after the announcement lands', async () => {
+    const h = harness(action([showStep()]));
+    await run(h, { input: '3' });
+
+    expect(h.calls.shownQuoteIds).toEqual(['quote-1']);
+  });
+
+  test('does not count a show whose announcement failed', async () => {
+    // A Discord outage must not inflate the counter for a quote nobody saw.
+    const h = harness(action([showStep()]), {
+      sendDiscord: async () => { throw new HttpRouteError(502, 'Discord is down.'); },
+    });
+    const result = await run(h, { input: '3' });
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]!.detail).toBe('Discord is down.');
+    expect(h.calls.shownQuoteIds).toEqual([]);
+  });
+});
+
+describe('quote_add', () => {
+  const addStep = (payload: Partial<Record<string, unknown>> = {}) => step({
+    type: 'quote_add',
+    payload: {
+      textTemplate: '{input}',
+      slugTemplate: '',
+      replyTemplate: 'Added quote {quoteNumber}.',
+      destination: 'discord',
+      discordChannelId: '123456789',
+      ...payload,
+    },
+  } as never);
+
+  test('saves the quote and credits the invoking viewer', async () => {
+    const h = harness(action([addStep()]));
+    const result = await run(h, { actor: 'Sorlus', login: 'sorlus', input: 'pizza is a vegetable' });
+
+    expect(result.status).toBe('succeeded');
+    expect(h.calls.addedQuotes).toEqual([{
+      text: 'pizza is a vegetable',
+      slug: null,
+      submittedBy: 'Sorlus',
+      submittedByLogin: 'sorlus',
+    }]);
+  });
+
+  test('confirms with the number the quote actually got', async () => {
+    const h = harness(action([addStep()]));
+    await run(h, { actor: 'Sorlus', input: 'pizza is a vegetable' });
+
+    expect(h.calls.discord).toEqual([{ channelId: '123456789', content: 'Added quote 4.' }]);
+  });
+
+  test('stores a slug when the template renders one', async () => {
+    const h = harness(action([addStep({ textTemplate: '{rest}', slugTemplate: '{arg1}' })]));
+    await run(h, { actor: 'Sorlus', args: ['farts', 'that', 'was', 'loud'] });
+
+    expect(h.calls.addedQuotes[0]!.slug).toBe('farts');
+    expect(h.calls.addedQuotes[0]!.text).toBe('that was loud');
+  });
+
+  test('an empty reply template adds the quote silently', async () => {
+    const h = harness(action([addStep({ replyTemplate: '' })]));
+    const result = await run(h, { actor: 'Sorlus', input: 'quiet one' });
+
+    expect(result.status).toBe('succeeded');
+    expect(h.calls.addedQuotes).toHaveLength(1);
+    expect(h.calls.discord).toEqual([]);
+  });
+
+  test('skips without saving when there is nothing to quote', async () => {
+    const h = harness(action([addStep()]));
+    const result = await run(h, { actor: 'Sorlus', input: '   ' });
+
+    expect(result.status).toBe('skipped');
+    expect(h.calls.addedQuotes).toEqual([]);
+  });
+
+  test('a rejected quote fails the step rather than confirming', async () => {
+    const h = harness(action([addStep()]), {
+      addQuote: () => { throw new HttpRouteError(409, 'A quote with the slug "farts" already exists.'); },
+    });
+    const result = await run(h, { actor: 'Sorlus', input: 'dupe' });
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]!.detail).toBe('A quote with the slug "farts" already exists.');
+    expect(h.calls.discord).toEqual([]);
   });
 });

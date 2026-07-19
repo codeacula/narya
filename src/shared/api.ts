@@ -541,6 +541,12 @@ export type ViewerRefreshResult = {
 export type ViewerFlushResult = {
   login: string;
   messagesRemoved: number;
+  /**
+   * Quotes whose attribution was anonymized. The quotes themselves survive — see
+   * flushViewer — so this is not a deletion count, and the operator is told about it
+   * because a flush silently editing the quote book would be a surprise.
+   */
+  quotesAnonymized: number;
 };
 
 export type IgnoredLogin = {
@@ -753,7 +759,9 @@ export type ActionStepType =
   | 'twitch_shoutout'
   | 'twitch_whisper'
   | 'twitch_timeout'
-  | 'twitch_ban';
+  | 'twitch_ban'
+  | 'quote_add'
+  | 'quote_show';
 
 /** How a multi-asset play_media step picks which asset to play. */
 export type MediaSelection = 'first' | 'random';
@@ -790,6 +798,40 @@ export const MAX_TIMEOUT_SECONDS = 1_209_600;
 export type TwitchBanPayload = { loginTemplate: string; reasonTemplate: string };
 
 /**
+ * Where a quote step announces its result. Steps run concurrently and cannot pass
+ * values to each other, so a quote step has to emit its own message rather than
+ * handing the quote to a downstream send_chat step — see QuoteShowPayload.
+ */
+export type QuoteDestination = 'discord' | 'chat';
+
+/**
+ * `slugTemplate` and `replyTemplate` are both optional: an empty slug stores no slug
+ * (many quotes can be slug-less), and an empty reply adds the quote silently.
+ * `discordChannelId` is only read when `destination` is 'discord'.
+ */
+export type QuoteAddPayload = {
+  textTemplate: string;
+  slugTemplate: string;
+  replyTemplate: string;
+  destination: QuoteDestination;
+  discordChannelId: string;
+};
+
+/**
+ * `queryTemplate` renders to a quote number, a slug, or a keyword; rendering *empty*
+ * is meaningful — it means "any quote", so a bare `!quote` picks a random one.
+ * `messageTemplate` renders against the invocation context extended with the quote
+ * tokens ({quoteNumber}, {quoteText}, …), which is why the lookup and the message
+ * have to live in the same step.
+ */
+export type QuoteShowPayload = {
+  queryTemplate: string;
+  messageTemplate: string;
+  destination: QuoteDestination;
+  discordChannelId: string;
+};
+
+/**
  * A single step. `delayMs` is relative to the start of the invocation, not to the
  * previous step: due steps start in stored order WITHOUT waiting for media
  * playback to finish, so text, video, and TTS can land together. A step that
@@ -806,7 +848,9 @@ export type ActionStep =
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_shoutout'; payload: TwitchShoutoutPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_whisper'; payload: TwitchWhisperPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_timeout'; payload: TwitchTimeoutPayload }
-  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_ban'; payload: TwitchBanPayload };
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_ban'; payload: TwitchBanPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'quote_add'; payload: QuoteAddPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'quote_show'; payload: QuoteShowPayload };
 
 /** Omit that preserves a discriminated union instead of collapsing it to one object. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -878,7 +922,52 @@ export type TemplateContext = {
   /** Active Twitch category and module at invocation time. */
   category?: string;
   module?: string;
+  // Set only by a quote step, on a context it derives for its own message template.
+  // A trigger never supplies these, so they render empty everywhere else — the same
+  // way {months} does outside a resub.
+  quoteNumber?: number;
+  quoteText?: string;
+  quoteSlug?: string;
+  quoteSubmitter?: string;
+  quoteShownCount?: number;
+  quoteDate?: string;
 };
+
+// --- Quotes ------------------------------------------------------------------
+
+/**
+ * `number` is the human-facing handle (`!quote 3`) and is allocated from a counter
+ * that never rewinds, so deleting the newest quote cannot make the next one reuse
+ * its number. `slug` is an optional keyword handle (`!quote farts`), unique when set.
+ */
+export type Quote = {
+  id: string;
+  number: number;
+  slug: string | null;
+  text: string;
+  submittedBy: string;
+  submittedByLogin: string;
+  createdAt: string;
+  shownCount: number;
+  lastShownAt: string | null;
+};
+
+export type QuoteInput = {
+  text: string;
+  slug?: string | null;
+  submittedBy?: string;
+  submittedByLogin?: string;
+};
+
+/** A PATCH body: only the fields present are changed. */
+export type QuoteUpdate = {
+  text?: string;
+  slug?: string | null;
+  submittedBy?: string;
+};
+
+export const MAX_QUOTE_LENGTH = 500;
+export const MAX_QUOTE_SLUG_LENGTH = 60;
 
 /** Broadcast payload (`overlay:text`) consumed by the /overlay/text browser source. */
 export type OverlayTextPlayback = {

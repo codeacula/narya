@@ -52,6 +52,7 @@ test('each settings section resolves from its path and back to it', () => {
     ['/settings/go-live', 'golive'],
     ['/settings/categories', 'categories'],
     ['/settings/rewards', 'rewards'],
+    ['/settings/quotes', 'quotes'],
     ['/settings/actions', 'actions'],
     ['/settings/automation', 'automation'],
     ['/settings/modules', 'modules'],

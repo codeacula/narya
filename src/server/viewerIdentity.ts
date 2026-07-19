@@ -15,6 +15,7 @@
  * row existence now also means "was merely present". See streamSession.ts.
  */
 import { db } from './db';
+import { anonymizeQuotesByLogin } from './quotes';
 
 /** Helix caps Get Users at 100 logins per request. */
 const HELIX_USERS_BATCH = 100;
@@ -151,21 +152,28 @@ export function saveChatterProfile(update: ChatterProfileUpdate): void {
  *
  * Append-only `chat_events` is deliberately untouched, so a flush is auditable and a
  * mistake is recoverable rather than a hole in the record.
+ *
+ * Quotes they submitted are *anonymized*, not deleted: the quote and its number stay
+ * (a number already circulating in Discord must not come to mean something else), but
+ * the attribution goes, so a `quote_show` step cannot keep announcing a flushed viewer
+ * on stream. That part is one-way — `unflushViewer` has no login left to restore from.
  */
-export function flushViewer(login: string, reason = ''): { messages: number } {
+export function flushViewer(login: string, reason = ''): { messages: number; quotes: number } {
   const key = login.trim().toLowerCase();
-  if (!key) return { messages: 0 };
+  if (!key) return { messages: 0, quotes: 0 };
   const now = new Date().toISOString();
 
   let messages = 0;
+  let quotes = 0;
   db.transaction(() => {
     insertIgnored.run(key, reason, now);
     deleteChatter.run(key);
     deleteProfile.run(key);
     messages = (deleteMessages.run(key) as { changes: number }).changes;
+    quotes = anonymizeQuotesByLogin(key);
   })();
 
-  return { messages };
+  return { messages, quotes };
 }
 
 /** Lift a flush, so the viewer can be recorded again the next time they appear. */

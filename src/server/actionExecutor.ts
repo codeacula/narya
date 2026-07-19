@@ -8,15 +8,20 @@ import type {
   ChatSender,
   MediaAsset,
   OverlayTextPlayback,
+  Quote,
+  QuoteDestination,
+  QuoteInput,
   RewardMedia,
   TemplateContext,
 } from '../shared/api';
 import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from '../shared/api';
 import { getActionById } from './actions';
 import { renderActionTemplate } from './actionTemplates';
+import { sendDiscordMessage } from './discord';
 import { askPonderLlm } from './llm';
 import { switchObsScene, triggerObsTransition } from './obs';
 import { broadcast } from './realtime';
+import { addQuote, recordQuoteShown, resolveQuote } from './quotes';
 import { playMedia } from './rewardMedia';
 import type { RuntimeState } from './runtime';
 import { speakText } from './tts';
@@ -46,6 +51,10 @@ export type ActionExecutorDeps = {
   sendWhisper?: (state: RuntimeState, login: string, message: string) => Promise<unknown>;
   timeoutUser?: (state: RuntimeState, login: string, seconds: number, reason: string) => Promise<unknown>;
   banUser?: (state: RuntimeState, login: string, reason: string) => Promise<unknown>;
+  sendDiscord?: (channelId: string, content: string) => Promise<unknown>;
+  addQuote?: (input: QuoteInput) => Quote;
+  resolveQuote?: (query: string, randomIndex: (length: number) => number) => Quote | null;
+  recordQuoteShown?: (id: string) => void;
   delay?: (ms: number) => Promise<void>;
   randomIndex?: (length: number) => number;
   newId?: () => string;
@@ -113,6 +122,10 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
       moderateTwitchUser(runtime, login, 'timeout', { durationSeconds: seconds, reason }),
     banUser = (runtime: RuntimeState, login: string, reason: string) =>
       moderateTwitchUser(runtime, login, 'ban', { reason }),
+    sendDiscord = sendDiscordMessage,
+    addQuote: saveQuote = addQuote,
+    resolveQuote: findQuote = resolveQuote,
+    recordQuoteShown: markQuoteShown = recordQuoteShown,
     delay = (ms: number) => new Promise<void>(resolve => { setTimeout(resolve, ms); }),
     randomIndex = (length: number) => Math.floor(Math.random() * length),
     newId = () => crypto.randomUUID(),
@@ -144,6 +157,35 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     // Clamped: a chooser must never index past the assets that actually resolved.
     const index = Math.min(Math.max(0, Math.floor(randomIndex(available.length))), available.length - 1);
     return available[index]!;
+  }
+
+  /**
+   * Deliver a quote step's own message. Quote steps announce their result themselves
+   * rather than handing it to a downstream send_chat step, because steps run
+   * concurrently and cannot pass values to one another.
+   */
+  async function announce(destination: QuoteDestination, channelId: string, message: string): Promise<void> {
+    if (destination === 'discord') {
+      // sendDiscordMessage throws when Discord is unconfigured or the channel is
+      // wrong; that surfaces as a failed step with the reason attached, which is what
+      // the operator needs to see.
+      await sendDiscord(channelId, message);
+      return;
+    }
+    await sendChat(state, message, 'bot');
+  }
+
+  /** The invocation context plus the tokens only a quote step can supply. */
+  function withQuote(context: TemplateContext, quote: Quote): TemplateContext {
+    return {
+      ...context,
+      quoteNumber: quote.number,
+      quoteText: quote.text,
+      quoteSlug: quote.slug ?? '',
+      quoteSubmitter: quote.submittedBy,
+      quoteShownCount: quote.shownCount,
+      quoteDate: quote.createdAt.slice(0, 10),
+    };
   }
 
   async function dispatch(step: ActionStep, context: TemplateContext): Promise<StepOutcome> {
@@ -232,6 +274,38 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         const login = normalizeLogin(render(step.payload.loginTemplate));
         if (!login) return skipped('The ban target rendered empty.');
         await banUser(state, login, render(step.payload.reasonTemplate));
+        return SUCCEEDED;
+      }
+
+      case 'quote_add': {
+        const text = render(step.payload.textTemplate);
+        if (!text.trim()) return skipped('The quote text rendered empty.');
+        const quote = saveQuote({
+          text,
+          slug: render(step.payload.slugTemplate) || null,
+          submittedBy: context.actor ?? context.login ?? 'unknown',
+          submittedByLogin: context.login ?? '',
+        });
+        const reply = renderActionTemplate(step.payload.replyTemplate, withQuote(context, quote));
+        // An empty reply template is a deliberate "add it quietly", not a failure —
+        // the quote is already saved either way.
+        if (reply.trim()) {
+          await announce(step.payload.destination, step.payload.discordChannelId, reply);
+        }
+        return SUCCEEDED;
+      }
+
+      case 'quote_show': {
+        const quote = findQuote(render(step.payload.queryTemplate), randomIndex);
+        // A viewer asking for a quote that does not exist is normal traffic, so this
+        // skips rather than failing — a failed run reads as "Narya is broken".
+        if (!quote) return skipped('No quote matched that number, slug, or keyword.');
+        const message = renderActionTemplate(step.payload.messageTemplate, withQuote(context, quote));
+        if (!message.trim()) return skipped('The quote message template rendered empty.');
+        await announce(step.payload.destination, step.payload.discordChannelId, message);
+        // Only after delivery: a Discord outage must not inflate the counter for a
+        // quote nobody saw.
+        markQuoteShown(quote.id);
         return SUCCEEDED;
       }
     }
