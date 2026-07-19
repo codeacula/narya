@@ -243,7 +243,7 @@ The other pure piece. Encodes the "manual off must stick" latch, which is the ru
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `WindDownSource`, `WindDownState`, `WindDownSettings`, `WindDownPublicState` (in `src/shared/api.ts`); `evaluateWindDown(input): WindDownDecision`, `WindDownDecision` (in `windDownSchedule.ts`).
+- Produces: `WindDownSource`, `WindDownSettings`, `WindDownPublicState` (in `src/shared/api.ts`); `evaluateWindDown(input): WindDownDecision`, `WindDownDecision`, `WindDownSchedulerState` (in `windDownSchedule.ts`). Note there is no type named `WindDownState`: the scheduler's narrow view is `WindDownSchedulerState` (this task) and the full stored row is `WindDownStoredState` (Task 4).
 
 - [ ] **Step 1: Add the shared contracts**
 
@@ -436,7 +436,7 @@ export function evaluateWindDown(input: {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `bun test src/server/windDownSchedule.test.ts`
-Expected: PASS — 12 tests.
+Expected: PASS — 11 tests.
 
 - [ ] **Step 6: Typecheck and commit**
 
