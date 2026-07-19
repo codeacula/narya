@@ -631,7 +631,7 @@ git commit -m "feat: record a planned end time on the stream session"
 
 **Interfaces:**
 - Consumes: `WindDownSettings`, `WindDownPublicState`, `WindDownSource` from `src/shared/api.ts` (Task 2); `getPlannedStreamEnd`, `getCurrentStreamSessionId` from `./streamSession` (Task 3); `MAX_TWITCH_TITLE_LENGTH` from `./windDownTitle` (Task 1).
-- Produces: `getWindDownSettings()`, `saveWindDownSettings(body: unknown): WindDownSettings`, `getWindDownState(): WindDownStoredState`, `getWindDownPublicState(): WindDownPublicState`, `setWindDownActive(input): WindDownPublicState`, `setWindDownBaseTitle(baseTitle: string | null): void`, `broadcastWindDown(): void`, `registerWindDownRoutes(app)`, and the type `WindDownStoredState`.
+- Produces: `getWindDownSettings()`, `saveWindDownSettings(body: unknown): WindDownSettings`, `getWindDownState(): WindDownStoredState`, `getWindDownPublicState(): WindDownPublicState`, `setWindDownActive(input): WindDownPublicState`, `setWindDownBaseTitle(baseTitle: string | null): void`, `rebaseWindDownTitle(submittedTitle: string): string`, `broadcastWindDown(): void`, `registerWindDownRoutes(app)`, and the type `WindDownStoredState`.
 
 - [ ] **Step 1: Add the schema**
 
@@ -681,6 +681,7 @@ import {
   getWindDownPublicState,
   getWindDownSettings,
   getWindDownState,
+  rebaseWindDownTitle,
   saveWindDownSettings,
   setWindDownActive,
   setWindDownBaseTitle,
@@ -789,6 +790,40 @@ describe('wind-down state', () => {
     expect(getWindDownState().baseTitle).toBeNull();
   });
 });
+
+describe('rebaseWindDownTitle', () => {
+  // The operator edits the title they can SEE, which already carries the suffix.
+  // Storing that verbatim would double the suffix on the next compose.
+  test('re-bases an edit made against the suffixed title', () => {
+    getOrStartStreamSession('test-f', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'manual' });
+    setWindDownBaseTitle('Modding Skyrim');
+    const live = rebaseWindDownTitle('Modding Fallout | Ending soon');
+    expect(getWindDownState().baseTitle).toBe('Modding Fallout');
+    expect(live).toBe('Modding Fallout | Ending soon');
+  });
+
+  test('re-bases an edit made without the suffix', () => {
+    getOrStartStreamSession('test-g', '2026-07-19T18:00:00.000Z');
+    setWindDownActive({ active: true, source: 'manual' });
+    setWindDownBaseTitle('Modding Skyrim');
+    const live = rebaseWindDownTitle('Modding Fallout');
+    expect(getWindDownState().baseTitle).toBe('Modding Fallout');
+    expect(live).toBe('Modding Fallout | Ending soon');
+  });
+
+  test('passes the title straight through when wind-down is off', () => {
+    expect(rebaseWindDownTitle('Modding Fallout')).toBe('Modding Fallout');
+    expect(getWindDownState().baseTitle).toBeNull();
+  });
+
+  test('leaves the title alone when the title effect is disabled', () => {
+    getOrStartStreamSession('test-h', '2026-07-19T18:00:00.000Z');
+    saveWindDownSettings({ leadMinutes: 15, titleSuffix: '| Ending soon', titleEnabled: false, overlayEnabled: true });
+    setWindDownActive({ active: true, source: 'manual' });
+    expect(rebaseWindDownTitle('Modding Fallout')).toBe('Modding Fallout');
+  });
+});
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
@@ -808,7 +843,7 @@ import { handle, HttpRouteError } from './http';
 import { clampFinite } from './numeric';
 import { broadcast } from './realtime';
 import { getCurrentStreamSessionId, getPlannedStreamEnd } from './streamSession';
-import { MAX_TWITCH_TITLE_LENGTH } from './windDownTitle';
+import { composeWindDownTitle, MAX_TWITCH_TITLE_LENGTH, stripWindDownSuffix } from './windDownTitle';
 
 /**
  * Wind-down: the switch that says "this stream is wrapping up". Twitch exposes no
@@ -1050,6 +1085,29 @@ export function setWindDownBaseTitle(baseTitle: string | null) {
 }
 
 /**
+ * Re-base a title the operator submitted while wind-down is active.
+ *
+ * They are editing the suffixed title they can SEE, so storing their submission
+ * verbatim would make the next compose append a second suffix. Returns what should
+ * actually be sent to Twitch.
+ *
+ * Lives here rather than in windDownLoop.ts on purpose: twitch/api.ts calls this, and
+ * windDownLoop.ts imports twitch/api.ts, so putting it there would make a cycle
+ * between two modules that both prepare statements at load time.
+ */
+export function rebaseWindDownTitle(submittedTitle: string): string {
+  const state = getWindDownState();
+  if (!state.active) return submittedTitle;
+
+  const settings = getWindDownSettings();
+  if (!settings.titleEnabled) return submittedTitle;
+
+  const base = stripWindDownSuffix(submittedTitle, settings.titleSuffix);
+  setWindDownBaseTitle(base);
+  return composeWindDownTitle(base, settings.titleSuffix);
+}
+
+/**
  * The GET is on the overlay token's read allowlist so a browser source can seed
  * itself. The PUT is operator-only — the overlay token is GET-only by construction,
  * so a browser source cannot switch wind-down on for the whole channel.
@@ -1077,7 +1135,7 @@ export function registerWindDownRoutes(app: express.Express) {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `bun test src/server/windDown.test.ts`
-Expected: PASS — 12 tests.
+Expected: PASS — 16 tests.
 
 - [ ] **Step 6: Register the routes**
 
@@ -1203,7 +1261,10 @@ Where the title actually changes. The restart-reconciliation path is the importa
 
 **Interfaces:**
 - Consumes: `evaluateWindDown` (Task 2), `getPlannedStreamEnd`/`getCurrentStreamSessionId` (Task 3), `getWindDownSettings`/`getWindDownState`/`setWindDownActive`/`setWindDownBaseTitle`/`broadcastWindDown` (Task 4), `composeWindDownTitle`/`stripWindDownSuffix` (Task 1).
-- Produces: `applyWindDownTitle(deps, active): Promise<void>`, `reconcileWindDownOnBoot(deps): Promise<void>`, `rebaseWindDownTitle(submittedTitle: string): string`, `startWindDownLoop(state: RuntimeState): void`, `WindDownTitlePort`.
+- Produces: `applyWindDownTitle(port, active): Promise<void>`, `reconcileWindDownOnBoot(port): Promise<void>`, `startWindDownLoop(state: RuntimeState): void`, `windDownTitlePort(state: RuntimeState): WindDownTitlePort`, `WindDownTitlePort`.
+- Also produces (in `windDown.ts`, not this module): `rebaseWindDownTitle(submittedTitle: string): string`.
+
+> **Import direction matters here.** `windDownLoop.ts` imports from `twitch/api.ts`, so `twitch/api.ts` must NOT import from `windDownLoop.ts` — that is a cycle, and both modules run `db.prepare` at load time, so a cycle would be a boot-order landmine rather than a clean error. `rebaseWindDownTitle` therefore lives in `windDown.ts`, which imports no Twitch code. The dependency order is: `twitch/api.ts` → `windDown.ts` → `windDownTitle.ts`, and separately `windDownLoop.ts` → both `twitch/api.ts` and `windDown.ts`.
 
 - [ ] **Step 1: Add the Twitch title call**
 
@@ -1252,8 +1313,8 @@ Create `src/server/windDownLoop.test.ts`:
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { db } from './db';
 import { getOrStartStreamSession } from './streamSession';
-import { getWindDownState, saveWindDownSettings, setWindDownActive, setWindDownBaseTitle } from './windDown';
-import { applyWindDownTitle, reconcileWindDownOnBoot, rebaseWindDownTitle, type WindDownTitlePort } from './windDownLoop';
+import { getWindDownState, saveWindDownSettings, setWindDownActive } from './windDown';
+import { applyWindDownTitle, reconcileWindDownOnBoot, type WindDownTitlePort } from './windDownLoop';
 
 /** A fake Twitch channel whose title we can read back. */
 function fakePort(initialTitle: string) {
@@ -1354,30 +1415,6 @@ describe('reconcileWindDownOnBoot', () => {
   });
 });
 
-describe('rebaseWindDownTitle', () => {
-  // The operator edits the title they can SEE, which already carries the suffix.
-  // Storing that verbatim would double the suffix on the next compose.
-  test('re-bases an edit made against the suffixed title', () => {
-    setWindDownActive({ active: true, source: 'manual' });
-    setWindDownBaseTitle('Modding Skyrim');
-    const live = rebaseWindDownTitle('Modding Fallout | Ending soon');
-    expect(getWindDownState().baseTitle).toBe('Modding Fallout');
-    expect(live).toBe('Modding Fallout | Ending soon');
-  });
-
-  test('re-bases an edit made without the suffix', () => {
-    setWindDownActive({ active: true, source: 'manual' });
-    setWindDownBaseTitle('Modding Skyrim');
-    const live = rebaseWindDownTitle('Modding Fallout');
-    expect(getWindDownState().baseTitle).toBe('Modding Fallout');
-    expect(live).toBe('Modding Fallout | Ending soon');
-  });
-
-  test('passes the title straight through when wind-down is off', () => {
-    expect(rebaseWindDownTitle('Modding Fallout')).toBe('Modding Fallout');
-    expect(getWindDownState().baseTitle).toBeNull();
-  });
-});
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
@@ -1417,7 +1454,8 @@ export type WindDownTitlePort = {
   setTitle: (title: string) => Promise<void>;
 };
 
-function livePort(state: RuntimeState): WindDownTitlePort {
+/** Exported so the `set_wind_down` Action step uses this port rather than rebuilding it. */
+export function windDownTitlePort(state: RuntimeState): WindDownTitlePort {
   return {
     getTitle: () => getTwitchChannelTitle(state),
     setTitle: (title: string) => setTwitchChannelTitle(state, title),
@@ -1466,25 +1504,6 @@ export async function reconcileWindDownOnBoot(port: WindDownTitlePort): Promise<
   await applyWindDownTitle(port, true);
 }
 
-/**
- * Re-base a title the operator submitted while wind-down is active.
- *
- * They are editing the suffixed title they can see, so storing their submission
- * verbatim would make the next compose append a second suffix. Returns what should
- * actually be sent to Twitch.
- */
-export function rebaseWindDownTitle(submittedTitle: string): string {
-  const state = getWindDownState();
-  if (!state.active) return submittedTitle;
-
-  const settings = getWindDownSettings();
-  if (!settings.titleEnabled) return submittedTitle;
-
-  const base = stripWindDownSuffix(submittedTitle, settings.titleSuffix);
-  setWindDownBaseTitle(base);
-  return composeWindDownTitle(base, settings.titleSuffix);
-}
-
 let windDownTimer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
@@ -1518,7 +1537,7 @@ async function tick(port: WindDownTitlePort): Promise<void> {
 }
 
 export function startWindDownLoop(state: RuntimeState) {
-  const port = livePort(state);
+  const port = windDownTitlePort(state);
 
   void reconcileWindDownOnBoot(port)
     .then(() => broadcastWindDown())
@@ -1532,7 +1551,7 @@ export function startWindDownLoop(state: RuntimeState) {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `bun test src/server/windDownLoop.test.ts`
-Expected: PASS — 11 tests.
+Expected: PASS — 8 tests.
 
 - [ ] **Step 6: Start the loop**
 
@@ -1585,8 +1604,10 @@ to:
 Add the import at the top of `src/server/twitch/api.ts`:
 
 ```ts
-import { rebaseWindDownTitle } from '../windDownLoop';
+import { rebaseWindDownTitle } from '../windDown';
 ```
+
+**Not** from `../windDownLoop` — that module imports this one, and the cycle would bite at load time. See the import-direction note at the top of this task.
 
 - [ ] **Step 8: Verify and commit**
 
@@ -1753,8 +1774,11 @@ In `src/server/actionExecutor.ts`, add the imports:
 
 ```ts
 import { setWindDownActive } from './windDown';
-import { applyWindDownTitle as applyWindDownTitleImpl, type WindDownTitlePort } from './windDownLoop';
-import { getTwitchChannelTitle, setTwitchChannelTitle } from './twitch/api';
+import {
+  applyWindDownTitle as applyWindDownTitleImpl,
+  windDownTitlePort,
+  type WindDownTitlePort,
+} from './windDownLoop';
 ```
 
 Add to `ActionExecutorDeps`, after `isMuted?: () => boolean;`:
@@ -1778,13 +1802,7 @@ And add this case to `dispatch`, immediately after the `case 'twitch_ban':` bloc
         // The title is best-effort: the overlay signal has already gone out, and a
         // Twitch hiccup should not fail a step whose visible effect already landed.
         try {
-          await applyWindDownTitle(
-            {
-              getTitle: () => getTwitchChannelTitle(state),
-              setTitle: (title: string) => setTwitchChannelTitle(state, title),
-            },
-            step.payload.active,
-          );
+          await applyWindDownTitle(windDownTitlePort(state), step.payload.active);
         } catch (error) {
           console.error('Actions: wind-down title update failed:', error);
         }
