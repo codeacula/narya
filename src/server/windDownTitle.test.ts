@@ -48,6 +48,25 @@ describe('composeWindDownTitle', () => {
     expect(result.length).toBe(MAX_TWITCH_TITLE_LENGTH);
     expect(result).toBe(`${base} ${suffix}`);
   });
+
+  // An astral-plane character (e.g. most emoji) occupies two UTF-16 code units. If the
+  // cut point lands between them, a raw slice leaves a lone high surrogate: `.length`
+  // still satisfies the guard, but encoding the result to UTF-8 turns the orphan into
+  // U+FFFD, glitching the live title. The cut must fall on a whole-character boundary.
+  test('an astral character straddling the cut boundary produces no unpaired surrogate', () => {
+    const base = `${'A'.repeat(124)}\u{1F600}${'B'.repeat(50)}`;
+    const result = composeWindDownTitle(base, '| Ending soon');
+    expect(result.length).toBeLessThanOrEqual(MAX_TWITCH_TITLE_LENGTH);
+    expect(new TextDecoder().decode(new TextEncoder().encode(result))).toBe(result);
+  });
+
+  test('an astral character comfortably before the cut point survives intact', () => {
+    const base = `\u{1F600}${'A'.repeat(200)}`;
+    const result = composeWindDownTitle(base, '| Ending soon');
+    expect(result.length).toBeLessThanOrEqual(MAX_TWITCH_TITLE_LENGTH);
+    expect(result).toContain('\u{1F600}');
+    expect(new TextDecoder().decode(new TextEncoder().encode(result))).toBe(result);
+  });
 });
 
 describe('stripWindDownSuffix', () => {

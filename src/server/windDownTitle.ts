@@ -27,7 +27,17 @@ export function composeWindDownTitle(baseTitle: string, suffix: string): string 
   // Settings form rejects this case up front; this is the belt-and-braces path.
   if (room <= 0) return tail.slice(0, MAX_TWITCH_TITLE_LENGTH);
 
-  const cut = base.slice(0, room);
+  let cut = base.slice(0, room);
+  // A high surrogate (U+D800–U+DBFF) left dangling at the end of `cut` means its low-
+  // surrogate partner got sliced away — the astral character (e.g. an emoji) straddled
+  // the cut point. `cut.length` still satisfies the room budget, so the length guard
+  // never catches this, but encoding a lone surrogate to UTF-8 (which any HTTP client
+  // does before sending the Twitch PATCH body) turns it into U+FFFD, corrupting the
+  // title. Drop the dangling unit so `cut` never ends mid-character.
+  const lastCode = cut.charCodeAt(cut.length - 1);
+  if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+    cut = cut.slice(0, -1);
+  }
   const lastSpace = cut.lastIndexOf(' ');
   const trimmed = (lastSpace > room * WORD_BOUNDARY_MIN_RATIO ? cut.slice(0, lastSpace) : cut).trimEnd();
   return `${trimmed}… ${tail}`;
