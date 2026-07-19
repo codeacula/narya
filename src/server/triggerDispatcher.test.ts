@@ -909,6 +909,25 @@ describe('the reserved /counter command', () => {
     expect(store.values.deaths).toBe(5);
   });
 
+  test('rejects a bare number rather than guessing add vs set', async () => {
+    // "/counter deaths 5" is plausibly "+5" or "set 5". Both are destructive when
+    // wrong, so the sign (or the word set) has to be explicit.
+    const store = counters({ deaths: 10 });
+    const { dispatcher } = setup(store.deps);
+    const response = await dispatcher.handleSlashCommand('/counter deaths 5');
+
+    expect(response.ok).toBe(false);
+    expect(response.message).toContain('set 5');
+    expect(store.values.deaths).toBe(10);
+  });
+
+  test('an explicit +5 still works', async () => {
+    const store = counters({ deaths: 10 });
+    const { dispatcher } = setup(store.deps);
+    await dispatcher.handleSlashCommand('/counter deaths +5');
+    expect(store.values.deaths).toBe(15);
+  });
+
   test('explains itself when no key is given', async () => {
     const { dispatcher } = setup(counters().deps);
     const response = await dispatcher.handleSlashCommand('/counter');

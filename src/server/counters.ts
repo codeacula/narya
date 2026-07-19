@@ -46,17 +46,18 @@ const updateCounterRow = db.prepare(`
   update counters set key = ?, label = ?, value = ?, updated_at = ? where id = ?
 `);
 const deleteCounterRow = db.prepare('delete from counters where id = ?');
-const selectAdjustCounterSteps = db.prepare(
-  "select payload_json as payloadJson from action_steps where step_type = 'adjust_counter'",
-);
-// Every step payload, whatever its type: a {counter:key} token can appear in any
-// template field, not just the ones this module knows the shape of.
-const selectAllStepPayloads = db.prepare('select payload_json as payloadJson from action_steps');
-const selectActionNamesForSteps = db.prepare(`
-  select distinct a.name as name
+const selectStatusRawText = db.prepare('select raw_text as rawText from stream_status');
+/**
+ * Every step with the Action that owns it. One query rather than three, because
+ * the interesting predicate — does this payload reference this counter — lives in
+ * JSON and cannot be expressed in SQL, so the filtering happens in JS either way.
+ * A {counter:key} token can appear in ANY template field, not only the payload
+ * shapes this module knows, so no step_type filter is applied here.
+ */
+const selectStepsWithActions = db.prepare(`
+  select a.name as actionName, s.step_type as stepType, s.payload_json as payloadJson
   from action_steps s
   join actions a on a.id = s.action_id
-  where s.step_type = 'adjust_counter'
 `);
 
 function toCounter(row: CounterRow): Counter {
@@ -173,6 +174,7 @@ export function updateCounter(id: string, body: unknown): Counter {
   const current = requireRow(id);
   const input = normalize(body, current);
   assertKeyAvailable(input.key, id);
+  assertRenameIsSafe(current, input.key);
   const now = new Date().toISOString();
   updateCounterRow.run(input.key, input.label, input.value, now, id);
   const updated = toCounter({ ...current, ...input, updatedAt: now });
@@ -221,36 +223,78 @@ export function findCounterByKey(key: string): Counter | null {
  *
  * The stream status line is checked for the same reason.
  */
-function referenceReasons(row: CounterRow): string[] {
-  const reasons: string[] = [];
-
-  const idRows = selectAdjustCounterSteps.all() as Array<{ payloadJson: string }>;
-  const referencedById = idRows.some(step => {
-    const payload = parseJsonColumn<AdjustCounterPayload>(step.payloadJson);
-    return payload?.counterId === row.id;
-  });
-  if (referencedById) {
-    const names = (selectActionNamesForSteps.all() as Array<{ name: string }>).map(r => r.name);
-    reasons.push(names.length ? `an Action step (${names.join(', ')})` : 'an Action step');
-  }
-
+/**
+ * References split by what they actually bind to, because the two kinds survive
+ * different edits:
+ *
+ *  - `byId` — an adjust_counter step naming this counter's id. Survives a rename,
+ *    breaks on delete.
+ *  - `byKey` — a {counter:key} token in any step template or in the stream status.
+ *    Breaks on BOTH, because the token is matched by key.
+ *
+ * Collapsing them would block renames that are perfectly safe.
+ */
+function referenceReasons(row: CounterRow): { byId: string[]; byKey: string[] } {
+  const idReasons: string[] = [];
+  const keyReasons: string[] = [];
   const token = `{counter:${row.key}}`;
-  const payloadRows = selectAllStepPayloads.all() as Array<{ payloadJson: string }>;
-  if (payloadRows.some(step => (step.payloadJson ?? '').includes(token))) {
-    reasons.push('an Action template');
+  const steps = selectStepsWithActions.all() as Array<{
+    actionName: string;
+    stepType: string;
+    payloadJson: string;
+  }>;
+
+  // Named per reason, and only the Actions that actually reference THIS counter.
+  // Listing every Action that merely happens to contain an adjust_counter step
+  // would send the operator to edit Actions that have nothing to do with it.
+  const byId = new Set<string>();
+  const byToken = new Set<string>();
+
+  for (const step of steps) {
+    if (step.stepType === 'adjust_counter') {
+      const payload = parseJsonColumn<AdjustCounterPayload>(step.payloadJson);
+      if (payload?.counterId === row.id) byId.add(step.actionName);
+    }
+    if ((step.payloadJson ?? '').includes(token)) byToken.add(step.actionName);
   }
 
-  const status = db.prepare('select raw_text as rawText from stream_status').all() as Array<{ rawText: string }>;
+  if (byId.size > 0) idReasons.push(`an Action step (${[...byId].sort().join(', ')})`);
+  if (byToken.size > 0) keyReasons.push(`an Action template (${[...byToken].sort().join(', ')})`);
+
+  const status = selectStatusRawText.all() as Array<{ rawText: string }>;
   if (status.some(entry => (entry.rawText ?? '').includes(token))) {
-    reasons.push('the stream status line');
+    keyReasons.push('the stream status line');
   }
 
-  return reasons;
+  return { byId: idReasons, byKey: keyReasons };
+}
+
+/**
+ * Renaming a key is a delete for every {counter:key} that names the old one: the
+ * token stops resolving and starts rendering literally, and updateCounter's own
+ * re-broadcast pushes that literal to every overlay in the same request. Blocking
+ * it here is what makes the "an unknown key renders literally" rule in
+ * actionTemplates.ts safe to rely on — the delete guard alone left this way in.
+ */
+function assertRenameIsSafe(current: CounterRow, nextKey: string): void {
+  if (nextKey === current.key) return;
+  // Only key-bound references. An adjust_counter step binds the id and rides a
+  // rename through untouched, so blocking on it would refuse a safe edit.
+  const { byKey } = referenceReasons(current);
+  if (byKey.length === 0) return;
+  // Phrased to avoid subject-verb agreement with a list of one or many.
+  throw new HttpRouteError(
+    409,
+    `Renaming this key would break {counter:${current.key}}, still referenced by `
+    + `${byKey.join(' and ')}. Update those references first.`,
+  );
 }
 
 export function deleteCounter(id: string): void {
   const row = requireRow(id);
-  const reasons = referenceReasons(row);
+  // Deleting breaks both kinds, so both count here.
+  const { byId, byKey } = referenceReasons(row);
+  const reasons = [...byId, ...byKey];
   if (reasons.length > 0) {
     throw new HttpRouteError(
       409,
@@ -284,6 +328,24 @@ export function registerCounterRoutes(app: express.Express) {
 
   app.put('/api/counters/:id', handle((req, res) => {
     res.json(updateCounter(req.params.id, req.body));
+  }));
+
+  /**
+   * A RELATIVE adjustment, so the dashboard's ±1 buttons cannot lose a concurrent
+   * write. PUT takes an absolute value, which means a client computing
+   * `rendered value + 1` silently discards anything automation wrote between the
+   * render and the click. The add is applied server-side against the stored row.
+   */
+  app.post('/api/counters/:id/adjust', handle((req, res) => {
+    const body = (req.body ?? {}) as { mode?: unknown; amount?: unknown };
+    const mode: CounterAdjustMode = body.mode === 'set' ? 'set' : 'add';
+    const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);
+    if (!Number.isFinite(amount)) {
+      throw new HttpRouteError(400, 'An adjustment amount is required.');
+    }
+    const updated = adjustCounter(req.params.id, mode, Math.round(amount));
+    if (!updated) throw new HttpRouteError(404, 'Unknown counter.');
+    res.json(updated);
   }));
 
   app.delete('/api/counters/:id', handle((req, res) => {

@@ -418,6 +418,19 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     const mode: CounterAdjustMode = verb === 'set' ? 'set' : 'add';
     // "/counter deaths set 4" puts the number in arg 3; "/counter deaths +1" in arg 2.
     const rawAmount = (mode === 'set' ? args[2] : args[1]) ?? '';
+
+    // A bare "/counter deaths 5" is rejected rather than guessed at. Read as an add
+    // it silently makes the counter 5 higher; read as a set it silently discards the
+    // count. Both are plausible intents and both are destructive when wrong, so the
+    // sign (or the word "set") has to be explicit.
+    if (mode === 'add' && !/^[+-]/.test(rawAmount)) {
+      return {
+        ok: false,
+        message: `Did you mean "+${rawAmount}" or "set ${rawAmount}"? Usage: /counter ${key} [+1 | -1 | set <n>]`,
+        run: null,
+      };
+    }
+
     const amount = Number(rawAmount);
     if (!rawAmount || !Number.isFinite(amount)) {
       return {

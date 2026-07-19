@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { Counter, CounterInput, CountersResponse } from '../../../shared/api';
 import {
+  adjustCounter,
   createCounter,
   deleteCounter,
   getCounters,
@@ -10,7 +11,23 @@ import { useSocket } from '../../realtime';
 import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
 
-const EMPTY_DRAFT: CounterInput = { key: '', label: '', value: 0 };
+/**
+ * The draft holds the value as TEXT. Parsing on every keystroke made a negative
+ * value unreachable from the keyboard: typing "-" produced Number('-') → NaN,
+ * and `NaN || 0` rewrote the field to "0" before the digits arrived. Counters are
+ * deliberately signed, so the editor has to let a partial "-" exist.
+ */
+type CounterDraft = { key: string; label: string; value: string };
+
+const EMPTY_DRAFT: CounterDraft = { key: '', label: '', value: '0' };
+
+/** '' and a lone '-' are legal mid-typing states; both mean zero on submit. */
+export function parseCounterValue(text: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === '' || trimmed === '-') return 0;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
 
 /**
  * Mirrors normalizeCounterKey in src/server/counters.ts. Duplicated deliberately, for
@@ -30,7 +47,7 @@ export function previewCounterKey(value: string): string {
 
 export function CountersPage() {
   const [counters, setCounters] = useState<Counter[]>([]);
-  const [draft, setDraft] = useState<CounterInput | null>(null);
+  const [draft, setDraft] = useState<CounterDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -72,7 +89,7 @@ export function CountersPage() {
 
   const startEdit = (counter: Counter) => {
     setEditingId(counter.id);
-    setDraft({ key: counter.key, label: counter.label, value: counter.value });
+    setDraft({ key: counter.key, label: counter.label, value: String(counter.value) });
     setMessage(null);
     setError(null);
   };
@@ -88,9 +105,16 @@ export function CountersPage() {
     setSaving(true);
     setMessage(null);
     setError(null);
+    const value = parseCounterValue(draft.value);
+    if (value === null) {
+      setSaving(false);
+      setError('The value must be a whole number.');
+      return;
+    }
+    const input: CounterInput = { key: draft.key, label: draft.label, value };
     const request = editingId
-      ? updateCounter(editingId, draft)
-      : createCounter(draft);
+      ? updateCounter(editingId, input)
+      : createCounter(input);
     void request
       .then(async () => {
         await load();
@@ -102,11 +126,17 @@ export function CountersPage() {
       .finally(() => setSaving(false));
   };
 
-  /** The one-click adjustments, so a miscount is fixable without opening the editor. */
+  /**
+   * The one-click adjustments, so a miscount is fixable without opening the editor.
+   *
+   * Sends a RELATIVE adjustment rather than `counter.value + by`: the rendered
+   * value is a snapshot, and a chat command or Action firing between the render
+   * and the click would be silently overwritten by an absolute write.
+   */
   const bump = (counter: Counter, by: number) => {
     setBusyId(counter.id);
     setError(null);
-    void updateCounter(counter.id, { value: counter.value + by })
+    void adjustCounter(counter.id, by)
       .then(() => load())
       .catch(caught => setError(errorMessage(caught, 'Could not update the counter')))
       .finally(() => setBusyId(null));
@@ -174,11 +204,14 @@ export function CountersPage() {
           <label className="field">
             <span>Value</span>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={draft.value}
               disabled={saving}
-              onChange={event => setDraft({ ...draft, value: Math.round(Number(event.target.value)) || 0 })}
+              placeholder="0"
+              onChange={event => setDraft({ ...draft, value: event.target.value })}
             />
+            <small className="action-hint">Whole numbers, negatives allowed.</small>
           </label>
 
           <div className="command-form-actions">

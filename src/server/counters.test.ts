@@ -25,13 +25,13 @@ function counter(overrides: Partial<{ key: string; label: string; value: number 
 }
 
 /** A stored step, so the delete guard has something real to find. */
-function step(stepType: string, payload: unknown) {
-  db.prepare('insert into actions (id, name, description, enabled, quick_disable, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?)')
-    .run('action-1', 'Death alert', '', 1, 0, '2026-07-19T00:00:00.000Z', '2026-07-19T00:00:00.000Z');
+function step(stepType: string, payload: unknown, actionName = 'Death alert', actionId = 'action-1') {
+  db.prepare('insert or ignore into actions (id, name, description, enabled, quick_disable, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?)')
+    .run(actionId, actionName, '', 1, 0, '2026-07-19T00:00:00.000Z', '2026-07-19T00:00:00.000Z');
   db.prepare(`
     insert into action_steps (id, action_id, position, step_type, payload_json, delay_ms, enabled, created_at, updated_at)
     values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run('step-1', 'action-1', 0, stepType, JSON.stringify(payload), 0, 1, '2026-07-19T00:00:00.000Z', '2026-07-19T00:00:00.000Z');
+  `).run(crypto.randomUUID(), actionId, 0, stepType, JSON.stringify(payload), 0, 1, '2026-07-19T00:00:00.000Z', '2026-07-19T00:00:00.000Z');
 }
 
 beforeEach(reset);
@@ -192,5 +192,60 @@ describe('listCounters', () => {
     counter({ key: 'wipes', label: 'Wipes' });
     counter({ key: 'deaths', label: 'Deaths' });
     expect(listCounters().map(entry => entry.label)).toEqual(['Deaths', 'Wipes']);
+  });
+});
+
+describe('renaming a key', () => {
+  test('is blocked while a template still names the old key', () => {
+    // A rename is a delete for every {counter:key} that names the old key: the
+    // token stops resolving and starts rendering literally on the live overlay.
+    const created = counter({ key: 'deaths' });
+    step('show_text', { template: 'Deaths: {counter:deaths}', durationMs: 5000, style: 'banner' });
+    expect(() => updateCounter(created.id, { key: 'zombie-deaths' })).toThrow(HttpRouteError);
+    expect(findCounterByKey('deaths')).not.toBeNull();
+  });
+
+  test('is blocked while the stream status still names the old key', () => {
+    const created = counter({ key: 'deaths' });
+    db.prepare('insert into stream_status (id, text, raw_text, updated_at) values (?, ?, ?, ?)')
+      .run('default', 'Deaths: 3', 'Deaths: {counter:deaths}', '2026-07-19T00:00:00.000Z');
+    expect(() => updateCounter(created.id, { key: 'zombie-deaths' })).toThrow(HttpRouteError);
+  });
+
+  test('is allowed when nothing references the counter', () => {
+    const created = counter({ key: 'deaths' });
+    expect(updateCounter(created.id, { key: 'zombie-deaths' }).key).toBe('zombie-deaths');
+  });
+
+  test('an adjust_counter step alone does not block a rename, since it binds the id', () => {
+    const created = counter({ key: 'deaths' });
+    step('adjust_counter', { counterId: created.id, mode: 'add', amountTemplate: '1' });
+    expect(updateCounter(created.id, { key: 'zombie-deaths' }).key).toBe('zombie-deaths');
+  });
+
+  test('renaming label and value without touching the key is never blocked', () => {
+    const created = counter({ key: 'deaths' });
+    step('show_text', { template: '{counter:deaths}', durationMs: 5000, style: 'banner' });
+    expect(updateCounter(created.id, { label: 'Renamed' }).label).toBe('Renamed');
+  });
+});
+
+describe('the delete-conflict message', () => {
+  test('names only the Actions that reference this counter', () => {
+    const created = counter({ key: 'deaths' });
+    const other = counter({ key: 'wipes', label: 'Wipes' });
+    step('adjust_counter', { counterId: created.id, mode: 'add', amountTemplate: '1' }, 'Death alert', 'action-1');
+    step('adjust_counter', { counterId: other.id, mode: 'add', amountTemplate: '1' }, 'Wipe alert', 'action-2');
+
+    // The old query filtered on step_type alone, so it named every Action holding
+    // any adjust_counter step and sent the operator to edit unrelated ones.
+    try {
+      deleteCounter(created.id);
+      throw new Error('expected a conflict');
+    } catch (caught) {
+      const message = (caught as Error).message;
+      expect(message).toContain('Death alert');
+      expect(message).not.toContain('Wipe alert');
+    }
   });
 });

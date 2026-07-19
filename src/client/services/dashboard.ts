@@ -664,6 +664,15 @@ export async function updateCounter(id: string, counter: CounterUpdate): Promise
   return sendJson<Counter>(`/api/counters/${encodeURIComponent(id)}`, 'PUT', counter);
 }
 
+/**
+ * A RELATIVE adjustment, applied server-side against the stored row. Use this
+ * rather than updateCounter for ±1: an absolute value computed from rendered
+ * state discards whatever automation wrote between the render and the click.
+ */
+export async function adjustCounter(id: string, amount: number): Promise<Counter> {
+  return sendJson<Counter>(`/api/counters/${encodeURIComponent(id)}/adjust`, 'POST', { mode: 'add', amount });
+}
+
 /** 409s when an Action step, an Action template, or the status line still references it. */
 export async function deleteCounter(id: string): Promise<void> {
   return sendVoid(`/api/counters/${encodeURIComponent(id)}`, 'DELETE');
