@@ -10,6 +10,7 @@ import {
   updateAppConfig,
   updateTtsSettings,
 } from '../../services/dashboard';
+import { errorMessage } from '../../errors';
 
 type TtsStatus = {
   ok: boolean;
@@ -45,7 +46,7 @@ function ChatterboxService({
     void getAppConfig()
       .then(config => { if (!cancelled) setBaseUrl(config.chatterboxBaseUrl); })
       .catch(caught => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : 'Could not load the Chatterbox URL');
+        if (!cancelled) setError(errorMessage(caught, 'Could not load the Chatterbox URL'));
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -65,7 +66,7 @@ function ChatterboxService({
         setMessage('Saved — rechecking the service.');
         onSaved();
       })
-      .catch(caught => setError(caught instanceof Error ? caught.message : 'Could not save the Chatterbox URL'))
+      .catch(caught => setError(errorMessage(caught, 'Could not save the Chatterbox URL')))
       .finally(() => setSaving(false));
   };
 
@@ -142,7 +143,7 @@ export function TtsSection() {
     void Promise.all([
       getTtsSettings(),
       getTtsVoices().catch(() => [] as TtsVoice[]),
-      getTtsStatus().catch(error => ({ ok: false, baseUrl: '', error: error instanceof Error ? error.message : 'Could not reach Chatterbox' })),
+      getTtsStatus().catch(error => ({ ok: false, baseUrl: '', error: errorMessage(error, 'Could not reach Chatterbox') })),
     ])
       .then(([settings, voices, status]) => {
         if (!cancelled) {
@@ -154,7 +155,7 @@ export function TtsSection() {
         }
       })
       .catch(error => {
-        if (!cancelled) setTtsError(error instanceof Error ? error.message : 'Could not load TTS settings');
+        if (!cancelled) setTtsError(errorMessage(error, 'Could not load TTS settings'));
       })
       .finally(() => {
         if (!cancelled) setTtsLoading(false);
@@ -166,7 +167,7 @@ export function TtsSection() {
   const refreshService = React.useCallback(() => {
     void Promise.all([
       getTtsVoices().catch(() => [] as TtsVoice[]),
-      getTtsStatus().catch(error => ({ ok: false, baseUrl: '', error: error instanceof Error ? error.message : 'Could not reach Chatterbox' })),
+      getTtsStatus().catch(error => ({ ok: false, baseUrl: '', error: errorMessage(error, 'Could not reach Chatterbox') })),
     ]).then(([voices, status]) => {
       setTtsVoices(voices);
       setTtsStatus(status);
@@ -194,7 +195,7 @@ export function TtsSection() {
       })
       .catch(error => {
         setTtsSettings(ttsSettings);
-        setTtsError(error instanceof Error ? error.message : 'Could not save TTS settings');
+        setTtsError(errorMessage(error, 'Could not save TTS settings'));
       })
       .finally(() => setTtsSaving(false));
   };
@@ -219,7 +220,7 @@ export function TtsSection() {
         setTtsMessage('Sent — check the /overlay/sounds browser source for audio.');
       })
       .catch(error => {
-        setTtsError(error instanceof Error ? error.message : 'TTS test failed');
+        setTtsError(errorMessage(error, 'TTS test failed'));
       })
       .finally(() => setTtsTesting(false));
   };

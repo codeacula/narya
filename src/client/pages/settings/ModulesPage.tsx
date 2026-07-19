@@ -20,6 +20,7 @@ import {
 import { useSocket } from '../../realtime';
 import { useDebouncedSuggestions } from '../../suggestions';
 import { SettingsHeader } from './shared';
+import { errorMessage } from '../../errors';
 
 const EMPTY_RESPONSE: CategoryModulesResponse = {
   modules: [],
@@ -38,10 +39,6 @@ const STATUS_HINTS: Record<CategoryModuleStatus, string> = {
   active: 'The live Twitch category belongs to this module. Its reward groups are on.',
   degraded: 'The last reconciliation did not complete. The module kept its previous state — retry to re-apply it.',
 };
-
-function errorText(caught: unknown, fallback: string): string {
-  return caught instanceof Error ? caught.message : fallback;
-}
 
 function moduleToInput(module: CategoryModule): CategoryModuleInput {
   return {
@@ -169,7 +166,7 @@ export function ModulesSettingsPage() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorText(caught, 'Could not load category modules')); })
+      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load category modules')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [load]);
@@ -252,7 +249,7 @@ export function ModulesSettingsPage() {
       })
       // A 409 arrives as a plain sentence from the server ("X is already claimed by
       // another category module."), so show it as-is.
-      .catch(caught => setError(errorText(caught, 'Could not save the module')))
+      .catch(caught => setError(errorMessage(caught, 'Could not save the module')))
       .finally(() => setSaving(false));
   };
 
@@ -267,7 +264,7 @@ export function ModulesSettingsPage() {
         if (editingId === module.id) closeEditor();
         setMessage('Module deleted');
       })
-      .catch(caught => setError(errorText(caught, 'Could not delete the module')))
+      .catch(caught => setError(errorMessage(caught, 'Could not delete the module')))
       .finally(() => setSaving(false));
   };
 
@@ -281,7 +278,7 @@ export function ModulesSettingsPage() {
         const stillDegraded = next.modules.some(module => module.status === 'degraded');
         setMessage(stillDegraded ? 'Reconciled, but a module is still degraded.' : 'Reconciled with Twitch.');
       })
-      .catch(caught => setError(errorText(caught, 'Could not reconcile with Twitch')))
+      .catch(caught => setError(errorMessage(caught, 'Could not reconcile with Twitch')))
       .finally(() => setReconciling(false));
   };
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MediaAsset, MediaFile, MediaKind } from '../../../shared/api';
 import { useToast } from '../../ui/notifications';
+import { errorMessage } from '../../errors';
 import {
   createClipButton,
   createMediaAsset,
@@ -56,10 +57,6 @@ function sortAssets(assets: MediaAsset[]): MediaAsset[] {
   return [...assets].sort((a, b) => a.label.localeCompare(b.label));
 }
 
-function errorText(caught: unknown, fallback: string): string {
-  return caught instanceof Error ? caught.message : fallback;
-}
-
 function volumePercent(volume: number): string {
   return `${Math.round(volume * 100)}%`;
 }
@@ -88,7 +85,7 @@ function MediaLibrary() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorText(caught, 'Could not load the media library')); })
+      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load the media library')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [load]);
@@ -115,7 +112,7 @@ function MediaLibrary() {
         return result;
       })
       .catch(caught => {
-        const message = errorText(caught, failed);
+        const message = errorMessage(caught, failed);
         setError(message);
         pushToast({ kind: 'error', title: failed, message });
         throw caught;
@@ -526,7 +523,7 @@ function MediaButtonManager({
         }
       })
       .catch(caught => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : `Could not load ${copy.noun}s`);
+        if (!cancelled) setError(errorMessage(caught, `Could not load ${copy.noun}s`));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -560,7 +557,7 @@ function MediaButtonManager({
         pushToast({ kind: 'success', title: `${noun} saved` });
       })
       .catch(caught => {
-        const message = caught instanceof Error ? caught.message : `Could not save ${copy.noun}`;
+        const message = errorMessage(caught, `Could not save ${copy.noun}`);
         setError(message);
         pushToast({ kind: 'error', title: `Could not save ${copy.noun}`, message });
       })
@@ -579,7 +576,7 @@ function MediaButtonManager({
         pushToast({ kind: 'success', title: `${noun} deleted` });
       })
       .catch(caught => {
-        const message = caught instanceof Error ? caught.message : `Could not delete ${copy.noun}`;
+        const message = errorMessage(caught, `Could not delete ${copy.noun}`);
         setError(message);
         pushToast({ kind: 'error', title: `Could not delete ${copy.noun}`, message });
       })

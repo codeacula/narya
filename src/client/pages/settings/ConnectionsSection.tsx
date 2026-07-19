@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { AppConfig } from '../../../shared/api';
 import { useToast } from '../../ui/notifications';
 import { getAppConfig, updateAppConfig } from '../../services/dashboard';
+import { errorMessage } from '../../errors';
 
 type AppConfigForm = {
   twitchChannel: string;
@@ -88,7 +89,7 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
         }
       })
       .catch(error => {
-        if (!cancelled) setAppConfigError(error instanceof Error ? error.message : 'Could not load configuration');
+        if (!cancelled) setAppConfigError(errorMessage(error, 'Could not load configuration'));
       })
       .finally(() => {
         if (!cancelled) setAppConfigLoading(false);
@@ -124,7 +125,7 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
         // (serviceStatus.tsx) already shows one in this same browser.
       })
       .catch(error => {
-        const message = error instanceof Error ? error.message : 'Could not save configuration';
+        const message = errorMessage(error, 'Could not save configuration');
         setAppConfigError(message);
         pushToast({ kind: 'error', title: 'Could not save connections', message });
       })

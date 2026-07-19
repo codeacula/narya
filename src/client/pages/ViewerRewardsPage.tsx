@@ -15,6 +15,7 @@ import {
   updateViewerRewardCategory,
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
+import { errorMessage } from '../errors';
 import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { SettingsHeader } from './settings/shared';
@@ -59,10 +60,6 @@ function cooldownToSeconds(value: number, unit: CooldownUnit): number {
 function formatCooldown(seconds: number): string {
   const { value, unit } = splitCooldown(seconds);
   return `${value}${unit === 'seconds' ? 's' : unit === 'minutes' ? 'm' : 'h'}`;
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
 }
 
 function formFromReward(reward: ViewerReward): ViewerRewardUpsert {

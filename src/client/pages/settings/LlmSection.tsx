@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { LlmSettingsUpdate } from '../../../shared/api';
 import { getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
+import { errorMessage } from '../../errors';
 
 type LlmSettingsForm = LlmSettingsUpdate & {
   apiKeyConfigured: boolean;
@@ -56,7 +57,7 @@ export function LlmSection() {
         }
       })
       .catch(error => {
-        if (!cancelled) setLlmError(error instanceof Error ? error.message : 'Could not load LLM settings');
+        if (!cancelled) setLlmError(errorMessage(error, 'Could not load LLM settings'));
       })
       .finally(() => {
         if (!cancelled) setLlmLoading(false);
@@ -101,7 +102,7 @@ export function LlmSection() {
       })
       .catch(error => {
         setLlmSettings(llmSettings);
-        setLlmError(error instanceof Error ? error.message : 'Could not save LLM settings');
+        setLlmError(errorMessage(error, 'Could not save LLM settings'));
       })
       .finally(() => setLlmSaving(false));
   };
@@ -127,7 +128,7 @@ export function LlmSection() {
         setLlmTestReply(result.reply);
       })
       .catch(error => {
-        setLlmError(error instanceof Error ? error.message : 'Could not test LLM');
+        setLlmError(errorMessage(error, 'Could not test LLM'));
       })
       .finally(() => setLlmTesting(false));
   };

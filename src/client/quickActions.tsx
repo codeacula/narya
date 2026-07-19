@@ -6,6 +6,7 @@ import type { ActionRunResult, AutomationTrigger, CategoryModulesResponse } from
 import { getAutomationTriggers, getCategoryModules, runAutomationTrigger } from './services/dashboard';
 import { useSocket } from './realtime';
 import { runResultTone, summarizeRunResult } from './pages/settings/automation';
+import { errorMessage } from './errors';
 
 export type QuickAction = {
   id: string;
@@ -50,7 +51,7 @@ export function useQuickActions(): QuickActionsState {
         setError(null);
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : 'Could not load quick actions');
+        if (!cancelled) setError(errorMessage(caught, 'Could not load quick actions'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -67,7 +68,7 @@ export function useQuickActions(): QuickActionsState {
     void runAutomationTrigger(id)
       .then(result => setRuns(current => ({ ...current, [id]: result })))
       .catch((caught: unknown) => {
-        setError(caught instanceof Error ? caught.message : 'Could not run the action');
+        setError(errorMessage(caught, 'Could not run the action'));
       })
       .finally(() => setRunningId(null));
   }, []);

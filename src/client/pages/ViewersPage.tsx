@@ -10,6 +10,7 @@ import {
   getViewerRoster,
   getVips,
 } from '../services/dashboard';
+import { errorMessage } from '../errors';
 
 type Segment = 'all' | 'live' | 'vips' | 'mods';
 
@@ -162,9 +163,9 @@ export function ViewersPage({
     // The roster loads without Twitch; only the VIP/mod lists need the new scopes.
     if (vipsRes.status === 'rejected' || modsRes.status === 'rejected') {
       const reason = (vipsRes.status === 'rejected' ? vipsRes.reason : (modsRes as PromiseRejectedResult).reason);
-      setError(reason instanceof Error ? reason.message : 'Reconnect Twitch to manage VIPs and moderators.');
+      setError(errorMessage(reason, 'Reconnect Twitch to manage VIPs and moderators.'));
     } else if (rosterRes.status === 'rejected') {
-      setError(rosterRes.reason instanceof Error ? rosterRes.reason.message : 'Could not load your viewer roster.');
+      setError(errorMessage(rosterRes.reason, 'Could not load your viewer roster.'));
     }
   }, []);
 
@@ -310,7 +311,7 @@ export function ViewersPage({
       const result = await action();
       outcome = { ok: true, text: result.message ?? `Done: ${label}.` };
     } catch (caught) {
-      outcome = { ok: false, text: caught instanceof Error ? caught.message : `Could not ${label}.` };
+      outcome = { ok: false, text: errorMessage(caught, `Could not ${label}.`) };
     }
     // Re-sync the roster/role lists first, THEN surface the outcome — refresh() clears
     // `error` on entry, so setting it afterward keeps the action's feedback from being wiped.

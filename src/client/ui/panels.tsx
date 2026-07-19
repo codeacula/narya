@@ -21,6 +21,7 @@ import { kindChip, kindTone } from '../eventKinds';
 import { sceneLabel, switchableScenes } from '../scenes';
 import { loadStoredJson, saveStoredJson } from '../storage';
 import { useMediaMute } from '../mediaMute';
+import { errorMessage } from '../errors';
 
 /* ---------------- types ---------------- */
 
@@ -395,7 +396,7 @@ export function ChatInput({ channel }: { channel: string }) {
     void task
       .then(() => setText(''))
       .catch(err => {
-        setError(err instanceof Error ? err.message : 'Could not send');
+        setError(errorMessage(err, 'Could not send'));
       })
       .finally(() => setSending(false));
   }, [message, sender, sending]);
@@ -482,7 +483,7 @@ function ViewerProfileModal({
     })
       .then(onClose)
       .catch(saveError => {
-        setError(saveError instanceof Error ? saveError.message : 'Could not save viewer profile');
+        setError(errorMessage(saveError, 'Could not save viewer profile'));
       })
       .finally(() => setSaving(false));
   }, [form, onClose, onSave, saving, tagInput]);
@@ -722,7 +723,7 @@ export function Spotlight({
     setActionMessage(null);
     void sendViewerShoutout(viewer.login)
       .then(result => setActionMessage(result.message))
-      .catch(error => setActionError(error instanceof Error ? error.message : 'Shoutout failed'))
+      .catch(error => setActionError(errorMessage(error, 'Shoutout failed')))
       .finally(() => setBusyAction(null));
   };
   const handleActionSubmit = (payload: { message?: string; durationMinutes?: number; reason?: string }) => {
@@ -747,7 +748,7 @@ export function Spotlight({
         setActionMessage(result.message);
         setActionOpen(null);
       })
-      .catch(error => setActionError(error instanceof Error ? error.message : 'Viewer action failed'))
+      .catch(error => setActionError(errorMessage(error, 'Viewer action failed')))
       .finally(() => setBusyAction(null));
   };
 

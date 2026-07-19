@@ -42,6 +42,7 @@ import { ViewersPage } from './ViewersPage';
 import { StreamInfoModal, type StreamInfoForm } from './StreamInfoModal';
 import { useAutomodQueue, AutomodPanel } from '../automod';
 import type { Viewer, ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, ChatModerationEvent, Chatter, WhisperMessage, ObsStatus } from '../../shared/api';
+import { errorMessage } from '../errors';
 
 /* ---------------- constants ---------------- */
 
@@ -245,7 +246,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
           setChattersError(null);
         }
       } catch (error) {
-        if (!cancelled) setChattersError(error instanceof Error ? error.message : 'Could not load chatters');
+        if (!cancelled) setChattersError(errorMessage(error, 'Could not load chatters'));
       }
     };
 
@@ -433,7 +434,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         refreshDashboardStatus();
       })
       .catch(error => {
-        setActionMessage(error instanceof Error ? error.message : 'Ad request failed');
+        setActionMessage(errorMessage(error, 'Ad request failed'));
       })
       .finally(() => setPrerollBusy(false));
   }, [refreshDashboardStatus]);
@@ -447,7 +448,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         refreshDashboardStatus();
       })
       .catch(error => {
-        setActionMessage(error instanceof Error ? error.message : 'Go Live failed');
+        setActionMessage(errorMessage(error, 'Go Live failed'));
       })
       .finally(() => setGoLiveBusy(false));
   }, [refreshDashboardStatus]);
@@ -480,7 +481,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         });
       })
       .catch(error => {
-        setStreamInfoError(error instanceof Error ? error.message : 'Could not load stream info');
+        setStreamInfoError(errorMessage(error, 'Could not load stream info'));
       })
       .finally(() => setStreamInfoLoading(false));
   }, []);
@@ -509,7 +510,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         refreshDashboardStatus();
       })
       .catch(error => {
-        setStreamInfoError(error instanceof Error ? error.message : 'Could not save stream info');
+        setStreamInfoError(errorMessage(error, 'Could not save stream info'));
       })
       .finally(() => setStreamInfoSaving(false));
   }, [refreshDashboardStatus, streamInfoForm]);

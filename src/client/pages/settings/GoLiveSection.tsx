@@ -19,6 +19,7 @@ import {
   refreshDiscordStatus,
   updateGoLiveSettings,
 } from '../../services/dashboard';
+import { errorMessage } from '../../errors';
 
 type GoLiveSettingsForm = GoLiveSettings;
 
@@ -90,7 +91,7 @@ export function GoLiveSection() {
               nextChannels = await getDiscordChannels(nextGoLiveSettings.discordGuildId);
             }
           } catch (error) {
-            discordListError = error instanceof Error ? error.message : 'Could not load Discord servers';
+            discordListError = errorMessage(error, 'Could not load Discord servers');
           }
         }
         if (!cancelled) {
@@ -102,7 +103,7 @@ export function GoLiveSection() {
         }
       })
       .catch(error => {
-        if (!cancelled) setGoLiveError(error instanceof Error ? error.message : 'Could not load Discord settings');
+        if (!cancelled) setGoLiveError(errorMessage(error, 'Could not load Discord settings'));
       })
       .finally(() => {
         if (!cancelled) setGoLiveLoading(false);
@@ -130,7 +131,7 @@ export function GoLiveSection() {
     setDiscordChannelsLoading(true);
     void getDiscordChannels(guildId)
       .then(setDiscordChannels)
-      .catch(error => setGoLiveError(error instanceof Error ? error.message : 'Could not load Discord channels'))
+      .catch(error => setGoLiveError(errorMessage(error, 'Could not load Discord channels')))
       .finally(() => setDiscordChannelsLoading(false));
   };
 
@@ -160,7 +161,7 @@ export function GoLiveSection() {
               nextChannels = await getDiscordChannels(goLiveSettings.discordGuildId);
             }
           } catch (error) {
-            discordListError = error instanceof Error ? error.message : 'Could not load Discord servers';
+            discordListError = errorMessage(error, 'Could not load Discord servers');
           }
         }
         setDiscordStatus(nextStatus);
@@ -168,7 +169,7 @@ export function GoLiveSection() {
         setDiscordChannels(nextChannels);
         setGoLiveError(discordListError);
       })
-      .catch(error => setGoLiveError(error instanceof Error ? error.message : 'Could not refresh Discord status'))
+      .catch(error => setGoLiveError(errorMessage(error, 'Could not refresh Discord status')))
       .finally(() => setDiscordRefreshing(false));
   };
 
@@ -182,7 +183,7 @@ export function GoLiveSection() {
         setDiscordChannels([]);
         setGoLiveMessage('Discord channel disconnected');
       })
-      .catch(error => setGoLiveError(error instanceof Error ? error.message : 'Could not disconnect Discord'))
+      .catch(error => setGoLiveError(errorMessage(error, 'Could not disconnect Discord')))
       .finally(() => setDiscordDisconnecting(false));
   };
 
@@ -203,7 +204,7 @@ export function GoLiveSection() {
         setGoLiveSettings(saved);
         setGoLiveMessage('Go Live settings saved');
       })
-      .catch(error => setGoLiveError(error instanceof Error ? error.message : 'Could not save Go Live settings'))
+      .catch(error => setGoLiveError(errorMessage(error, 'Could not save Go Live settings')))
       .finally(() => setGoLiveSaving(false));
   };
 

@@ -20,6 +20,7 @@ import {
   updateAction,
 } from '../../services/dashboard';
 import { SettingsHeader } from './shared';
+import { errorMessage } from '../../errors';
 import {
   MAX_ASSETS_PER_STEP,
   MAX_STEPS,
@@ -37,10 +38,6 @@ import {
 } from './automation';
 
 const EMPTY_DRAFT: ActionUpsert = { name: '', description: '', enabled: true, quickDisable: false, steps: [] };
-
-function errorText(caught: unknown, fallback: string): string {
-  return caught instanceof Error ? caught.message : fallback;
-}
 
 /** The tokens a template may interpolate. Absent ones render empty, never as literals. */
 const TEMPLATE_HINT = 'Tokens: {actor} {login} {message} {input} {rewardTitle} {amount} {tier} {months} {category} {module}';
@@ -573,7 +570,7 @@ export function ActionsSettingsPage() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorText(caught, 'Could not load actions')); })
+      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load actions')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [load]);
@@ -623,7 +620,7 @@ export function ActionsSettingsPage() {
         setDraft(actionToUpsert(saved));
         setMessage('Action saved');
       })
-      .catch(caught => setError(errorText(caught, 'Could not save the action')))
+      .catch(caught => setError(errorMessage(caught, 'Could not save the action')))
       .finally(() => setSaving(false));
   };
 
@@ -638,7 +635,7 @@ export function ActionsSettingsPage() {
         if (editingId === action.id) closeEditor();
         setMessage('Action deleted');
       })
-      .catch(caught => setError(errorText(caught, 'Could not delete the action')))
+      .catch(caught => setError(errorMessage(caught, 'Could not delete the action')))
       .finally(() => setSaving(false));
   };
 
@@ -648,7 +645,7 @@ export function ActionsSettingsPage() {
     setError(null);
     void runAction(action.id)
       .then(result => setRuns(current => ({ ...current, [action.id]: result })))
-      .catch(caught => setError(errorText(caught, 'Could not run the action')))
+      .catch(caught => setError(errorMessage(caught, 'Could not run the action')))
       .finally(() => setBusyId(null));
   };
 

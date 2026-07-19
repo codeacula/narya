@@ -23,6 +23,7 @@ import {
   updateAutomationTrigger,
 } from '../../services/dashboard';
 import { SettingsHeader } from './shared';
+import { errorMessage } from '../../errors';
 import {
   CHAT_PHRASE_MATCHES,
   CHAT_PHRASE_MATCH_LABELS,
@@ -45,10 +46,6 @@ import {
 } from './automation';
 
 const ALERT_EVENT_KINDS: AlertEventKind[] = ['sub', 'gift', 'cheer', 'raid', 'follow'];
-
-function errorText(caught: unknown, fallback: string): string {
-  return caught instanceof Error ? caught.message : fallback;
-}
 
 /** A blank trigger of the given kind, with the right config shape for the union. */
 function newTrigger(kind: AutomationTriggerKind): AutomationTriggerInput {
@@ -486,7 +483,7 @@ export function AutomationSettingsPage() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorText(caught, 'Could not load triggers')); })
+      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load triggers')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [load]);
@@ -549,7 +546,7 @@ export function AutomationSettingsPage() {
         setDraft(triggerToInput(saved));
         setMessage('Trigger saved');
       })
-      .catch(caught => setError(errorText(caught, 'Could not save the trigger')))
+      .catch(caught => setError(errorMessage(caught, 'Could not save the trigger')))
       .finally(() => setSaving(false));
   };
 
@@ -564,7 +561,7 @@ export function AutomationSettingsPage() {
         if (editingId === trigger.id) closeEditor();
         setMessage('Trigger deleted');
       })
-      .catch(caught => setError(errorText(caught, 'Could not delete the trigger')))
+      .catch(caught => setError(errorMessage(caught, 'Could not delete the trigger')))
       .finally(() => setSaving(false));
   };
 
@@ -574,7 +571,7 @@ export function AutomationSettingsPage() {
     setError(null);
     void runAutomationTrigger(trigger.id)
       .then(result => setRuns(current => ({ ...current, [trigger.id]: result })))
-      .catch(caught => setError(errorText(caught, 'Could not run the trigger')))
+      .catch(caught => setError(errorMessage(caught, 'Could not run the trigger')))
       .finally(() => setBusyId(null));
   };
 

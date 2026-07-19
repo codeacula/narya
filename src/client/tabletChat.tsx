@@ -24,6 +24,7 @@ import type {
   Viewer,
   ViewerProfileUpdate,
 } from '../shared/api';
+import { errorMessage } from './errors';
 
 // A full older-chat page; a short page means we've reached the beginning.
 const OLDER_CHAT_PAGE = 80;
@@ -76,7 +77,7 @@ function useTabletChatData(): TabletChatData {
         setChattersError(null);
       })
       .catch((error: unknown) => {
-        setChattersError(error instanceof Error ? error.message : 'Could not load chatters');
+        setChattersError(errorMessage(error, 'Could not load chatters'));
       });
   }, []);
 

@@ -13,6 +13,7 @@ import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { Icon } from '../ui/icons';
 import { SettingsHeader } from './settings/shared';
+import { errorMessage } from '../errors';
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -222,7 +223,7 @@ export function StreamCategoriesPage() {
   React.useEffect(() => {
     getSavedStreamCategories()
       .then(setCategories)
-      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : 'Could not load stream categories.'))
+      .catch((caught: unknown) => setError(errorMessage(caught, 'Could not load stream categories.')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -232,7 +233,7 @@ export function StreamCategoriesPage() {
     try {
       setCategories(await action());
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Action failed.');
+      setError(errorMessage(caught, 'Action failed.'));
     } finally {
       setBusy(false);
     }

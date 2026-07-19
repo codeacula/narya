@@ -15,6 +15,7 @@ import {
   switchObsScene,
   triggerObsTransition,
 } from '../services/dashboard';
+import { errorMessage } from '../errors';
 
 // Dropping focus after a tap keeps a tablet's on-screen button from staying
 // visually "stuck" highlighted. Keyboard activation (Enter/Space) also fires
@@ -47,7 +48,7 @@ function useObsStatus() {
         setError(null);
       })
       .catch((caught: unknown) => {
-        setError(caught instanceof Error ? caught.message : 'Failed to load OBS status');
+        setError(errorMessage(caught, 'Failed to load OBS status'));
       });
   }, []);
 
@@ -88,7 +89,7 @@ export function TabletPage() {
       const result = await command();
       if (result.obsStatus) setObsStatus(result.obsStatus);
     } catch (caught: unknown) {
-      setCommandError(caught instanceof Error ? caught.message : 'OBS command failed');
+      setCommandError(errorMessage(caught, 'OBS command failed'));
     } finally {
       setPendingAction(null);
     }
@@ -96,13 +97,13 @@ export function TabletPage() {
 
   function playSound(id: string) {
     void playSoundButton(id).catch((caught: unknown) => {
-      setCommandError(caught instanceof Error ? caught.message : `Failed to play sound ${id}`);
+      setCommandError(errorMessage(caught, `Failed to play sound ${id}`));
     });
   }
 
   function playClip(id: string) {
     void playClipButton(id).catch((caught: unknown) => {
-      setCommandError(caught instanceof Error ? caught.message : `Failed to play clip ${id}`);
+      setCommandError(errorMessage(caught, `Failed to play clip ${id}`));
     });
   }
 

@@ -3,6 +3,7 @@ import type { AutomodHold } from '../shared/api';
 import { useSocket, useSocketReconnect } from './realtime';
 import { playAutomodAlert } from './sounds';
 import { allowAutomodHold, denyAutomodHold, getAutomodQueue } from './services/dashboard';
+import { errorMessage } from './errors';
 
 // Mirrors the server-side pending cap so the two agree on how many holds a
 // spam wave can accumulate before the oldest overflow is dropped.
@@ -54,7 +55,7 @@ export function useAutomodQueue(): AutomodQueueController {
         });
       })
       .catch((caught: unknown) => {
-        setError(caught instanceof Error ? caught.message : 'Failed to load AutoMod queue');
+        setError(errorMessage(caught, 'Failed to load AutoMod queue'));
       });
   }, []);
 
@@ -108,7 +109,7 @@ function AutomodItem({
     try {
       await action(hold.id);
     } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : 'Action failed');
+      setError(errorMessage(caught, 'Action failed'));
     } finally {
       setBusy(false);
     }
