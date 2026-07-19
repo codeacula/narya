@@ -9,7 +9,6 @@ import type {
   MediaAsset,
   OverlayTextPlayback,
   Quote,
-  QuoteDestination,
   QuoteInput,
   RewardMedia,
   TemplateContext,
@@ -17,7 +16,6 @@ import type {
 import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from '../shared/api';
 import { getActionById } from './actions';
 import { renderActionTemplate } from './actionTemplates';
-import { sendDiscordMessage } from './discord';
 import { askPonderLlm } from './llm';
 import { switchObsScene, triggerObsTransition } from './obs';
 import { broadcast } from './realtime';
@@ -51,7 +49,6 @@ export type ActionExecutorDeps = {
   sendWhisper?: (state: RuntimeState, login: string, message: string) => Promise<unknown>;
   timeoutUser?: (state: RuntimeState, login: string, seconds: number, reason: string) => Promise<unknown>;
   banUser?: (state: RuntimeState, login: string, reason: string) => Promise<unknown>;
-  sendDiscord?: (channelId: string, content: string) => Promise<unknown>;
   addQuote?: (input: QuoteInput) => Quote;
   resolveQuote?: (query: string, randomIndex: (length: number) => number) => Quote | null;
   recordQuoteShown?: (id: string) => void;
@@ -122,7 +119,6 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
       moderateTwitchUser(runtime, login, 'timeout', { durationSeconds: seconds, reason }),
     banUser = (runtime: RuntimeState, login: string, reason: string) =>
       moderateTwitchUser(runtime, login, 'ban', { reason }),
-    sendDiscord = sendDiscordMessage,
     addQuote: saveQuote = addQuote,
     resolveQuote: findQuote = resolveQuote,
     recordQuoteShown: markQuoteShown = recordQuoteShown,
@@ -160,18 +156,11 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
   }
 
   /**
-   * Deliver a quote step's own message. Quote steps announce their result themselves
-   * rather than handing it to a downstream send_chat step, because steps run
-   * concurrently and cannot pass values to one another.
+   * Deliver a quote step's own message to Twitch chat. Quote steps announce their
+   * result themselves rather than handing it to a downstream send_chat step, because
+   * steps run concurrently and cannot pass values to one another.
    */
-  async function announce(destination: QuoteDestination, channelId: string, message: string): Promise<void> {
-    if (destination === 'discord') {
-      // sendDiscordMessage throws when Discord is unconfigured or the channel is
-      // wrong; that surfaces as a failed step with the reason attached, which is what
-      // the operator needs to see.
-      await sendDiscord(channelId, message);
-      return;
-    }
+  async function announce(message: string): Promise<void> {
     await sendChat(state, message, 'bot');
   }
 
@@ -290,7 +279,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         // An empty reply template is a deliberate "add it quietly", not a failure —
         // the quote is already saved either way.
         if (reply.trim()) {
-          await announce(step.payload.destination, step.payload.discordChannelId, reply);
+          await announce(reply);
         }
         return SUCCEEDED;
       }
@@ -302,7 +291,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         if (!quote) return skipped('No quote matched that number, slug, or keyword.');
         const message = renderActionTemplate(step.payload.messageTemplate, withQuote(context, quote));
         if (!message.trim()) return skipped('The quote message template rendered empty.');
-        await announce(step.payload.destination, step.payload.discordChannelId, message);
+        await announce(message);
         // Only after delivery: a Discord outage must not inflate the counter for a
         // quote nobody saw.
         markQuoteShown(quote.id);

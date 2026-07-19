@@ -798,23 +798,13 @@ export const MAX_TIMEOUT_SECONDS = 1_209_600;
 export type TwitchBanPayload = { loginTemplate: string; reasonTemplate: string };
 
 /**
- * Where a quote step announces its result. Steps run concurrently and cannot pass
- * values to each other, so a quote step has to emit its own message rather than
- * handing the quote to a downstream send_chat step — see QuoteShowPayload.
- */
-export type QuoteDestination = 'discord' | 'chat';
-
-/**
  * `slugTemplate` and `replyTemplate` are both optional: an empty slug stores no slug
  * (many quotes can be slug-less), and an empty reply adds the quote silently.
- * `discordChannelId` is only read when `destination` is 'discord'.
  */
 export type QuoteAddPayload = {
   textTemplate: string;
   slugTemplate: string;
   replyTemplate: string;
-  destination: QuoteDestination;
-  discordChannelId: string;
 };
 
 /**
@@ -822,13 +812,12 @@ export type QuoteAddPayload = {
  * is meaningful — it means "any quote", so a bare `!quote` picks a random one.
  * `messageTemplate` renders against the invocation context extended with the quote
  * tokens ({quoteNumber}, {quoteText}, …), which is why the lookup and the message
- * have to live in the same step.
+ * have to live in the same step: steps run concurrently and cannot pass values to
+ * one another, so the step resolves the quote AND sends the message itself.
  */
 export type QuoteShowPayload = {
   queryTemplate: string;
   messageTemplate: string;
-  destination: QuoteDestination;
-  discordChannelId: string;
 };
 
 /**
