@@ -352,8 +352,7 @@ export async function testLlm(question: string): Promise<LlmTestResult> {
 
 export async function disconnectTwitch(account: 'user' | 'bot' = 'user'): Promise<void> {
   const path = account === 'bot' ? '/api/auth/twitch/bot' : '/api/auth/twitch';
-  const response = await fetch(`${API_BASE}${path}`, { method: 'DELETE', headers: authHeaders() });
-  if (!response.ok) throw new Error(`Twitch logout failed with ${response.status}`);
+  await sendVoid(path, 'DELETE');
 }
 
 export async function getObsStatus(): Promise<ObsStatus> {

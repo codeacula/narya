@@ -2,6 +2,7 @@ import type express from 'express';
 import type { AppConfig, AppConfigUpdate } from '../shared/api';
 import { db, runOnce } from './db';
 import { handle, HttpRouteError } from './http';
+import { clampFinite } from './numeric';
 import { getAuthenticatedTwitchLogin } from './twitchIdentity';
 
 const APP_CONFIG_ID = 'default';
@@ -107,11 +108,6 @@ const updateRow = db.prepare(`
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
 }
 
 function seedDefaultsIfMissing() {
@@ -292,10 +288,10 @@ function normalizeUpdate(body: unknown, prev: AppConfigInternal): NormalizedConf
     : prev.obsScenePrefix;
 
   const musicPollIntervalMs = value.musicPollIntervalMs !== undefined
-    ? Math.round(clampNumber(Number(value.musicPollIntervalMs ?? DEFAULTS.musicPollIntervalMs), 0, 60000))
+    ? Math.round(clampFinite(Number(value.musicPollIntervalMs ?? DEFAULTS.musicPollIntervalMs), 0, 60000, 0))
     : prev.musicPollIntervalMs;
   const soundVolume = value.soundVolume !== undefined
-    ? clampNumber(Number(value.soundVolume ?? DEFAULTS.soundVolume), 0, 1)
+    ? clampFinite(Number(value.soundVolume ?? DEFAULTS.soundVolume), 0, 1, 0)
     : prev.soundVolume;
 
   const chatterboxBaseUrl = value.chatterboxBaseUrl !== undefined

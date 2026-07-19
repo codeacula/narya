@@ -3,6 +3,7 @@ import { TTS_TONE_PRESETS } from '../shared/tts';
 import { appConfig } from './appConfig';
 import { db } from './db';
 import { HttpRouteError, readResponseError } from './http';
+import { clampFinite } from './numeric';
 import { broadcast } from './realtime';
 
 const DEFAULT_VOICE_PROFILE_ID = 'zombiechicken';
@@ -55,11 +56,6 @@ type TtsSettingsRow = {
   volume: number;
   updatedAt: string;
 };
-
-function clampNumber(value: number, min: number, max: number, fallback: number): number {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.max(min, Math.min(max, value));
-}
 
 function sanitizeLanguageId(value: string): string {
   const languageId = value.trim().toLowerCase() || DEFAULT_LANGUAGE_ID;
@@ -134,10 +130,10 @@ export function updateTtsSettings(update: TtsSettingsUpdate): TtsSettings {
   const presetValues = tonePresets[preset];
   const voiceProfileId = update.voiceProfileId.trim() || DEFAULT_VOICE_PROFILE_ID;
   const languageId = sanitizeLanguageId(update.languageId);
-  const exaggeration = clampNumber(Number(update.exaggeration), 0, 1.2, presetValues.exaggeration);
-  const cfgWeight = clampNumber(Number(update.cfgWeight), 0, 1, presetValues.cfgWeight);
-  const temperature = clampNumber(Number(update.temperature), 0.05, 1.5, presetValues.temperature);
-  const volume = clampNumber(Number(update.volume), 0, 1, 0.8);
+  const exaggeration = clampFinite(Number(update.exaggeration), 0, 1.2, presetValues.exaggeration);
+  const cfgWeight = clampFinite(Number(update.cfgWeight), 0, 1, presetValues.cfgWeight);
+  const temperature = clampFinite(Number(update.temperature), 0.05, 1.5, presetValues.temperature);
+  const volume = clampFinite(Number(update.volume), 0, 1, 0.8);
   upsertTtsSettings.run(
     update.enabled ? 1 : 0,
     voiceProfileId,

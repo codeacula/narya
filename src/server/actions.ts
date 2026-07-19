@@ -14,6 +14,7 @@ import { MAX_TIMEOUT_SECONDS } from '../shared/api';
 import type { ActionExecutor } from './actionExecutor';
 import { db } from './db';
 import { handle, HttpRouteError } from './http';
+import { clamp } from './numeric';
 
 const MAX_STEPS = 20;
 const MAX_NAME_LENGTH = 120;
@@ -104,10 +105,6 @@ const insertStepRow = db.prepare(`
     (id, action_id, step_type, payload_json, delay_ms, enabled, position, created_at, updated_at)
   values (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
 
 function requireTemplate(value: unknown, message: string): string {
   const template = typeof value === 'string' ? value.trim() : '';

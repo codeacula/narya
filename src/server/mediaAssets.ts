@@ -11,6 +11,7 @@ import type {
 import { db } from './db';
 import { handle, HttpRouteError, parseJsonColumn } from './http';
 import { findMediaFile, listMediaFiles } from './media';
+import { clamp } from './numeric';
 
 const DEFAULT_VOLUME = 0.8;
 
@@ -74,7 +75,7 @@ function toAsset(row: MediaAssetRow): MediaAsset {
 
 function clampVolume(value: unknown): number {
   const volume = typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_VOLUME;
-  return Math.max(0, Math.min(1, volume));
+  return clamp(volume, 0, 1);
 }
 
 /**

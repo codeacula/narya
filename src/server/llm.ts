@@ -2,6 +2,7 @@ import type express from 'express';
 import type { ChatMessage, LlmSettings, LlmSettingsUpdate } from '../shared/api';
 import { db } from './db';
 import { handle, HttpRouteError } from './http';
+import { clampFinite } from './numeric';
 
 const LLM_SETTINGS_ID = 'default';
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1';
@@ -115,8 +116,7 @@ function normalizeUrl(value: string): string {
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
   const numeric = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(numeric)) return fallback;
-  return Math.max(min, Math.min(max, numeric));
+  return clampFinite(numeric, min, max, fallback);
 }
 
 function normalizeSettingsUpdate(body: unknown): LlmSettingsUpdate {
