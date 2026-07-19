@@ -19,7 +19,7 @@ import {
   runAction,
   updateAction,
 } from '../../services/dashboard';
-import { SettingsHeader } from './shared';
+import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
 import {
   MAX_ASSETS_PER_STEP,
@@ -659,9 +659,7 @@ export function ActionsSettingsPage() {
     <>
         <SettingsHeader section="actions" />
 
-        {(message || error) && (
-          <div className={'command-settings-status' + (error ? ' error' : '')}>{error ?? message}</div>
-        )}
+        <SettingsStatus message={message} error={error} />
 
         <div className="set-group">
           <div className="set-group-label">Actions</div>
@@ -830,7 +828,7 @@ export function ActionsSettingsPage() {
                 </select>
               </div>
 
-              {problem && <div className="command-settings-status error">{problem}</div>}
+              <SettingsStatus error={problem} />
 
               <div className="command-settings-actions">
                 <button className="modbtn gold" type="submit" disabled={busy || Boolean(problem)}>

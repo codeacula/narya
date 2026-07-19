@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { TtsSettings, TtsVoice } from '../../../shared/api';
 import { TTS_TONE_PRESETS } from '../../../shared/tts';
 import {
@@ -11,6 +11,7 @@ import {
   updateTtsSettings,
 } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
+import { SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
 
 type TtsStatus = {
   ok: boolean;
@@ -97,11 +98,7 @@ function ChatterboxService({
           <small>The Chatterbox server that renders every voice line. It supplies the voice profiles below.</small>
         </label>
 
-        {(message || error) && (
-          <div className={'command-settings-status' + (error ? ' error' : '')}>
-            {error ?? message}
-          </div>
-        )}
+        <SettingsStatus message={message} error={error} />
 
         <div className="command-settings-actions">
           <button className="modbtn gold" type="submit" disabled={loading || saving}>
@@ -114,54 +111,51 @@ function ChatterboxService({
 }
 
 export function TtsSection() {
-  const [ttsSettings, setTtsSettings] = useState<TtsSettings>({
-    enabled: false,
-    voiceProfileId: 'zombiechicken',
-    languageId: 'en',
-    tonePreset: 'neutral',
-    exaggeration: 0.5,
-    cfgWeight: 0.5,
-    temperature: 0.8,
-    volume: 0.8,
-    updatedAt: null,
-  });
-  // Last settings the server confirmed; the enable toggle saves from this so it
-  // never commits unsaved form edits.
-  const savedTts = useRef<TtsSettings | null>(null);
   const [ttsVoices, setTtsVoices] = useState<TtsVoice[]>([]);
   const [ttsStatus, setTtsStatus] = useState<TtsStatus | null>(null);
-  const [ttsLoading, setTtsLoading] = useState(true);
-  const [ttsSaving, setTtsSaving] = useState(false);
   const [ttsTesting, setTtsTesting] = useState(false);
   const [ttsTestText, setTtsTestText] = useState('Hello, I am your stream assistant.');
-  const [ttsMessage, setTtsMessage] = useState<string | null>(null);
-  const [ttsError, setTtsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setTtsLoading(true);
-    void Promise.all([
-      getTtsSettings(),
-      getTtsVoices().catch(() => [] as TtsVoice[]),
-      getTtsStatus().catch(error => ({ ok: false, baseUrl: '', error: errorMessage(error, 'Could not reach Chatterbox') })),
-    ])
-      .then(([settings, voices, status]) => {
-        if (!cancelled) {
-          savedTts.current = settings;
-          setTtsSettings(settings);
+  const ttsForm = useSettingsForm<TtsSettings>({
+    initial: {
+      enabled: false,
+      voiceProfileId: 'zombiechicken',
+      languageId: 'en',
+      tonePreset: 'neutral',
+      exaggeration: 0.5,
+      cfgWeight: 0.5,
+      temperature: 0.8,
+      volume: 0.8,
+      updatedAt: null,
+    },
+    load: cancelled =>
+      Promise.all([
+        getTtsSettings(),
+        getTtsVoices().catch(() => [] as TtsVoice[]),
+        getTtsStatus().catch(error => ({ ok: false, baseUrl: '', error: errorMessage(error, 'Could not reach Chatterbox') })),
+      ]).then(([settings, voices, status]) => {
+        if (!cancelled()) {
           setTtsVoices(voices);
           setTtsStatus(status);
-          setTtsError(null);
         }
-      })
-      .catch(error => {
-        if (!cancelled) setTtsError(errorMessage(error, 'Could not load TTS settings'));
-      })
-      .finally(() => {
-        if (!cancelled) setTtsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
+        return settings;
+      }),
+    loadError: 'Could not load TTS settings',
+    save: settings => updateTtsSettings({
+      enabled: settings.enabled,
+      voiceProfileId: settings.voiceProfileId,
+      languageId: settings.languageId,
+      tonePreset: settings.tonePreset,
+      exaggeration: settings.exaggeration,
+      cfgWeight: settings.cfgWeight,
+      temperature: settings.temperature,
+      volume: settings.volume,
+    }),
+    saveError: 'Could not save TTS settings',
+  });
+  const ttsSettings = ttsForm.value;
+  const setTtsSettings = ttsForm.setValue;
+  const { loading: ttsLoading, saving: ttsSaving, message: ttsMessage, error: ttsError } = ttsForm;
 
   // Re-probe Chatterbox and reload its voice list — the address may have just changed.
   const refreshService = React.useCallback(() => {
@@ -174,53 +168,27 @@ export function TtsSection() {
     });
   }, []);
 
-  const saveTtsSettings = (settings: TtsSettings, successMessage: string) => {
-    setTtsSaving(true);
-    setTtsMessage(null);
-    setTtsError(null);
-    void updateTtsSettings({
-      enabled: settings.enabled,
-      voiceProfileId: settings.voiceProfileId,
-      languageId: settings.languageId,
-      tonePreset: settings.tonePreset,
-      exaggeration: settings.exaggeration,
-      cfgWeight: settings.cfgWeight,
-      temperature: settings.temperature,
-      volume: settings.volume,
-    })
-      .then(saved => {
-        savedTts.current = saved;
-        setTtsSettings(saved);
-        setTtsMessage(successMessage);
-      })
-      .catch(error => {
-        setTtsSettings(ttsSettings);
-        setTtsError(errorMessage(error, 'Could not save TTS settings'));
-      })
-      .finally(() => setTtsSaving(false));
-  };
-
   const handleTtsSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    saveTtsSettings(ttsSettings, 'TTS settings saved.');
+    ttsForm.submit(ttsSettings, 'TTS settings saved.');
   };
 
   const handleTtsEnabledToggle = (enabled: boolean) => {
-    const next = { ...(savedTts.current ?? ttsSettings), enabled };
+    const next = { ...ttsForm.confirmed, enabled };
     setTtsSettings(next);
-    saveTtsSettings(next, enabled ? 'Text-to-Speech enabled.' : 'Text-to-Speech disabled.');
+    ttsForm.submit(next, enabled ? 'Text-to-Speech enabled.' : 'Text-to-Speech disabled.');
   };
 
   const handleTtsTest = () => {
     setTtsTesting(true);
-    setTtsMessage(null);
-    setTtsError(null);
+    ttsForm.setMessage(null);
+    ttsForm.setError(null);
     void testTtsSpeak(ttsTestText)
       .then(() => {
-        setTtsMessage('Sent — check the /overlay/sounds browser source for audio.');
+        ttsForm.setMessage('Sent — check the /overlay/sounds browser source for audio.');
       })
       .catch(error => {
-        setTtsError(errorMessage(error, 'TTS test failed'));
+        ttsForm.setError(errorMessage(error, 'TTS test failed'));
       })
       .finally(() => setTtsTesting(false));
   };
@@ -230,23 +198,17 @@ export function TtsSection() {
     <ChatterboxService status={ttsStatus} onSaved={refreshService} />
 
     <div className="set-group">
-      <div className="set-group-label set-group-label--toggle">
-        <span>Text-to-Speech</span>
-        <input
-          className="set-group-toggle"
-          type="checkbox"
-          aria-label="Enable Text-to-Speech"
-          checked={ttsSettings.enabled}
-          disabled={ttsLoading || ttsSaving}
-          onChange={event => handleTtsEnabledToggle(event.target.checked)}
-        />
-      </div>
+      <SettingsToggleLabel
+        label="Text-to-Speech"
+        toggleLabel="Enable Text-to-Speech"
+        checked={ttsSettings.enabled}
+        disabled={ttsLoading || ttsSaving}
+        onChange={handleTtsEnabledToggle}
+      />
 
       {!ttsSettings.enabled && (ttsMessage || ttsError) && (
         <div className="set-group-note">
-          <div className={'command-settings-status' + (ttsError ? ' error' : '')}>
-            {ttsError ?? ttsMessage}
-          </div>
+          <SettingsStatus message={ttsMessage} error={ttsError} />
         </div>
       )}
 
@@ -377,11 +339,7 @@ export function TtsSection() {
           </div>
         </div>
 
-        {(ttsMessage || ttsError) && (
-          <div className={'command-settings-status' + (ttsError ? ' error' : '')}>
-            {ttsError ?? ttsMessage}
-          </div>
-        )}
+        <SettingsStatus message={ttsMessage} error={ttsError} />
 
         <div className="command-settings-actions">
           <button className="modbtn gold" type="submit" disabled={ttsLoading || ttsSaving}>

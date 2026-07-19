@@ -3,6 +3,7 @@ import type { AppConfig } from '../../../shared/api';
 import { useToast } from '../../ui/notifications';
 import { getAppConfig, updateAppConfig } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
+import { SettingsStatus } from './shared';
 
 type AppConfigForm = {
   twitchChannel: string;
@@ -335,11 +336,7 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
           </label>
         </div>
 
-        {(appConfigMessage || appConfigError) && (
-          <div className={'command-settings-status' + (appConfigError ? ' error' : '')}>
-            {appConfigError ?? appConfigMessage}
-          </div>
-        )}
+        <SettingsStatus message={appConfigMessage} error={appConfigError} />
 
         <div className="command-settings-actions">
           <button className="modbtn gold" type="submit" disabled={appConfigLoading || appConfigSaving}>

@@ -19,7 +19,7 @@ import {
 } from '../../services/dashboard';
 import { useSocket } from '../../realtime';
 import { useDebouncedSuggestions } from '../../suggestions';
-import { SettingsHeader } from './shared';
+import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
 
 const EMPTY_RESPONSE: CategoryModulesResponse = {
@@ -299,9 +299,7 @@ export function ModulesSettingsPage() {
     <>
         <SettingsHeader section="modules" />
 
-        {(message || error) && (
-          <div className={'command-settings-status' + (error ? ' error' : '')}>{error ?? message}</div>
-        )}
+        <SettingsStatus message={message} error={error} />
 
         <div className="set-group">
           <div className="set-group-label">Live state</div>
@@ -331,17 +329,21 @@ export function ModulesSettingsPage() {
                 report itself, and "no module active" from a healthy off-category stream
                 must not look identical to "we could not reach Twitch". */}
             {state.lookupError && (
-              <div className="command-settings-status error">
-                Could not establish the live Twitch category, so no reward state was changed:{' '}
-                {state.lookupError} Modules stay as they were until a Reconcile succeeds.
-              </div>
+              <SettingsStatus
+                error={<>
+                  Could not establish the live Twitch category, so no reward state was changed:{' '}
+                  {state.lookupError} Modules stay as they were until a Reconcile succeeds.
+                </>}
+              />
             )}
 
             {degraded.length > 0 && (
-              <div className="command-settings-status error">
-                {degraded.length} module{degraded.length === 1 ? '' : 's'} degraded. Twitch did not fully accept the
-                last reward change — retry to re-apply it.
-              </div>
+              <SettingsStatus
+                error={<>
+                  {degraded.length} module{degraded.length === 1 ? '' : 's'} degraded. Twitch did not fully accept the
+                  last reward change — retry to re-apply it.
+                </>}
+              />
             )}
           </div>
         </div>

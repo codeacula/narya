@@ -22,7 +22,7 @@ import {
   runAutomationTrigger,
   updateAutomationTrigger,
 } from '../../services/dashboard';
-import { SettingsHeader } from './shared';
+import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
 import {
   CHAT_PHRASE_MATCHES,
@@ -442,7 +442,7 @@ function TriggerEditor({
         {supportsCooldowns(draft.kind) && <CooldownFields draft={draft} disabled={saving} onChange={onChange} />}
       </div>
 
-      {problem && <div className="command-settings-status error">{problem}</div>}
+      <SettingsStatus error={problem} />
 
       <div className="command-settings-actions">
         <button className="modbtn gold" type="submit" disabled={saving || Boolean(problem)}>
@@ -590,14 +590,10 @@ export function AutomationSettingsPage() {
     <>
         <SettingsHeader section="automation" />
 
-        {(message || error) && (
-          <div className={'command-settings-status' + (error ? ' error' : '')}>{error ?? message}</div>
-        )}
+        <SettingsStatus message={message} error={error} />
 
         {actions.length === 0 && !loading && (
-          <div className="command-settings-status error">
-            No actions exist yet. A trigger has to run one — create an action first in Settings → Actions.
-          </div>
+          <SettingsStatus error="No actions exist yet. A trigger has to run one — create an action first in Settings → Actions." />
         )}
 
         <div className="set-group">

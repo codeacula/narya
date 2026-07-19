@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MediaAsset, MediaFile, MediaKind } from '../../../shared/api';
 import { useToast } from '../../ui/notifications';
 import { errorMessage } from '../../errors';
+import { SettingsStatus } from './shared';
 import {
   createClipButton,
   createMediaAsset,
@@ -270,7 +271,7 @@ function MediaLibrary() {
                 </button>
               </div>
 
-              {error && <div className="command-settings-status error">{error}</div>}
+              <SettingsStatus error={error} />
 
               <form className="settings-mini-form" onSubmit={handleCreate}>
                 <label className="field">
@@ -380,7 +381,7 @@ function MediaLibrary() {
                 </div>
               </div>
 
-              {error && <div className="command-settings-status error">{error}</div>}
+              <SettingsStatus error={error} />
 
               <form className="settings-mini-form" onSubmit={handleSaveEdit}>
                 <label className="command-enabled">
@@ -662,7 +663,7 @@ function MediaButtonManager({
                 </div>
               </div>
 
-              {error && <div className="command-settings-status error">{error}</div>}
+              <SettingsStatus error={error} />
 
               <form className="settings-mini-form" onSubmit={handleSubmit}>
                 <label className="field">
