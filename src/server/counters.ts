@@ -93,6 +93,38 @@ function clampValue(value: number): number {
   return clampFinite(Math.round(value), MIN_COUNTER_VALUE, MAX_COUNTER_VALUE, 0);
 }
 
+/**
+ * The single rule for "how much to move a counter by", shared by every runtime
+ * adjustment path: the adjust_counter step, the /counter command, and the REST
+ * adjust route. Returns null for anything that must not reach a write.
+ *
+ * Rejecting rather than clamping is the whole point. An amount can be bound from
+ * untrusted input — `!death {arg1}` puts a viewer's chat text here — and 1e308 is
+ * finite, so a mere isFinite check let it through to clampValue, which silently
+ * pinned the counter to MAX_SAFE_INTEGER. There is no counter history, so that
+ * destroyed the tally unrecoverably. A skipped adjustment is always better.
+ *
+ * This lives here, next to the value it protects, because the same rule was
+ * written once in actions.ts for literal amounts and then not carried to any of
+ * the runtime boundaries.
+ */
+export function parseCounterAmount(value: unknown): number | null {
+  let raw: number;
+  if (typeof value === 'number') {
+    raw = value;
+  } else {
+    // Number('') is 0, so an absent or empty amount would arrive as a silent
+    // "add 0" rather than being rejected. Ruled out here so no caller has to
+    // remember its own emptiness check.
+    const text = String(value ?? '').trim();
+    if (!text) return null;
+    raw = Number(text);
+  }
+  if (!Number.isFinite(raw)) return null;
+  const rounded = Math.round(raw);
+  return Number.isSafeInteger(rounded) ? rounded : null;
+}
+
 /** Absent fields fall back to the row being updated, so PUT accepts partial bodies. */
 function normalize(body: unknown, current: CounterRow | null): CounterInput {
   const value = (body ?? {}) as Partial<CounterInput>;
@@ -351,11 +383,11 @@ export function registerCounterRoutes(app: express.Express) {
   app.post('/api/counters/:id/adjust', handle((req, res) => {
     const body = (req.body ?? {}) as { mode?: unknown; amount?: unknown };
     const mode: CounterAdjustMode = body.mode === 'set' ? 'set' : 'add';
-    const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);
-    if (!Number.isFinite(amount)) {
-      throw new HttpRouteError(400, 'An adjustment amount is required.');
+    const amount = parseCounterAmount(body.amount);
+    if (amount === null) {
+      throw new HttpRouteError(400, 'An adjustment amount must be a whole number.');
     }
-    const updated = adjustCounter(req.params.id, mode, Math.round(amount));
+    const updated = adjustCounter(req.params.id, mode, amount);
     if (!updated) throw new HttpRouteError(404, 'Unknown counter.');
     res.json(updated);
   }));

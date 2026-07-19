@@ -20,7 +20,7 @@ import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from '../shared/api';
 import { getActionById } from './actions';
 import type { CounterResolver } from './actionTemplates';
 import { renderActionTemplate } from './actionTemplates';
-import { adjustCounter as adjustCounterRow, getCounterValue } from './counters';
+import { adjustCounter as adjustCounterRow, getCounterValue, parseCounterAmount } from './counters';
 import { sendDiscordMessage } from './discord';
 import { askPonderLlm } from './llm';
 import { switchObsScene, triggerObsTransition } from './obs';
@@ -294,14 +294,16 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
 
       case 'adjust_counter': {
         const rendered = render(step.payload.amountTemplate).trim();
-        const amount = Number(rendered);
         // Deliberately unlike twitch_timeout, which falls back to a default: there
         // is no safe default for how much to write into a durable counter, so a
-        // template that renders empty or non-numeric skips rather than guessing.
-        if (!rendered || !Number.isFinite(amount)) {
-          return skipped(`The counter amount rendered "${rendered}", which is not a number.`);
+        // template that renders empty or out of range skips rather than guessing.
+        // The range check matters because this amount can come from a VIEWER —
+        // "!death {arg1}" puts chat text here, and 1e308 is finite.
+        const amount = parseCounterAmount(rendered);
+        if (!rendered || amount === null) {
+          return skipped(`The counter amount rendered "${rendered}", which is not a whole number.`);
         }
-        const counter = adjustCounter(step.payload.counterId, step.payload.mode, Math.round(amount));
+        const counter = adjustCounter(step.payload.counterId, step.payload.mode, amount);
         if (!counter) return skipped('That counter no longer exists.');
         return { status: 'succeeded', detail: `${counter.key} = ${counter.value}` };
       }
@@ -315,7 +317,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
           submittedBy: context.actor ?? context.login ?? 'unknown',
           submittedByLogin: context.login ?? '',
         });
-        const reply = renderActionTemplate(step.payload.replyTemplate, withQuote(context, quote));
+        const reply = renderActionTemplate(step.payload.replyTemplate, withQuote(context, quote), resolveCounter);
         // An empty reply template is a deliberate "add it quietly", not a failure —
         // the quote is already saved either way.
         if (reply.trim()) {
@@ -329,7 +331,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         // A viewer asking for a quote that does not exist is normal traffic, so this
         // skips rather than failing — a failed run reads as "Narya is broken".
         if (!quote) return skipped('No quote matched that number, slug, or keyword.');
-        const message = renderActionTemplate(step.payload.messageTemplate, withQuote(context, quote));
+        const message = renderActionTemplate(step.payload.messageTemplate, withQuote(context, quote), resolveCounter);
         if (!message.trim()) return skipped('The quote message template rendered empty.');
         await announce(step.payload.destination, step.payload.discordChannelId, message);
         // Only after delivery: a Discord outage must not inflate the counter for a

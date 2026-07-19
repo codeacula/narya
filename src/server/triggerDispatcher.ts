@@ -18,6 +18,7 @@ import {
   adjustCounterByKey as adjustCounterByKeyRow,
   findCounterByKey as findCounterByKeyRow,
   normalizeCounterKey,
+  parseCounterAmount,
 } from './counters';
 import { db, isUniqueConstraintError } from './db';
 import { HttpRouteError } from './http';
@@ -431,16 +432,16 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       };
     }
 
-    const amount = Number(rawAmount);
-    if (!rawAmount || !Number.isFinite(amount)) {
+    const amount = parseCounterAmount(rawAmount);
+    if (!rawAmount || amount === null) {
       return {
         ok: false,
-        message: `"${rawAmount || verb}" is not a number. Usage: /counter ${key} [+1 | -1 | set <n>]`,
+        message: `"${rawAmount || verb}" is not a whole number. Usage: /counter ${key} [+1 | -1 | set <n>]`,
         run: null,
       };
     }
 
-    const updated = adjustCounterByKey(key, mode, Math.round(amount));
+    const updated = adjustCounterByKey(key, mode, amount);
     if (!updated) {
       return { ok: false, message: `No counter with the key "${key}".`, run: null };
     }

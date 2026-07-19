@@ -14,6 +14,7 @@ import type {
 } from '../shared/api';
 import { MAX_TIMEOUT_SECONDS } from '../shared/api';
 import type { ActionExecutor } from './actionExecutor';
+import { parseCounterAmount } from './counters';
 import { db, isUniqueConstraintError } from './db';
 import { handle, HttpRouteError } from './http';
 import { clamp } from './numeric';
@@ -264,11 +265,8 @@ function normalizeStepPayload(type: ActionStepType, payload: unknown): ActionSte
       // in the executor — which skips rather than guessing a number to write.
       const amountTemplate = typeof value.amountTemplate === 'string' ? value.amountTemplate.trim() : '';
       if (!amountTemplate) throw new HttpRouteError(400, 'Counter steps need an amount.');
-      if (!/\{/.test(amountTemplate)) {
-        const literal = Number(amountTemplate);
-        if (!Number.isFinite(literal) || !Number.isSafeInteger(Math.round(literal))) {
-          throw new HttpRouteError(400, 'Counter amount must be a whole number.');
-        }
+      if (!/\{/.test(amountTemplate) && parseCounterAmount(amountTemplate) === null) {
+        throw new HttpRouteError(400, 'Counter amount must be a whole number.');
       }
       return { counterId, mode: mode as CounterAdjustMode, amountTemplate };
     }

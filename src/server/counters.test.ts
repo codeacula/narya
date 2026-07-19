@@ -8,6 +8,7 @@ import {
   getCounterValue,
   listCounters,
   normalizeCounterKey,
+  parseCounterAmount,
   updateCounter,
 } from './counters';
 import { db } from './db';
@@ -247,5 +248,55 @@ describe('the delete-conflict message', () => {
       expect(message).toContain('Death alert');
       expect(message).not.toContain('Wipe alert');
     }
+  });
+});
+
+describe('parseCounterAmount', () => {
+  /**
+   * The rule every runtime adjustment shares. An amount can be bound from
+   * untrusted input — "!death {arg1}" puts a viewer's chat text here — and 1e308
+   * is finite, so an isFinite-only check let it reach clampValue, which pinned the
+   * counter to MAX_SAFE_INTEGER. There is no counter history, so that destroyed
+   * the tally unrecoverably.
+   */
+  test('rejects a finite but unsafe magnitude', () => {
+    expect(parseCounterAmount(1e308)).toBeNull();
+    expect(parseCounterAmount('1e308')).toBeNull();
+    expect(parseCounterAmount(-1e308)).toBeNull();
+    expect(parseCounterAmount(Number.MAX_SAFE_INTEGER + 10)).toBeNull();
+  });
+
+  test('rejects non-numbers and non-finite values', () => {
+    expect(parseCounterAmount('banana')).toBeNull();
+    expect(parseCounterAmount('')).toBeNull();
+    expect(parseCounterAmount(null)).toBeNull();
+    expect(parseCounterAmount(Number.NaN)).toBeNull();
+    expect(parseCounterAmount(Infinity)).toBeNull();
+  });
+
+  test('accepts ordinary whole numbers, signed', () => {
+    expect(parseCounterAmount('1')).toBe(1);
+    expect(parseCounterAmount('-1')).toBe(-1);
+    expect(parseCounterAmount('+5')).toBe(5);
+    expect(parseCounterAmount(0)).toBe(0);
+  });
+
+  test('rounds a decimal rather than rejecting it', () => {
+    expect(parseCounterAmount('2.6')).toBe(3);
+  });
+
+  test('accepts the safe-integer boundary itself', () => {
+    expect(parseCounterAmount(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
+  });
+});
+
+describe('an unsafe amount never reaches a durable write', () => {
+  test('the value is untouched when the amount is out of range', () => {
+    // The end-to-end shape of the defect: before the fix this pinned 4 to
+    // 9007199254740991 and there was no way to recover the real count.
+    const created = counter({ value: 4 });
+    const amount = parseCounterAmount('1e308');
+    expect(amount).toBeNull();
+    expect(findCounterByKey('deaths')!.value).toBe(4);
   });
 });
