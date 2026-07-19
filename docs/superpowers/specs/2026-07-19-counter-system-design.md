@@ -118,9 +118,24 @@ step is testable without a database.
 
 `renderActionTemplate` gains one token family: `{counter:some-key}`.
 
-This requires widening `TOKEN_PATTERN` from `\{([A-Za-z][A-Za-z0-9]*)\}` to also admit
-`:` and `-` inside the token body. The widening must not change how any existing token
-renders, and must not make an unknown token stop rendering literally.
+This requires widening `TOKEN_PATTERN` to `/\{([A-Za-z][A-Za-z0-9:-]*)\}/g`.
+
+The widening is safe by construction, and the argument is worth recording because it is
+load-bearing: neither `{` nor `}` is in the character class, so a match's extent is fully
+determined by its opening `{` and the next `}` — independent of the class. Widening the
+class therefore cannot change any existing match's extent and cannot let a new match
+cannibalize an old one. The only behavioral delta is that strings like `{a-b}` and `{x:y}`
+now *enter* the replace callback, where the unknown-token branch returns `match` verbatim,
+making the output byte-identical.
+
+Two constraints follow, and both get a comment at the pattern:
+
+- The identity holds **only** because the unknown branch returns `match` rather than `''`.
+  The widening and the leave-typos-visible rule are now coupled.
+- `ARG_TOKEN_PATTERN` and `REST_TOKEN_PATTERN` are `^…$`-anchored, which is what stops
+  `{arg1-x}` reading as `{arg1}` under the wider lexer. They must not be unanchored.
+
+Regression tests assert `{a-b}` and `{x:y}` round-trip unchanged.
 
 Resolution rules, consistent with the existing renderer:
 
@@ -135,6 +150,19 @@ The lookup is a function injected into the renderer, not a direct `db` import:
 `actionTemplates.ts` is currently free of both React and the database, and stays unit
 testable without one. The default resolver reads from `counters.ts`.
 
+Three constraints on the resolver's shape:
+
+- It must be **synchronous**. `String.replace` callbacks cannot await, and making it async
+  would infect all eleven render sites in the executor.
+- It must be a **function, not a snapshot map**, because the ordering guarantee below
+  requires step 2 to observe step 1's write.
+- It must **not** live on `TemplateContext`. That type is a serialized client/server
+  contract; the resolver is a server-local capability.
+
+The renderer tests `resolved === undefined` explicitly rather than testing falsiness — a
+counter's value is legitimately `0` or negative, and `value ? render : match` would put a
+literal `{counter:deaths}` on the live stream at exactly zero deaths.
+
 One change here reaches every template surface: `send_chat`, `show_text`, `tts_speak`,
 `llm_response`, `twitch_whisper`, and the timeout reason.
 
@@ -147,13 +175,44 @@ overlay browser source. Handling:
 - `StreamStatus.text` — the field the overlay and the `status:updated` broadcast carry —
   is **rendered**. An overlay never receives a raw token and never needs to know counters
   exist.
-- `StreamStatus` gains `rawText`, returned by the operator-only `GET /api/stream-status`
-  so the dashboard editor can round-trip what the operator typed. `rawText` must **not**
-  ride on the `status:updated` broadcast, which is on the `OVERLAY_EVENTS` allowlist.
+
+**Correction to an earlier draft of this spec.** That draft said `StreamStatus` gains a
+`rawText` field "returned by the operator-only `GET /api/stream-status`". That route is
+**not** operator-only: `auth.ts:32` lists `/api/stream-status` in `OVERLAY_PATHS` and
+`auth.ts:124-128` admits an overlay token to GET it. The overlay token lives in an OBS
+browser-source URL and is modelled as effectively public. Separately, `realtime.ts`
+filters broadcasts by event *name* only — there is no per-field payload filtering — so
+`status:updated` would ship any added field verbatim.
+
+Therefore:
+
+- `StreamStatus` — the shape on both `GET /api/stream-status` and the `status:updated`
+  broadcast — keeps exactly its current fields, with `text` now rendered. Nothing is added
+  to it. Both surfaces are fed from one function so redaction happens once, positionally
+  and totally, following the `appConfig.ts` `getInternal()` / `toPublic()` idiom.
+- A **new operator-only route**, `GET /api/stream-status/raw`, returns
+  `StreamStatusRaw { text, rawText, updatedAt }`. It is deliberately **not** added to
+  `OVERLAY_PATHS`.
 
 When a counter changes, `status:updated` is re-broadcast **only if** the stored raw text
 actually contains a `{counter:` token. Otherwise every increment would push a status event
 to every connected overlay for no reason.
+
+### The round-trip trap
+
+`Dashboard.tsx:404` seeds the Stream Info modal with `status: status.text` and line 425
+PUTs that value back via `updateStreamStatus`. Once `text` is rendered, opening the modal
+and saving it — **even without touching the status field** — would write the interpolated
+text back as the new raw text, permanently replacing `{counter:deaths}` with a snapshot of
+its value. This fails silently and is unrecoverable.
+
+The modal must therefore load from `GET /api/stream-status/raw` and seed the form with
+`rawText`. A test pins the round-trip: load → save unchanged → stored raw text is byte
+identical.
+
+`MAX_STATUS_LENGTH` (280) stays applied to the **raw** input, matching the character
+counter in `StreamInfoModal.tsx`. Rendered output may exceed it; that is accepted rather
+than truncating a status line mid-number.
 
 This is a contract change, so every producer and consumer is traced: `server/streamStatus.ts`,
 `server/auth.ts` (allowlist), `client/streamStatus.ts`, `client/pages/Overlay.tsx`,
@@ -165,8 +224,7 @@ This is a contract change, so every producer and consumer is traced: `server/str
 value. Direct editing matters: a miscounted death should not require issuing a
 compensating chat command.
 
-**`/counter` dashboard slash command**, seeded through `runOnce` alongside the existing
-built-ins:
+**`/counter` dashboard slash command:**
 
 - `/counter deaths` — report the current value
 - `/counter deaths +1` / `-1` — adjust
@@ -175,9 +233,42 @@ built-ins:
 Server-owned and executed or rejected server-side, never forwarded to Twitch, per the
 existing slash-command rule.
 
-**Deletion referencing.** Deleting a counter that an `adjust_counter` step references is
-rejected with a message naming the offending Actions, rather than silently leaving steps
-pointing at nothing.
+It is a **reserved built-in branch in `handleSlashCommand`**, not a seeded Action. Two
+blockers make the Action-backed path impossible, both verified in source:
+
+- **No return channel.** `triggerDispatcher.ts:406-413` synthesizes the response `message`
+  from the run *status* alone. An Action's steps cannot write text back into
+  `SlashCommandResponse`, so `/counter deaths` could never report a value. (No contract
+  change is needed for the built-in: `SlashCommandResponse.run` is already
+  `ActionRunResult | null`, so `{ ok: true, message: 'deaths: 41 → 42', run: null }` is
+  already legal.)
+- **No dynamic target.** `counterId` is a plain string and `mode` is fixed per step, so one
+  stored Action addresses exactly one counter in one mode. An Action-less trigger is also
+  impossible: `automation_triggers.action_id` is NOT NULL with a foreign key.
+
+The branch is placed **after** the trigger lookup so an operator-created `/counter` trigger
+still takes precedence over the built-in.
+
+This is a deliberate, documented exception to the "do not hard-code a command" rule. That
+rule exists to stop *viewer* commands from bypassing cooldowns, roles, and dedup; an
+operator-only command has none of those. But `+1` and `set` do write, and a built-in
+bypasses `automation_runs` entirely — no dedup row, no run log. That tradeoff is recorded
+in a comment at the branch.
+
+`ChatInput` currently discards the response message on success (`panels.tsx:387-397`
+resolves with `.then(() => setText(''))` and only renders `error`), so it gains a success
+line — otherwise `/counter deaths` would report into the void.
+
+**Deletion referencing.** Deleting a counter is rejected, naming the offenders, when it is
+referenced by either:
+
+- an `adjust_counter` step (`counterId`), or
+- a `{counter:key}` token in **any** step template, or in the stream status raw text.
+
+The second case matters because of an asymmetry: every other token family renders empty
+when its value is absent, but an unknown counter key renders **literally**. Without the
+template scan, deleting a counter would put a raw `{counter:zambie-deaths}` on the live
+stream — exactly what the `{months}`-renders-empty rule was designed to prevent.
 
 ## Ordering guarantee
 
