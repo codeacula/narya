@@ -5,13 +5,16 @@ import type { ChatEntry, Viewer, ViewerDetails } from '../../shared/api';
 import { useEmotes } from '../chat';
 import { ViewerOrb, RoleBadges, type Person, type RunViewerAction } from './ViewersPage';
 import {
+  flushViewer as flushViewerRecord,
   getViewerDetails,
   getViewerMessages,
   grantModerator,
   grantVip,
+  refreshViewer,
   removeModerator,
   removeVip,
 } from '../services/dashboard';
+import { errorMessage } from '../errors';
 
 const PAGE_SIZE = 80;
 
@@ -44,6 +47,69 @@ function viewerFromPerson(person: Person): Viewer {
 }
 
 /**
+ * Refresh and Flush: the two actions that operate on Narya's *record* of a viewer
+ * rather than on their standing in the channel.
+ *
+ * Flush is destructive and confirms in place rather than through a dialog — the second
+ * click is on a button that has already relabelled itself to say what it will do, so
+ * the confirmation cannot be dismissed without reading it. It reverts on blur so a
+ * half-pressed Flush does not sit armed.
+ */
+function ViewerRecordActions({ login, onFlushed }: { login: string; onFlushed?: () => void }) {
+  const [busy, setBusy] = React.useState(false);
+  const [armed, setArmed] = React.useState(false);
+  const [note, setNote] = React.useState<string | null>(null);
+
+  React.useEffect(() => { setArmed(false); setNote(null); }, [login]);
+
+  const refresh = () => {
+    setBusy(true);
+    setNote(null);
+    refreshViewer(login)
+      .then(result => {
+        if (!result.found) setNote('Twitch no longer has this account.');
+        else if (result.renamedTo) setNote(`Now known as @${result.renamedTo}.`);
+        else setNote('Profile updated.');
+        onFlushed?.();
+      })
+      .catch(caught => setNote(errorMessage(caught, 'Refresh failed')))
+      .finally(() => setBusy(false));
+  };
+
+  const flush = () => {
+    if (!armed) { setArmed(true); return; }
+    setBusy(true);
+    setArmed(false);
+    flushViewerRecord(login)
+      .then(result => {
+        setNote(`Flushed — ${result.messagesRemoved} message(s) removed.`);
+        onFlushed?.();
+      })
+      .catch(caught => setNote(errorMessage(caught, 'Flush failed')))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="viewer-record-actions">
+      <button className="modbtn" type="button" disabled={busy} onClick={refresh}>
+        {busy ? '…' : 'Refresh'}
+      </button>
+      <button
+        className={'modbtn' + (armed ? ' danger-button' : '')}
+        type="button"
+        disabled={busy}
+        onClick={flush}
+        onBlur={() => setArmed(false)}
+        title="Remove this viewer from the roster and ignore them in future"
+      >
+        {armed ? 'Confirm flush' : 'Flush'}
+      </button>
+      {note && <span className="viewer-record-note" role="status">{note}</span>}
+    </div>
+  );
+}
+
+/**
  * The right-hand pane of the Viewers page: who this person is, the roles you can grant,
  * everything Spotlight shows, and their full chat history. Role grants live here rather
  * than on the list row so there is exactly one place to act on a viewer.
@@ -53,11 +119,14 @@ export function ViewerDetailPane({
   person,
   busy,
   onAction,
+  onFlushed,
 }: {
   ctx: PanelCtx;
   person: Person;
   busy: boolean;
   onAction: RunViewerAction;
+  /** Reload the roster after a flush — the viewer this pane is showing is now gone. */
+  onFlushed?: () => void;
 }) {
   const login = person.login;
 
@@ -138,6 +207,7 @@ export function ViewerDetailPane({
           {isMod
             ? <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => removeModerator(login), `remove mod from @${login}`)}>Un-Mod</button>
             : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantModerator(login), `mod @${login}`)}>Mod</button>}
+          <ViewerRecordActions login={login} onFlushed={onFlushed} />
         </div>
       </header>
 

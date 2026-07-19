@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ClipButton, MediaPlayback } from '../shared/api';
+import { advanceHead, enqueueUnique } from './queue';
 import { getClipButtons } from './services/dashboard';
 import { useSocket } from './realtime';
 
@@ -39,14 +40,14 @@ type ClipFrameStyle = React.CSSProperties & {
 
 /** Append unless the id is already queued — a replayed socket event must not double-play. */
 export function enqueue(queue: MediaPlayback[], item: MediaPlayback): MediaPlayback[] {
-  if (queue.some(queued => queued.id === item.id)) return queue;
-  if (queue.length >= MAX_QUEUE) {
-    // The viewer already spent their points and EventSub recorded the redeem, so
-    // a silent drop looks like a broken clip. Say so where the operator can see it.
-    console.warn(`Clips: queue is full (${MAX_QUEUE}), dropping ${item.src}${item.actor ? ` from ${item.actor}` : ''}.`);
-    return queue;
-  }
-  return [...queue, item];
+  // The viewer already spent their points and EventSub recorded the redeem, so
+  // a silent drop looks like a broken clip. Say so where the operator can see it.
+  return enqueueUnique(
+    queue,
+    item,
+    MAX_QUEUE,
+    `Clips: queue is full (${MAX_QUEUE}), dropping ${item.src}${item.actor ? ` from ${item.actor}` : ''}.`,
+  );
 }
 
 /**
@@ -55,8 +56,7 @@ export function enqueue(queue: MediaPlayback[], item: MediaPlayback): MediaPlayb
  * completions would drop two items and swallow the redeem behind the bad one.
  */
 export function advance(queue: MediaPlayback[], id: string): MediaPlayback[] {
-  if (queue[0]?.id !== id) return queue;
-  return queue.slice(1);
+  return advanceHead(queue, id);
 }
 
 /**

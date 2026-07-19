@@ -1,5 +1,6 @@
 import React from 'react';
 import type { OverlayTextPlayback } from '../shared/api';
+import { advanceHead, enqueueUnique } from './queue';
 import { useSocket } from './realtime';
 
 /** Cap so a redeem storm can't grow the queue without bound. */
@@ -7,18 +8,17 @@ export const MAX_OVERLAY_TEXT_QUEUE = 20;
 
 /** Append unless the id is already queued — a replayed socket event must not double-show. */
 export function enqueueOverlayText(queue: OverlayTextPlayback[], item: OverlayTextPlayback): OverlayTextPlayback[] {
-  if (queue.some(queued => queued.id === item.id)) return queue;
-  if (queue.length >= MAX_OVERLAY_TEXT_QUEUE) {
-    console.warn(`Overlay text: queue is full (${MAX_OVERLAY_TEXT_QUEUE}), dropping "${item.text}".`);
-    return queue;
-  }
-  return [...queue, item];
+  return enqueueUnique(
+    queue,
+    item,
+    MAX_OVERLAY_TEXT_QUEUE,
+    `Overlay text: queue is full (${MAX_OVERLAY_TEXT_QUEUE}), dropping "${item.text}".`,
+  );
 }
 
 /** Drop the head, but only if `id` still names it. */
 export function advanceOverlayText(queue: OverlayTextPlayback[], id: string): OverlayTextPlayback[] {
-  if (queue[0]?.id !== id) return queue;
-  return queue.slice(1);
+  return advanceHead(queue, id);
 }
 
 export function useOverlayTextQueue() {

@@ -6,8 +6,9 @@ import type {
   CounterInput,
   CountersResponse,
 } from '../shared/api';
-import { db } from './db';
+import { db, isUniqueConstraintError } from './db';
 import { handle, HttpRouteError, parseJsonColumn } from './http';
+import { clampFinite } from './numeric';
 import { broadcast } from './realtime';
 
 const MAX_KEY_LENGTH = 60;
@@ -89,8 +90,7 @@ export function normalizeCounterKey(value: unknown): string {
 }
 
 function clampValue(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.min(Math.max(Math.round(value), MIN_COUNTER_VALUE), MAX_COUNTER_VALUE);
+  return clampFinite(Math.round(value), MIN_COUNTER_VALUE, MAX_COUNTER_VALUE, 0);
 }
 
 /** Absent fields fall back to the row being updated, so PUT accepts partial bodies. */
@@ -127,11 +127,20 @@ function requireRow(id: string): CounterRow {
   return row;
 }
 
-/** `key` is unique in the schema; this turns the constraint into a 409 with a reason. */
-function assertKeyAvailable(key: string, exceptId: string | null): void {
-  const existing = selectCounterByKey.get(key) as CounterRow | null;
-  if (existing && existing.id !== exceptId) {
-    throw new HttpRouteError(409, `Another counter already uses the key "${key}".`);
+/**
+ * The `key` column carries the unique constraint, so let the database enforce it and
+ * translate the failure. A select-then-insert pre-check would let two concurrent
+ * creates both pass and surface the loser as a raw 500. Updating a row to the key it
+ * already holds is not a violation, so this needs no self-exclusion.
+ */
+function withUniqueKey<T>(key: string, write: () => T): T {
+  try {
+    return write();
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw new HttpRouteError(409, `Another counter already uses the key "${key}".`);
+    }
+    throw error;
   }
 }
 
@@ -162,10 +171,9 @@ export function getCounterValue(key: string): number | undefined {
 
 export function createCounter(body: unknown): Counter {
   const input = normalize(body, null);
-  assertKeyAvailable(input.key, null);
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  insertCounter.run(id, input.key, input.label, input.value, now, now);
+  withUniqueKey(input.key, () => insertCounter.run(id, input.key, input.label, input.value, now, now));
   emitCounters();
   // Creating a counter can CHANGE a rendered status: a status already reading
   // "Deaths: {counter:deaths}" was showing that literal, and now resolves. Overlays
@@ -178,10 +186,9 @@ export function createCounter(body: unknown): Counter {
 export function updateCounter(id: string, body: unknown): Counter {
   const current = requireRow(id);
   const input = normalize(body, current);
-  assertKeyAvailable(input.key, id);
   assertRenameIsSafe(current, input.key);
   const now = new Date().toISOString();
-  updateCounterRow.run(input.key, input.label, input.value, now, id);
+  withUniqueKey(input.key, () => updateCounterRow.run(input.key, input.label, input.value, now, id));
   const updated = toCounter({ ...current, ...input, updatedAt: now });
   emitCounters();
   onCounterChanged();

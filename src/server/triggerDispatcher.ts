@@ -19,7 +19,7 @@ import {
   findCounterByKey as findCounterByKeyRow,
   normalizeCounterKey,
 } from './counters';
-import { db } from './db';
+import { db, isUniqueConstraintError } from './db';
 import { HttpRouteError } from './http';
 
 export type TriggerDispatcherDeps = {
@@ -122,7 +122,7 @@ export function pruneAutomationRuns(now: Date = new Date()): number {
 function isUniqueViolation(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const code = (error as { code?: string }).code ?? '';
-  return code.startsWith('SQLITE_CONSTRAINT') || error.message.toLowerCase().includes('unique');
+  return code.startsWith('SQLITE_CONSTRAINT') || isUniqueConstraintError(error);
 }
 
 function errorText(error: unknown): string {

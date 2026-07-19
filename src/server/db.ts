@@ -474,6 +474,15 @@ db.exec(`
   );
 `);
 
+/**
+ * A SQLite unique-index violation. Callers that care about *which* constraint
+ * failed must keep that check on top of this one: widening a column-specific
+ * test to any unique violation reports an unrelated collision as the wrong 409.
+ */
+export function isUniqueConstraintError(error: unknown): error is Error {
+  return error instanceof Error && error.message.toLowerCase().includes('unique constraint failed');
+}
+
 const hasMigrationRun = db.prepare('select 1 as present from schema_migrations where id = ?');
 const recordMigration = db.prepare('insert into schema_migrations (id, applied_at) values (?, ?)');
 
@@ -498,6 +507,7 @@ export function hasRunMigration(id: string): boolean {
 const allowedMigrationTables = new Set([
   'chat_messages',
   'chat_events',
+  'chatters',
   'stream_goals',
   'sound_buttons',
   'stream_events',
@@ -523,6 +533,13 @@ const allowedMigrationTables = new Set([
 const allowedMigrationColumns = new Set([
   'account_user_id',
   'account_login',
+  'twitch_user_id',
+  'display_name',
+  'profile_image_url',
+  'account_created_at',
+  'last_seen_at',
+  'profile_fetched_at',
+  'missing_at',
   'deleted_at',
   'deleted_reason',
   'moderation_event_id',
@@ -577,6 +594,16 @@ const allowedMigrationDefinitions: Record<string, string> = {
   discord_announce_terminal: 'integer not null default 0',
   session_id: 'text',
   actor_login: 'text',
+  // Viewer identity, backfilled from Helix. `twitch_user_id` is the rename-proof
+  // key; the login is not, which is why a refresh can find an account under a new
+  // name. `missing_at` is stamped when Twitch stops returning the account at all.
+  twitch_user_id: 'text',
+  display_name: 'text',
+  profile_image_url: 'text',
+  account_created_at: 'text',
+  last_seen_at: 'text',
+  profile_fetched_at: 'text',
+  missing_at: 'text',
   sound_src: 'text',
   sound_volume: 'real',
   clip_src: 'text',
@@ -696,6 +723,30 @@ db.exec(`
     login text primary key,
     first_seen_at text not null,
     message_count integer not null default 0
+  )
+`);
+
+// Identity, backfilled lazily from Helix the first time a login is seen without it.
+// A row with message_count = 0 is a *lurker*: present in the channel, never typed.
+// Nothing here is `not null` — an existing row predates every one of these columns,
+// and a lurker legitimately has no profile until the backfill runs.
+addColumnIfMissing('chatters', 'twitch_user_id', 'text');
+addColumnIfMissing('chatters', 'display_name', 'text');
+addColumnIfMissing('chatters', 'profile_image_url', 'text');
+addColumnIfMissing('chatters', 'account_created_at', 'text');
+addColumnIfMissing('chatters', 'last_seen_at', 'text');
+addColumnIfMissing('chatters', 'profile_fetched_at', 'text');
+addColumnIfMissing('chatters', 'missing_at', 'text');
+db.exec('create index if not exists idx_chatters_user_id on chatters(twitch_user_id)');
+
+// Logins the operator has flushed. This is what makes a flush stick: deleting the
+// chatters row alone is self-healing-hostile, because the bot's next chat message
+// recreates it immediately via upsertChatter.
+db.exec(`
+  create table if not exists ignored_logins (
+    login text primary key,
+    reason text not null default '',
+    created_at text not null
   )
 `);
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { AutomodHold } from '../shared/api';
+import { parseLinkToken } from './chatText';
 import { useSocket, useSocketReconnect } from './realtime';
 import { playAutomodAlert } from './sounds';
 import { allowAutomodHold, denyAutomodHold, getAutomodQueue } from './services/dashboard';
@@ -9,6 +10,28 @@ import { errorMessage } from './errors';
 // spam wave can accumulate before the oldest overflow is dropped.
 const PENDING_LIMIT = 200;
 const RESOLVED_LIMIT = 20;
+
+/**
+ * Render a held message's URLs as link-*styled* text, deliberately not as anchors.
+ *
+ * A held message is one AutoMod already found suspect, and phishing is a large share
+ * of what lands here — so the operator needs to SEE that a token is a URL (and where
+ * it points) while deciding, without being one mis-click away from opening it. Held
+ * text is also the one chat surface that is untrusted by construction.
+ */
+function markLinks(text: string): React.ReactNode[] {
+  return text.split(/(\s+)/).map((part, i) => {
+    const link = parseLinkToken(part);
+    if (!link) return part;
+    return (
+      <React.Fragment key={`hold-url-${i}`}>
+        {link.leading}
+        <span className="automod-link" title={link.href}>{link.label}</span>
+        {link.trailing}
+      </React.Fragment>
+    );
+  });
+}
 // A spam wave can deliver many holds in a burst; the alert fires at most once per
 // window so it reads as "something needs review" rather than machine-gunning.
 const ALERT_THROTTLE_MS = 1500;
@@ -123,7 +146,7 @@ function AutomodItem({
           <span className="automod-tag">{hold.category}{hold.level != null ? ` · L${hold.level}` : ''}</span>
         ) : null}
       </div>
-      <p className="automod-message">{hold.message}</p>
+      <p className="automod-message">{markLinks(hold.message)}</p>
       {error ? <p className="automod-error">{error}</p> : null}
       <div className="automod-item-actions">
         <button className="accent" disabled={busy} onClick={() => void act(onAllow)}>Allow</button>

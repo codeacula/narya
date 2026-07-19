@@ -73,7 +73,7 @@ button:disabled {
 /* Touch surface: a clear pressed state matters more than hover. */
 .tablet-shell button:active:not(:disabled) {
   transform: scale(0.97);
-  background: rgba(255, 184, 108, 0.12);
+  background: rgba(var(--gold-rgb), 0.12);
 }
 
 .tablet-shell button:focus-visible {
@@ -85,13 +85,11 @@ button:disabled {
   background: var(--arcane);
 }
 
-.app-shell,
 .tablet-shell {
   min-height: 100vh;
   padding: 24px;
 }
 
-.app-shell > header,
 .tablet-shell > header {
   display: flex;
   align-items: center;
@@ -131,12 +129,6 @@ nav {
   gap: 24px;
 }
 
-.control-surface {
-  display: grid;
-  gap: 20px;
-}
-
-.control-surface section,
 .chat-panel {
   border: 1px solid #2a3a58;
   border-radius: 8px;
@@ -206,7 +198,7 @@ nav {
 .chat-message.mention {
   --border-color: var(--gold-500);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--warning-border),
-    0 0 22px rgba(255, 184, 108, 0.28);
+    0 0 22px rgba(var(--gold-rgb), 0.28);
 }
 
 .chat-emote {
@@ -362,15 +354,6 @@ nav {
 /* Stream alerts: one alert at a time (text banner plus optional clip). Empty and
    fully transparent when idle, so it's safe as its own full-canvas OBS source
    positioned independently of the clips/sounds overlays. */
-.overlay-alerts-widget {
-  width: 100vw;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
 .alert-card {
   display: flex;
   flex-direction: column;
@@ -379,39 +362,6 @@ nav {
   max-width: 80vw;
   animation: alertIn 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-
-.alert-video {
-  display: block;
-  width: min(70vw, 960px);
-  max-height: 60vh;
-  object-fit: contain;
-  border-radius: 20px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-}
-
-.alert-text {
-  padding: 16px 28px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  /* Tone accent, set per-kind on the parent .alert-card and inherited here. */
-  border-top: 4px solid var(--alert-accent, #ffb86c);
-  background: rgba(12, 16, 28, 0.72);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  color: #f4f1e8;
-  font-family: var(--font-body, system-ui, sans-serif);
-  font-size: 30px;
-  font-weight: 700;
-  line-height: 1.25;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-
-.alert-card--warning { --alert-accent: #ffb86c; }
-.alert-card--info    { --alert-accent: #8be9fd; }
-.alert-card--note    { --alert-accent: #bd93f9; }
-.alert-card--silver  { --alert-accent: #d0d4dc; }
 
 @keyframes alertIn {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
@@ -611,7 +561,7 @@ nav {
   width: 100%;
   border-radius: 8px;
   background: rgba(28, 39, 62, 0.9);
-  border: 1px solid rgba(255, 184, 108, 0.25);
+  border: 1px solid rgba(var(--gold-rgb), 0.25);
   padding: 14px 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(6px);
@@ -717,7 +667,7 @@ nav {
 .tablet-back-link:hover {
   color: var(--gold-400);
   border-color: var(--border-3);
-  background: rgba(255, 184, 108, 0.1);
+  background: rgba(var(--gold-rgb), 0.1);
 }
 
 /* Two columns for the whole surface: a wide left rail of controls (OBS scenes,
@@ -739,7 +689,7 @@ nav {
 
 .tablet-panel {
   border: 1px solid var(--border-1);
-  border-left: 2px solid rgba(255, 184, 108, 0.2);
+  border-left: 2px solid rgba(var(--gold-rgb), 0.2);
   border-radius: var(--radius-3);
   background:
     radial-gradient(circle at 95% 5%, rgba(61, 43, 107, 0.07), transparent 60%),
@@ -974,7 +924,7 @@ nav {
   border-color: var(--gold-400);
   background: var(--gold-500);
   color: var(--navy-950);
-  box-shadow: 0 0 20px rgba(255, 184, 108, 0.22);
+  box-shadow: 0 0 20px rgba(var(--gold-rgb), 0.22);
   opacity: 1;
 }
 
@@ -1054,7 +1004,6 @@ nav {
     grid-template-columns: 1fr;
   }
 
-  .app-shell > header,
   .tablet-shell > header {
     align-items: flex-start;
     flex-direction: column;
@@ -1097,6 +1046,17 @@ nav {
   margin: 0;
   color: var(--ivory);
   overflow-wrap: anywhere;
+}
+
+/* A URL inside a held message: styled so the operator can see it is a link, but not
+   an anchor — see markLinks() in automod.tsx. Dotted rather than solid underline so it
+   reads as "this is a URL" rather than "click me", and `cursor: text` so it does not
+   invite the click it will not perform. The full href is on the title attribute. */
+.automod-link {
+  color: var(--warning-fg, var(--ivory));
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: text;
 }
 
 .automod-error {

@@ -2,15 +2,13 @@ import React from 'react';
 import { Icon } from './icons';
 import {
   banViewer,
-  getOverlayPlaceholders,
   runSlashCommand,
   sendChatMessage,
   sendViewerShoutout,
   sendViewerWhisper,
   timeoutViewer,
-  updateOverlayPlaceholders,
 } from '../services/dashboard';
-import type { Viewer, ChatEntry, StreamEvent, SessionShoutout, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter, OverlayPlaceholders } from '../../shared/api';
+import type { Viewer, ChatEntry, StreamEvent, SessionShoutout, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter } from '../../shared/api';
 import { formatAgo } from '../../shared/time';
 import { useSocket } from '../realtime';
 import { renderContent, useEmotes } from '../chat';
@@ -1272,64 +1270,15 @@ export function ControlsPanel({
           </div>
         </div>
       )}
-      <OverlayPlaceholderToggle />
+      {/* The overlay-bounds switch used to live here. It moved to the nav bar's
+          Display panel: this panel only mounts when OBS is connected, so the control
+          for positioning OBS sources disappeared exactly when OBS was down. The mute
+          toggle stays — it is persisted operator state, not a positioning aid. */}
       <MediaMuteToggle />
     </div>
   );
 }
 
-/**
- * Draws a labelled outline of every overlay browser source's bounds, so a source that
- * shows nothing until an alert fires can still be positioned in OBS.
- *
- * Loud while it is on, because it is drawing boxes over whatever OBS is composing. The
- * server keeps the flag in memory only, so a restart clears it — but a restart is not
- * something to rely on mid-session, hence the warning.
- */
-function OverlayPlaceholderToggle() {
-  const [enabled, setEnabled] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-
-  React.useEffect(() => {
-    getOverlayPlaceholders()
-      .then(state => setEnabled(state.enabled))
-      .catch(() => setEnabled(false));
-  }, []);
-
-  // Another dashboard tab (or a reconnect) can flip this too.
-  useSocket<OverlayPlaceholders>(
-    'overlay:placeholders',
-    React.useCallback((next: OverlayPlaceholders) => setEnabled(next.enabled), []),
-  );
-
-  const toggle = (next: boolean) => {
-    setBusy(true);
-    updateOverlayPlaceholders(next)
-      .then(state => setEnabled(state.enabled))
-      .catch(() => undefined)
-      .finally(() => setBusy(false));
-  };
-
-  return (
-    <div className="ctrl-section ctrl-overlay-section">
-      <span className="ctrl-label">overlays</span>
-      <label className="ctrl-toggle">
-        <input
-          type="checkbox"
-          checked={enabled}
-          disabled={busy}
-          onChange={event => toggle(event.target.checked)}
-        />
-        <span>Show overlay bounds</span>
-      </label>
-      {enabled && (
-        <p className="ctrl-overlay-warning" role="status">
-          Outlines are visible in every overlay source — turn this off before going live.
-        </p>
-      )}
-    </div>
-  );
-}
 
 /**
  * The master "mute sound/video commands" switch. While engaged, the server skips
@@ -1353,7 +1302,7 @@ function MediaMuteToggle() {
         <span>Mute sound/video commands</span>
       </label>
       {muted && (
-        <p className="ctrl-overlay-warning" role="status">
+        <p className="ctrl-inline-warning" role="status">
           Quick-Disable actions are silenced. Redemptions on unflagged actions still play.
         </p>
       )}

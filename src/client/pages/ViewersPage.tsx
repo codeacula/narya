@@ -24,6 +24,10 @@ export type Person = {
   firstSeenAt: string;
   lastSeenAt: string;
   note: string;
+  /** Seen in the channel but has never typed — the reason they are in the roster at all. */
+  isLurker: boolean;
+  /** Twitch no longer returns this account: renamed, deleted, or banned. */
+  missing: boolean;
 };
 
 /** Runs a viewer action, re-syncs the roster, and reports the outcome. */
@@ -117,7 +121,18 @@ function RosterRow({
         <span className={'roster-stat-seen' + (person.isLive ? ' is-live' : '')}>
           {person.isLive ? 'live now' : relTime(person.lastSeenAt)}
         </span>
-        <span className="roster-stat-msgs">{person.messageCount.toLocaleString()} msg{person.messageCount === 1 ? '' : 's'}</span>
+        {/* "0 msgs" would read as a viewer who stopped talking. A lurker has never
+            talked, which is a different thing and the reason they are listed at all. */}
+        <span className="roster-stat-msgs">
+          {person.isLurker
+            ? 'lurking'
+            : `${person.messageCount.toLocaleString()} msg${person.messageCount === 1 ? '' : 's'}`}
+        </span>
+        {person.missing && (
+          <span className="roster-stat-missing" title="Twitch no longer returns this account">
+            account gone
+          </span>
+        )}
       </div>
     </button>
   );
@@ -236,6 +251,8 @@ export function ViewersPage({
         firstSeenAt: entry.firstSeenAt,
         lastSeenAt: entry.lastSeenAt,
         note: entry.note,
+        isLurker: entry.isLurker,
+        missing: entry.missing,
       });
     }
 
@@ -253,6 +270,10 @@ export function ViewersPage({
         firstSeenAt: '',
         lastSeenAt: '',
         note: '',
+        // Not "lurking": that means seen present via Helix, and these two came from the
+        // VIP/mod lists with no chatters row behind them.
+        isLurker: false,
+        missing: false,
       });
     }
 
@@ -295,6 +316,8 @@ export function ViewersPage({
     firstSeenAt: '',
     lastSeenAt: '',
     note: '',
+    isLurker: false,
+    missing: false,
   }), [vips, mods, liveLogins]);
 
   const selected = selectedLogin?.toLowerCase() ?? null;
@@ -402,6 +425,7 @@ export function ViewersPage({
             person={selectedPerson}
             busy={busy}
             onAction={runAction}
+            onFlushed={() => { void refresh(); }}
           />
         ) : (
           <div className="split-empty">

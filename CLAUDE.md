@@ -205,7 +205,8 @@ src/
     mediaAssets.ts      # configured media catalog (media_assets)
     mediaMute.ts        # persisted master sound/video mute switch + routes
     triggerDispatcher.ts # matching, cooldowns, dedup, bot-loop prevention
-    chatters.ts         # chatter tracking routes
+    chatters.ts         # Helix presence poll + lazy identity backfill
+    viewerIdentity.ts   # chatters presence/profile writes, ignore list, flush
     config.ts           # boot/infra-only env config (PORT, OAuth URIs)
     db.ts               # SQLite connection and schema migrations
     discord.ts          # Discord status integration
@@ -280,6 +281,10 @@ src/
 When verifying a migration against real data, snapshot with `VACUUM INTO`, not `cp`. The database runs in WAL mode, so a plain file copy silently omits recent writes and will make a correct migration look like it is dropping rows.
 
 **Never verify against the real database from an ad-hoc script.** `db.ts` resolves its path at import time, and ES imports are hoisted — a script that sets `NODE_ENV`/`STREAMER_TOOLS_DB` in its body has *already* opened `data/streamer-tools.sqlite` by the time that line runs, and any write lands in the operator's live data. Put the check in a `*.test.ts` file (`bun test` sets `NODE_ENV=test` before anything imports, so the DB is in-memory), or pass the override in the environment of the command itself.
+
+**A `chatters` row is not "has chatted" — `message_count > 0` is.** The table used to be written only by chat ingestion, so row existence and "has spoken" were the same fact, and `hasSeenChatterBefore` (`streamSession.ts`) tested existence to drive the first-ever-chatter highlight. `GET /api/chatters` now also records **presence** from Helix Get Chatters, so a lurker who has never typed gets a row with `message_count = 0` — which is the whole point, since such a viewer previously could not be opened or managed at all. Keying the oracle off existence again would silently kill the first-timer highlight for every lurker who later speaks; `src/server/viewerIdentity.test.ts` covers both directions. Profile detail (display name, avatar, account age) is backfilled **lazily** from Get Users for rows missing it, riding the poll the dashboard already makes — do not add a second polling loop.
+
+**Flushing a viewer needs the ignore list, not just a delete.** `flushViewer` removes the `chatters`, `viewer_profiles`, and `chat_messages` rows *and* records the login in `ignored_logins`. A delete alone is self-healing-hostile: the account's next chat message recreates the row via `chat.ts`'s upsert, and the next presence poll recreates it in `viewerIdentity.ts`. Both write paths check the ignore list. Append-only `chat_events` is deliberately left intact, so a flush is auditable and reversible (`unflushViewer`) rather than a hole in the record.
 
 **Chat dual-layer storage** — `chat_events` is append-only (raw events). `chat_messages` is a mutable projection with soft-delete columns (`deleted_at`, `deleted_reason`, `moderation_event_id`). Dashboard shows moderated messages with a reason; overlay hides them entirely (the `compact` prop on `ChatPanel`).
 

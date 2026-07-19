@@ -36,6 +36,7 @@ import { registerStreamStatusRoutes } from './streamStatus';
 import { pruneAutomationRuns } from './triggerDispatcher';
 import { hydrateTwitchAuthState, registerTwitchAuthRoutes } from './twitch/auth';
 import { fetchAuthenticatedTwitchUser, registerTwitchApiRoutes } from './twitch/api';
+import { getAuthenticatedTwitchLogin } from './twitchIdentity';
 import { registerViewerRewardRoutes } from './viewerRewards';
 import { registerViewerRoleRoutes } from './viewers';
 
@@ -113,7 +114,7 @@ registerCoreRoutes(app, runtimeState);
 registerAppConfigRoutes(app, ({ config: nextConfig, changes }) => {
   reconcileServices(changes);
   broadcast('settings:updated', { updatedAt: nextConfig.updatedAt ?? new Date().toISOString() });
-});
+}, getAuthenticatedTwitchLogin);
 registerTwitchAuthRoutes({
   app,
   state: runtimeState,
