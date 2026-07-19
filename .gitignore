@@ -20,3 +20,4 @@ public/sounds/
 
 # Claude working files (plans, working docs, local settings)
 .claude/
+data/backups/
