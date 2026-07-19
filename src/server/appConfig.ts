@@ -3,7 +3,6 @@ import type { AppConfig, AppConfigUpdate } from '../shared/api';
 import { db, runOnce } from './db';
 import { handle, HttpRouteError } from './http';
 import { clampFinite } from './numeric';
-import { getAuthenticatedTwitchLogin } from './twitchIdentity';
 
 const APP_CONFIG_ID = 'default';
 
@@ -178,18 +177,11 @@ function current(): AppConfigInternal {
 
 // Live accessor object: properties read the latest cached values, so consumers that
 // swapped `config.X` for `appConfig.X` automatically pick up changes after a save.
+//
+// The resolved Twitch channel is deliberately absent: it depends on the signed-in
+// login, and this store sits underneath the Twitch modules. `getTwitchChannel()` in
+// the Twitch identity module is the one that resolves it.
 export const appConfig = {
-  /**
-   * The channel every service actually operates on: the stored override if the
-   * operator typed one, otherwise the login they signed in with. Nobody runs a
-   * dashboard for a channel they aren't logged into, so making them type their own
-   * name was a required field that could only ever be wrong.
-   *
-   * `AppConfigInternal.twitchChannel` stays the *stored* value — Settings has to
-   * render an empty field as empty, or saving the form would silently freeze the
-   * derived login into an override.
-   */
-  get twitchChannel() { return current().twitchChannel || getAuthenticatedTwitchLogin(); },
   get twitchClientId() { return current().twitchClientId; },
   get twitchClientSecret() { return current().twitchClientSecret; },
   get obsUrl() { return current().obsUrl; },
@@ -207,11 +199,13 @@ export function getAppConfigInternal(): AppConfigInternal {
   return current();
 }
 
-function toPublic(internal: AppConfigInternal): AppConfig {
+function toPublic(internal: AppConfigInternal, twitchChannelFromLogin: string): AppConfig {
   return {
-    // The stored override, not the resolved channel — see appConfig.twitchChannel.
+    // The stored override, not the resolved channel — Settings has to render an empty
+    // field as empty, or saving the form would freeze the derived login into an
+    // override.
     twitchChannel: internal.twitchChannel,
-    twitchChannelFromLogin: getAuthenticatedTwitchLogin(),
+    twitchChannelFromLogin,
     twitchClientId: internal.twitchClientId,
     twitchClientSecretConfigured: Boolean(internal.twitchClientSecret),
     obsUrl: internal.obsUrl,
@@ -227,8 +221,10 @@ function toPublic(internal: AppConfigInternal): AppConfig {
   };
 }
 
-export function getAppConfig(): AppConfig {
-  return toPublic(current());
+// The signed-in login is passed in rather than resolved here: it belongs to the
+// Twitch identity module, which sits above this store.
+export function getAppConfig(twitchChannelFromLogin = ''): AppConfig {
+  return toPublic(current(), twitchChannelFromLogin);
 }
 
 // Config keys whose change requires a service to reconnect/restart.
@@ -323,7 +319,10 @@ function resolveSecret(clear: boolean | undefined, next: string | undefined, exi
   return existing;
 }
 
-export function saveAppConfig(body: unknown): { config: AppConfig; changes: Set<AppConfigChange> } {
+export function saveAppConfig(
+  body: unknown,
+  twitchChannelFromLogin = '',
+): { config: AppConfig; changes: Set<AppConfigChange> } {
   const prev = current();
   const update = normalizeUpdate(body, prev);
 
@@ -383,21 +382,22 @@ export function saveAppConfig(body: unknown): { config: AppConfig; changes: Set<
     changes.add('discord');
   }
 
-  return { config: toPublic(next), changes };
+  return { config: toPublic(next, twitchChannelFromLogin), changes };
 }
 
 export function registerAppConfigRoutes(
   app: express.Express,
   onSaved: (result: { config: AppConfig; changes: Set<AppConfigChange> }) => void,
+  twitchChannelFromLogin: () => string,
 ) {
   reloadAppConfig();
 
   app.get('/api/config', (_request, response) => {
-    response.json(getAppConfig());
+    response.json(getAppConfig(twitchChannelFromLogin()));
   });
 
   app.put('/api/config', handle((request, response) => {
-    const result = saveAppConfig(request.body);
+    const result = saveAppConfig(request.body, twitchChannelFromLogin());
     onSaved(result);
     response.json(result.config);
   }));

@@ -12,7 +12,7 @@ import type {
 } from '../shared/api';
 import { MAX_TIMEOUT_SECONDS } from '../shared/api';
 import type { ActionExecutor } from './actionExecutor';
-import { db } from './db';
+import { db, isUniqueConstraintError } from './db';
 import { handle, HttpRouteError } from './http';
 import { clamp } from './numeric';
 
@@ -311,10 +311,6 @@ const updateActionRecord = db.transaction((id: string, settings: ActionUpsert) =
   saveSteps(id, settings.steps, now);
 });
 
-function isUniqueNameError(error: unknown): boolean {
-  return error instanceof Error && error.message.toLowerCase().includes('unique');
-}
-
 function rowToStep(row: StepRow): ActionStep {
   // payload_json is written only by saveSteps, after normalizeStepPayload validated
   // it against the row's step_type, so the union stays sound on the way back out.
@@ -363,7 +359,7 @@ export function createAction(body: unknown): Action {
   try {
     id = createActionRecord(settings);
   } catch (error) {
-    if (isUniqueNameError(error)) throw new HttpRouteError(409, `An action named "${settings.name}" already exists.`);
+    if (isUniqueConstraintError(error)) throw new HttpRouteError(409, `An action named "${settings.name}" already exists.`);
     throw error;
   }
   const saved = getActionById(id);
@@ -377,7 +373,7 @@ export function updateAction(id: string, body: unknown): Action {
   try {
     updateActionRecord(id, settings);
   } catch (error) {
-    if (isUniqueNameError(error)) throw new HttpRouteError(409, `An action named "${settings.name}" already exists.`);
+    if (isUniqueConstraintError(error)) throw new HttpRouteError(409, `An action named "${settings.name}" already exists.`);
     throw error;
   }
   const saved = getActionById(id);

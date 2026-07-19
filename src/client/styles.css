@@ -73,7 +73,7 @@ button:disabled {
 /* Touch surface: a clear pressed state matters more than hover. */
 .tablet-shell button:active:not(:disabled) {
   transform: scale(0.97);
-  background: rgba(255, 184, 108, 0.12);
+  background: rgba(var(--gold-rgb), 0.12);
 }
 
 .tablet-shell button:focus-visible {
@@ -198,7 +198,7 @@ nav {
 .chat-message.mention {
   --border-color: var(--gold-500);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--warning-border),
-    0 0 22px rgba(255, 184, 108, 0.28);
+    0 0 22px rgba(var(--gold-rgb), 0.28);
 }
 
 .chat-emote {
@@ -561,7 +561,7 @@ nav {
   width: 100%;
   border-radius: 8px;
   background: rgba(28, 39, 62, 0.9);
-  border: 1px solid rgba(255, 184, 108, 0.25);
+  border: 1px solid rgba(var(--gold-rgb), 0.25);
   padding: 14px 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(6px);
@@ -667,7 +667,7 @@ nav {
 .tablet-back-link:hover {
   color: var(--gold-400);
   border-color: var(--border-3);
-  background: rgba(255, 184, 108, 0.1);
+  background: rgba(var(--gold-rgb), 0.1);
 }
 
 /* Two columns for the whole surface: a wide left rail of controls (OBS scenes,
@@ -689,7 +689,7 @@ nav {
 
 .tablet-panel {
   border: 1px solid var(--border-1);
-  border-left: 2px solid rgba(255, 184, 108, 0.2);
+  border-left: 2px solid rgba(var(--gold-rgb), 0.2);
   border-radius: var(--radius-3);
   background:
     radial-gradient(circle at 95% 5%, rgba(61, 43, 107, 0.07), transparent 60%),
@@ -924,7 +924,7 @@ nav {
   border-color: var(--gold-400);
   background: var(--gold-500);
   color: var(--navy-950);
-  box-shadow: 0 0 20px rgba(255, 184, 108, 0.22);
+  box-shadow: 0 0 20px rgba(var(--gold-rgb), 0.22);
   opacity: 1;
 }
 

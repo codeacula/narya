@@ -1,6 +1,5 @@
 import type express from 'express';
 import type { DiscordAnnounceFailedPayload, GoLiveResult, GoLiveSettings, GoLiveSettingsUpdate, ObsStatus } from '../shared/api';
-import { appConfig } from './appConfig';
 import { db } from './db';
 import { clearDiscordStatusCache, sendDiscordMessage } from './discord';
 import { handle, HttpRouteError } from './http';
@@ -14,6 +13,7 @@ import {
   recordSessionAnnounceError,
 } from './streamSession';
 import { fetchCurrentTwitchStream, getEventSubCredentials } from './twitch/api';
+import { getTwitchChannel } from './twitchIdentity';
 
 const SETTINGS_ID = 'default';
 
@@ -66,7 +66,7 @@ function defaultGoLiveScene(): string {
 }
 
 function defaultDiscordMessage(): string {
-  return `I'm live now: https://twitch.tv/${appConfig.twitchChannel}`;
+  return `I'm live now: https://twitch.tv/${getTwitchChannel()}`;
 }
 
 export function getGoLiveSettings(): GoLiveSettings {
@@ -132,9 +132,9 @@ export function saveGoLiveSettings(body: unknown): GoLiveSettings {
 }
 
 function renderDiscordMessage(template: string, vars: { title: string; category: string }): string {
-  const twitchUrl = `https://twitch.tv/${appConfig.twitchChannel}`;
+  const twitchUrl = `https://twitch.tv/${getTwitchChannel()}`;
   return template
-    .replaceAll('{channel}', appConfig.twitchChannel)
+    .replaceAll('{channel}', getTwitchChannel())
     .replaceAll('{url}', twitchUrl)
     .replaceAll('{twitchUrl}', twitchUrl)
     .replaceAll('{title}', vars.title)

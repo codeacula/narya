@@ -1,21 +1,10 @@
 import React from 'react';
 import type { MusicInfo } from '../shared/api';
-import { useSocket } from './realtime';
+import { useLiveValue } from './liveValue';
 import { getCurrentMusic } from './services/dashboard';
 
 export function useMusic() {
-  const [music, setMusic] = React.useState<MusicInfo | null>(null);
-
-  React.useEffect(() => {
-    getCurrentMusic()
-      .then(setMusic)
-      .catch(() => setMusic(null));
-  }, []);
-
-  useSocket<MusicInfo>(
-    'music:updated',
-    React.useCallback((next) => setMusic(next), []),
-  );
+  const [music] = useLiveValue<MusicInfo | null>(getCurrentMusic, 'music:updated', null);
 
   return music;
 }

@@ -1,7 +1,6 @@
 import tmi from 'tmi.js';
 import type { ChatMessage } from '../shared/api';
 import { getRoleFromBadges } from '../shared/roles';
-import { appConfig } from './appConfig';
 import { getTriggerDispatcher } from './automation';
 import { db } from './db';
 import { broadcast } from './realtime';
@@ -12,6 +11,7 @@ import {
   recordCurrentSessionChatter,
 } from './streamSession';
 import { speakText } from './tts';
+import { getTwitchChannel } from './twitchIdentity';
 import { isLoginIgnored } from './viewerIdentity';
 
 let twitchRoomId: string | null = null;
@@ -72,10 +72,10 @@ const markChannelMessagesDeleted = db.prepare(`
 
 export const twitchClient = new tmi.Client({
   connection: { reconnect: true, secure: true },
-  channels: appConfig.twitchChannel ? [appConfig.twitchChannel] : [],
+  channels: getTwitchChannel() ? [getTwitchChannel()] : [],
 });
 
-let joinedChannel = appConfig.twitchChannel;
+let joinedChannel = getTwitchChannel();
 
 export function getTwitchRoomId(): string | null {
   return twitchRoomId;
@@ -113,7 +113,7 @@ twitchClient.on('message', (channel, tags, message, self) => {
   const occurredAt = new Date().toISOString();
   const username = (tags.username ?? 'unknown').toLowerCase();
   const badges = (tags.badges as Record<string, string> | null) ?? null;
-  const isChannelOwner = username === appConfig.twitchChannel.toLowerCase() || Boolean(badges?.broadcaster);
+  const isChannelOwner = username === getTwitchChannel().toLowerCase() || Boolean(badges?.broadcaster);
   const messageId = tags.id ?? crypto.randomUUID();
   const isFirstEver = !isChannelOwner && !hasSeenChatterBefore(username);
   // The broadcaster is excluded from session chatter counts, but their messages
@@ -272,7 +272,7 @@ twitchClient.on('clearchat', (channel) => {
 
 export function connectTwitchChat(state: RuntimeState) {
   runtimeState = state;
-  joinedChannel = appConfig.twitchChannel;
+  joinedChannel = getTwitchChannel();
   twitchClient.connect().catch((error: unknown) => {
     console.error('Failed to connect to Twitch chat:', error);
   });
@@ -281,7 +281,7 @@ export function connectTwitchChat(state: RuntimeState) {
 // Join the currently-configured channel, leaving the previous one. Used when the
 // channel is changed from Settings without restarting the process.
 export async function applyTwitchChannel() {
-  const next = appConfig.twitchChannel;
+  const next = getTwitchChannel();
   if (next === joinedChannel) return;
 
   const previous = joinedChannel;

@@ -1,11 +1,12 @@
+import { getAppConfigInternal } from './appConfig';
 import { db } from './db';
 
 /**
- * Who the stored Twitch OAuth tokens belong to.
+ * Who the stored Twitch OAuth tokens belong to, and the channel derived from them.
  *
- * Deliberately its own module rather than part of twitch/auth.ts: appConfig falls
- * back to the signed-in login when no channel has been typed, and auth.ts already
- * imports appConfig. This has no imports beyond db, so neither side gains a cycle.
+ * Deliberately its own module rather than part of twitch/auth.ts: auth.ts both
+ * writes the identity and reads appConfig, so folding this in would make every
+ * appConfig consumer drag the OAuth flow along with it.
  */
 
 export type TwitchAccount = 'user' | 'bot';
@@ -24,7 +25,7 @@ const updateIdentity = db.prepare(`
 
 export type TwitchIdentity = { userId: string; login: string };
 
-// The user login is read on every appConfig.twitchChannel access, which is per chat
+// The user login is read on every getTwitchChannel() call, which is per chat
 // message — cache it rather than hitting SQLite each time. `undefined` means "not
 // loaded yet"; `null` means "loaded, nobody is signed in".
 const cache = new Map<TwitchAccount, TwitchIdentity | null>();
@@ -42,6 +43,20 @@ export function getTwitchIdentity(account: TwitchAccount): TwitchIdentity | null
 /** The signed-in broadcaster's login, or '' when nobody is signed in. */
 export function getAuthenticatedTwitchLogin(): string {
   return getTwitchIdentity('user')?.login ?? '';
+}
+
+/**
+ * The channel every service actually operates on: the stored override if the
+ * operator typed one, otherwise the login they signed in with. Nobody runs a
+ * dashboard for a channel they aren't logged into, so making them type their own
+ * name was a required field that could only ever be wrong.
+ *
+ * `AppConfigInternal.twitchChannel` stays the *stored* value — Settings has to
+ * render an empty field as empty, or saving the form would silently freeze the
+ * derived login into an override.
+ */
+export function getTwitchChannel(): string {
+  return getAppConfigInternal().twitchChannel || getAuthenticatedTwitchLogin();
 }
 
 /**
