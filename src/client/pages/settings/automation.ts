@@ -12,6 +12,7 @@ import type {
   AutomationTriggerKind,
   CategoryModule,
   ChatPhraseMatch,
+  Counter,
   MediaAsset,
   TriggerRole,
 } from '../../../shared/api';
@@ -40,6 +41,7 @@ export const STEP_TYPES: ActionStepType[] = [
   'twitch_whisper',
   'twitch_timeout',
   'twitch_ban',
+  'adjust_counter',
 ];
 
 export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
@@ -54,6 +56,7 @@ export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
   twitch_whisper: 'Twitch whisper',
   twitch_timeout: 'Twitch timeout',
   twitch_ban: 'Twitch ban',
+  adjust_counter: 'Adjust counter',
 };
 
 export const TRIGGER_KINDS: AutomationTriggerKind[] = [
@@ -156,6 +159,9 @@ export function newStep(type: ActionStepType): ActionStepInput {
       return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', secondsTemplate: '600', reasonTemplate: '' } };
     case 'twitch_ban':
       return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', reasonTemplate: '' } };
+    // Defaults to the common case: bump the chosen counter by one.
+    case 'adjust_counter':
+      return { type, enabled: true, delayMs: 0, payload: { counterId: '', mode: 'add', amountTemplate: '1' } };
   }
 }
 
@@ -201,7 +207,7 @@ export function formatRoles(roles: TriggerRole[]): string {
 }
 
 /** A one-line summary of a step for the collapsed list row. */
-export function describeStep(step: ActionStepInput, assets: MediaAsset[] = []): string {
+export function describeStep(step: ActionStepInput, assets: MediaAsset[] = [], counters: Counter[] = []): string {
   switch (step.type) {
     case 'show_text':
       return step.payload.template || '(no text)';
@@ -228,6 +234,14 @@ export function describeStep(step: ActionStepInput, assets: MediaAsset[] = []): 
       return `${step.payload.loginTemplate} for ${step.payload.secondsTemplate}s`;
     case 'twitch_ban':
       return step.payload.loginTemplate;
+    case 'adjust_counter': {
+      const counter = counters.find(entry => entry.id === step.payload.counterId);
+      const name = counter?.label ?? 'unknown counter';
+      const amount = step.payload.amountTemplate;
+      if (step.payload.mode === 'set') return `set ${name} to ${amount}`;
+      // A leading sign already reads as a direction, so "+1" must not become "by +1".
+      return /^[+-]/.test(amount) ? `${name} ${amount}` : `${name} by ${amount}`;
+    }
   }
 }
 
@@ -376,6 +390,20 @@ export function validateStep(step: ActionStepInput, index: number): string | nul
     case 'twitch_ban':
       if (templateMissing(step.payload.loginTemplate)) return `${where}: needs a target login.`;
       return null;
+    case 'adjust_counter': {
+      if (templateMissing(step.payload.counterId)) return `${where}: pick a counter.`;
+      const amount = step.payload.amountTemplate.trim();
+      if (!amount) return `${where}: needs an amount.`;
+      // A templated amount ("{arg1}") can only be checked once it renders, in the
+      // executor — which skips rather than guessing. Only a literal is checkable here.
+      if (!amount.includes('{')) {
+        const literal = Number(amount);
+        if (!Number.isFinite(literal) || !Number.isSafeInteger(Math.round(literal))) {
+          return `${where}: amount must be a whole number.`;
+        }
+      }
+      return null;
+    }
   }
 }
 

@@ -6,6 +6,8 @@ import type {
   ActionStepResult,
   ChatMessage,
   ChatSender,
+  Counter,
+  CounterAdjustMode,
   MediaAsset,
   OverlayTextPlayback,
   RewardMedia,
@@ -13,7 +15,9 @@ import type {
 } from '../shared/api';
 import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from '../shared/api';
 import { getActionById } from './actions';
+import type { CounterResolver } from './actionTemplates';
 import { renderActionTemplate } from './actionTemplates';
+import { adjustCounter as adjustCounterRow, getCounterValue } from './counters';
 import { askPonderLlm } from './llm';
 import { switchObsScene, triggerObsTransition } from './obs';
 import { broadcast } from './realtime';
@@ -52,6 +56,13 @@ export type ActionExecutorDeps = {
   now?: () => Date;
   /** The master media mute. When true, a quickDisable Action is skipped silently. */
   isMuted?: () => boolean;
+  /**
+   * Applies an adjust_counter step. Returns null when the counter is gone, which
+   * the step reports as a skip.
+   */
+  adjustCounter?: (id: string, mode: CounterAdjustMode, amount: number) => Counter | null;
+  /** Live per-render lookup for {counter:key}. See CounterResolver. */
+  resolveCounter?: CounterResolver;
 };
 
 export type ActionExecutor = {
@@ -118,6 +129,8 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     newId = () => crypto.randomUUID(),
     now = () => new Date(),
     isMuted = () => false,
+    adjustCounter = adjustCounterRow,
+    resolveCounter = getCounterValue,
   } = deps;
 
   /**
@@ -127,7 +140,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
    * command that lands with the wrong duration beats one that does not land at all.
    */
   function renderTimeoutSeconds(template: string, context: TemplateContext): number {
-    const rendered = renderActionTemplate(template, context).trim();
+    const rendered = renderActionTemplate(template, context, resolveCounter).trim();
     const seconds = Math.round(Number(rendered));
     if (!Number.isFinite(seconds) || seconds < 1 || seconds > MAX_TIMEOUT_SECONDS) {
       return DEFAULT_TIMEOUT_SECONDS;
@@ -147,7 +160,9 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
   }
 
   async function dispatch(step: ActionStep, context: TemplateContext): Promise<StepOutcome> {
-    const render = (template: string) => renderActionTemplate(template, context);
+    // The funnel for every template render in this switch, so counter tokens work
+    // in text, chat, TTS, whispers, and LLM prompts from this one place.
+    const render = (template: string) => renderActionTemplate(template, context, resolveCounter);
 
     switch (step.type) {
       case 'show_text': {
@@ -233,6 +248,20 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         if (!login) return skipped('The ban target rendered empty.');
         await banUser(state, login, render(step.payload.reasonTemplate));
         return SUCCEEDED;
+      }
+
+      case 'adjust_counter': {
+        const rendered = render(step.payload.amountTemplate).trim();
+        const amount = Number(rendered);
+        // Deliberately unlike twitch_timeout, which falls back to a default: there
+        // is no safe default for how much to write into a durable counter, so a
+        // template that renders empty or non-numeric skips rather than guessing.
+        if (!rendered || !Number.isFinite(amount)) {
+          return skipped(`The counter amount rendered "${rendered}", which is not a number.`);
+        }
+        const counter = adjustCounter(step.payload.counterId, step.payload.mode, Math.round(amount));
+        if (!counter) return skipped('That counter no longer exists.');
+        return { status: 'succeeded', detail: `${counter.key} = ${counter.value}` };
       }
     }
   }

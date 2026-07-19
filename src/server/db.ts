@@ -200,6 +200,18 @@ db.exec(`
     updated_at text not null
   );
 
+  -- Durable named tallies. The value column is deliberately signed: a counter is
+  -- not necessarily a tally, and clamping at zero would discard a deliberate
+  -- negative. The key column is the counter template token, and is unique.
+  create table if not exists counters (
+    id text primary key,
+    key text not null unique,
+    label text not null,
+    value integer not null default 0,
+    created_at text not null,
+    updated_at text not null
+  );
+
   create table if not exists viewer_reward_categories (
     id text primary key,
     name text not null unique,
@@ -506,6 +518,7 @@ const allowedMigrationTables = new Set([
   'app_config',
   'alert_settings',
   'actions',
+  'stream_status',
 ]);
 const allowedMigrationColumns = new Set([
   'account_user_id',
@@ -538,6 +551,7 @@ const allowedMigrationColumns = new Set([
   'obs_scene_prefix',
   'sound_button_volume',
   'quick_disable',
+  'raw_text',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -575,6 +589,10 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // rather than what it actually controls: the default sound-button volume.
   sound_button_volume: 'real not null default 0.2',
   quick_disable: 'integer not null default 0',
+  // The operator's unrendered status line, with its {counter:key} tokens intact.
+  // stream_status.text holds the rendered result, because that column feeds the
+  // overlay-reachable GET and the status:updated broadcast.
+  raw_text: "text not null default ''",
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -643,6 +661,18 @@ addColumnIfMissing('alert_settings', 'sound_src', 'text');
 addColumnIfMissing('alert_settings', 'sound_volume', 'real');
 addColumnIfMissing('alert_settings', 'clip_src', 'text');
 addColumnIfMissing('alert_settings', 'clip_volume', 'real');
+
+// The status line split into stored-raw and rendered. An existing row's `text` is
+// its raw text — it predates counters, so it holds no tokens — and is carried across
+// so the operator's current status survives the upgrade.
+//
+// runOnce, not an unconditional update: this writes a column computed from another
+// column, and re-running it after the operator has since cleared their status would
+// resurrect the old text from the rendered copy.
+addColumnIfMissing('stream_status', 'raw_text', "text not null default ''");
+runOnce('seed-stream-status-raw-text', () => {
+  db.exec('update stream_status set raw_text = text');
+});
 
 // tmi logins are already lowercase, but historically some rows were stored with
 // mixed case. Normalize them once so username queries can use plain equality and

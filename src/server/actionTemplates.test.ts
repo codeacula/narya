@@ -93,3 +93,71 @@ describe('rest tokens', () => {
     expect(renderActionTemplate('{rest9}', context)).toBe('');
   });
 });
+
+describe('{counter:key}', () => {
+  const counters = (values: Record<string, number>) =>
+    (key: string) => (key in values ? values[key] : undefined);
+
+  test('renders a counter value', () => {
+    expect(renderActionTemplate('Deaths: {counter:deaths}', {}, counters({ deaths: 42 })))
+      .toBe('Deaths: 42');
+  });
+
+  test('renders zero as "0" rather than empty or literal', () => {
+    // A truthiness test on the resolved value would put a raw token on the live
+    // stream at exactly zero deaths.
+    expect(renderActionTemplate('{counter:deaths}', {}, counters({ deaths: 0 }))).toBe('0');
+  });
+
+  test('renders a negative value', () => {
+    expect(renderActionTemplate('{counter:net}', {}, counters({ net: -3 }))).toBe('-3');
+  });
+
+  test('leaves an unknown key as a literal token so a typo stays visible', () => {
+    expect(renderActionTemplate('{counter:typo}', {}, counters({ deaths: 1 })))
+      .toBe('{counter:typo}');
+  });
+
+  test('leaves the token alone when no resolver is supplied', () => {
+    expect(renderActionTemplate('{counter:deaths}', {})).toBe('{counter:deaths}');
+  });
+
+  test('renders several counters and other tokens in one template', () => {
+    expect(renderActionTemplate(
+      '{actor} died. Deaths: {counter:deaths}, wipes: {counter:wipes}',
+      { actor: 'Sorlus' },
+      counters({ deaths: 4, wipes: 2 }),
+    )).toBe('Sorlus died. Deaths: 4, wipes: 2');
+  });
+
+  test('does not re-expand a value that looks like a token', () => {
+    // Single-pass: chat text is attacker-controlled, so an interpolated value is
+    // never itself re-scanned.
+    expect(renderActionTemplate('{message} {counter:deaths}', { message: '{counter:deaths}' }, counters({ deaths: 5 })))
+      .toBe('{counter:deaths} 5');
+  });
+});
+
+describe('the widened token pattern does not change existing behavior', () => {
+  test('a hyphenated brace expression still round-trips unchanged', () => {
+    // {a-b} now *enters* the replace callback where it did not before; the
+    // unknown-token branch must still return it verbatim.
+    expect(renderActionTemplate('{a-b}', { actor: 'Sorlus' })).toBe('{a-b}');
+  });
+
+  test('a colon brace expression still round-trips unchanged', () => {
+    expect(renderActionTemplate('{x:y}', {})).toBe('{x:y}');
+  });
+
+  test('a counter-shaped token with an invalid key stays literal', () => {
+    expect(renderActionTemplate('{counter:Bad_Key}', {}, () => 7)).toBe('{counter:Bad_Key}');
+  });
+
+  test('the anchors still stop {arg1-x} reading as {arg1}', () => {
+    expect(renderActionTemplate('{arg1-x}', { args: ['first'] })).toBe('{arg1-x}');
+  });
+
+  test('the anchors still stop {rest1-x} reading as {rest1}', () => {
+    expect(renderActionTemplate('{rest1-x}', { args: ['a', 'b'] })).toBe('{rest1-x}');
+  });
+});

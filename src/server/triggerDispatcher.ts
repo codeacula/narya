@@ -5,6 +5,8 @@ import type {
   AutomationTrigger,
   ChatMessage,
   ChatPhraseTriggerConfig,
+  Counter,
+  CounterAdjustMode,
   SlashCommandResponse,
   TemplateContext,
   TriggerRole,
@@ -12,6 +14,11 @@ import type {
 } from '../shared/api';
 import { getViewerRolesFromBadges } from '../shared/roles';
 import { getAutomationTrigger, listEnabledTriggersOfKind } from './automationTriggers';
+import {
+  adjustCounterByKey as adjustCounterByKeyRow,
+  findCounterByKey as findCounterByKeyRow,
+  normalizeCounterKey,
+} from './counters';
 import { db } from './db';
 import { HttpRouteError } from './http';
 
@@ -22,6 +29,9 @@ export type TriggerDispatcherDeps = {
   /** Login of Narya's own bot identity, for loop prevention. */
   getBotLogin: () => string | null;
   now?: () => Date;
+  /** Counters port, for the reserved /counter built-in. Seams for tests. */
+  findCounterByKey?: (key: string) => Counter | null;
+  adjustCounterByKey?: (key: string, mode: CounterAdjustMode, amount: number) => Counter | null;
 };
 
 /** One Twitch alert-shaped event. `eventId` is the EventSub message id — the dedupe key. */
@@ -169,7 +179,14 @@ function commandMatch(config: ViewerCommandTriggerConfig, word: string): boolean
 }
 
 export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDispatcher {
-  const { runAction, getActiveModuleId, getBotLogin, now = () => new Date() } = deps;
+  const {
+    runAction,
+    getActiveModuleId,
+    getBotLogin,
+    now = () => new Date(),
+    findCounterByKey = findCounterByKeyRow,
+    adjustCounterByKey = adjustCounterByKeyRow,
+  } = deps;
 
   /** A trigger with a moduleId is armed only while that module is the live one. */
   function isArmed(trigger: AutomationTrigger): boolean {
@@ -360,6 +377,67 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
    * are the TARGET and `{args}` is the free text after it. `{input}` still holds
    * everything after the command word, which is what a targetless command should use.
    */
+  /**
+   * `/counter` is a reserved built-in rather than a seeded Action, because the
+   * Action path cannot express it:
+   *
+   *  - a slash response's message is synthesized from the run *status*, so an
+   *    Action's steps have no way to report a counter's value back; and
+   *  - an adjust_counter step names one counter in one mode, so a single Action
+   *    could never address whichever counter the operator typed.
+   *
+   * This is a deliberate exception to "chat commands are Actions — do not hard-code
+   * one". That rule protects *viewer* commands from bypassing cooldowns, roles, and
+   * dedup; this is operator-only and reachable solely through the dashboard's
+   * command bar. The tradeoff it does carry: `+1` and `set` write, and a built-in
+   * bypasses automation_runs entirely, so these adjustments leave no run log and no
+   * dedup row. Reads are free of that concern.
+   *
+   * Returns null when this is not a counter command, so the caller falls through to
+   * its normal unknown-command message.
+   */
+  function handleCounterCommand(word: string, args: string[]): SlashCommandResponse | null {
+    if (word !== '/counter') return null;
+
+    const key = normalizeCounterKey(args[0] ?? '');
+    if (!key) {
+      return { ok: false, message: 'Usage: /counter <key> [+1 | -1 | set <n>]', run: null };
+    }
+
+    const counter = findCounterByKey(key);
+    if (!counter) {
+      return { ok: false, message: `No counter with the key "${key}".`, run: null };
+    }
+
+    // No adjustment: report and change nothing.
+    if (args.length < 2) {
+      return { ok: true, message: `${counter.label}: ${counter.value}`, run: null };
+    }
+
+    const verb = (args[1] ?? '').toLowerCase();
+    const mode: CounterAdjustMode = verb === 'set' ? 'set' : 'add';
+    // "/counter deaths set 4" puts the number in arg 3; "/counter deaths +1" in arg 2.
+    const rawAmount = (mode === 'set' ? args[2] : args[1]) ?? '';
+    const amount = Number(rawAmount);
+    if (!rawAmount || !Number.isFinite(amount)) {
+      return {
+        ok: false,
+        message: `"${rawAmount || verb}" is not a number. Usage: /counter ${key} [+1 | -1 | set <n>]`,
+        run: null,
+      };
+    }
+
+    const updated = adjustCounterByKey(key, mode, Math.round(amount));
+    if (!updated) {
+      return { ok: false, message: `No counter with the key "${key}".`, run: null };
+    }
+    return {
+      ok: true,
+      message: `${updated.label}: ${counter.value} → ${updated.value}`,
+      run: null,
+    };
+  }
+
   async function handleSlashCommand(raw: string): Promise<SlashCommandResponse> {
     const text = (raw ?? '').trim();
     if (!text.startsWith('/')) {
@@ -377,6 +455,10 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
         && (candidate.config.command === word || candidate.config.aliases.includes(word)),
     );
     if (!trigger) {
+      // Built-ins are checked only AFTER the trigger lookup, so an operator who
+      // creates their own /counter trigger still wins over this one.
+      const builtIn = handleCounterCommand(word, tokens.slice(1));
+      if (builtIn) return builtIn;
       return { ok: false, message: `Unknown command ${word}.`, run: null };
     }
     if (!isArmed(trigger)) {

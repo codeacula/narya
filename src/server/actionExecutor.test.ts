@@ -594,3 +594,166 @@ describe('master media mute', () => {
     expect(h.calls.chats).toEqual([{ message: 'hi', sender: 'bot' }]);
   });
 });
+
+// --- adjust_counter -----------------------------------------------------------
+
+/**
+ * A counter store backed by a plain object, so these tests exercise the executor's
+ * behavior rather than SQLite's. `resolveCounter` reads through it live, which is
+ * what makes the ordering test below meaningful.
+ */
+function counterStore(initial: Record<string, number> = {}) {
+  const values: Record<string, number> = { ...initial };
+  const keyById = (id: string) => id.replace(/^counter-/, '');
+
+  const deps: Partial<ActionExecutorDeps> = {
+    adjustCounter: (id, mode, amount) => {
+      const key = keyById(id);
+      if (!(key in values)) return null;
+      values[key] = mode === 'add' ? values[key]! + amount : amount;
+      return {
+        id, key, label: key, value: values[key]!,
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      };
+    },
+    resolveCounter: (key: string) => (key in values ? values[key] : undefined),
+  };
+
+  return { values, deps };
+}
+
+describe('adjust_counter', () => {
+  test('add moves the counter and reports the new value', async () => {
+    const counters = counterStore({ deaths: 41 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '1' },
+    } as never)]), counters.deps);
+    const result = await run(h);
+
+    expect(counters.values.deaths).toBe(42);
+    expect(result.status).toBe('succeeded');
+    expect(result.steps[0]!.detail).toBe('deaths = 42');
+  });
+
+  test('set assigns, so "set 0" is how a reset is expressed', async () => {
+    const counters = counterStore({ deaths: 99 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'set', amountTemplate: '0' },
+    } as never)]), counters.deps);
+    await run(h);
+    expect(counters.values.deaths).toBe(0);
+  });
+
+  test('decrements on a negative amount rather than clamping', async () => {
+    const counters = counterStore({ deaths: 1 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '-5' },
+    } as never)]), counters.deps);
+    await run(h);
+    expect(counters.values.deaths).toBe(-4);
+  });
+
+  test('binds the amount from the invocation', async () => {
+    const counters = counterStore({ deaths: 0 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '{arg1}' },
+    } as never)]), counters.deps);
+    await run(h, { args: ['3'] });
+    expect(counters.values.deaths).toBe(3);
+  });
+
+  test('SKIPS a non-numeric amount rather than defaulting, and writes nothing', async () => {
+    // Deliberately unlike twitch_timeout, which falls back to a default duration.
+    // There is no safe default for how much to write into a durable counter.
+    const counters = counterStore({ deaths: 7 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '{arg1}' },
+    } as never)]), counters.deps);
+    const result = await run(h, { args: ['banana'] });
+
+    expect(counters.values.deaths).toBe(7);
+    expect(result.steps[0]!.status).toBe('skipped');
+  });
+
+  test('skips an amount that renders empty', async () => {
+    const counters = counterStore({ deaths: 7 });
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '{arg1}' },
+    } as never)]), counters.deps);
+    const result = await run(h, { args: [] });
+
+    expect(counters.values.deaths).toBe(7);
+    expect(result.steps[0]!.status).toBe('skipped');
+  });
+
+  test('skips a counter that no longer exists', async () => {
+    const counters = counterStore({});
+    const h = harness(action([step({
+      type: 'adjust_counter',
+      payload: { counterId: 'counter-gone', mode: 'add', amountTemplate: '1' },
+    } as never)]), counters.deps);
+    const result = await run(h);
+    expect(result.steps[0]!.status).toBe('skipped');
+  });
+});
+
+describe('{counter:key} in templates', () => {
+  test('renders a counter value into overlay text', async () => {
+    const counters = counterStore({ deaths: 12 });
+    const h = harness(action([step({
+      type: 'show_text',
+      payload: { template: 'Deaths: {counter:deaths}', durationMs: 5000, style: 'banner' },
+    } as never)]), counters.deps);
+    await run(h);
+
+    const playback = h.calls.broadcasts[0]!.payload as OverlayTextPlayback;
+    expect(playback.text).toBe('Deaths: 12');
+  });
+
+  test('renders zero as "0", not as empty and not as a literal token', async () => {
+    const counters = counterStore({ deaths: 0 });
+    const h = harness(action([step({
+      payload: { template: 'Deaths: {counter:deaths}', sender: 'bot' },
+    } as never)]), counters.deps);
+    await run(h);
+    expect(h.calls.chats[0]!.message).toBe('Deaths: 0');
+  });
+
+  test('leaves an unknown counter key visible as a literal token', async () => {
+    const counters = counterStore({});
+    const h = harness(action([step({
+      payload: { template: 'Deaths: {counter:typo}', sender: 'bot' },
+    } as never)]), counters.deps);
+    await run(h);
+    expect(h.calls.chats[0]!.message).toBe('Deaths: {counter:typo}');
+  });
+
+  /**
+   * The ordering guarantee the design depends on: same-delay steps start in stored
+   * order without awaiting each other, and adjust_counter writes synchronously, so a
+   * display step placed after an increment sees the incremented value. That is
+   * currently incidental; this test is what makes it a guarantee.
+   */
+  test('a display step after an increment at the same delay sees the new value', async () => {
+    const counters = counterStore({ deaths: 41 });
+    const h = harness(action([
+      step({
+        type: 'adjust_counter',
+        payload: { counterId: 'counter-deaths', mode: 'add', amountTemplate: '1' },
+      } as never),
+      step({
+        id: 'step-b',
+        payload: { template: 'Deaths: {counter:deaths}', sender: 'bot' },
+      } as never),
+    ]), counters.deps);
+    await run(h);
+
+    expect(h.calls.chats[0]!.message).toBe('Deaths: 42');
+  });
+});
