@@ -513,6 +513,22 @@ db.exec(`
   -- Partial: a slug is optional, so many quotes hold NULL, but a slug that IS set is
   -- a lookup handle and must resolve to exactly one quote.
   create unique index if not exists idx_quotes_slug on quotes(slug) where slug is not null;
+
+  -- What the bot and a viewer have said to each other, so an llm_response step can
+  -- replay a short conversation. Keyed by login alone: there is one bot, so its memory
+  -- of a person spans commands. Rows are written only AFTER the reply reaches chat, and
+  -- flushViewer deletes them outright — this is viewer chat content.
+  -- seq is the ordering key, not created_at: two turns recorded in the same
+  -- millisecond share a timestamp, and any random tiebreak (a UUID) would shuffle them.
+  -- autoincrement guarantees a monotonic sequence that pruning deletes cannot rewind.
+  create table if not exists llm_interactions (
+    seq integer primary key autoincrement,
+    login text not null,
+    prompt text not null,
+    reply text not null,
+    created_at text not null
+  );
+  create index if not exists idx_llm_interactions_login on llm_interactions(login, seq);
 `);
 
 // The runsheet and ticker features were removed; drop their tables from databases created before that.

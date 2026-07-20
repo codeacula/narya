@@ -547,6 +547,12 @@ export type ViewerFlushResult = {
    * because a flush silently editing the quote book would be a surprise.
    */
   quotesAnonymized: number;
+  /**
+   * Recorded LLM exchanges deleted. Unlike quotes these are removed outright: there is
+   * no public identifier in circulation to protect, and leaving them would let a
+   * flushed viewer keep shaping the bot's replies.
+   */
+  interactionsRemoved: number;
 };
 
 export type IgnoredLogin = {
