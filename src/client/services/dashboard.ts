@@ -499,8 +499,16 @@ export async function getTtsVoices(): Promise<TtsVoice[]> {
   return fetchJson<TtsVoice[]>('/api/tts/voices');
 }
 
-export async function getTtsStatus(): Promise<{ ok: boolean; baseUrl: string; error?: string }> {
-  return fetchJson<{ ok: boolean; baseUrl: string; error?: string }>('/api/tts/status');
+export type TtsStatus = {
+  ok: boolean;
+  baseUrl: string;
+  /** The module is off and the speech service was deliberately not contacted. */
+  disabled?: boolean;
+  error?: string;
+};
+
+export async function getTtsStatus(): Promise<TtsStatus> {
+  return fetchJson<TtsStatus>('/api/tts/status');
 }
 
 export async function testTtsSpeak(text: string): Promise<{ ok: boolean }> {

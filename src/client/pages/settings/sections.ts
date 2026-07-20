@@ -106,7 +106,7 @@ export const SETTINGS_SECTIONS: ReadonlyArray<SettingsSection> = [
     group: 'studio',
     label: 'Speech',
     title: 'Speech',
-    blurb: 'Where Chatterbox lives, and the voice behind !tts and every speak step. Test it here before a viewer does.',
+    blurb: 'Where Tengwar lives, and the voice behind !tts and every speak step. Test it here before a viewer does.',
   },
   {
     id: 'ai',

@@ -563,14 +563,15 @@ export type TtsVoice = {
   createdAt: string | null;
 };
 
+// Tengwar exposes a fixed set of speakers and no per-request tuning knobs, so the
+// only voice decision is which speaker id to send. The Chatterbox-era tuning fields
+// (tonePreset/exaggeration/cfgWeight/temperature) are gone rather than ignored: a
+// setting the engine cannot honour is worse than no setting at all.
 export type TtsSettings = {
   enabled: boolean;
+  /** Sent to Tengwar as `speakerId`. */
   voiceProfileId: string;
   languageId: string;
-  tonePreset: string;
-  exaggeration: number;
-  cfgWeight: number;
-  temperature: number;
   volume: number;
   updatedAt: string | null;
 };
@@ -579,10 +580,6 @@ export type TtsSettingsUpdate = {
   enabled: boolean;
   voiceProfileId: string;
   languageId: string;
-  tonePreset: string;
-  exaggeration: number;
-  cfgWeight: number;
-  temperature: number;
   volume: number;
 };
 
@@ -612,7 +609,10 @@ export type AppConfig = {
   obsScenePrefix: string;
   discordClientId: string;
   discordBotTokenConfigured: boolean;
-  chatterboxBaseUrl: string;
+  // Full base URL of the Tengwar speech service, port included (e.g.
+  // http://127.0.0.1:8008 or a Tailscale address). Endpoints are appended to it.
+  tengwarBaseUrl: string;
+  tengwarApiKeyConfigured: boolean;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   // Default playback volume for tablet sound buttons.
@@ -634,7 +634,9 @@ export type AppConfigUpdate = {
   discordClientId?: string;
   discordBotToken?: string;
   clearDiscordBotToken?: boolean;
-  chatterboxBaseUrl?: string;
+  tengwarBaseUrl?: string;
+  tengwarApiKey?: string;
+  clearTengwarApiKey?: boolean;
   musicPollIntervalMs?: number;
   musicPlayerctlPlayer?: string;
   soundVolume?: number;

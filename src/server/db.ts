@@ -257,17 +257,15 @@ db.exec(`
     last_used_at text not null
   );
 
+  -- enabled defaults to 0: a fresh install must not reach out to the Tengwar
+  -- speech service until the operator turns TTS on in Settings.
   create table if not exists tts_settings (
     id integer primary key,
-    enabled integer not null default 1,
+    enabled integer not null default 0,
     voice_id text not null default 'nPczCjzI2devNBz1zQrb',
     speed real not null default 1.0,
-    voice_profile_id text not null default 'zombiechicken',
+    voice_profile_id text not null default 'usFemale',
     language_id text not null default 'en',
-    tone_preset text not null default 'neutral',
-    exaggeration real not null default 0.5,
-    cfg_weight real not null default 0.5,
-    temperature real not null default 0.8,
     volume real not null default 0.8,
     updated_at text not null default ''
   );
@@ -612,11 +610,8 @@ const allowedMigrationColumns = new Set([
   'default_background_color',
   'voice_profile_id',
   'language_id',
-  'tone_preset',
-  'exaggeration',
-  'cfg_weight',
-  'temperature',
-  'chatterbox_base_url',
+  'tengwar_base_url',
+  'tengwar_api_key',
   'discord_announce_error',
   'discord_announce_attempts',
   'discord_announce_terminal',
@@ -645,13 +640,14 @@ const allowedMigrationDefinitions: Record<string, string> = {
   is_first_in_session: 'integer not null default 0',
   is_first_ever: 'integer not null default 0',
   default_background_color: 'text',
-  voice_profile_id: "text not null default 'zombiechicken'",
+  // A Tengwar speaker id. Rows still holding the Chatterbox-era 'zombiechicken'
+  // are remapped on read in tts.ts rather than rewritten here.
+  voice_profile_id: "text not null default 'usfemale'",
   language_id: "text not null default 'en'",
-  tone_preset: "text not null default 'neutral'",
-  exaggeration: 'real not null default 0.5',
-  cfg_weight: 'real not null default 0.5',
-  temperature: 'real not null default 0.8',
-  chatterbox_base_url: "text not null default 'http://127.0.0.1:8008'",
+  // One full base URL with the port already in it, matching obs_url's convention.
+  // Splitting host and port would make a Tailscale address two fields to get right.
+  tengwar_base_url: "text not null default 'http://127.0.0.1:8008'",
+  tengwar_api_key: "text not null default ''",
   discord_announce_error: 'text',
   discord_announce_attempts: 'integer not null default 0',
   discord_announce_terminal: 'integer not null default 0',
@@ -722,13 +718,13 @@ addColumnIfMissing('chat_messages', 'is_first_ever', 'integer not null default 0
 // the dashboard. Null for sessions with no plan and for rows predating the column.
 addColumnIfMissing('stream_sessions', 'planned_end_at', 'text');
 addColumnIfMissing('viewer_reward_categories', 'default_background_color', 'text');
-addColumnIfMissing('tts_settings', 'voice_profile_id', "text not null default 'zombiechicken'");
+addColumnIfMissing('tts_settings', 'voice_profile_id', "text not null default 'usFemale'");
 addColumnIfMissing('tts_settings', 'language_id', "text not null default 'en'");
-addColumnIfMissing('tts_settings', 'tone_preset', "text not null default 'neutral'");
-addColumnIfMissing('tts_settings', 'exaggeration', 'real not null default 0.5');
-addColumnIfMissing('tts_settings', 'cfg_weight', 'real not null default 0.5');
-addColumnIfMissing('tts_settings', 'temperature', 'real not null default 0.8');
-addColumnIfMissing('app_config', 'chatterbox_base_url', "text not null default 'http://127.0.0.1:8008'");
+// Speech is served by Tengwar: one full base URL (port included) plus an optional
+// API key sent as X-Api-Key. See appConfig.ts for the carry-over from the
+// Chatterbox-era columns these replace.
+addColumnIfMissing('app_config', 'tengwar_base_url', "text not null default 'http://127.0.0.1:8008'");
+addColumnIfMissing('app_config', 'tengwar_api_key', "text not null default ''");
 // OBS reports which scenes exist; the operator only configures which of them are
 // switch targets. Replaces app_config.obs_scenes, a hand-maintained duplicate of
 // the live scene list that went stale the moment a scene was renamed in OBS.

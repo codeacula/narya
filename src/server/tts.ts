@@ -1,26 +1,46 @@
 import type { TtsSettings, TtsSettingsUpdate, TtsVoice } from '../shared/api';
-import { TTS_TONE_PRESETS } from '../shared/tts';
 import { appConfig } from './appConfig';
-import { db } from './db';
+import { db, runOnce } from './db';
 import { HttpRouteError, readResponseError } from './http';
 import { clampFinite } from './numeric';
 import { broadcast } from './realtime';
 
-const DEFAULT_VOICE_PROFILE_ID = 'zombiechicken';
+/**
+ * A Tengwar speaker id. The service ships a fixed set (usMale/usFemale/ukMale/
+ * ukFemale) and 400s on anything else, so the fallback has to be one of them —
+ * 'zombiechicken', the Chatterbox-era default, would fail every synthesis.
+ */
+const DEFAULT_VOICE_PROFILE_ID = 'usFemale';
 const DEFAULT_LANGUAGE_ID = 'en';
 const MAX_TEXT_LENGTH = 500;
 
-const tonePresets: Record<string, Pick<TtsSettings, 'exaggeration' | 'cfgWeight' | 'temperature'>> = TTS_TONE_PRESETS;
+/** Reachability and voice-list calls sit on the operator's path through Settings. */
+const PROBE_TIMEOUT_MS = 4000;
+/** Synthesis runs a model; a cold GPU load is slow but not broken. */
+const SYNTHESIZE_TIMEOUT_MS = 30000;
+
+/**
+ * Tengwar has no per-request tuning knobs, so the Chatterbox-era tone_preset,
+ * exaggeration, cfg_weight and temperature columns describe nothing the engine can
+ * act on. Dropped rather than left behind, so the table matches TtsSettings exactly.
+ *
+ * Runs before the prepared statements below so they never compile against a shape
+ * that is about to change.
+ */
+runOnce('2026-07-drop-chatterbox-tts-tuning-columns', () => {
+  const columns = new Set(
+    (db.prepare('pragma table_info(tts_settings)').all() as Array<{ name: string }>).map(column => column.name),
+  );
+  for (const column of ['tone_preset', 'exaggeration', 'cfg_weight', 'temperature']) {
+    if (columns.has(column)) db.exec(`alter table tts_settings drop column ${column}`);
+  }
+});
 
 const getTtsSettingsRow = db.prepare(`
   select
     enabled,
     voice_profile_id as voiceProfileId,
     language_id as languageId,
-    tone_preset as tonePreset,
-    exaggeration,
-    cfg_weight as cfgWeight,
-    temperature,
     volume,
     updated_at as updatedAt
   from tts_settings
@@ -29,32 +49,31 @@ const getTtsSettingsRow = db.prepare(`
 
 const upsertTtsSettings = db.prepare(`
   insert into tts_settings (
-    id, enabled, voice_profile_id, language_id, tone_preset, exaggeration, cfg_weight, temperature, volume, updated_at
+    id, enabled, voice_profile_id, language_id, volume, updated_at
   )
-  values (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  values (1, ?, ?, ?, ?, ?)
   on conflict(id) do update set
     enabled = excluded.enabled,
     voice_profile_id = excluded.voice_profile_id,
     language_id = excluded.language_id,
-    tone_preset = excluded.tone_preset,
-    exaggeration = excluded.exaggeration,
-    cfg_weight = excluded.cfg_weight,
-    temperature = excluded.temperature,
     volume = excluded.volume,
     updated_at = excluded.updated_at
 `);
-
 
 type TtsSettingsRow = {
   enabled: number;
   voiceProfileId: string;
   languageId: string;
-  tonePreset: string;
-  exaggeration: number;
-  cfgWeight: number;
-  temperature: number;
   volume: number;
   updatedAt: string;
+};
+
+export type TtsEngineStatus = {
+  ok: boolean;
+  baseUrl: string;
+  /** True when TTS is switched off — the service was deliberately not contacted. */
+  disabled?: boolean;
+  error?: string;
 };
 
 function sanitizeLanguageId(value: string): string {
@@ -65,16 +84,21 @@ function sanitizeLanguageId(value: string): string {
   return languageId;
 }
 
+/**
+ * Rows written before the move to Tengwar hold Chatterbox voice ids that Tengwar
+ * rejects. Remapped on read rather than rewritten in a migration, so a settings row
+ * the operator never revisits still speaks instead of 400ing.
+ */
+function resolveVoiceProfileId(stored: string): string {
+  if (!stored || stored === 'default' || stored === 'zombiechicken') return DEFAULT_VOICE_PROFILE_ID;
+  return stored;
+}
+
 function rowToTtsSettings(row: TtsSettingsRow): TtsSettings {
-  const preset = tonePresets[row.tonePreset] ? row.tonePreset : 'neutral';
   return {
     enabled: row.enabled === 1,
-    voiceProfileId: !row.voiceProfileId || row.voiceProfileId === 'default' ? DEFAULT_VOICE_PROFILE_ID : row.voiceProfileId,
+    voiceProfileId: resolveVoiceProfileId(row.voiceProfileId),
     languageId: row.languageId || DEFAULT_LANGUAGE_ID,
-    tonePreset: preset,
-    exaggeration: row.exaggeration,
-    cfgWeight: row.cfgWeight,
-    temperature: row.temperature,
     volume: row.volume,
     updatedAt: row.updatedAt || null,
   };
@@ -85,38 +109,38 @@ function defaultTtsSettings(): TtsSettings {
     enabled: false,
     voiceProfileId: DEFAULT_VOICE_PROFILE_ID,
     languageId: DEFAULT_LANGUAGE_ID,
-    tonePreset: 'neutral',
-    exaggeration: 0.5,
-    cfgWeight: 0.5,
-    temperature: 0.8,
     volume: 0.8,
     updatedAt: null,
   };
 }
 
-async function postChatterbox(pathname: string, body: unknown): Promise<Response> {
-  const response = await fetch(`${appConfig.chatterboxBaseUrl}${pathname}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+/**
+ * Tengwar authenticates with X-Api-Key, and only when a key is configured on its
+ * side — an unkeyed instance accepts requests without the header, so sending an
+ * empty one would be worse than sending none.
+ */
+function tengwarHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  const apiKey = appConfig.tengwarApiKey;
+  if (apiKey) headers['X-Api-Key'] = apiKey;
+  return headers;
+}
+
+/**
+ * Every call is bounded. Without a timeout an unreachable-but-not-refusing address
+ * (a Tailscale peer that went to sleep, say) hangs the Settings page or a redemption
+ * indefinitely instead of reporting that the service is down.
+ */
+async function tengwarFetch(pathname: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const response = await fetch(`${appConfig.tengwarBaseUrl}${pathname}`, {
+    ...init,
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
-    const message = await readResponseError(response, `Chatterbox service error: ${response.status}`);
+    const message = await readResponseError(response, `Tengwar service error: ${response.status}`);
     throw new Error(message);
   }
   return response;
-}
-
-export async function getTtsEngineStatus(): Promise<{ ok: boolean; baseUrl: string; error?: string }> {
-  try {
-    const response = await fetch(`${appConfig.chatterboxBaseUrl}/voices`);
-    if (!response.ok) {
-      return { ok: false, baseUrl: appConfig.chatterboxBaseUrl, error: `${response.status} ${response.statusText}` };
-    }
-    return { ok: true, baseUrl: appConfig.chatterboxBaseUrl };
-  } catch (error) {
-    return { ok: false, baseUrl: appConfig.chatterboxBaseUrl, error: error instanceof Error ? error.message : 'Unavailable' };
-  }
 }
 
 export function getTtsSettings(): TtsSettings {
@@ -124,67 +148,95 @@ export function getTtsSettings(): TtsSettings {
   return row ? rowToTtsSettings(row) : defaultTtsSettings();
 }
 
+/**
+ * The reachability probe. /health is the one endpoint Tengwar leaves unauthenticated,
+ * which makes it the honest answer to "is the service up?" — probing /voices instead
+ * would report a misconfigured API key as an unreachable service.
+ */
+export async function getTtsEngineStatus(): Promise<TtsEngineStatus> {
+  // Switched off means switched off: no probe, no connection, nothing in Tengwar's
+  // log. An operator who disabled TTS should not leave narya quietly polling it.
+  if (!getTtsSettings().enabled) {
+    return { ok: false, disabled: true, baseUrl: appConfig.tengwarBaseUrl };
+  }
+  try {
+    const response = await fetch(`${appConfig.tengwarBaseUrl}/health`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      return { ok: false, baseUrl: appConfig.tengwarBaseUrl, error: `${response.status} ${response.statusText}` };
+    }
+    return { ok: true, baseUrl: appConfig.tengwarBaseUrl };
+  } catch (error) {
+    return { ok: false, baseUrl: appConfig.tengwarBaseUrl, error: error instanceof Error ? error.message : 'Unavailable' };
+  }
+}
+
 export function updateTtsSettings(update: TtsSettingsUpdate): TtsSettings {
   const updatedAt = new Date().toISOString();
-  const preset = tonePresets[update.tonePreset] ? update.tonePreset : 'neutral';
-  const presetValues = tonePresets[preset];
-  const voiceProfileId = update.voiceProfileId.trim() || DEFAULT_VOICE_PROFILE_ID;
+  const voiceProfileId = resolveVoiceProfileId(update.voiceProfileId.trim());
   const languageId = sanitizeLanguageId(update.languageId);
-  const exaggeration = clampFinite(Number(update.exaggeration), 0, 1.2, presetValues.exaggeration);
-  const cfgWeight = clampFinite(Number(update.cfgWeight), 0, 1, presetValues.cfgWeight);
-  const temperature = clampFinite(Number(update.temperature), 0.05, 1.5, presetValues.temperature);
   const volume = clampFinite(Number(update.volume), 0, 1, 0.8);
   upsertTtsSettings.run(
     update.enabled ? 1 : 0,
     voiceProfileId,
     languageId,
-    preset,
-    exaggeration,
-    cfgWeight,
-    temperature,
     volume,
     updatedAt,
   );
   return getTtsSettings();
 }
 
+/**
+ * Tengwar's speaker list. Its shape is {voices:[{id,name}]}; the remaining TtsVoice
+ * fields are narya's own, and Tengwar has nothing to say about them, so they carry
+ * neutral values rather than invented ones.
+ */
 export async function getTtsVoices(): Promise<TtsVoice[]> {
-  const response = await fetch(`${appConfig.chatterboxBaseUrl}/voices`);
-  if (!response.ok) {
-    const message = await readResponseError(response, `Chatterbox service error: ${response.status}`);
-    throw new Error(message);
-  }
+  if (!getTtsSettings().enabled) return [];
+  const response = await tengwarFetch('/voices', { headers: tengwarHeaders() }, PROBE_TIMEOUT_MS);
   const body = await response.json() as { voices?: unknown };
-  if (!Array.isArray(body.voices) || !body.voices.every(voice => typeof voice === 'string')) {
-    throw new Error('Chatterbox returned an invalid voices response.');
-  }
-  return body.voices.map(id => ({
-    id,
-    name: id,
-    category: 'registered',
-    languageId: DEFAULT_LANGUAGE_ID,
-    createdAt: null,
-  }));
+  if (!Array.isArray(body.voices)) throw new Error('Tengwar returned an invalid voices response.');
+  return body.voices.map(voice => {
+    const entry = (voice ?? {}) as { id?: unknown; name?: unknown };
+    if (typeof entry.id !== 'string' || !entry.id) {
+      throw new Error('Tengwar returned an invalid voices response.');
+    }
+    return {
+      id: entry.id,
+      name: typeof entry.name === 'string' && entry.name ? entry.name : entry.id,
+      category: 'tengwar',
+      languageId: DEFAULT_LANGUAGE_ID,
+      createdAt: null,
+    };
+  });
 }
 
-
-
-
 async function synthesizeSpeech(text: string, settings: TtsSettings): Promise<Buffer> {
-  const response = await postChatterbox('/synthesize', {
-    text,
-    voiceId: settings.voiceProfileId || DEFAULT_VOICE_PROFILE_ID,
-    exaggeration: settings.exaggeration,
-    cfgWeight: settings.cfgWeight,
-    temperature: settings.temperature,
-  });
+  const response = await tengwarFetch(
+    '/synthesize',
+    {
+      method: 'POST',
+      headers: tengwarHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        text,
+        speakerId: settings.voiceProfileId || DEFAULT_VOICE_PROFILE_ID,
+      }),
+    },
+    SYNTHESIZE_TIMEOUT_MS,
+  );
   const arrayBuffer = await response.arrayBuffer();
   return Buffer.from(arrayBuffer);
 }
 
-export async function speakText(text: string, force = false): Promise<void> {
+/**
+ * No `force` escape hatch: the Test button used to pass one, which meant a disabled
+ * module still opened a connection to the speech service. Disabled now means every
+ * caller stops here.
+ */
+export async function speakText(text: string): Promise<void> {
   const settings = getTtsSettings();
-  if (!force && !settings.enabled) return;
+  if (!settings.enabled) return;
   if (!text.trim()) return;
 
   const sanitized = text.trim().slice(0, MAX_TEXT_LENGTH);

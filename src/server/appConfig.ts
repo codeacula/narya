@@ -21,7 +21,8 @@ const DEFAULTS = {
   obsScenePrefix: 'Scene - ',
   discordClientId: '',
   discordBotToken: '',
-  chatterboxBaseUrl: 'http://127.0.0.1:8008',
+  tengwarBaseUrl: 'http://127.0.0.1:8008',
+  tengwarApiKey: '',
   musicPollIntervalMs: 2000,
   musicPlayerctlPlayer: 'strawberry',
   soundVolume: 0.2,
@@ -37,7 +38,8 @@ export type AppConfigInternal = {
   obsScenePrefix: string;
   discordClientId: string;
   discordBotToken: string;
-  chatterboxBaseUrl: string;
+  tengwarBaseUrl: string;
+  tengwarApiKey: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   soundVolume: number;
@@ -53,7 +55,8 @@ type AppConfigRow = {
   obsScenePrefix: string;
   discordClientId: string;
   discordBotToken: string;
-  chatterboxBaseUrl: string;
+  tengwarBaseUrl: string;
+  tengwarApiKey: string;
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   soundVolume: number;
@@ -70,7 +73,8 @@ const selectRow = db.prepare(`
     obs_scene_prefix as obsScenePrefix,
     discord_client_id as discordClientId,
     discord_bot_token as discordBotToken,
-    chatterbox_base_url as chatterboxBaseUrl,
+    tengwar_base_url as tengwarBaseUrl,
+    tengwar_api_key as tengwarApiKey,
     music_poll_interval_ms as musicPollIntervalMs,
     music_playerctl_player as musicPlayerctlPlayer,
     sound_button_volume as soundVolume,
@@ -97,7 +101,8 @@ const updateRow = db.prepare(`
     obs_scene_prefix = ?,
     discord_client_id = ?,
     discord_bot_token = ?,
-    chatterbox_base_url = ?,
+    tengwar_base_url = ?,
+    tengwar_api_key = ?,
     music_poll_interval_ms = ?,
     music_playerctl_player = ?,
     sound_button_volume = ?,
@@ -143,6 +148,26 @@ function migrateQuackVolumeToSoundVolume() {
 
 migrateQuackVolumeToSoundVolume();
 
+/**
+ * Speech moved from Chatterbox to Tengwar. The address is the same shape — one full
+ * base URL with the port in it — so the operator's tuned value carries straight
+ * across instead of making them retype it after an upgrade.
+ *
+ * The old column is dropped in the same transaction: keeping a second address around
+ * that nothing reads is how a support question becomes "which one is live?". Guarded
+ * on the column actually existing, because a fresh install never had it.
+ */
+function migrateChatterboxUrlToTengwar() {
+  runOnce('2026-07-tengwar-base-url-from-chatterbox', () => {
+    const columns = db.prepare('pragma table_info(app_config)').all() as Array<{ name: string }>;
+    if (!columns.some(column => column.name === 'chatterbox_base_url')) return;
+    db.prepare("update app_config set tengwar_base_url = chatterbox_base_url where trim(coalesce(chatterbox_base_url, '')) <> ''").run();
+    db.exec('alter table app_config drop column chatterbox_base_url');
+  });
+}
+
+migrateChatterboxUrlToTengwar();
+
 let cache: AppConfigInternal | null = null;
 
 function loadRow(): AppConfigInternal {
@@ -157,7 +182,8 @@ function loadRow(): AppConfigInternal {
     obsScenePrefix: row.obsScenePrefix,
     discordClientId: row.discordClientId,
     discordBotToken: row.discordBotToken,
-    chatterboxBaseUrl: (row.chatterboxBaseUrl || DEFAULTS.chatterboxBaseUrl).replace(/\/+$/, ''),
+    tengwarBaseUrl: (row.tengwarBaseUrl || DEFAULTS.tengwarBaseUrl).replace(/\/+$/, ''),
+    tengwarApiKey: row.tengwarApiKey || '',
     musicPollIntervalMs: row.musicPollIntervalMs,
     musicPlayerctlPlayer: row.musicPlayerctlPlayer,
     soundVolume: row.soundVolume,
@@ -189,7 +215,8 @@ export const appConfig = {
   get obsScenePrefix() { return current().obsScenePrefix; },
   get discordClientId() { return current().discordClientId; },
   get discordBotToken() { return current().discordBotToken; },
-  get chatterboxBaseUrl() { return current().chatterboxBaseUrl; },
+  get tengwarBaseUrl() { return current().tengwarBaseUrl; },
+  get tengwarApiKey() { return current().tengwarApiKey; },
   get musicPollIntervalMs() { return current().musicPollIntervalMs; },
   get musicPlayerctlPlayer() { return current().musicPlayerctlPlayer; },
   get soundVolume() { return current().soundVolume; },
@@ -213,7 +240,8 @@ function toPublic(internal: AppConfigInternal, twitchChannelFromLogin: string): 
     obsScenePrefix: internal.obsScenePrefix,
     discordClientId: internal.discordClientId,
     discordBotTokenConfigured: Boolean(internal.discordBotToken),
-    chatterboxBaseUrl: internal.chatterboxBaseUrl,
+    tengwarBaseUrl: internal.tengwarBaseUrl,
+    tengwarApiKeyConfigured: Boolean(internal.tengwarApiKey),
     musicPollIntervalMs: internal.musicPollIntervalMs,
     musicPlayerctlPlayer: internal.musicPlayerctlPlayer,
     soundVolume: internal.soundVolume,
@@ -245,7 +273,7 @@ export type AppConfigChange =
 // secret directives that saveAppConfig feeds to resolveSecret.
 type NormalizedConfigUpdate = Omit<
   AppConfigInternal,
-  'updatedAt' | 'twitchClientSecret' | 'obsPassword' | 'discordBotToken'
+  'updatedAt' | 'twitchClientSecret' | 'obsPassword' | 'discordBotToken' | 'tengwarApiKey'
 > & {
   twitchClientSecret?: string;
   clearTwitchClientSecret: boolean;
@@ -253,6 +281,8 @@ type NormalizedConfigUpdate = Omit<
   clearObsPassword: boolean;
   discordBotToken?: string;
   clearDiscordBotToken: boolean;
+  tengwarApiKey?: string;
+  clearTengwarApiKey: boolean;
 };
 
 function normalizeUpdate(body: unknown, prev: AppConfigInternal): NormalizedConfigUpdate {
@@ -290,9 +320,19 @@ function normalizeUpdate(body: unknown, prev: AppConfigInternal): NormalizedConf
     ? clampFinite(Number(value.soundVolume ?? DEFAULTS.soundVolume), 0, 1, 0)
     : prev.soundVolume;
 
-  const chatterboxBaseUrl = value.chatterboxBaseUrl !== undefined
-    ? (str(value.chatterboxBaseUrl).replace(/\/+$/, '') || DEFAULTS.chatterboxBaseUrl)
-    : prev.chatterboxBaseUrl;
+  // A typo here is otherwise invisible until a viewer redeems TTS and the fetch
+  // fails with something unhelpful, so reject a non-http(s) URL at save time the way
+  // the LLM base URL does.
+  let tengwarBaseUrl = prev.tengwarBaseUrl;
+  if (value.tengwarBaseUrl !== undefined) {
+    tengwarBaseUrl = str(value.tengwarBaseUrl).replace(/\/+$/, '') || DEFAULTS.tengwarBaseUrl;
+    try {
+      const parsed = new URL(tengwarBaseUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid protocol');
+    } catch {
+      throw new HttpRouteError(400, 'Tengwar URL must be a valid http(s) URL including the port.');
+    }
+  }
 
   return {
     twitchChannel,
@@ -306,7 +346,9 @@ function normalizeUpdate(body: unknown, prev: AppConfigInternal): NormalizedConf
     discordClientId: value.discordClientId !== undefined ? str(value.discordClientId) : prev.discordClientId,
     discordBotToken: typeof value.discordBotToken === 'string' ? value.discordBotToken.trim() : undefined,
     clearDiscordBotToken: value.clearDiscordBotToken === true,
-    chatterboxBaseUrl,
+    tengwarBaseUrl,
+    tengwarApiKey: typeof value.tengwarApiKey === 'string' ? value.tengwarApiKey.trim() : undefined,
+    clearTengwarApiKey: value.clearTengwarApiKey === true,
     musicPollIntervalMs,
     musicPlayerctlPlayer: value.musicPlayerctlPlayer !== undefined ? str(value.musicPlayerctlPlayer) : prev.musicPlayerctlPlayer,
     soundVolume,
@@ -335,7 +377,8 @@ export function saveAppConfig(
     obsScenePrefix: update.obsScenePrefix,
     discordClientId: update.discordClientId,
     discordBotToken: resolveSecret(update.clearDiscordBotToken, update.discordBotToken, prev.discordBotToken),
-    chatterboxBaseUrl: update.chatterboxBaseUrl,
+    tengwarBaseUrl: update.tengwarBaseUrl,
+    tengwarApiKey: resolveSecret(update.clearTengwarApiKey, update.tengwarApiKey, prev.tengwarApiKey),
     musicPollIntervalMs: update.musicPollIntervalMs,
     musicPlayerctlPlayer: update.musicPlayerctlPlayer,
     soundVolume: update.soundVolume,
@@ -351,7 +394,8 @@ export function saveAppConfig(
     next.obsScenePrefix,
     next.discordClientId,
     next.discordBotToken,
-    next.chatterboxBaseUrl,
+    next.tengwarBaseUrl,
+    next.tengwarApiKey,
     next.musicPollIntervalMs,
     next.musicPlayerctlPlayer,
     next.soundVolume,
