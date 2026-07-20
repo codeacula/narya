@@ -16,6 +16,13 @@ import type {
   MediaAsset,
   TriggerRole,
 } from '../../../shared/api';
+import {
+  MAX_LLM_CHAT_HISTORY_LINES,
+  MAX_LLM_EXAMPLE_LENGTH,
+  MAX_LLM_EXAMPLES,
+  MAX_LLM_INTERACTION_HISTORY,
+  MAX_LLM_SYSTEM_PROMPT_LENGTH,
+} from '../../../shared/api';
 
 // Mirrors of the server's limits in src/server/actions.ts. Duplicated deliberately:
 // validating here turns a 400 round-trip into an inline message, but the server
@@ -265,8 +272,17 @@ export function describeStep(step: ActionStepInput, assets: MediaAsset[] = [], c
       return `${labels.length} assets, ${step.payload.selection}: ${labels.join(', ')}`;
     }
     case 'tts_speak':
-    case 'llm_response':
       return step.payload.template || '(empty)';
+    case 'llm_response': {
+      const parts = [step.payload.template || '(empty)'];
+      if (step.payload.systemPromptMode === 'override') parts.push('override persona');
+      if (step.payload.chatHistoryLines > 0) parts.push(`${step.payload.chatHistoryLines} chat lines`);
+      if (step.payload.interactionHistory > 0) parts.push(`${step.payload.interactionHistory} prior turns`);
+      if (step.payload.denyTags.length > 0) parts.push(`deny: ${step.payload.denyTags.join(', ')}`);
+      if (step.payload.allowTags.length > 0) parts.push(`allow: ${step.payload.allowTags.join(', ')}`);
+      if (step.payload.allowDecline) parts.push('may decline');
+      return parts.join(' · ');
+    }
     case 'send_chat':
       return `as ${step.payload.sender}: ${step.payload.template || '(empty)'}`;
     case 'obs_scene':
@@ -411,9 +427,29 @@ export function validateStep(step: ActionStepInput, index: number): string | nul
     case 'send_chat':
       if (templateMissing(step.payload.template)) return `${where}: needs a message.`;
       return null;
-    case 'llm_response':
+    case 'llm_response': {
       if (templateMissing(step.payload.template)) return `${where}: needs a prompt.`;
+      if (step.payload.systemPrompt.length > MAX_LLM_SYSTEM_PROMPT_LENGTH) {
+        return `${where}: the system prompt must be ${MAX_LLM_SYSTEM_PROMPT_LENGTH} characters or fewer.`;
+      }
+      if (step.payload.chatHistoryLines < 0 || step.payload.chatHistoryLines > MAX_LLM_CHAT_HISTORY_LINES) {
+        return `${where}: chat history must be between 0 and ${MAX_LLM_CHAT_HISTORY_LINES} lines.`;
+      }
+      if (step.payload.interactionHistory < 0 || step.payload.interactionHistory > MAX_LLM_INTERACTION_HISTORY) {
+        return `${where}: interaction history must be between 0 and ${MAX_LLM_INTERACTION_HISTORY}.`;
+      }
+      if (step.payload.examples.length > MAX_LLM_EXAMPLES) {
+        return `${where}: at most ${MAX_LLM_EXAMPLES} examples.`;
+      }
+      if (step.payload.examples.some(pair => !pair.input.trim() || !pair.output.trim())) {
+        return `${where}: every example needs both an input and an output.`;
+      }
+      if (step.payload.examples.some(pair =>
+        pair.input.length > MAX_LLM_EXAMPLE_LENGTH || pair.output.length > MAX_LLM_EXAMPLE_LENGTH)) {
+        return `${where}: example text must be ${MAX_LLM_EXAMPLE_LENGTH} characters or fewer.`;
+      }
       return null;
+    }
     case 'obs_scene':
       if (templateMissing(step.payload.sceneName)) return `${where}: needs a scene name.`;
       return null;

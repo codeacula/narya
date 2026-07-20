@@ -40,6 +40,9 @@ function resolveToken(token: string, context: TemplateContext): string | undefin
     case 'months': return scalar(context.months);
     case 'category': return scalar(context.category);
     case 'module': return scalar(context.module);
+    case 'role': return scalar(context.role);
+    // Joined like {args}: a list token renders as readable text, not "[object Object]".
+    case 'tags': return context.tags ? context.tags.join(', ') : undefined;
     case 'quoteNumber': return scalar(context.quoteNumber);
     case 'quoteText': return scalar(context.quoteText);
     case 'quoteSlug': return scalar(context.quoteSlug);
@@ -148,6 +151,10 @@ function isKnownToken(token: string): boolean {
     case 'months':
     case 'category':
     case 'module':
+    // Supplied by the chat dispatcher only. Known-but-absent renders empty, so a
+    // reward or event Action reusing {role} degrades quietly like {months} does.
+    case 'role':
+    case 'tags':
     // Only a quote step supplies these. Known-but-absent renders empty, so a template
     // reusing {quoteText} outside a quote step degrades quietly like {months} does.
     case 'quoteNumber':

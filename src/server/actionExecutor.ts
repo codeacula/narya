@@ -20,7 +20,18 @@ import { getActionById } from './actions';
 import type { CounterResolver } from './actionTemplates';
 import { renderActionTemplate } from './actionTemplates';
 import { adjustCounter as adjustCounterRow, getCounterValue, parseCounterAmount } from './counters';
-import { askPonderLlm } from './llm';
+import { getPersonalityPrompt, runLlmRequest } from './llm';
+// NOT './chat': chat.ts imports automation.ts, which imports this file. Adding the
+// reverse edge closes a load-time cycle and fails at boot rather than as a clean error.
+import {
+  loadInteractions as loadInteractionsImpl,
+  recentChatLines as recentChatLinesImpl,
+  recordInteraction as recordInteractionImpl,
+} from './llmContext';
+import type { LlmChatLine, LlmInteractionTurn } from './llmContext';
+import { buildLlmRequest, formatLlmReply, parseLlmReply } from './llmPrompt';
+import { getViewerTags } from './viewerIdentity';
+import { tagGateAllows } from '../shared/viewerTags';
 import { switchObsScene, triggerObsTransition } from './obs';
 import { broadcast } from './realtime';
 import { addQuote, recordQuoteShown, resolveQuote } from './quotes';
@@ -52,7 +63,18 @@ export type ActionExecutorDeps = {
   playMedia?: (media: RewardMedia, actor?: string) => void;
   speakText?: (text: string) => Promise<void>;
   sendChat?: (state: RuntimeState, message: string, sender: ChatSender) => Promise<unknown>;
-  askLlm?: (context: TemplateContext, prompt: string) => Promise<string>;
+  /** Runs an assembled request. Prompt construction lives in llmPrompt.ts. */
+  askLlm?: (instructions: string, input: string) => Promise<string>;
+  /** The global personality prompt an llm_response step enhances or overrides. */
+  personalityPrompt?: () => string;
+  /** The operator's own tags for a viewer, for the llm_response targeting gate. */
+  resolveViewerTags?: (login: string) => string[];
+  /** Recent channel chat for an llm_response step's context. */
+  recentChatLines?: (limit: number) => LlmChatLine[];
+  /** Prior exchanges between this viewer and the bot. */
+  loadInteractions?: (login: string, limit: number) => LlmInteractionTurn[];
+  /** Records an exchange AFTER it has reached chat. */
+  recordInteraction?: (login: string, prompt: string, reply: string) => void;
   switchObsScene?: (sceneName: string) => Promise<unknown>;
   triggerObsTransition?: () => Promise<unknown>;
   sendShoutout?: (state: RuntimeState, login: string) => Promise<unknown>;
@@ -99,26 +121,6 @@ function normalizeLogin(value: string): string {
   return value.trim().replace(/^@+/, '').trim().toLowerCase();
 }
 
-/** askPonderLlm speaks ChatMessage; an Action only has a TemplateContext. */
-function chatMessageForLlm(context: TemplateContext): ChatMessage {
-  return {
-    id: '',
-    channel: '',
-    username: context.login ?? '',
-    displayName: context.actor ?? context.login ?? '',
-    color: null,
-    message: context.message ?? '',
-    receivedAt: new Date().toISOString(),
-    deletedAt: null,
-    deletedReason: null,
-    badges: null,
-    emotes: null,
-    isFirstTimer: false,
-    isFirstThisSession: false,
-    isFirstEver: false,
-  };
-}
-
 export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
   const {
     resolveMedia,
@@ -129,7 +131,12 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     speakText: speak = speakText,
     sendChat = (runtime: RuntimeState, message: string, sender: ChatSender) =>
       sendTwitchChatMessage(runtime, message, sender),
-    askLlm = (context: TemplateContext, prompt: string) => askPonderLlm(chatMessageForLlm(context), prompt),
+    askLlm = runLlmRequest,
+    personalityPrompt = getPersonalityPrompt,
+    resolveViewerTags = getViewerTags,
+    recentChatLines = recentChatLinesImpl,
+    loadInteractions = loadInteractionsImpl,
+    recordInteraction = recordInteractionImpl,
     switchObsScene: switchScene = switchObsScene,
     triggerObsTransition: transition = triggerObsTransition,
     sendShoutout = sendTwitchShoutout,
@@ -246,9 +253,36 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
       case 'llm_response': {
         const prompt = render(step.payload.template);
         if (!prompt.trim()) return skipped('The LLM prompt rendered empty.');
-        const answer = await askLlm(context, prompt);
-        if (!answer.trim()) return skipped('The LLM returned no text.');
-        await sendChat(state, answer, 'bot');
+
+        const login = context.login ?? '';
+        // Resolved before the request so a denied viewer costs no tokens and no latency.
+        const tags = login ? resolveViewerTags(login) : [];
+        if (!tagGateAllows(tags, step.payload.allowTags, step.payload.denyTags)) {
+          // A tagged viewer running the command is normal traffic, not a fault — the
+          // same reasoning quote_show applies to a query that matches nothing.
+          return skipped('This viewer is excluded from LLM replies by tag.');
+        }
+
+        const request = buildLlmRequest({
+          personalityPrompt: personalityPrompt(),
+          payload: step.payload,
+          context: { ...context, tags },
+          prompt,
+          chatLines: step.payload.chatHistoryLines > 0 ? recentChatLines(step.payload.chatHistoryLines) : [],
+          interactions: login && step.payload.interactionHistory > 0
+            ? loadInteractions(login, step.payload.interactionHistory)
+            : [],
+        });
+
+        const reply = parseLlmReply(await askLlm(request.instructions, request.input), step.payload.allowDecline);
+        if (!reply.respond) return skipped('The LLM chose not to respond.');
+        if (!reply.message.trim()) return skipped('The LLM returned no text.');
+
+        const message = formatLlmReply(reply.message, context.actor ?? context.login ?? '', step.payload.mention);
+        await sendChat(state, message, 'bot');
+        // AFTER the send, never before: a chat outage must not record an exchange the
+        // viewer never saw.
+        if (login) recordInteraction(login, prompt, reply.message);
         return SUCCEEDED;
       }
 

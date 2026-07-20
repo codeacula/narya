@@ -77,6 +77,27 @@ const deleteIgnored = db.prepare('delete from ignored_logins where login = ?');
 
 const deleteChatter = db.prepare('delete from chatters where login = ?');
 const deleteProfile = db.prepare('delete from viewer_profiles where login = ?');
+const selectProfileTags = db.prepare('select tags_json as tagsJson from viewer_profiles where login = ?');
+
+/**
+ * The operator's own tags for a viewer, used by the llm_response targeting gate.
+ *
+ * Returns an empty list for an unknown login rather than throwing: a viewer with no
+ * profile row simply holds no tags, which a deny list must let through and an allow
+ * list must reject.
+ */
+export function getViewerTags(login: string): string[] {
+  const key = login.trim().toLowerCase();
+  if (!key) return [];
+  const row = selectProfileTags.get(key) as { tagsJson: string } | undefined;
+  if (!row) return [];
+  try {
+    const parsed = JSON.parse(row.tagsJson) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 const deleteMessages = db.prepare('delete from chat_messages where username = ?');
 
 export function isLoginIgnored(login: string): boolean {

@@ -531,12 +531,32 @@ describe('step dispatch', () => {
 
   test('llm_response asks the LLM and sends the answer to chat', async () => {
     const asked: string[] = [];
-    const h = harness(action([step({ type: 'llm_response', payload: { template: 'why is {actor} here' } } as never)]), {
-      askLlm: async (_context, prompt) => { asked.push(prompt); return '@Sorlus because reasons'; },
+    // A complete payload: the executor is handed a fully-populated union, because
+    // rowToStep fills the fields legacy rows predate. See withLlmPayloadDefaults.
+    const llmPayload = {
+      template: 'why is {actor} here',
+      systemPrompt: '',
+      systemPromptMode: 'enhance',
+      chatHistoryLines: 0,
+      interactionHistory: 0,
+      examples: [],
+      allowTags: [],
+      denyTags: [],
+      allowDecline: false,
+      mention: true,
+    };
+    const h = harness(action([step({ type: 'llm_response', payload: llmPayload } as never)]), {
+      askLlm: async (_instructions, input) => { asked.push(input); return 'because reasons'; },
+      personalityPrompt: () => 'You are Narya.',
+      resolveViewerTags: () => [],
+      recentChatLines: () => [],
+      loadInteractions: () => [],
+      recordInteraction: () => undefined,
     });
     const result = await run(h, { actor: 'Sorlus' });
 
-    expect(asked).toEqual(['why is Sorlus here']);
+    expect(asked[0]).toContain('why is Sorlus here');
+    // The mention is applied by the executor now, not by the retired formatPonderReply.
     expect(h.calls.chats).toEqual([{ message: '@Sorlus because reasons', sender: 'bot' }]);
     expect(result.status).toBe('succeeded');
   });

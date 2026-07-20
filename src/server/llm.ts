@@ -203,7 +203,7 @@ export function extractResponseText(data: ResponsesApiResponse): string {
   return '';
 }
 
-async function callLlm(settings: LlmSettingsRow, userContent: string): Promise<string> {
+async function callLlm(settings: LlmSettingsRow, instructions: string, userContent: string): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), settings.timeoutMs);
   try {
@@ -216,7 +216,7 @@ async function callLlm(settings: LlmSettingsRow, userContent: string): Promise<s
       signal: controller.signal,
       body: JSON.stringify({
         model: settings.model,
-        instructions: settings.personalityPrompt,
+        instructions,
         input: userContent,
         temperature: settings.temperature,
         ...(settings.maxOutputTokens > 0 ? { max_output_tokens: settings.maxOutputTokens } : {}),
@@ -251,34 +251,24 @@ function twitchMessage(value: string, maxLength = 500): string {
   return `${compact.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
-function mention(chatMessage: ChatMessage): string {
-  return `@${chatMessage.displayName || chatMessage.username}`;
+/** The personality prompt an llm_response step enhances or overrides. */
+export function getPersonalityPrompt(): string {
+  return getSettingsRowOrDefault().personalityPrompt;
 }
 
-export function formatPonderReply(chatMessage: ChatMessage, text: string): string {
-  const prefix = `${mention(chatMessage)} `;
-  return twitchMessage(`${prefix}${text}`, 500);
-}
-
-function userContent(chatMessage: ChatMessage, question: string): string {
-  return `A Twitch chatter named ${chatMessage.displayName || chatMessage.username} asks: ${question}\nAnswer them in one concise chat message.`;
-}
-
-export async function askPonderLlm(chatMessage: ChatMessage, question: string): Promise<string> {
+/**
+ * Runs an already-assembled request. Prompt construction lives in llmPrompt.ts, which
+ * is pure; this function owns only settings, transport, and failure text.
+ *
+ * Throws on a disabled or unconfigured LLM so the calling step reports a real status
+ * rather than publishing an apology to chat as though it were the model's answer —
+ * which is what the `!ponder` helper this replaced used to do.
+ */
+export async function runLlmRequest(instructions: string, input: string): Promise<string> {
   const settings = getSettingsRowOrDefault();
-  if (settings.enabled !== 1) {
-    return formatPonderReply(chatMessage, 'pondering is disabled. The tiny brain is in its drawer.');
-  }
-  if (!settings.baseUrl || !settings.model) {
-    return formatPonderReply(chatMessage, '!ponder needs an LLM base URL and model in Settings first. Naturally, the void forgot its paperwork.');
-  }
-  try {
-    const answer = await callLlm(settings, userContent(chatMessage, question));
-    return formatPonderReply(chatMessage, answer);
-  } catch (error) {
-    console.error('LLM: ponder request failed:', error);
-    return formatPonderReply(chatMessage, 'the thinking machine tripped over its own shoelaces. Try again in a bit.');
-  }
+  if (settings.enabled !== 1) throw new Error('The LLM is disabled in Settings.');
+  if (!settings.baseUrl || !settings.model) throw new Error('The LLM needs a base URL and model in Settings.');
+  return callLlm(settings, instructions, input);
 }
 
 export function registerLlmRoutes(app: express.Express) {
@@ -303,30 +293,20 @@ export function registerLlmRoutes(app: express.Express) {
     if (!settings.enabled) throw new HttpRouteError(400, 'LLM is disabled in settings.');
     if (!settings.baseUrl || !settings.model) throw new HttpRouteError(400, 'LLM base URL and model are required.');
 
-    const fakeChatMessage = {
-      id: 'llm-settings-test',
-      channel: 'settings',
-      username: 'settings',
-      displayName: 'Settings',
-      color: null,
-      message: `!ponder ${question}`,
-      receivedAt: new Date().toISOString(),
-      deletedAt: null,
-      deletedReason: null,
-      badges: null,
-      emotes: null,
-      isFirstTimer: false,
-      isFirstThisSession: false,
-      isFirstEver: false,
-    };
+    // The test route keeps its own framing rather than borrowing an Action step's:
+    // it is checking that the configured endpoint answers at all, so it must not
+    // depend on any step's prompt, context, or targeting.
     let answer: string;
     try {
-      answer = await callLlm(settings, userContent(fakeChatMessage, question));
+      answer = await callLlm(
+        settings,
+        settings.personalityPrompt,
+        `A Twitch chatter asks: ${question}\nAnswer them in one concise chat message.`,
+      );
     } catch (llmError) {
       const msg = llmError instanceof Error ? llmError.message : 'LLM request failed.';
       throw new HttpRouteError(502, msg);
     }
-    const reply = formatPonderReply(fakeChatMessage, answer);
-    response.json({ ok: true, reply });
+    response.json({ ok: true, reply: twitchMessage(answer, 500) });
   }));
 }

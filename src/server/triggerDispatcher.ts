@@ -12,7 +12,7 @@ import type {
   TriggerRole,
   ViewerCommandTriggerConfig,
 } from '../shared/api';
-import { getViewerRolesFromBadges } from '../shared/roles';
+import { getRoleFromBadges, getViewerRolesFromBadges } from '../shared/roles';
 import { getAutomationTrigger, listEnabledTriggersOfKind } from './automationTriggers';
 import {
   adjustCounterByKey as adjustCounterByKeyRow,
@@ -22,6 +22,7 @@ import {
 } from './counters';
 import { db, isUniqueConstraintError } from './db';
 import { HttpRouteError } from './http';
+import { getViewerTags } from './viewerIdentity';
 
 export type TriggerDispatcherDeps = {
   runAction: (actionId: string, context: TemplateContext) => Promise<ActionRunResult>;
@@ -284,6 +285,10 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     const text = message.message ?? '';
     const actor = message.displayName || message.username;
     const word = tokenize(text)[0] ?? '';
+    // Resolved once per message rather than per candidate trigger: one chat line can
+    // legitimately fire several Actions, and they all describe the same speaker.
+    const role = getRoleFromBadges(message.badges);
+    const tags = login ? getViewerTags(login) : [];
 
     const candidates: Array<{ trigger: AutomationTrigger; context: TemplateContext }> = [];
 
@@ -296,7 +301,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       if (!hit) continue;
       candidates.push({
         trigger,
-        context: { actor, login, message: text, input: remainder, args: tokenize(remainder) },
+        context: { actor, login, role, tags, message: text, input: remainder, args: tokenize(remainder) },
       });
     }
 
@@ -308,7 +313,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
         const input = text.trim().slice(word.length).trim();
         candidates.push({
           trigger,
-          context: { actor, login, message: text, input, args: tokenize(input) },
+          context: { actor, login, role, tags, message: text, input, args: tokenize(input) },
         });
       }
     }
