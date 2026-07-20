@@ -151,11 +151,18 @@ export function useSettingsForm<T>({
     return () => { cancelled = true; };
   }, []);
 
-  const submit = (next: T, successMessage: string) => {
+  /**
+   * Returns the in-flight save so a caller can sequence work after the server has
+   * committed the value — the TTS enable toggle probes the service only once
+   * `enabled: true` is persisted, or the probe races the PUT and sees it still off.
+   * The promise always resolves (failures surface through `error`), so the existing
+   * fire-and-forget callers are unaffected by the added return.
+   */
+  const submit = (next: T, successMessage: string): Promise<void> => {
     setSaving(true);
     setMessage(null);
     setError(null);
-    void save(next)
+    return save(next)
       .then(saved => {
         confirmed.current = saved;
         setValue(saved);

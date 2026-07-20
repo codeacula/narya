@@ -243,31 +243,12 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     const body = request.body as {
       enabled?: unknown;
       voiceProfileId?: unknown;
-      languageId?: unknown;
-      tonePreset?: unknown;
-      exaggeration?: unknown;
-      cfgWeight?: unknown;
-      temperature?: unknown;
       volume?: unknown;
     };
     const enabled = typeof body.enabled === 'boolean' ? body.enabled : false;
-    const voiceProfileId = typeof body.voiceProfileId === 'string' ? body.voiceProfileId.trim() : 'zombiechicken';
-    const languageId = typeof body.languageId === 'string' ? body.languageId.trim() : 'en';
-    const tonePreset = typeof body.tonePreset === 'string' ? body.tonePreset.trim() : 'neutral';
-    const exaggeration = typeof body.exaggeration === 'number' ? body.exaggeration : 0.5;
-    const cfgWeight = typeof body.cfgWeight === 'number' ? body.cfgWeight : 0.5;
-    const temperature = typeof body.temperature === 'number' ? body.temperature : 0.8;
+    const voiceProfileId = typeof body.voiceProfileId === 'string' ? body.voiceProfileId.trim() : '';
     const volume = typeof body.volume === 'number' ? body.volume : 0.8;
-    response.json(updateTtsSettings({
-      enabled,
-      voiceProfileId,
-      languageId,
-      tonePreset,
-      exaggeration,
-      cfgWeight,
-      temperature,
-      volume,
-    }));
+    response.json(updateTtsSettings({ enabled, voiceProfileId, volume }));
   }));
 
   app.get('/api/tts/status', async (_request, response) => {
@@ -278,11 +259,17 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     response.json(await getTtsVoices());
   }));
 
+  // Refuses rather than force-speaking. The test button used to bypass the enabled
+  // flag, which meant "TTS is off" still reached out to the speech service — the one
+  // thing a disabled module must never do.
   app.post('/api/tts/speak', handle(async (request, response) => {
     const body = request.body as { text?: unknown };
     const text = typeof body.text === 'string' ? body.text.trim() : '';
     if (!text) throw new HttpRouteError(400, 'text is required.');
-    await speakText(text, true);
+    if (!getTtsSettings().enabled) {
+      throw new HttpRouteError(409, 'Text-to-Speech is disabled. Enable it before testing.');
+    }
+    await speakText(text);
     response.json({ ok: true });
   }));
 

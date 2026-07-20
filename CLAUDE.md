@@ -114,7 +114,7 @@ curl http://localhost:4317/api/music/current
 
 The following is a navigation aid, not a substitute for inspecting the current repository. Verify paths, ownership, contracts, and runtime behavior before relying on these descriptions during review.
 
-**Modular backend** — `src/server/index.ts` wires the Express HTTP routes and startup sequence. Backend modules own narrower responsibilities: `config.ts` for boot/infra-only env values (`PORT`, `HOST`, `DASHBOARD_TOKEN`, OAuth redirect URIs), `appConfig.ts` for the database-backed runtime config (Twitch/OBS/Discord/Chatterbox credentials, channel, OBS scene prefix, music + sound volume) edited from Settings, `db.ts` for SQLite setup, `realtime.ts` for `/socket` broadcasts, `chat.ts` for Twitch chat ingestion and moderation persistence, `emotes.ts` for BTTV/7TV emote aggregation, `obs.ts` for OBS WebSocket calls and stats, `music.ts` for playerctl/manual now-playing state, `sounds.ts` for sound playback broadcasts, and `http.ts` for route helpers.
+**Modular backend** — `src/server/index.ts` wires the Express HTTP routes and startup sequence. Backend modules own narrower responsibilities: `config.ts` for boot/infra-only env values (`PORT`, `HOST`, `DASHBOARD_TOKEN`, OAuth redirect URIs), `appConfig.ts` for the database-backed runtime config (Twitch/OBS/Discord/Tengwar credentials, channel, OBS scene prefix, music + sound volume) edited from Settings, `db.ts` for SQLite setup, `realtime.ts` for `/socket` broadcasts, `chat.ts` for Twitch chat ingestion and moderation persistence, `emotes.ts` for BTTV/7TV emote aggregation, `obs.ts` for OBS WebSocket calls and stats, `music.ts` for playerctl/manual now-playing state, `sounds.ts` for sound playback broadcasts, and `http.ts` for route helpers.
 
 **Modular frontend** — `src/client/main.tsx` is a thin router (pathname-based, no router library): `/overlay` → `OverlayPage`, `/tablet` → `TabletPage`, default → `DashboardPage`. Source layout:
 
@@ -178,7 +178,7 @@ src/
         ContentSection.tsx    # media asset catalog + sound/clip button management
         GoLiveSection.tsx     # go-live settings (Discord guild/channel, OBS)
         LlmSection.tsx        # LLM provider settings + connection test
-        TtsSection.tsx        # Chatterbox TTS settings, voices, and test speak
+        TtsSection.tsx        # Tengwar TTS settings, voices, and test speak
         QuotesPage.tsx        # quote book editor (add/edit/remove, keyword + counter)
         ActionsPage.tsx       # Action editor (ordered steps)
         AutomationPage.tsx    # automation trigger editor
@@ -233,7 +233,7 @@ src/
     streamSession.ts    # stream session tracking
     streamStatus.ts     # persisted stream status line + routes
     tags.ts             # tag normalization, tag history, suggestion merging
-    tts.ts              # Chatterbox TTS integration
+    tts.ts              # Tengwar TTS integration
     windDown.ts         # wind-down settings + state store, routes, title re-base
     windDownLoop.ts     # wind-down tick loop + Twitch title application
     windDownSchedule.ts # the pure evaluateWindDown decision
@@ -340,7 +340,7 @@ When verifying a migration against real data, snapshot with `VACUUM INTO`, not `
 
 ## Configuration
 
-Runtime config (Twitch/OBS/Discord/Chatterbox credentials, channel, OBS scene prefix, music + sound volume) lives in the database (`app_config` table) and is edited from **Settings → Connections & credentials**. Secrets are never returned to the client — `getAppConfig()` exposes `*Configured` booleans (the LLM `apiKeyConfigured` pattern). Saving via `PUT /api/config` reconnects only the affected services (`reconcileServices` in `index.ts`) and broadcasts `settings:updated`; no restart needed. The app boots gracefully with nothing configured.
+Runtime config (Twitch/OBS/Discord/Tengwar credentials, channel, OBS scene prefix, music + sound volume) lives in the database (`app_config` table) and is edited from **Settings → Connections & credentials**. Secrets are never returned to the client — `getAppConfig()` exposes `*Configured` booleans (the LLM `apiKeyConfigured` pattern). Saving via `PUT /api/config` reconnects only the affected services (`reconcileServices` in `index.ts`) and broadcasts `settings:updated`; no restart needed. The app boots gracefully with nothing configured.
 
 **`.env` seeds nothing.** Only `PORT`, `HOST`, `DASHBOARD_TOKEN`, the two OAuth redirect URIs, and `VITE_*` are read from the environment, and all of them are read on *every* boot. There is no `seedFromEnv`: `TWITCH_CLIENT_ID`, `OBS_SCENES`, `QUACK_VOLUME` and friends used to populate `app_config` once on first boot and then be ignored forever, which made `.env` read like live configuration when it was not. Defaults for a fresh install are code literals (`DEFAULTS` in `appConfig.ts`). **Do not reintroduce an env read for anything the Settings UI owns.**
 

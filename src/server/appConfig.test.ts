@@ -13,7 +13,8 @@ function baseline() {
     obsScenePrefix: 'Scene - ',
     discordClientId: 'disc-id',
     clearDiscordBotToken: true,
-    chatterboxBaseUrl: 'http://127.0.0.1:8008',
+    tengwarBaseUrl: 'http://127.0.0.1:8008',
+    clearTengwarApiKey: true,
     musicPollIntervalMs: 2000,
     musicPlayerctlPlayer: 'strawberry',
     soundVolume: 0.2,
@@ -79,5 +80,47 @@ describe('saveAppConfig', () => {
 
   test('rejects an OBS URL without a ws scheme', () => {
     expect(() => saveAppConfig({ obsUrl: 'http://127.0.0.1:4455' })).toThrow('OBS WebSocket URL must start with');
+  });
+
+  // The Tengwar address is one full base URL with the port already in it, so a
+  // Tailscale host is a single field rather than two to keep in sync.
+  test('keeps the Tengwar base URL with its port and strips a trailing slash', () => {
+    const { config } = saveAppConfig({ tengwarBaseUrl: 'http://100.64.0.5:8008/' });
+    expect(config.tengwarBaseUrl).toBe('http://100.64.0.5:8008');
+  });
+
+  // Previously only a trailing slash was stripped, so a typo'd scheme was stored
+  // happily and surfaced later as an unexplained fetch failure mid-stream.
+  test('rejects a Tengwar URL that is not http(s)', () => {
+    expect(() => saveAppConfig({ tengwarBaseUrl: 'ws://127.0.0.1:8008' })).toThrow('Tengwar URL must be');
+    expect(() => saveAppConfig({ tengwarBaseUrl: 'not a url' })).toThrow('Tengwar URL must be');
+  });
+
+  // Endpoints are appended verbatim, so a stored path sends /health to /api/health
+  // and breaks every call with nothing at the point of failure pointing at the cause.
+  test('rejects a Tengwar URL carrying a path, query or fragment', () => {
+    expect(() => saveAppConfig({ tengwarBaseUrl: 'http://127.0.0.1:8008/api' })).toThrow('bare host and port');
+    expect(() => saveAppConfig({ tengwarBaseUrl: 'http://127.0.0.1:8008?key=1' })).toThrow('bare host and port');
+    expect(() => saveAppConfig({ tengwarBaseUrl: 'http://127.0.0.1:8008#frag' })).toThrow('bare host and port');
+  });
+
+  // The bare host is the normal case and must survive: URL parses its path as '/'.
+  test('accepts a bare host and port', () => {
+    expect(saveAppConfig({ tengwarBaseUrl: 'http://100.64.0.5:8008' }).config.tengwarBaseUrl)
+      .toBe('http://100.64.0.5:8008');
+  });
+
+  test('the Tengwar API key follows the secret convention', () => {
+    expect(saveAppConfig({ tengwarApiKey: 'sekrit' }).config.tengwarApiKeyConfigured).toBe(true);
+    // Absent on the next save -> kept; empty string -> also kept.
+    expect(saveAppConfig({}).config.tengwarApiKeyConfigured).toBe(true);
+    expect(saveAppConfig({ tengwarApiKey: '' }).config.tengwarApiKeyConfigured).toBe(true);
+    expect(saveAppConfig({ clearTengwarApiKey: true }).config.tengwarApiKeyConfigured).toBe(false);
+  });
+
+  // The key is a secret: it must never come back over the wire, only the boolean.
+  test('never returns the Tengwar API key itself', () => {
+    const { config } = saveAppConfig({ tengwarApiKey: 'sekrit' });
+    expect(JSON.stringify(config)).not.toContain('sekrit');
   });
 });

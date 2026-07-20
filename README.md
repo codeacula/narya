@@ -32,9 +32,14 @@ Keep the sound overlay loaded as a separate OBS browser source. Broadcast TTS an
 Music display uses `playerctl` from the backend process. Install `playerctl` on the host and run the app in the same desktop session as Strawberry.
 By default it reads from the `strawberry` playerctl player. Set `MUSIC_PLAYERCTL_PLAYER` if your playerctl name differs.
 
-Text-to-Speech uses the separate Chatterbox service at `http://127.0.0.1:8008`
-by default. Narya loads its registered voices from `GET /voices` and sends speech
-requests to `POST /synthesize`; voice registration is managed by Chatterbox.
+Text-to-Speech uses the separate Tengwar service, `http://127.0.0.1:8008` by
+default. Configure it in **Settings → Speech** as one full base URL with the port
+in it (a Tailscale address works), plus an optional API key sent as `X-Api-Key`.
+Narya probes `GET /health`, loads the speaker list from `GET /voices`, and sends
+speech to `POST /synthesize` as `{text, speakerId}`.
+
+Nothing contacts Tengwar unless the TTS module is enabled: with the toggle off the
+probe, the voice list, and the test button all stop at narya.
 
 ## Local Dev
 
@@ -94,7 +99,7 @@ The dashboard can show moderated originals. The overlay hides moderated messages
 
 ## Configuration
 
-Almost everything is configured from **Settings → "Connections & credentials"** and stored in the database (`data/streamer-tools.sqlite`): the Twitch channel and client credentials, OBS WebSocket URL and password, the OBS scene prefix, Discord, the Chatterbox URL, music polling, and sound volume. The app boots fine with none of it set, and saving reconnects only the affected services — no restart.
+Almost everything is configured from **Settings → "Connections & credentials"** and stored in the database (`data/streamer-tools.sqlite`): the Twitch channel and client credentials, OBS WebSocket URL and password, the OBS scene prefix, Discord, the Tengwar URL and API key, music polling, and sound volume. The app boots fine with none of it set, and saving reconnects only the affected services — no restart.
 
 `.env` holds only what cannot come from the database. Copy `.env.example` to `.env`:
 
@@ -112,7 +117,7 @@ There is no `.env` seeding. `TWITCH_CLIENT_ID`, `OBS_SCENES`, `QUACK_VOLUME` and
 
 Twitch setup: put the client ID and secret into Settings, register the redirect URI in your Twitch app, then use Settings to log in the broadcaster account and the separate bot account. OAuth is the only way in — the old `TWITCH_USER_TOKEN` / `TWITCH_BOT_USER_TOKEN` environment fallbacks are gone, as a pasted token carried no refresh token and no expiry, so it silently rotted while still reporting itself as authenticated. Broadcaster credentials are used for EventSub, stream info, ads, moderation, shoutouts, and whispers; bot credentials for dashboard chat sends and chat command replies.
 
-Set the Chatterbox URL in Settings to `http://127.0.0.1:8008` for local development.
+Set the Tengwar URL in Settings to `http://127.0.0.1:8008` for local development.
 
 ## License
 

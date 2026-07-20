@@ -422,12 +422,12 @@ describe('failure isolation', () => {
       step({ id: 'tts', type: 'tts_speak', payload: { template: 'hello' } } as never),
       step({ id: 'chat', payload: { template: 'after', sender: 'bot' } } as never),
     ]), {
-      speakText: async () => { throw new Error('Chatterbox TTS request failed.'); },
+      speakText: async () => { throw new Error('Tengwar TTS request failed.'); },
     });
     const result = await run(h);
 
     expect(result.status).toBe('partial');
-    expect(result.steps[0]!.detail).toBe('Chatterbox TTS request failed.');
+    expect(result.steps[0]!.detail).toBe('Tengwar TTS request failed.');
     expect(h.calls.chats).toHaveLength(1);
   });
 
