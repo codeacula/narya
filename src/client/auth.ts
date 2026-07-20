@@ -59,6 +59,21 @@ export function setDashboardToken(token: string): void {
   }
 }
 
+/**
+ * An HTTP header value must be a ByteString — every code unit ≤ 255. A stored token
+ * carrying a character outside that range (an en dash pasted from a rich-text editor,
+ * a smart quote) can never have authenticated, because the server reads it from a
+ * header too. Worse, attaching it makes the browser throw a fatal, opaque error
+ * ("Cannot convert value … to ByteString") that breaks EVERY dashboard request at
+ * once rather than surfacing as a normal rejection. Treat such a token as invalid.
+ */
+export function isSendableToken(token: string): boolean {
+  for (let i = 0; i < token.length; i += 1) {
+    if (token.charCodeAt(i) > 255) return false;
+  }
+  return true;
+}
+
 export function clearDashboardToken(): void {
   try {
     localStorage.removeItem(tokenKey());

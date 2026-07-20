@@ -87,7 +87,7 @@ import type {
   CounterUpdate,
   CountersResponse,
 } from '../../shared/api';
-import { getDashboardToken, isDashboardTokenRejection, reportDashboardTokenRejected } from '../auth';
+import { getDashboardToken, isDashboardTokenRejection, isSendableToken, reportDashboardTokenRejected } from '../auth';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
 
@@ -96,6 +96,13 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http:
 function authHeaders(base?: Record<string, string>): Record<string, string> | undefined {
   const token = getDashboardToken();
   if (!token) return base;
+  if (!isSendableToken(token)) {
+    // A token the browser cannot place in a header can never authenticate; attaching it
+    // throws a fatal error that breaks every request. Discard it and raise the recovery
+    // screen — the same path a server-rejected token takes.
+    reportDashboardTokenRejected();
+    return base;
+  }
   return { ...(base ?? {}), 'x-dashboard-token': token };
 }
 
