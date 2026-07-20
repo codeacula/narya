@@ -10,6 +10,7 @@ import {
 } from '../services/dashboard';
 import type { Viewer, ChatEntry, StreamEvent, SessionShoutout, ViewerProfileUpdate, ChatSender, DashboardStatus, Chatter } from '../../shared/api';
 import { formatAgo } from '../../shared/time';
+import { addProfileTag, MAX_VIEWER_TAGS, normalizeProfileTag } from '../../shared/viewerTags';
 import { useSocket } from '../realtime';
 import { renderContent, useEmotes } from '../chat';
 import { isMentionOf } from '../chatText';
@@ -61,7 +62,6 @@ const ROLE_BADGE: Record<string, string> = {
   sub: '%',
 };
 
-const MAX_VIEWER_TAGS = 12;
 type ViewerActionKind = 'whisper' | 'timeout' | 'ban';
 
 /**
@@ -266,18 +266,6 @@ export function ChatMessageRow({
       {moderatable && <ChatRowActions login={m.user} moderation={moderation} />}
     </div>
   );
-}
-
-function normalizeProfileTag(value: string): string {
-  return value.trim().replace(/^#/, '').slice(0, 32);
-}
-
-function addProfileTag(tags: string[], value: string): string[] {
-  const tag = normalizeProfileTag(value);
-  if (!tag || tags.length >= MAX_VIEWER_TAGS) return tags;
-  const existing = new Set(tags.map(item => item.toLowerCase()));
-  if (existing.has(tag.toLowerCase())) return tags;
-  return [...tags, tag];
 }
 
 /* ---------------- Chat ---------------- */
