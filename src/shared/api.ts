@@ -1045,6 +1045,13 @@ export type TemplateContext = {
   /** Active Twitch category and module at invocation time. */
   category?: string;
   module?: string;
+  /**
+   * The actor's highest Twitch role and the operator's own profile tags at invocation
+   * time. Set by the chat dispatcher; absent elsewhere, so they render empty the same
+   * way {months} does outside a resub.
+   */
+  role?: string;
+  tags?: string[];
   // Set only by a quote step, on a context it derives for its own message template.
   // A trigger never supplies these, so they render empty everywhere else — the same
   // way {months} does outside a resub.
