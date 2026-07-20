@@ -448,6 +448,42 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   color: var(--danger-fg); background: var(--danger-bg);
   border-bottom: 1px solid var(--danger-border);
 }
+
+/* ---- Tablet: the same chat rows, re-tuned for touch ----
+   The tablet holds the same operator token as the dashboard, so the difference
+   here is presentation only. Two things do not survive the trip to a touch
+   surface: hover, and small targets.
+
+   `.msg-time` is hover-revealed above, and panel.css is loaded globally
+   (main.tsx), so timestamps were previously invisible on the tablet with no way
+   to reveal them. Show them outright. */
+.tablet-shell .msg-time { opacity: 1; }
+
+/* Actions come out of the absolute overlay and sit in flow on their own line.
+   The dashboard's overlay is safe there because it is transient and the column is
+   wide; here it would be permanent and the right rail is narrower
+   (minmax(320px, 0.8fr)), so it would occlude message text on every row. */
+.tablet-shell .msg-mod {
+  position: static;
+  display: flex; gap: 8px;
+  margin-top: 7px;
+  opacity: 1; pointer-events: auto;
+}
+/* Finger-sized, matching the AutoMod row buttons — the closest existing
+   always-visible row action on this surface. */
+.tablet-shell .msg-mod-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 12px;
+  border-radius: var(--radius-2);
+}
+/* The tablet's house press feedback, since hover tells a finger nothing. */
+.tablet-shell .msg-mod-btn:active:not(:disabled) { transform: scale(0.97); }
+.tablet-shell .msg-mod-status {
+  float: none; display: inline-block;
+  margin: 7px 0 0; padding: 3px 9px;
+  font-size: 10px;
+}
 .msg.hl-first,
 .msg.hl-first-ever { border-left-color: var(--info-base); background: rgba(106,168,212,0.11); }
 .msg.hl-first-session { border-left-color: var(--success-base); background: rgba(127,200,163,0.11); }

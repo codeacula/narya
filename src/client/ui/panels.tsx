@@ -123,6 +123,10 @@ function badgesFor(viewer: Viewer | undefined): string[] {
   return out;
 }
 
+/** How long an armed ban stays armed before reverting. Long enough to read the
+ *  relabelled button and press it, short enough that walking away disarms it. */
+const ARM_TIMEOUT_MS = 4_000;
+
 /** What has already been handed out to this chatter, shown in place of the buttons. */
 export type ChatRowModerationStatus = { kind: 'timeout' | 'ban'; label: string };
 
@@ -147,6 +151,16 @@ export type ChatRowModeration = {
  */
 function ChatRowActions({ login, moderation }: { login: string; moderation: ChatRowModeration }) {
   const [armed, setArmed] = React.useState(false);
+
+  // Disarm on a timer as well as on blur. Blur alone is enough with a mouse, but the
+  // tablet is a touch surface where a tap does not reliably focus a button — so the
+  // blur may simply never arrive, and a ban left armed under the operator's thumb is
+  // the accident this confirmation exists to prevent.
+  React.useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), ARM_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
 
   if (moderation.status) {
     return (
@@ -244,9 +258,12 @@ export function ChatMessageRow({
         + (status ? ' msg--moderated' : '')}
     >
       <span className="msg-time">{m.time}</span>
-      {moderatable && <ChatRowActions login={m.user} moderation={moderation} />}
       <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
       <span className="msg-text">{body}</span>
+      {/* Last in the row: the dashboard positions this absolutely, so DOM order does
+          not affect where it lands there, while the tablet renders it in flow on its
+          own line below the message — which only reads correctly from here. */}
+      {moderatable && <ChatRowActions login={m.user} moderation={moderation} />}
     </div>
   );
 }
@@ -269,9 +286,11 @@ function addProfileTag(tags: string[], value: string): string[] {
 // it omits the ChatInput footer). Keep it prop-driven via PanelCtx so the two
 // surfaces can't drift apart.
 //
-// `canModerate` is opt-in and off for the tablet on purpose: the row actions are
-// hover-revealed, and a touch surface has no hover — the first tap would both
-// reveal and press.
+// `canModerate` is opt-in. Both operator surfaces (dashboard and tablet) pass it;
+// they hold the same token, so the difference is presentation, not authority. The
+// row actions are hover-revealed on the dashboard and always visible + finger-sized
+// on the tablet, because a touch surface has no hover and the first tap would
+// otherwise both reveal and press — see the `.tablet-shell` overrides in panel.css.
 export function Chat({ ctx, canModerate = false }: { ctx: PanelCtx; canModerate?: boolean }) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const atBottomRef = React.useRef(true);

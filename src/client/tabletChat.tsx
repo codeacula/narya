@@ -1,8 +1,14 @@
-// Read-only chat for the tablet control surface, with a toggle to flip the panel
-// between the chat feed and the live chatters list. Both views reuse the dashboard's
-// own components (Chat, ChattersPanel) via a shared PanelCtx so the surfaces can't
+// Chat for the tablet control surface, with a toggle to flip the panel between the
+// chat feed and the live chatters list. Both views reuse the dashboard's own
+// components (Chat, ChattersPanel) via a shared PanelCtx so the surfaces can't
 // drift apart. The data plumbing is the shared useChatFeed hook, so the tablet
 // renders the same rows without the dashboard's wider viewer/attention machinery.
+//
+// The operator cannot *send* from here (no ChatInput footer) but can moderate: the
+// tablet holds the same operator token as the dashboard, and it is the surface most
+// likely to be within reach mid-stream. The row actions render differently here —
+// always visible and finger-sized rather than hover-revealed — see the .tablet-shell
+// overrides in panel.css.
 import React from 'react';
 import { Chat, ChattersPanel, type PanelCtx } from './ui/panels';
 import { useChatFeed } from './chatFeed';
@@ -72,8 +78,9 @@ function useTabletChatData(): TabletChatData {
 type ChatView = 'chat' | 'chatters';
 
 /**
- * Right-column panel for the tablet, toggling between the read-only chat feed and
- * the live chatters list. Read-only: the chat has no ChatInput footer.
+ * Right-column panel for the tablet, toggling between the chat feed and the live
+ * chatters list. The chat has no ChatInput footer — the tablet reads and moderates,
+ * it does not compose.
  */
 export function TabletChatPanel() {
   const { ctx, chatters, chattersError } = useTabletChatData();
@@ -107,7 +114,7 @@ export function TabletChatPanel() {
       </div>
       <div className="tablet-chat-body">
         {view === 'chat' ? (
-          <Chat ctx={ctx} />
+          <Chat ctx={ctx} canModerate />
         ) : (
           <ChattersPanel
             chatters={chatters}
