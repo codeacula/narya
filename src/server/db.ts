@@ -46,12 +46,37 @@ function restrictDatabaseFiles(): void {
 
 export const db = new Database(dbPath);
 
+/**
+ * llm_interactions first shipped with `id text primary key`; it was changed to an
+ * autoincrement `seq` so two turns recorded in the same millisecond order
+ * deterministically. `create table if not exists` never alters an existing table, so a
+ * database that already holds the old shape keeps it and then crashes when a prepared
+ * statement references `seq`.
+ *
+ * Rebuild it rather than run a data migration: it is a rolling per-viewer cache (<=50
+ * turns each) with no durable meaning — losing it just makes the bot briefly forget
+ * recent chat, unlike a quote whose number is already in circulation. Guarded on the
+ * missing column, so it fires exactly once and is a no-op on a fresh or already-migrated
+ * database (PRAGMA on an absent table returns no rows). Returns whether it dropped.
+ */
+export function dropStaleLlmInteractions(database: Database): boolean {
+  const columns = database.prepare("PRAGMA table_info('llm_interactions')").all() as Array<{ name: string }>;
+  if (columns.length > 0 && !columns.some(column => column.name === 'seq')) {
+    database.exec('drop table llm_interactions');
+    return true;
+  }
+  return false;
+}
+
 db.exec('pragma journal_mode = WAL');
 // The schema declares `on delete cascade` in four places, but SQLite ignores
 // every one of them unless foreign keys are enabled per-connection (the default
 // is off). Without this, deleting a parent silently orphans its children.
 db.exec('pragma foreign_keys = ON');
 restrictDatabaseFiles();
+
+dropStaleLlmInteractions(db);
+
 db.exec(`
   create table if not exists chat_messages (
     id text primary key,
