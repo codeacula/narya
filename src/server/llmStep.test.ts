@@ -119,9 +119,23 @@ test('a decline sends nothing and records nothing', async () => {
   expect(state.recorded).toEqual([]);
 });
 
-test('a successful reply is recorded to interaction memory', async () => {
+test('a successful reply is recorded as the delivered message, not the raw model text', async () => {
+  // The mention prefix reached chat, so it belongs in the history too — the model's
+  // account of the conversation must match what the room actually saw.
   const { state } = await run(payload(), { actor: 'Bob', login: 'bob' });
-  expect(state.recorded).toEqual([{ login: 'bob', prompt: 'Answer Bob', reply: 'the answer' }]);
+  expect(state.recorded).toEqual([{ login: 'bob', prompt: 'Answer Bob', reply: '@Bob the answer' }]);
+});
+
+test('the recorded reply is bounded to the delivered length, not the raw model text', async () => {
+  // Persisting the raw reply would let interaction memory grow past Twitch's ceiling
+  // and claim the bot said text the viewer never received.
+  const { state } = await run(
+    payload({ mention: false }),
+    { actor: 'Bob', login: 'bob' },
+    { askLlm: async () => 'x'.repeat(900) },
+  );
+  expect(state.recorded[0]!.reply.length).toBeLessThanOrEqual(500);
+  expect(state.recorded[0]!.reply).toBe(state.sent[0]!);
 });
 
 test('a failed chat send records nothing', async () => {

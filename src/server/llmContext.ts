@@ -59,15 +59,29 @@ const selectInteractions = db.prepare(`
 
 const deleteInteractions = db.prepare('delete from llm_interactions where login = ?');
 
+// Flushed logins are excluded here as well as in the where-clause below. A flushed
+// viewer's content must never re-enter LLM storage or context: chat.ts still writes
+// their messages to chat_messages (only the roster summary is gated by the ignore
+// list), and an llm_response step can still fire for them, so the exclusion has to
+// live at this read/write choke point. It is checked in SQL against ignored_logins
+// rather than via viewerIdentity.isLoginIgnored because importing that module would
+// close a load-time cycle — viewerIdentity already imports this file.
+const isIgnored = db.prepare('select 1 from ignored_logins where login = ?');
+
 const selectRecentChatLines = db.prepare(`
   select coalesce(nullif(display_name, ''), username) as display, message
   from chat_messages
   where deleted_at is null
+    and username not in (select login from ignored_logins)
   order by received_at desc, id desc
   limit ?
 `);
 
 const record = db.transaction((login: string, prompt: string, reply: string, now: string) => {
+  // Rejected inside the transaction so it is atomic with flushViewer's own delete: a
+  // request already in flight when the operator flushes lands here after the ignore
+  // row exists, so it is dropped rather than racing the delete and surviving it.
+  if (isIgnored.get(login) != null) return;
   insertInteraction.run(login, prompt, reply, now);
   pruneInteractions.run(login, login, MAX_STORED_INTERACTIONS);
 });

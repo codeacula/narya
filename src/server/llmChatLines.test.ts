@@ -18,6 +18,7 @@ function insert(
 
 beforeEach(() => {
   db.exec('delete from chat_messages');
+  db.exec('delete from ignored_logins');
 });
 
 test('lines come back oldest first', () => {
@@ -38,6 +39,15 @@ test('a moderated message never reaches the prompt', () => {
   // the content moderation removed, and could put it back on stream in a reply.
   insert('1', 'ann', 'fine', '2026-07-20T10:00:00.000Z');
   insert('2', 'troll', 'removed', '2026-07-20T10:00:01.000Z', '2026-07-20T10:00:02.000Z');
+  expect(recentChatLines(5).map(line => line.message)).toEqual(['fine']);
+});
+
+test('a flushed viewer never reaches the prompt', () => {
+  // chat.ts still inserts an ignored login's messages (only the roster summary is
+  // gated), so without this filter a flushed viewer's content would feed the model.
+  db.exec("insert into ignored_logins (login, reason, created_at) values ('troll', '', '2026-07-20T10:00:00.000Z')");
+  insert('1', 'ann', 'fine', '2026-07-20T10:00:00.000Z');
+  insert('2', 'troll', 'flushed', '2026-07-20T10:00:01.000Z');
   expect(recentChatLines(5).map(line => line.message)).toEqual(['fine']);
 });
 

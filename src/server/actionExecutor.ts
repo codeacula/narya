@@ -281,8 +281,11 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         const message = formatLlmReply(reply.message, context.actor ?? context.login ?? '', step.payload.mention);
         await sendChat(state, message, 'bot');
         // AFTER the send, never before: a chat outage must not record an exchange the
-        // viewer never saw.
-        if (login) recordInteraction(login, prompt, reply.message);
+        // viewer never saw. Record the delivered `message`, not the raw `reply.message`
+        // — the model's account of the conversation must match what the room actually
+        // saw, and formatLlmReply is also what bounds it to Twitch's 500-char ceiling,
+        // so raw text would let stored history grow past that.
+        if (login) recordInteraction(login, prompt, message);
         return SUCCEEDED;
       }
 

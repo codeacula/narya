@@ -14,7 +14,16 @@ import { isDashboardTokenRejected, onDashboardTokenRejected, setDashboardToken }
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [rejected, setRejected] = React.useState(isDashboardTokenRejected);
 
-  React.useEffect(() => onDashboardTokenRejected(() => setRejected(true)), []);
+  React.useEffect(() => {
+    const unsubscribe = onDashboardTokenRejected(() => setRejected(true));
+    // The latch can flip between our initial render and this effect. A child panel's
+    // fetch effect runs before ours (effects fire child-first) and can reject the token
+    // synchronously — a token the browser cannot even place in a header does so on the
+    // very first request — firing the notification before we subscribed. Reconcile once
+    // here so that missed signal still raises the gate.
+    if (isDashboardTokenRejected()) setRejected(true);
+    return unsubscribe;
+  }, []);
 
   if (!rejected) return <>{children}</>;
   return <TokenPrompt />;

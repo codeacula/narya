@@ -10,6 +10,7 @@ import { flushViewer } from './viewerIdentity';
 
 beforeEach(() => {
   db.exec('delete from llm_interactions');
+  db.exec('delete from ignored_logins');
 });
 
 test('an interaction round-trips', () => {
@@ -68,6 +69,17 @@ test('deleting by login reports how many rows went', () => {
   recordInteraction('bob', 'c', 'd');
   recordInteraction('sue', 'e', 'f');
   expect(deleteInteractionsForLogin('bob')).toBe(2);
+  expect(loadInteractions('sue', 5)).toHaveLength(1);
+});
+
+test('an ignored login cannot record a new interaction', () => {
+  // A flushed viewer's content must never re-enter LLM storage, even from an
+  // llm_response step (or an in-flight request) that fires after the flush.
+  db.exec("insert into ignored_logins (login, reason, created_at) values ('bob', '', '2026-07-20T00:00:00.000Z')");
+  recordInteraction('bob', 'why lurk', 'because rest is good');
+  expect(loadInteractions('bob', 5)).toEqual([]);
+  // A viewer who is not ignored is unaffected.
+  recordInteraction('sue', 'x', 'y');
   expect(loadInteractions('sue', 5)).toHaveLength(1);
 });
 
