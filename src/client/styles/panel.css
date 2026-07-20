@@ -335,6 +335,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .msg {
   position: relative; /* containing block for the hover moderation actions */
+  /* Width reserved for the timestamp, and the single source of truth the hover
+     actions offset themselves against. `m.time` comes from toLocaleTimeString, so
+     its width is locale-dependent — "14:58" is 5 characters, "12:58 PM" is 8, and
+     some locales render "12:58 a.m." at 10. At 6px per character in 10px JetBrains
+     Mono that worst case is 60px. Reserving it also right-aligns the column, which
+     a ragged mix of "9:05 AM" and "12:05 PM" otherwise does not. */
+  --msg-time-slot: 60px;
   padding: var(--row-pad-y) 14px;
   font-size: 15px; line-height: 1.5;
   border-left: 2px solid transparent;
@@ -384,7 +391,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 /* Inline chat emotes (Twitch + BTTV/7TV) sized for the dense dashboard list;
    the overlay's larger .chat-emote base is overridden here by higher specificity. */
 .msg-text .chat-emote { height: 22px; width: auto; vertical-align: middle; margin: 0 1px; }
-.msg-time { float: right; font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); opacity: 0; transition: opacity var(--dur-fast); }
+.msg-time {
+  float: right; min-width: var(--msg-time-slot); text-align: right;
+  font-family: var(--font-mono); font-size: 10px; color: var(--fg-3);
+  opacity: 0; transition: opacity var(--dur-fast);
+}
 .msg:hover .msg-time { opacity: 1; }
 
 /* Inline moderation. Taken out of flow rather than floated: a reserved float box
@@ -398,7 +409,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
    .msg-time, which reveals on the same hover — covering it would trade one
    affordance for another. */
 .msg-mod {
-  position: absolute; right: 52px; top: var(--row-pad-y);
+  position: absolute; right: calc(14px + var(--msg-time-slot) + 8px); top: var(--row-pad-y);
   display: inline-flex; gap: 4px;
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur-fast);
