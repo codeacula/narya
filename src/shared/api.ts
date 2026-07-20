@@ -565,13 +565,13 @@ export type TtsVoice = {
 
 // Tengwar exposes a fixed set of speakers and no per-request tuning knobs, so the
 // only voice decision is which speaker id to send. The Chatterbox-era tuning fields
-// (tonePreset/exaggeration/cfgWeight/temperature) are gone rather than ignored: a
-// setting the engine cannot honour is worse than no setting at all.
+// (tonePreset/exaggeration/cfgWeight/temperature/languageId) are gone rather than
+// ignored: a setting the engine cannot honour is worse than no setting at all.
+// `volume` stays because narya, not Tengwar, applies it at playback time.
 export type TtsSettings = {
   enabled: boolean;
   /** Sent to Tengwar as `speakerId`. */
   voiceProfileId: string;
-  languageId: string;
   volume: number;
   updatedAt: string | null;
 };
@@ -579,7 +579,6 @@ export type TtsSettings = {
 export type TtsSettingsUpdate = {
   enabled: boolean;
   voiceProfileId: string;
-  languageId: string;
   volume: number;
 };
 

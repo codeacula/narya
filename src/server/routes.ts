@@ -243,14 +243,12 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     const body = request.body as {
       enabled?: unknown;
       voiceProfileId?: unknown;
-      languageId?: unknown;
       volume?: unknown;
     };
     const enabled = typeof body.enabled === 'boolean' ? body.enabled : false;
     const voiceProfileId = typeof body.voiceProfileId === 'string' ? body.voiceProfileId.trim() : '';
-    const languageId = typeof body.languageId === 'string' ? body.languageId.trim() : 'en';
     const volume = typeof body.volume === 'number' ? body.volume : 0.8;
-    response.json(updateTtsSettings({ enabled, voiceProfileId, languageId, volume }));
+    response.json(updateTtsSettings({ enabled, voiceProfileId, volume }));
   }));
 
   app.get('/api/tts/status', async (_request, response) => {

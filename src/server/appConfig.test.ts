@@ -96,6 +96,20 @@ describe('saveAppConfig', () => {
     expect(() => saveAppConfig({ tengwarBaseUrl: 'not a url' })).toThrow('Tengwar URL must be');
   });
 
+  // Endpoints are appended verbatim, so a stored path sends /health to /api/health
+  // and breaks every call with nothing at the point of failure pointing at the cause.
+  test('rejects a Tengwar URL carrying a path, query or fragment', () => {
+    expect(() => saveAppConfig({ tengwarBaseUrl: 'http://127.0.0.1:8008/api' })).toThrow('bare host and port');
+    expect(() => saveAppConfig({ tengwarBaseUrl: 'http://127.0.0.1:8008?key=1' })).toThrow('bare host and port');
+    expect(() => saveAppConfig({ tengwarBaseUrl: 'http://127.0.0.1:8008#frag' })).toThrow('bare host and port');
+  });
+
+  // The bare host is the normal case and must survive: URL parses its path as '/'.
+  test('accepts a bare host and port', () => {
+    expect(saveAppConfig({ tengwarBaseUrl: 'http://100.64.0.5:8008' }).config.tengwarBaseUrl)
+      .toBe('http://100.64.0.5:8008');
+  });
+
   test('the Tengwar API key follows the secret convention', () => {
     expect(saveAppConfig({ tengwarApiKey: 'sekrit' }).config.tengwarApiKeyConfigured).toBe(true);
     // Absent on the next save -> kept; empty string -> also kept.

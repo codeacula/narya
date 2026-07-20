@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { saveAppConfig } from './appConfig';
+import { HttpRouteError } from './http';
 import { getTtsEngineStatus, getTtsSettings, getTtsVoices, speakText, updateTtsSettings } from './tts';
 
 const realFetch = globalThis.fetch;
@@ -19,11 +20,11 @@ function stubFetch() {
 }
 
 function enable(voiceProfileId = 'usFemale') {
-  updateTtsSettings({ enabled: true, voiceProfileId, languageId: 'en', volume: 0.8 });
+  updateTtsSettings({ enabled: true, voiceProfileId, volume: 0.8 });
 }
 
 function disable() {
-  updateTtsSettings({ enabled: false, voiceProfileId: 'usFemale', languageId: 'en', volume: 0.8 });
+  updateTtsSettings({ enabled: false, voiceProfileId: 'usFemale', volume: 0.8 });
 }
 
 beforeEach(() => {
@@ -155,14 +156,54 @@ describe('voice profile ids', () => {
   // an untouched install speaking instead of 400ing on every line.
   test('the Chatterbox-era default is remapped to a real Tengwar speaker', () => {
     expect(updateTtsSettings({
-      enabled: false, voiceProfileId: 'zombiechicken', languageId: 'en', volume: 0.8,
+      enabled: false, voiceProfileId: 'zombiechicken', volume: 0.8,
     }).voiceProfileId).toBe('usFemale');
     expect(getTtsSettings().voiceProfileId).toBe('usFemale');
   });
 
   test('a real speaker id is kept as-is', () => {
     expect(updateTtsSettings({
-      enabled: false, voiceProfileId: 'ukFemale', languageId: 'en', volume: 0.8,
+      enabled: false, voiceProfileId: 'ukFemale', volume: 0.8,
     }).voiceProfileId).toBe('ukFemale');
+  });
+
+  // The reason this validates against the speaker set rather than blacklisting the two
+  // ids we happen to know Chatterbox shipped: an install could hold any custom voice,
+  // and an unknown id reaching Tengwar 400s every line the bot tries to speak.
+  test('an unknown custom voice id falls back to a real speaker', () => {
+    expect(updateTtsSettings({
+      enabled: false, voiceProfileId: 'my-cloned-voice', volume: 0.8,
+    }).voiceProfileId).toBe('usFemale');
+    expect(getTtsSettings().voiceProfileId).toBe('usFemale');
+  });
+
+  test('an empty stored id falls back to a real speaker', () => {
+    expect(updateTtsSettings({
+      enabled: false, voiceProfileId: '', volume: 0.8,
+    }).voiceProfileId).toBe('usFemale');
+  });
+});
+
+/**
+ * A Tengwar 400 names the thing the operator has to fix ("unknown speakerId"). Thrown
+ * as a bare Error it reached them as an opaque 500, so the status class has to survive
+ * the hop through handle().
+ */
+describe('upstream error status', () => {
+  beforeEach(() => { enable(); });
+
+  test('a 400 from Tengwar stays a 400 instead of collapsing into a 500', async () => {
+    respond = () => Response.json({ error: 'unknown speakerId' }, { status: 400 });
+    const error = await speakText('hello').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(HttpRouteError);
+    expect((error as HttpRouteError).status).toBe(400);
+    expect((error as HttpRouteError).message).toContain('unknown speakerId');
+  });
+
+  test('any other upstream failure is reported as a 502', async () => {
+    respond = () => Response.json({ error: 'model failed to load' }, { status: 500 });
+    const error = await speakText('hello').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(HttpRouteError);
+    expect((error as HttpRouteError).status).toBe(502);
   });
 });

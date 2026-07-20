@@ -6,11 +6,18 @@ import { clampFinite } from './numeric';
 import { broadcast } from './realtime';
 
 /**
- * A Tengwar speaker id. The service ships a fixed set (usMale/usFemale/ukMale/
- * ukFemale) and 400s on anything else, so the fallback has to be one of them —
- * 'zombiechicken', the Chatterbox-era default, would fail every synthesis.
+ * The speaker ids Tengwar ships. It 400s on anything else, so this set — not a
+ * blacklist of the ids we happen to know Chatterbox wrote — is what a stored value
+ * is checked against: an install carrying any custom Chatterbox voice would
+ * otherwise fail every synthesis.
  */
+const TENGWAR_SPEAKERS = new Set(['usMale', 'usFemale', 'ukMale', 'ukFemale']);
+/** One of TENGWAR_SPEAKERS: 'zombiechicken', the Chatterbox-era default, 400s. */
 const DEFAULT_VOICE_PROFILE_ID = 'usFemale';
+/**
+ * Tengwar is English-only and takes no language argument. Kept solely to fill
+ * TtsVoice.languageId, which is narya's own shape, not part of TTS settings.
+ */
 const DEFAULT_LANGUAGE_ID = 'en';
 const MAX_TEXT_LENGTH = 500;
 
@@ -36,11 +43,22 @@ runOnce('2026-07-drop-chatterbox-tts-tuning-columns', () => {
   }
 });
 
+/**
+ * language_id is the same class of dead knob: it was stored, validated and rendered
+ * as an editable field, but never reached Tengwar, whose synthesize body is
+ * {text, speakerId} and which is English-only. A separate key from the migration
+ * above because that one has already run on existing installs.
+ */
+runOnce('2026-07-drop-tts-language-id-column', () => {
+  const columns = (db.prepare('pragma table_info(tts_settings)').all() as Array<{ name: string }>)
+    .map(column => column.name);
+  if (columns.includes('language_id')) db.exec('alter table tts_settings drop column language_id');
+});
+
 const getTtsSettingsRow = db.prepare(`
   select
     enabled,
     voice_profile_id as voiceProfileId,
-    language_id as languageId,
     volume,
     updated_at as updatedAt
   from tts_settings
@@ -49,13 +67,12 @@ const getTtsSettingsRow = db.prepare(`
 
 const upsertTtsSettings = db.prepare(`
   insert into tts_settings (
-    id, enabled, voice_profile_id, language_id, volume, updated_at
+    id, enabled, voice_profile_id, volume, updated_at
   )
-  values (1, ?, ?, ?, ?, ?)
+  values (1, ?, ?, ?, ?)
   on conflict(id) do update set
     enabled = excluded.enabled,
     voice_profile_id = excluded.voice_profile_id,
-    language_id = excluded.language_id,
     volume = excluded.volume,
     updated_at = excluded.updated_at
 `);
@@ -63,7 +80,6 @@ const upsertTtsSettings = db.prepare(`
 type TtsSettingsRow = {
   enabled: number;
   voiceProfileId: string;
-  languageId: string;
   volume: number;
   updatedAt: string;
 };
@@ -76,29 +92,23 @@ export type TtsEngineStatus = {
   error?: string;
 };
 
-function sanitizeLanguageId(value: string): string {
-  const languageId = value.trim().toLowerCase() || DEFAULT_LANGUAGE_ID;
-  if (!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/i.test(languageId)) {
-    throw new HttpRouteError(400, 'languageId must be a valid language tag.');
-  }
-  return languageId;
-}
-
 /**
  * Rows written before the move to Tengwar hold Chatterbox voice ids that Tengwar
  * rejects. Remapped on read rather than rewritten in a migration, so a settings row
  * the operator never revisits still speaks instead of 400ing.
+ *
+ * Validated against the known speaker set rather than against a blacklist of the two
+ * legacy defaults: a Chatterbox install could hold any custom voice id, and letting
+ * an unknown one through means every synthesize call 400s.
  */
 function resolveVoiceProfileId(stored: string): string {
-  if (!stored || stored === 'default' || stored === 'zombiechicken') return DEFAULT_VOICE_PROFILE_ID;
-  return stored;
+  return TENGWAR_SPEAKERS.has(stored) ? stored : DEFAULT_VOICE_PROFILE_ID;
 }
 
 function rowToTtsSettings(row: TtsSettingsRow): TtsSettings {
   return {
     enabled: row.enabled === 1,
     voiceProfileId: resolveVoiceProfileId(row.voiceProfileId),
-    languageId: row.languageId || DEFAULT_LANGUAGE_ID,
     volume: row.volume,
     updatedAt: row.updatedAt || null,
   };
@@ -108,7 +118,6 @@ function defaultTtsSettings(): TtsSettings {
   return {
     enabled: false,
     voiceProfileId: DEFAULT_VOICE_PROFILE_ID,
-    languageId: DEFAULT_LANGUAGE_ID,
     volume: 0.8,
     updatedAt: null,
   };
@@ -138,7 +147,11 @@ async function tengwarFetch(pathname: string, init: RequestInit, timeoutMs: numb
   });
   if (!response.ok) {
     const message = await readResponseError(response, `Tengwar service error: ${response.status}`);
-    throw new Error(message);
+    // Keep the upstream status class. A 400 ("unknown speakerId") is a configuration
+    // problem the operator can act on; collapsing it into a 500 hides the one part of
+    // the response that says what to fix. Anything else is the upstream being broken,
+    // which is a 502 from narya's side, not narya's own failure.
+    throw new HttpRouteError(response.status === 400 ? 400 : 502, message);
   }
   return response;
 }
@@ -175,12 +188,10 @@ export async function getTtsEngineStatus(): Promise<TtsEngineStatus> {
 export function updateTtsSettings(update: TtsSettingsUpdate): TtsSettings {
   const updatedAt = new Date().toISOString();
   const voiceProfileId = resolveVoiceProfileId(update.voiceProfileId.trim());
-  const languageId = sanitizeLanguageId(update.languageId);
   const volume = clampFinite(Number(update.volume), 0, 1, 0.8);
   upsertTtsSettings.run(
     update.enabled ? 1 : 0,
     voiceProfileId,
-    languageId,
     volume,
     updatedAt,
   );

@@ -326,11 +326,19 @@ function normalizeUpdate(body: unknown, prev: AppConfigInternal): NormalizedConf
   let tengwarBaseUrl = prev.tengwarBaseUrl;
   if (value.tengwarBaseUrl !== undefined) {
     tengwarBaseUrl = str(value.tengwarBaseUrl).replace(/\/+$/, '') || DEFAULTS.tengwarBaseUrl;
+    let parsed: URL;
     try {
-      const parsed = new URL(tengwarBaseUrl);
+      parsed = new URL(tengwarBaseUrl);
       if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid protocol');
     } catch {
       throw new HttpRouteError(400, 'Tengwar URL must be a valid http(s) URL including the port.');
+    }
+    // Endpoints are appended verbatim (`${baseUrl}/health`), so a stored path, query
+    // or fragment silently corrupts every call — http://host:8008/api would probe
+    // http://host:8008/api/health. Rejected here rather than debugged later. Checked
+    // outside the try so this reports the actual problem instead of "not a valid URL".
+    if ((parsed.pathname && parsed.pathname !== '/') || parsed.search || parsed.hash) {
+      throw new HttpRouteError(400, 'Tengwar URL must be a bare host and port, with no path, query or fragment.');
     }
   }
 

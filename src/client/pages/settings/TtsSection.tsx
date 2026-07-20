@@ -179,7 +179,6 @@ export function TtsSection() {
     initial: {
       enabled: false,
       voiceProfileId: 'usFemale',
-      languageId: 'en',
       volume: 0.8,
       updatedAt: null,
     },
@@ -205,7 +204,6 @@ export function TtsSection() {
     save: settings => updateTtsSettings({
       enabled: settings.enabled,
       voiceProfileId: settings.voiceProfileId,
-      languageId: settings.languageId,
       volume: settings.volume,
     }),
     saveError: 'Could not save TTS settings',
@@ -237,12 +235,14 @@ export function TtsSection() {
   const handleTtsEnabledToggle = (enabled: boolean) => {
     const next = { ...ttsForm.confirmed, enabled };
     setTtsSettings(next);
-    ttsForm.submit(next, enabled ? 'Text-to-Speech enabled.' : 'Text-to-Speech disabled.');
+    const saved = ttsForm.submit(next, enabled ? 'Text-to-Speech enabled.' : 'Text-to-Speech disabled.');
     // Enabling is the moment the operator authorizes a connection, so this is where
-    // the first probe belongs. Disabling drops what we knew, rather than leaving a
-    // stale "connected" badge beside a switched-off module.
+    // the first probe belongs. It has to wait for the PUT: both service endpoints are
+    // gated on the persisted `enabled` flag, so probing in the same tick reads the
+    // old value and comes back empty until a manual reload. Disabling drops what we
+    // knew, rather than leaving a stale "connected" badge beside a switched-off module.
     if (enabled) {
-      void loadService().then(({ voices, status }) => {
+      void saved.then(loadService).then(({ voices, status }) => {
         setTtsVoices(voices);
         setTtsStatus(status);
       });
@@ -312,16 +312,6 @@ export function TtsSection() {
         </label>
 
         <div className="llm-settings-grid">
-          <label className="field">
-            <span>Language</span>
-            <input
-              value={ttsSettings.languageId}
-              disabled={ttsLoading || ttsSaving}
-              maxLength={12}
-              onChange={event => setTtsSettings(current => ({ ...current, languageId: event.target.value }))}
-            />
-          </label>
-
           <label className="field">
             <span>Volume</span>
             <input
