@@ -21,6 +21,15 @@ import { loadStoredJson, saveStoredJson } from '../storage';
 import { useMediaMute } from '../mediaMute';
 import { useWindDown } from '../windDown';
 import { errorMessage } from '../errors';
+import {
+  DEFAULT_TIMEOUT_MINUTES,
+  MAX_TIMEOUT_MINUTES,
+  TIMEOUT_PRESETS,
+  isValidTimeoutMinutes,
+  resolveTimeoutMinutes,
+  timeoutLabel,
+  timeoutSeconds,
+} from '../timeoutDuration';
 
 /* ---------------- types ---------------- */
 
@@ -114,13 +123,88 @@ function badgesFor(viewer: Viewer | undefined): string[] {
   return out;
 }
 
+/** How long an armed ban stays armed before reverting. Long enough to read the
+ *  relabelled button and press it, short enough that walking away disarms it. */
+const ARM_TIMEOUT_MS = 4_000;
+
+/** What has already been handed out to this chatter, shown in place of the buttons. */
+export type ChatRowModerationStatus = { kind: 'timeout' | 'ban'; label: string };
+
+export type ChatRowModeration = {
+  status?: ChatRowModerationStatus | null;
+  busy?: boolean;
+  onTimeout: (login: string) => void;
+  onBan: (login: string) => void;
+};
+
+/**
+ * Timeout and ban, inline on a chat row — the two actions worth removing the
+ * click-name → popout-window → modal round trip for.
+ *
+ * The buttons fade rather than mount, and hold their box at opacity 0, so no row
+ * reflows under the pointer as the operator moves down a moving list.
+ *
+ * Timeout fires on the first click because it expires on its own. Ban arms and
+ * confirms in place — the same idiom as Flush on the viewer page — because there
+ * is no unban route here and Twitch purges the messages the moment it lands, so
+ * a misfire is not something this app can walk back.
+ */
+function ChatRowActions({ login, moderation }: { login: string; moderation: ChatRowModeration }) {
+  const [armed, setArmed] = React.useState(false);
+
+  // Disarm on a timer as well as on blur. Blur alone is enough with a mouse, but the
+  // tablet is a touch surface where a tap does not reliably focus a button — so the
+  // blur may simply never arrive, and a ban left armed under the operator's thumb is
+  // the accident this confirmation exists to prevent.
+  React.useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), ARM_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
+
+  if (moderation.status) {
+    return (
+      <span className={'msg-mod-status ' + moderation.status.kind}>{moderation.status.label}</span>
+    );
+  }
+
+  return (
+    <span className="msg-mod">
+      <button
+        type="button"
+        className="msg-mod-btn"
+        disabled={moderation.busy}
+        title={`Time @${login} out for ${timeoutLabel(DEFAULT_TIMEOUT_MINUTES)}`}
+        onClick={() => moderation.onTimeout(login)}
+      >
+        {timeoutLabel(DEFAULT_TIMEOUT_MINUTES)}
+      </button>
+      <button
+        type="button"
+        className={'msg-mod-btn danger' + (armed ? ' armed' : '')}
+        disabled={moderation.busy}
+        title={armed ? `Confirm ban for @${login}` : `Ban @${login}`}
+        onClick={() => {
+          if (!armed) { setArmed(true); return; }
+          setArmed(false);
+          moderation.onBan(login);
+        }}
+        onBlur={() => setArmed(false)}
+      >
+        {armed ? 'sure?' : 'ban'}
+      </button>
+    </span>
+  );
+}
+
 /**
  * A single chat row. Shared by the dashboard chat panel and the viewer detail
  * page's history so both read identically. `viewer` supplies the name colour and
  * role badges; pass `onUserClick` to make the name open a popout (the dashboard
  * does, the viewer page — already on that person — does not). `fromThisStream`
  * dims rows from an earlier session; leave it true where session dimming doesn't
- * apply.
+ * apply. `moderation` adds the hover action pair; leave it off for read-only
+ * surfaces.
  */
 export function ChatMessageRow({
   m,
@@ -129,6 +213,7 @@ export function ChatMessageRow({
   onUserClick,
   emoteMap = {},
   channel = '',
+  moderation,
 }: {
   m: ChatEntry;
   viewer?: Viewer;
@@ -137,6 +222,7 @@ export function ChatMessageRow({
   emoteMap?: Record<string, string>;
   /** Operator's login, so rows that ping them stand out. Empty disables the check. */
   channel?: string;
+  moderation?: ChatRowModeration;
 }) {
   const color = viewer?.color ?? '#d7dce2';
   const display = viewer?.display ?? m.user;
@@ -159,11 +245,25 @@ export function ChatMessageRow({
   }
 
   const hlClass = m.highlight ? ' hl-' + m.highlight : '';
+  // Twitch refuses to time out or ban a broadcaster or moderator, so offering the
+  // buttons there would only ever produce an error toast.
+  const moderatable = moderation
+    && !viewer?.roles.includes('broadcaster')
+    && !viewer?.roles.includes('mod')
+    && m.user.toLowerCase() !== channel.toLowerCase();
+  const status = moderatable ? moderation.status : null;
   return (
-    <div className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past') + (isMention ? ' msg--mention' : '')}>
+    <div
+      className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past') + (isMention ? ' msg--mention' : '')
+        + (status ? ' msg--moderated' : '')}
+    >
       <span className="msg-time">{m.time}</span>
       <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
       <span className="msg-text">{body}</span>
+      {/* Last in the row: the dashboard positions this absolutely, so DOM order does
+          not affect where it lands there, while the tablet renders it in flow on its
+          own line below the message — which only reads correctly from here. */}
+      {moderatable && <ChatRowActions login={m.user} moderation={moderation} />}
     </div>
   );
 }
@@ -185,7 +285,13 @@ function addProfileTag(tags: string[], value: string): string[] {
 // Exported so the tablet can render the identical chat surface (read-only there —
 // it omits the ChatInput footer). Keep it prop-driven via PanelCtx so the two
 // surfaces can't drift apart.
-export function Chat({ ctx }: { ctx: PanelCtx }) {
+//
+// `canModerate` is opt-in. Both operator surfaces (dashboard and tablet) pass it;
+// they hold the same token, so the difference is presentation, not authority. The
+// row actions are hover-revealed on the dashboard and always visible + finger-sized
+// on the tablet, because a touch surface has no hover and the first tap would
+// otherwise both reveal and press — see the `.tablet-shell` overrides in panel.css.
+export function Chat({ ctx, canModerate = false }: { ctx: PanelCtx; canModerate?: boolean }) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const atBottomRef = React.useRef(true);
   const lastIdRef = React.useRef(ctx.chat[ctx.chat.length - 1]?.id ?? '');
@@ -197,7 +303,39 @@ export function Chat({ ctx }: { ctx: PanelCtx }) {
   const [newCount, setNewCount] = React.useState(0);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
   const [chatSearch, setChatSearch] = React.useState('');
+  // Keyed by login, not by message id: a ban is handed to the person, so every
+  // row of theirs on screen should say so, not just the one that was clicked.
+  const [modStatus, setModStatus] = React.useState<Record<string, ChatRowModerationStatus>>({});
+  const [modBusy, setModBusy] = React.useState<string | null>(null);
+  const [modError, setModError] = React.useState<string | null>(null);
   const emoteMap = useEmotes();
+
+  const moderate = React.useCallback((login: string, kind: 'timeout' | 'ban') => {
+    const key = login.toLowerCase();
+    setModBusy(key);
+    setModError(null);
+
+    // No reason field on a row action — the whole point is that it lands in one
+    // click. The modal is still there when the moment warrants an explanation.
+    const request = kind === 'timeout'
+      ? timeoutViewer(login, timeoutSeconds(DEFAULT_TIMEOUT_MINUTES), '')
+      : banViewer(login, '');
+
+    void request
+      // Marked only after Twitch confirms. An optimistic chip would tell the
+      // operator someone is gone while they carry on typing in chat.
+      .then(() => setModStatus(previous => ({
+        ...previous,
+        [key]: kind === 'timeout'
+          ? { kind, label: `timed out · ${timeoutLabel(DEFAULT_TIMEOUT_MINUTES)}` }
+          : { kind, label: 'banned' },
+      })))
+      .catch(caught => setModError(errorMessage(caught, kind === 'ban' ? 'Ban failed' : 'Timeout failed')))
+      .finally(() => setModBusy(current => (current === key ? null : current)));
+  }, []);
+
+  const onRowTimeout = React.useCallback((login: string) => moderate(login, 'timeout'), [moderate]);
+  const onRowBan = React.useCallback((login: string) => moderate(login, 'ban'), [moderate]);
 
   React.useLayoutEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -340,21 +478,29 @@ export function Chat({ ctx }: { ctx: PanelCtx }) {
           {newCount > 0 ? `${newCount} new` : 'latest'}
         </button>
       </div>
+      {modError && <div className="chat-mod-error" role="status">{modError}</div>}
       <div className="chat-list" ref={listRef} onScroll={handleScroll}>
         {loadingOlder && <div className="chat-loading">loading…</div>}
         {displayedChat.map((m, index) => {
           // Whispers arrive live and carry no session, so they never read as past.
           const fromThisStream = m.kind === 'whisper' || belongsToCurrentSession(m.sessionId, ctx.currentSessionId);
+          const login = m.user.toLowerCase();
           return (
             <React.Fragment key={m.id}>
               {index === currentSessionStart && <div className="chat-divider">this stream</div>}
               <ChatMessageRow
                 m={m}
-                viewer={ctx.viewers[m.user.toLowerCase()]}
+                viewer={ctx.viewers[login]}
                 fromThisStream={fromThisStream}
                 onUserClick={ctx.openViewerPopout}
                 emoteMap={emoteMap}
                 channel={ctx.channel}
+                moderation={canModerate ? {
+                  status: modStatus[login] ?? null,
+                  busy: modBusy === login,
+                  onTimeout: onRowTimeout,
+                  onBan: onRowBan,
+                } : undefined}
               />
             </React.Fragment>
           );
@@ -595,11 +741,27 @@ function ViewerActionModal({
 }) {
   const [message, setMessage] = React.useState('');
   const [reason, setReason] = React.useState('');
-  const [durationMinutes, setDurationMinutes] = React.useState(10);
+  const [presetMinutes, setPresetMinutes] = React.useState(DEFAULT_TIMEOUT_MINUTES);
+  const [customMinutes, setCustomMinutes] = React.useState('');
   const isWhisper = action === 'whisper';
   const isTimeout = action === 'timeout';
   const title = isWhisper ? 'Whisper' : isTimeout ? 'Timeout Viewer' : 'Ban Viewer';
-  const submitLabel = busy ? 'Working...' : isWhisper ? 'Send whisper' : isTimeout ? 'Timeout' : 'Ban';
+
+  // Derived, not a third piece of state: the chips and the custom field are two
+  // views of one duration, and holding it separately is how they drift apart.
+  const usingCustom = customMinutes.trim() !== '';
+  const durationMinutes = resolveTimeoutMinutes(presetMinutes, customMinutes);
+  const durationValid = isValidTimeoutMinutes(durationMinutes);
+
+  const submitLabel = busy
+    ? 'Working...'
+    : isWhisper
+      ? 'Send whisper'
+      // The committed duration rides on the button itself, so the last thing the
+      // operator reads before clicking is what they are about to hand out.
+      : isTimeout
+        ? `Timeout · ${timeoutLabel(durationMinutes)}`
+        : 'Ban';
 
   const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -640,18 +802,40 @@ function ViewerActionModal({
         ) : (
           <>
             {isTimeout && (
-              <label className="field">
-                <span>Duration minutes</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={20_160}
-                  value={durationMinutes}
-                  disabled={busy}
-                  onChange={event => setDurationMinutes(Number(event.target.value))}
-                />
-                <small>1 minute to 14 days</small>
-              </label>
+              <div className="field">
+                <span>Duration</span>
+                <div className="timeout-presets" role="group" aria-label="Timeout duration">
+                  {TIMEOUT_PRESETS.map(preset => {
+                    const selected = !usingCustom && preset.minutes === presetMinutes;
+                    return (
+                      <button
+                        key={preset.minutes}
+                        type="button"
+                        className={'timeout-preset' + (selected ? ' selected' : '')}
+                        aria-pressed={selected}
+                        disabled={busy}
+                        onClick={() => { setPresetMinutes(preset.minutes); setCustomMinutes(''); }}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                  <input
+                    className="timeout-custom"
+                    type="number"
+                    min={1}
+                    max={MAX_TIMEOUT_MINUTES}
+                    placeholder="mins"
+                    aria-label="Custom duration in minutes"
+                    value={customMinutes}
+                    disabled={busy}
+                    onChange={event => setCustomMinutes(event.target.value)}
+                  />
+                </div>
+                <small className={durationValid ? undefined : 'error'}>
+                  {durationValid ? '1 minute to 14 days' : `Enter 1–${MAX_TIMEOUT_MINUTES} minutes`}
+                </small>
+              </div>
             )}
             <label className="field">
               <span>Reason</span>
@@ -674,7 +858,7 @@ function ViewerActionModal({
           <button
             className={'modbtn ' + (action === 'ban' ? 'danger' : 'gold')}
             type="submit"
-            disabled={busy || (isWhisper && !message.trim())}
+            disabled={busy || (isWhisper && !message.trim()) || (isTimeout && !durationValid)}
           >
             {submitLabel}
           </button>
@@ -748,7 +932,7 @@ export function Spotlight({
       : action === 'timeout'
         ? timeoutViewer(
             viewer.login,
-            Math.round(Math.min(Math.max(payload.durationMinutes ?? 10, 1), 20_160) * 60),
+            timeoutSeconds(payload.durationMinutes ?? DEFAULT_TIMEOUT_MINUTES),
             payload.reason ?? '',
           )
         : banViewer(viewer.login, payload.reason ?? '');
@@ -1458,7 +1642,7 @@ export const MODULES: Record<string, ModuleEntry> = {
     dot: true,
     footer: true,
     count: ctx => ctx.chat.length,
-    render: ctx => <Chat ctx={ctx} />,
+    render: ctx => <Chat ctx={ctx} canModerate />,
   },
   events: {
     title: 'activity feed',
