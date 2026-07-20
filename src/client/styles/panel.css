@@ -1361,6 +1361,26 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .settings-wide-field {
   grid-column: 1 / -1;
 }
+/* Groups the LLM step's context and targeting fields. A separator, not a collapsible:
+   the deny-list is what makes a command silently stop replying, so it must stay
+   visible. Matches the TweakSection idiom — small, uppercase, letter-spaced. */
+.action-step-group {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border-1);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.llm-example-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.llm-example-row input { flex: 1; min-width: 0; }
 /* A toggle is not a column of a form row — give it its own line. */
 /* `.action-hint` joins these because it explains the checkbox above it rather than
    labelling a field beside it. Left in a single column it wrapped to three cramped

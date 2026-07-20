@@ -22,6 +22,7 @@ import {
   runAction,
   updateAction,
 } from '../../services/dashboard';
+import { LlmStepFields } from './LlmStepFields';
 import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
 import {
@@ -240,20 +241,22 @@ function StepPayloadFields({
       );
 
     case 'tts_speak':
-    case 'llm_response':
       return (
         <label className="field settings-wide-field">
-          <span>{step.type === 'tts_speak' ? 'Say' : 'Prompt'}</span>
+          <span>Say</span>
           <input
             value={step.payload.template}
             disabled={disabled}
             maxLength={500}
-            placeholder={step.type === 'tts_speak' ? '{actor} says {input}' : 'Answer {actor} in one sentence: {input}'}
+            placeholder="{actor} says {input}"
             onChange={event => onChange({ ...step, payload: { ...step.payload, template: event.target.value } })}
           />
           <small className="action-hint">{TEMPLATE_HINT}</small>
         </label>
       );
+
+    case 'llm_response':
+      return <LlmStepFields step={step} disabled={disabled} onChange={onChange} />;
 
     case 'send_chat':
       return (

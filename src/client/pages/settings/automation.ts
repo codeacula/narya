@@ -152,7 +152,24 @@ export function newStep(type: ActionStepType): ActionStepInput {
     case 'send_chat':
       return { type, enabled: true, delayMs: 0, payload: { template: '', sender: 'bot' } };
     case 'llm_response':
-      return { type, enabled: true, delayMs: 0, payload: { template: '' } };
+      return {
+        type,
+        enabled: true,
+        delayMs: 0,
+        payload: {
+          template: '',
+          systemPrompt: '',
+          systemPromptMode: 'enhance',
+          chatHistoryLines: 0,
+          interactionHistory: 0,
+          examples: [],
+          allowTags: [],
+          denyTags: [],
+          allowDecline: false,
+          // Matches the stored default: every existing step mentions today.
+          mention: true,
+        },
+      };
     case 'obs_scene':
       return { type, enabled: true, delayMs: 0, payload: { sceneName: '' } };
     case 'obs_transition':

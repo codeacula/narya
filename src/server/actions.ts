@@ -7,11 +7,23 @@ import type {
   ActionUpsert,
   ChatSender,
   CounterAdjustMode,
+  LlmExample,
+  LlmResponsePayload,
+  LlmSystemPromptMode,
   MediaSelection,
   TemplateContext,
   TextStyle,
 } from '../shared/api';
-import { MAX_TIMEOUT_SECONDS } from '../shared/api';
+import {
+  MAX_LLM_CHAT_HISTORY_LINES,
+  MAX_LLM_EXAMPLE_LENGTH,
+  MAX_LLM_EXAMPLES,
+  MAX_LLM_GATE_TAGS,
+  MAX_LLM_INTERACTION_HISTORY,
+  MAX_LLM_SYSTEM_PROMPT_LENGTH,
+  MAX_TIMEOUT_SECONDS,
+} from '../shared/api';
+import { normalizeProfileTag } from '../shared/viewerTags';
 import type { ActionExecutor } from './actionExecutor';
 import { parseCounterAmount } from './counters';
 import { db, isUniqueConstraintError } from './db';
@@ -45,6 +57,41 @@ const STEP_TYPES = new Set<ActionStepType>([
   'quote_show',
 ]);
 const COUNTER_MODES = new Set<CounterAdjustMode>(['add', 'set']);
+const LLM_MODES = new Set<LlmSystemPromptMode>(['enhance', 'override']);
+
+/**
+ * rowToStep blind-casts parsed payload JSON to the step union, so a stored row that
+ * predates a field yields `undefined` while the type claims otherwise. Filling the
+ * gaps HERE keeps the union honest and puts the defaults in one place instead of
+ * scattering `?? false` through the executor.
+ */
+export function withLlmPayloadDefaults(payload: unknown): LlmResponsePayload {
+  const value = (payload ?? {}) as Partial<LlmResponsePayload>;
+  const mode = typeof value.systemPromptMode === 'string' && LLM_MODES.has(value.systemPromptMode as LlmSystemPromptMode)
+    ? value.systemPromptMode as LlmSystemPromptMode
+    : 'enhance';
+  const count = (raw: unknown): number =>
+    typeof raw === 'number' && Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 0;
+  const strings = (raw: unknown): string[] =>
+    Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : [];
+
+  return {
+    template: typeof value.template === 'string' ? value.template : '',
+    systemPrompt: typeof value.systemPrompt === 'string' ? value.systemPrompt : '',
+    systemPromptMode: mode,
+    chatHistoryLines: count(value.chatHistoryLines),
+    interactionHistory: count(value.interactionHistory),
+    examples: Array.isArray(value.examples)
+      ? value.examples.filter((item): item is LlmExample =>
+          Boolean(item) && typeof (item as LlmExample).input === 'string' && typeof (item as LlmExample).output === 'string')
+      : [],
+    allowTags: strings(value.allowTags),
+    denyTags: strings(value.denyTags),
+    allowDecline: value.allowDecline === true,
+    // TRUE, not false: today's formatPonderReply always mentions.
+    mention: value.mention !== false,
+  };
+}
 const TEXT_STYLES = new Set<TextStyle>(['banner', 'toast', 'centered']);
 const MEDIA_SELECTIONS = new Set<MediaSelection>(['first', 'random']);
 const CHAT_SENDERS = new Set<ChatSender>(['user', 'bot']);
@@ -188,8 +235,40 @@ function normalizeStepPayload(type: ActionStepType, payload: unknown): ActionSte
       return { template, sender: sender as ChatSender };
     }
 
-    case 'llm_response':
-      return { template: requireTemplate(value.template, 'LLM steps need a prompt.') };
+    case 'llm_response': {
+      const template = requireTemplate(value.template, 'LLM steps need a prompt.');
+      const filled = withLlmPayloadDefaults({ ...value, template });
+
+      if (filled.systemPrompt.length > MAX_LLM_SYSTEM_PROMPT_LENGTH) {
+        throw new HttpRouteError(400, `LLM system prompts must be ${MAX_LLM_SYSTEM_PROMPT_LENGTH} characters or fewer.`);
+      }
+      if (filled.chatHistoryLines > MAX_LLM_CHAT_HISTORY_LINES) {
+        throw new HttpRouteError(400, `LLM steps can include at most ${MAX_LLM_CHAT_HISTORY_LINES} chat lines.`);
+      }
+      if (filled.interactionHistory > MAX_LLM_INTERACTION_HISTORY) {
+        throw new HttpRouteError(400, `LLM steps can replay at most ${MAX_LLM_INTERACTION_HISTORY} prior interactions.`);
+      }
+      if (filled.examples.length > MAX_LLM_EXAMPLES) {
+        throw new HttpRouteError(400, `LLM steps can carry at most ${MAX_LLM_EXAMPLES} examples.`);
+      }
+      if (filled.examples.some(pair => pair.input.length > MAX_LLM_EXAMPLE_LENGTH || pair.output.length > MAX_LLM_EXAMPLE_LENGTH)) {
+        throw new HttpRouteError(400, `LLM example text must be ${MAX_LLM_EXAMPLE_LENGTH} characters or fewer.`);
+      }
+
+      const gateTags = (tags: string[]): string[] => {
+        const cleaned = tags.map(normalizeProfileTag).filter(Boolean);
+        if (cleaned.length > MAX_LLM_GATE_TAGS) {
+          throw new HttpRouteError(400, `LLM tag lists can hold at most ${MAX_LLM_GATE_TAGS} tags.`);
+        }
+        return cleaned;
+      };
+
+      return {
+        ...filled,
+        allowTags: gateTags(filled.allowTags),
+        denyTags: gateTags(filled.denyTags),
+      };
+    }
 
     case 'obs_scene': {
       const sceneName = typeof value.sceneName === 'string' ? value.sceneName.trim() : '';
@@ -270,6 +349,9 @@ function normalizeStepPayload(type: ActionStepType, payload: unknown): ActionSte
       };
   }
 }
+
+/** Test seam: normalizeStepPayload is module-private but its limits need direct cover. */
+export const normalizeStepPayloadForTest = normalizeStepPayload;
 
 function normalizeSteps(value: unknown): ActionStepInput[] {
   if (!Array.isArray(value) || value.length === 0) {
@@ -364,6 +446,10 @@ function rowToStep(row: StepRow): ActionStep {
   } catch (error) {
     console.error(`Actions: step ${row.id} has unreadable payload JSON:`, error);
   }
+
+  // llm_response rows predate every field but `template`; fill them here so the
+  // union the executor receives is complete.
+  if (row.stepType === 'llm_response') payload = withLlmPayloadDefaults(payload);
 
   return {
     id: row.id,

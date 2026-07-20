@@ -842,7 +842,44 @@ export type ShowTextPayload = { template: string; durationMs: number; style: Tex
 export type PlayMediaPayload = { assetIds: string[]; selection: MediaSelection; volume?: number };
 export type TtsSpeakPayload = { template: string };
 export type SendChatPayload = { template: string; sender: ChatSender };
-export type LlmResponsePayload = { template: string };
+/** How a step's own system prompt combines with the global personality prompt. */
+export type LlmSystemPromptMode = 'enhance' | 'override';
+
+/** An operator-written few-shot pair, used to lock in voice and format. */
+export type LlmExample = { input: string; output: string };
+
+/**
+ * `mention` exists because retiring the `!ponder` framing also retires
+ * formatPonderReply, which prefixed `@displayName` unconditionally. Stored rows
+ * predate every field below `template`, so they are defaulted at the read boundary
+ * (withLlmPayloadDefaults) — and `mention` defaults to TRUE to preserve that
+ * behaviour.
+ *
+ * `chatHistoryLines` and `interactionHistory` are counts, not a token budget: there
+ * is no tokenizer for whatever model sits behind the configured base URL, so a byte
+ * budget would be a guess presented as a guarantee. Their caps exist to stop a typo
+ * from hanging a live stream, not to manage a context window.
+ */
+export type LlmResponsePayload = {
+  template: string;
+  systemPrompt: string;
+  systemPromptMode: LlmSystemPromptMode;
+  chatHistoryLines: number;
+  interactionHistory: number;
+  examples: LlmExample[];
+  allowTags: string[];
+  denyTags: string[];
+  allowDecline: boolean;
+  mention: boolean;
+};
+
+/** Caps for an llm_response payload. Mirrored in settings/automation.ts. */
+export const MAX_LLM_CHAT_HISTORY_LINES = 50;
+export const MAX_LLM_INTERACTION_HISTORY = 20;
+export const MAX_LLM_EXAMPLES = 10;
+export const MAX_LLM_EXAMPLE_LENGTH = 500;
+export const MAX_LLM_SYSTEM_PROMPT_LENGTH = 2000;
+export const MAX_LLM_GATE_TAGS = 20;
 export type ObsScenePayload = { sceneName: string };
 export type ObsTransitionPayload = Record<string, never>;
 export type TwitchShoutoutPayload = { loginTemplate: string };
