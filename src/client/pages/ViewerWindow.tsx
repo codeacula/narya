@@ -45,7 +45,7 @@ export function ViewerWindowPage() {
   };
 
   return (
-    <div style={{ padding: '12px', background: 'var(--bg-0)', minHeight: '100vh' }}>
+    <div style={{ padding: '12px', background: 'var(--bg-1)', minHeight: '100vh' }}>
       <div style={{ marginBottom: '10px', textAlign: 'right' }}>
         <a
           className="modbtn"

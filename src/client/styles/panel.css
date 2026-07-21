@@ -1562,7 +1562,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   flex-basis: 100%;
   margin: 0;
   padding-left: 60px;
-  color: var(--warning, #ffc46b);
+  color: var(--warning-fg);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.03em;
@@ -3185,7 +3185,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   align-items: center;
   gap: 8px;
   padding: 5px 6px;
-  border-radius: var(--radius-1, 4px);
+  border-radius: var(--radius-2);
   color: var(--fg-1);
   font-size: 12px;
   cursor: pointer;
@@ -3426,7 +3426,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   justify-content: space-between;
   gap: 8px;
   border: none;
-  border-radius: var(--radius-1, 4px);
+  border-radius: var(--radius-2);
   background: transparent;
   color: var(--fg-1);
   font: 13px var(--font-body);
@@ -3441,7 +3441,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   align-items: center;
   gap: 8px;
   padding: 6px;
-  border-radius: var(--radius-1, 4px);
+  border-radius: var(--radius-2);
   color: var(--fg-1);
   font-size: 12px;
   cursor: pointer;
