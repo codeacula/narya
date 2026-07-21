@@ -30,6 +30,10 @@
   /* ---------- Silver scale ---------- */
   --silver-300: #d7dce2;
   --silver-400: #a2aabc;
+  /* 450 is the muted-text step: silver-500 is too dark to clear WCAG AA (4.5:1)
+     as small text on the dark surfaces — 4.05 on --bg-1 — and it is also spoken
+     for as a background fill, so --fg-3 gets its own accessible step here. */
+  --silver-450: #949db3;
   --silver-500: #7b85a0;
   --silver-600: #5c6684;
 
@@ -50,7 +54,7 @@
   /* ---------- Semantic — Foreground ---------- */
   --fg-1: var(--ivory-50);
   --fg-2: var(--silver-400);
-  --fg-3: var(--silver-500);
+  --fg-3: var(--silver-450);
   --fg-inverse: var(--navy-800);
   --fg-accent: var(--gold-500);
   --fg-arcane: #9e82e8;
