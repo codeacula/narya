@@ -4,6 +4,7 @@ import { createAction } from './actions';
 import { createAutomationTrigger } from './automationTriggers';
 import { db } from './db';
 import { createTriggerDispatcher, pruneAutomationRuns, type TriggerDispatcherDeps } from './triggerDispatcher';
+import { upsertTriggerOverride } from './triggerOverrides';
 
 // A hand-cranked clock: cooldown tests move time forward explicitly instead of sleeping.
 function createClock(start = Date.parse('2026-07-11T12:00:00.000Z')) {
@@ -80,6 +81,7 @@ function makeModule(id: string, name: string) {
 }
 
 beforeEach(() => {
+  db.exec('delete from trigger_overrides');
   db.exec('delete from automation_runs');
   db.exec('delete from automation_triggers');
   db.exec('delete from category_modules');
@@ -956,5 +958,109 @@ describe('the reserved /counter command', () => {
     expect(runner.calls).toHaveLength(1);
     expect(response.message).toBe('/counter ran.');
     expect(store.values.deaths).toBe(1);
+  });
+});
+
+describe('per-viewer trigger overrides', () => {
+  function specialAction(name = 'Special action') {
+    return createAction({
+      name, description: '', enabled: true,
+      steps: [{ type: 'send_chat', enabled: true, delayMs: 0, payload: { template: 'special', sender: 'bot' } }],
+    }).id;
+  }
+
+  test('the override action runs instead of the base — never both', async () => {
+    const specialId = specialAction();
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' } });
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: specialId, enabled: true, note: '' });
+    const { dispatcher, runner } = setup();
+
+    const runs = await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-1', actor: 'Sorlus', login: 'sorlus' });
+
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]!.actionId).toBe(specialId);
+    expect(runs[0]!.actionId).toBe(specialId);
+  });
+
+  test('other viewers and anonymous events take the base action', async () => {
+    const specialId = specialAction();
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' } });
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: specialId, enabled: true, note: '' });
+    const { dispatcher, runner } = setup();
+
+    await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-2', actor: 'Frodo', login: 'frodo' });
+    await dispatcher.handleTwitchEvent({ kind: 'gift', eventId: 'evt-3', actor: 'Anonymous', login: null });
+
+    expect(runner.calls).toHaveLength(1); // the gift matched no trigger; the sub ran base
+    expect(runner.calls[0]!.actionId).toBe(actionId);
+  });
+
+  test('a skipped override run falls back to the base action, once, same run row', async () => {
+    const specialId = specialAction();
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' } });
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: specialId, enabled: true, note: '' });
+
+    const calls: Array<{ actionId: string }> = [];
+    const { dispatcher } = setup({
+      runAction: async (id: string) => {
+        calls.push({ actionId: id });
+        // The special path's media is unavailable; the base action succeeds.
+        const status = id === specialId ? 'skipped' as const : 'succeeded' as const;
+        return { actionId: id, status, steps: [], ranAt: new Date().toISOString() };
+      },
+    });
+
+    const runs = await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-4', actor: 'Sorlus', login: 'sorlus' });
+
+    expect(calls.map(call => call.actionId)).toEqual([specialId, actionId]);
+    expect(runs[0]!.actionId).toBe(actionId);
+    expect(runs[0]!.result.status).toBe('succeeded');
+    // One claimed run row, its detail recording the substitution.
+    const rows = db.prepare('select detail from automation_runs').all() as Array<{ detail: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.detail).toStartWith('Override for sorlus skipped; ran the base action.');
+  });
+
+  test('a failed override run does NOT fall back — it may have broadcast', async () => {
+    const specialId = specialAction();
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' } });
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: specialId, enabled: true, note: '' });
+
+    const calls: string[] = [];
+    const { dispatcher } = setup({
+      runAction: async (id: string) => {
+        calls.push(id);
+        return { actionId: id, status: 'failed' as const, steps: [], ranAt: new Date().toISOString() };
+      },
+    });
+
+    const runs = await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-5', actor: 'Sorlus', login: 'sorlus' });
+
+    expect(calls).toEqual([specialId]);
+    expect(runs[0]!.result.status).toBe('failed');
+  });
+
+  test('the override run arms the base trigger cooldowns (shared throttle)', async () => {
+    const specialId = specialAction();
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' }, globalCooldownMs: 60_000 });
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: specialId, enabled: true, note: '' });
+    const { dispatcher, runner } = setup();
+
+    await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-6', actor: 'Sorlus', login: 'sorlus' });
+    await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-7', actor: 'Frodo', login: 'frodo' });
+
+    // Frodo's generic alert is gated by the same trigger's global cooldown.
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  test('runTriggerManually with a login exercises the override path', async () => {
+    const specialId = specialAction();
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' } });
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: specialId, enabled: true, note: '' });
+    const { dispatcher, runner } = setup();
+
+    await dispatcher.runTriggerManually(created.id, { login: 'sorlus' });
+
+    expect(runner.calls[0]!.actionId).toBe(specialId);
   });
 });

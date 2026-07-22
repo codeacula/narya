@@ -14,6 +14,7 @@ import type {
 } from '../shared/api';
 import { getRoleFromBadges, getViewerRolesFromBadges } from '../shared/roles';
 import { getAutomationTrigger, listEnabledTriggersOfKind } from './automationTriggers';
+import { resolveOverrideActionId } from './triggerOverrides';
 import {
   adjustCounterByKey as adjustCounterByKeyRow,
   findCounterByKey as findCounterByKeyRow,
@@ -248,19 +249,32 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     const runId = crypto.randomUUID();
     if (!claim(runId, trigger, eventId, actorLogin, at)) return null;
 
+    // Per-viewer substitution: the override decides WHICH Action this one claimed
+    // invocation runs — never whether a second one runs. See triggerOverrides.ts.
+    const overrideActionId = actorLogin ? resolveOverrideActionId(trigger.id, actorLogin) : null;
+    let actionId = overrideActionId ?? trigger.actionId;
+    let detailPrefix = '';
+
     let result: ActionRunResult;
     try {
-      result = await runAction(trigger.actionId, context);
+      result = await runAction(actionId, context);
+      if (overrideActionId && result.status === 'skipped') {
+        // A skipped run broadcast nothing (executor invariant), so the base Action can
+        // still deliver the generic alert — the viewer gets fallback, not silence, once.
+        actionId = trigger.actionId;
+        detailPrefix = `Override for ${actorLogin} skipped; ran the base action. `;
+        result = await runAction(trigger.actionId, context);
+      }
     } catch (error) {
       const detail = errorText(error);
       console.error(`Automation: trigger ${trigger.id} failed:`, error);
-      finishRun.run('failed', detail.slice(0, MAX_DETAIL_LENGTH), runId);
-      result = { actionId: trigger.actionId, status: 'failed', steps: [], ranAt: at.toISOString() };
-      return { triggerId: trigger.id, actionId: trigger.actionId, result };
+      finishRun.run('failed', `${detailPrefix}${detail}`.slice(0, MAX_DETAIL_LENGTH), runId);
+      result = { actionId, status: 'failed', steps: [], ranAt: at.toISOString() };
+      return { triggerId: trigger.id, actionId, result };
     }
 
-    finishRun.run(result.status, detailOf(result), runId);
-    return { triggerId: trigger.id, actionId: trigger.actionId, result };
+    finishRun.run(result.status, `${detailPrefix}${detailOf(result)}`.slice(0, MAX_DETAIL_LENGTH), runId);
+    return { triggerId: trigger.id, actionId, result };
   }
 
   async function invokeAll(
