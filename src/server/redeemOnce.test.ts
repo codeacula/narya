@@ -16,11 +16,13 @@ mock.module('./realtime', () => ({
   },
 }));
 
+const { createAction } = await import('./actions');
 const { initAutomation } = await import('./automation');
 const { db } = await import('./db');
 const { handleEventSubNotification } = await import('./eventsub');
 const { migrateLegacyAlerts, migrateLegacyMediaIntoAssets, migrateLegacyRewardBindings } = await import('./legacyMigration');
 const { RuntimeState } = await import('./runtime');
+const { upsertTriggerOverride } = await import('./triggerOverrides');
 
 /**
  * The migration's one unforgivable failure mode: a redeem or an alert firing twice,
@@ -33,7 +35,7 @@ const REWARD_ID = 'reward-double-check';
 
 beforeEach(() => {
   for (const table of [
-    'automation_runs', 'automation_triggers', 'action_steps', 'actions',
+    'automation_runs', 'trigger_overrides', 'automation_triggers', 'action_steps', 'actions',
     'media_assets', 'reward_media', 'alert_settings', 'clip_buttons', 'sound_buttons', 'stream_events',
   ]) {
     db.exec(`delete from ${table}`);
@@ -94,5 +96,56 @@ describe('after the migration, an event fires exactly once', () => {
       user_name: 'Sorlus', user_login: 'sorlus', reward: { id: REWARD_ID, title: 'Play a clip' },
     }, 'evt-redeem-dupe');
     expect(emitted.filter(entry => entry.event === 'media:play')).toHaveLength(0);
+  });
+});
+
+describe('per-viewer overrides keep the exactly-once guarantee', () => {
+  function migratedRewardTriggerId(): string {
+    const row = db.prepare("select id from automation_triggers where kind = 'reward'").get() as { id: string };
+    return row.id;
+  }
+
+  test('an overridden redeem broadcasts the override, not the base — once', async () => {
+    // show_text instead of play_media so the assertion does not depend on files on disk.
+    const special = createAction({
+      name: 'Sorlus special', description: '', enabled: true,
+      steps: [{ type: 'show_text', enabled: true, delayMs: 0, payload: { template: 'SORLUS SPECIAL', durationMs: 6000, style: 'banner' } }],
+    });
+    upsertTriggerOverride(migratedRewardTriggerId(), { login: 'sorlus', actionId: special.id, enabled: true, note: '' });
+
+    await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
+      user_name: 'Sorlus', user_login: 'sorlus', reward: { id: REWARD_ID, title: 'Play a clip' },
+    }, 'evt-override-1');
+
+    expect(emitted.filter(entry => entry.event === 'media:play')).toHaveLength(0);
+    const texts = emitted.filter(entry => entry.event === 'overlay:text');
+    expect(texts).toHaveLength(1);
+    expect(texts[0]!.text).toBe('SORLUS SPECIAL');
+
+    // Redelivery of the same EventSub message must produce no alert output. (stream:event
+    // still fires — eventsub.ts broadcasts the event-feed entry before the dedup gate,
+    // which is pre-existing behavior outside this invariant.)
+    emitted.length = 0;
+    await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
+      user_name: 'Sorlus', user_login: 'sorlus', reward: { id: REWARD_ID, title: 'Play a clip' },
+    }, 'evt-override-1');
+    expect(emitted.filter(entry => entry.event === 'media:play' || entry.event === 'overlay:text')).toHaveLength(0);
+  });
+
+  test('a skipped override falls back to the base clip — exactly one media:play', async () => {
+    // play_media on an asset id that exists in no catalog: the run rolls up skipped.
+    const broken = createAction({
+      name: 'Sorlus broken special', description: '', enabled: true,
+      steps: [{ type: 'play_media', enabled: true, delayMs: 0, payload: { assetIds: ['no-such-asset'], selection: 'first' } }],
+    });
+    upsertTriggerOverride(migratedRewardTriggerId(), { login: 'sorlus', actionId: broken.id, enabled: true, note: '' });
+
+    await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
+      user_name: 'Sorlus', user_login: 'sorlus', reward: { id: REWARD_ID, title: 'Play a clip' },
+    }, 'evt-override-2');
+
+    const plays = emitted.filter(entry => entry.event === 'media:play');
+    expect(plays).toHaveLength(1);
+    expect(plays[0]!.src).toBe('/clips/dinosaur.mp4');
   });
 });
