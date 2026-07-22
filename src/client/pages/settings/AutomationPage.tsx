@@ -354,8 +354,8 @@ function TriggerOverridesSection({
   overrides: TriggerOverride[];
   actions: Action[];
   disabled: boolean;
-  onSave: (triggerId: string, input: TriggerOverrideInput) => void;
-  onDelete: (id: string) => void;
+  onSave: (triggerId: string, input: TriggerOverrideInput) => Promise<boolean>;
+  onDelete: (id: string) => Promise<boolean>;
 }) {
   const [newLogin, setNewLogin] = useState('');
   const [newActionId, setNewActionId] = useState('');
@@ -368,14 +368,17 @@ function TriggerOverridesSection({
     return null;
   })();
 
-  const add = () => {
+  const add = async () => {
     if (addProblem || !newLogin.trim() || !newActionId) return;
-    onSave(triggerId, {
+    const saved = await onSave(triggerId, {
       login: newLogin.trim().replace(/^@+/, '').toLowerCase(),
       actionId: newActionId,
       enabled: true,
       note: '',
     });
+    // Only clear on a confirmed save: a failed one must leave the operator's typed
+    // input in place next to the error banner rather than silently discarding it.
+    if (!saved) return;
     setNewLogin('');
     setNewActionId('');
   };
@@ -436,7 +439,7 @@ function TriggerOverridesSection({
           className="modbtn"
           type="button"
           disabled={disabled || Boolean(addProblem) || !newLogin.trim() || !newActionId}
-          onClick={add}
+          onClick={() => void add()}
         >
           Add
         </button>
@@ -459,6 +462,7 @@ function TriggerEditor({
   saving,
   testing,
   overrides,
+  overrideBusy,
   onChange,
   onSubmit,
   onClose,
@@ -475,14 +479,15 @@ function TriggerEditor({
   saving: boolean;
   testing: boolean;
   overrides: TriggerOverride[];
+  overrideBusy: boolean;
   onChange: (next: AutomationTriggerInput) => void;
   onSubmit: () => void;
   onClose: () => void;
   /** Absent on an unsaved draft — there is nothing on the server to fire or remove yet. */
   onTest?: () => void;
   onDelete?: () => void;
-  onSaveOverride: (triggerId: string, input: TriggerOverrideInput) => void;
-  onDeleteOverride: (id: string) => void;
+  onSaveOverride: (triggerId: string, input: TriggerOverrideInput) => Promise<boolean>;
+  onDeleteOverride: (id: string) => Promise<boolean>;
 }) {
   const problem = validateTrigger(draft);
   const lifecycle = isLifecycleKind(draft.kind);
@@ -572,7 +577,7 @@ function TriggerEditor({
               triggerId={editingId}
               overrides={overrides}
               actions={actions}
-              disabled={saving}
+              disabled={saving || overrideBusy}
               onSave={onSaveOverride}
               onDelete={onDeleteOverride}
             />
@@ -605,6 +610,9 @@ export function AutomationSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Gates the override rows while a PUT/DELETE is in flight, so a fast double-toggle
+  // cannot race two saves into a last-response-wins overwrite.
+  const [overrideBusy, setOverrideBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -718,23 +726,35 @@ export function AutomationSettingsPage() {
       .finally(() => setBusyId(null));
   };
 
+  // Both report success back to the caller: the add row must only clear its inputs
+  // once the save actually landed, not merely once the request was fired.
   const saveOverride = useCallback(async (triggerId: string, input: TriggerOverrideInput) => {
+    setOverrideBusy(true);
     try {
       await saveTriggerOverride(triggerId, input);
       setOverrides(await getTriggerOverrides());
       setError(null);
+      return true;
     } catch (caught) {
       setError(errorMessage(caught, 'Could not save the override.'));
+      return false;
+    } finally {
+      setOverrideBusy(false);
     }
   }, []);
 
   const removeOverride = useCallback(async (id: string) => {
+    setOverrideBusy(true);
     try {
       await deleteTriggerOverride(id);
       setOverrides(await getTriggerOverrides());
       setError(null);
+      return true;
     } catch (caught) {
       setError(errorMessage(caught, 'Could not remove the override.'));
+      return false;
+    } finally {
+      setOverrideBusy(false);
     }
   }, []);
 
@@ -879,6 +899,7 @@ export function AutomationSettingsPage() {
                     saving={saving}
                     testing={editingId !== null && busyId === editingId}
                     overrides={editingId ? overrides.filter(o => o.triggerId === editingId) : []}
+                    overrideBusy={overrideBusy}
                     onChange={setDraft}
                     onSubmit={handleSubmit}
                     onClose={closeEditor}
