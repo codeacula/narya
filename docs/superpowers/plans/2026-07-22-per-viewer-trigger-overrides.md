@@ -768,12 +768,14 @@ describe('per-viewer overrides keep the exactly-once guarantee', () => {
     expect(texts).toHaveLength(1);
     expect(texts[0]!.text).toBe('SORLUS SPECIAL');
 
-    // Redelivery of the same EventSub message is still a no-op.
+    // Redelivery of the same EventSub message must produce no alert output.
+    // (stream:event still fires — eventsub.ts broadcasts the event-feed entry before
+    // the dedup gate, which is pre-existing behavior outside this invariant.)
     emitted.length = 0;
     await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
       user_name: 'Sorlus', user_login: 'sorlus', reward: { id: REWARD_ID, title: 'Play a clip' },
     }, 'evt-override-1');
-    expect(emitted).toHaveLength(0);
+    expect(emitted.filter(entry => entry.event === 'media:play' || entry.event === 'overlay:text')).toHaveLength(0);
   });
 
   test('a skipped override falls back to the base clip — exactly one media:play', async () => {
