@@ -73,17 +73,36 @@ export function dropStaleLlmInteractions(database: Database): boolean {
  * is worse: the operator's `bun --watch` executes and persists any mid-edit DDL shape
  * into the real database, and `create table if not exists` never heals it. If the
  * column set is not the shipped shape, drop the table so the DDL below recreates it.
+ *
+ * Column names alone are not enough: a mid-edit save can land all 8 columns without
+ * the trailing `unique (trigger_id, login)` clause, which passes the column check but
+ * leaves the upsert in triggerOverrides.ts (`on conflict (trigger_id, login)`) with no
+ * matching constraint to target — `db.prepare` throws that at module load, an
+ * unhealable boot crash. So also require a unique index whose column set is exactly
+ * `{trigger_id, login}`.
  */
 const TRIGGER_OVERRIDE_COLUMNS_SHIPPED = [
   'id', 'trigger_id', 'login', 'action_id', 'enabled', 'note', 'created_at', 'updated_at',
 ];
+
+function hasUniqueTriggerLoginConstraint(database: Database): boolean {
+  const indexes = database.prepare("PRAGMA index_list('trigger_overrides')").all() as Array<{ name: string; unique: number }>;
+  return indexes.some(index => {
+    if (!index.unique) return false;
+    const columns = (database.prepare(`PRAGMA index_info('${index.name}')`).all() as Array<{ name: string }>)
+      .map(column => column.name)
+      .sort();
+    return columns.length === 2 && columns[0] === 'login' && columns[1] === 'trigger_id';
+  });
+}
 
 export function dropStaleTriggerOverrides(database: Database): boolean {
   const columns = database.prepare("PRAGMA table_info('trigger_overrides')").all() as Array<{ name: string }>;
   if (columns.length === 0) return false;
   const names = columns.map(column => column.name).sort();
   const shipped = [...TRIGGER_OVERRIDE_COLUMNS_SHIPPED].sort();
-  if (names.length === shipped.length && names.every((name, index) => name === shipped[index])) return false;
+  const columnsMatch = names.length === shipped.length && names.every((name, index) => name === shipped[index]);
+  if (columnsMatch && hasUniqueTriggerLoginConstraint(database)) return false;
   database.exec('drop table trigger_overrides');
   return true;
 }

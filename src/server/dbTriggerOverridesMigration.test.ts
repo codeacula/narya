@@ -25,6 +25,20 @@ const SHIPPED_SCHEMA = `
   );
 `;
 
+/** All 8 shipped columns, but the mid-edit save landed before the `unique` clause. */
+const COLUMNS_ONLY_NO_UNIQUE_SCHEMA = `
+  create table trigger_overrides (
+    id text primary key,
+    trigger_id text not null,
+    login text not null,
+    action_id text not null,
+    enabled integer not null default 1,
+    note text not null default '',
+    created_at text not null,
+    updated_at text not null
+  );
+`;
+
 function columnNames(database: Database): string[] {
   return (database.prepare("PRAGMA table_info('trigger_overrides')").all() as Array<{ name: string }>)
     .map(column => column.name);
@@ -53,4 +67,12 @@ test('the shipped shape is left untouched, rows intact', () => {
 
 test('an absent table is a no-op', () => {
   expect(dropStaleTriggerOverrides(new Database(':memory:'))).toBe(false);
+});
+
+test('the shipped column set without the unique(trigger_id, login) constraint is dropped', () => {
+  const database = new Database(':memory:');
+  database.exec(COLUMNS_ONLY_NO_UNIQUE_SCHEMA);
+
+  expect(dropStaleTriggerOverrides(database)).toBe(true);
+  expect(columnNames(database)).toEqual([]);
 });

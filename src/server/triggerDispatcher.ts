@@ -261,8 +261,12 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       if (overrideActionId && result.status === 'skipped') {
         // A skipped run broadcast nothing (executor invariant), so the base Action can
         // still deliver the generic alert — the viewer gets fallback, not silence, once.
+        // Capture the override run's own skip reason before `result` is overwritten by
+        // the fallback: it is the diagnostic signal for why a personalized alert
+        // silently degraded to the generic one.
+        const skipReason = detailOf(result);
         actionId = trigger.actionId;
-        detailPrefix = `Override for ${actorLogin} skipped; ran the base action. `;
+        detailPrefix = `Override for ${actorLogin} skipped${skipReason ? ` (${skipReason})` : ''}; ran the base action. `;
         result = await runAction(trigger.actionId, context);
       }
     } catch (error) {
@@ -535,7 +539,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     if (!trigger) throw new HttpRouteError(404, 'Trigger not found.');
 
     const summary = await invoke(trigger, context, {
-      actorLogin: context.login?.trim().toLowerCase() || null,
+      actorLogin: stripAt(context.login?.trim() ?? '').toLowerCase() || null,
       enforceGates: false,
     });
     if (!summary) throw new HttpRouteError(500, 'Trigger did not run.');

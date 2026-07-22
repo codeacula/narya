@@ -1023,6 +1023,39 @@ describe('per-viewer trigger overrides', () => {
     expect(rows[0]!.detail).toStartWith('Override for sorlus skipped; ran the base action.');
   });
 
+  test('the skip-fallback detail carries the override run\'s own skip reason', async () => {
+    const specialId = specialAction();
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' } });
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: specialId, enabled: true, note: '' });
+
+    const { dispatcher } = setup({
+      runAction: async (id: string) => {
+        if (id === specialId) {
+          return {
+            actionId: id,
+            status: 'skipped' as const,
+            steps: [{
+              stepId: 's1',
+              type: 'play_media' as const,
+              status: 'skipped' as const,
+              detail: 'No media asset for this step is available.',
+            }],
+            ranAt: new Date().toISOString(),
+          };
+        }
+        return { actionId: id, status: 'succeeded' as const, steps: [], ranAt: new Date().toISOString() };
+      },
+    });
+
+    await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-9', actor: 'Sorlus', login: 'sorlus' });
+
+    const rows = db.prepare('select detail from automation_runs').all() as Array<{ detail: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.detail).toStartWith(
+      'Override for sorlus skipped (No media asset for this step is available.); ran the base action.',
+    );
+  });
+
   test('a failed override run does NOT fall back — it may have broadcast', async () => {
     const specialId = specialAction();
     const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' } });
@@ -1083,6 +1116,17 @@ describe('per-viewer trigger overrides', () => {
     const { dispatcher, runner } = setup();
 
     await dispatcher.runTriggerManually(created.id, { login: 'sorlus' });
+
+    expect(runner.calls[0]!.actionId).toBe(specialId);
+  });
+
+  test('runTriggerManually strips a leading @ from the login before resolving the override', async () => {
+    const specialId = specialAction();
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' } });
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: specialId, enabled: true, note: '' });
+    const { dispatcher, runner } = setup();
+
+    await dispatcher.runTriggerManually(created.id, { login: '@sorlus' });
 
     expect(runner.calls[0]!.actionId).toBe(specialId);
   });
