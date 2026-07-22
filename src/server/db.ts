@@ -68,6 +68,26 @@ export function dropStaleLlmInteractions(database: Database): boolean {
   return false;
 }
 
+/**
+ * trigger_overrides is operator config, but it is cheap to re-enter and a boot crash
+ * is worse: the operator's `bun --watch` executes and persists any mid-edit DDL shape
+ * into the real database, and `create table if not exists` never heals it. If the
+ * column set is not the shipped shape, drop the table so the DDL below recreates it.
+ */
+const TRIGGER_OVERRIDE_COLUMNS_SHIPPED = [
+  'id', 'trigger_id', 'login', 'action_id', 'enabled', 'note', 'created_at', 'updated_at',
+];
+
+export function dropStaleTriggerOverrides(database: Database): boolean {
+  const columns = database.prepare("PRAGMA table_info('trigger_overrides')").all() as Array<{ name: string }>;
+  if (columns.length === 0) return false;
+  const names = columns.map(column => column.name).sort();
+  const shipped = [...TRIGGER_OVERRIDE_COLUMNS_SHIPPED].sort();
+  if (names.length === shipped.length && names.every((name, index) => name === shipped[index])) return false;
+  database.exec('drop table trigger_overrides');
+  return true;
+}
+
 db.exec('pragma journal_mode = WAL');
 // The schema declares `on delete cascade` in four places, but SQLite ignores
 // every one of them unless foreign keys are enabled per-connection (the default
@@ -76,6 +96,7 @@ db.exec('pragma foreign_keys = ON');
 restrictDatabaseFiles();
 
 dropStaleLlmInteractions(db);
+dropStaleTriggerOverrides(db);
 
 db.exec(`
   create table if not exists chat_messages (
@@ -488,6 +509,22 @@ db.exec(`
     detail text not null default '',
     ran_at text not null
   );
+
+  -- Per-viewer Action substitution: when trigger_id fires for login, run action_id
+  -- instead of the trigger's own Action. See triggerOverrides.ts and the design spec.
+  create table if not exists trigger_overrides (
+    id text primary key,
+    trigger_id text not null,
+    login text not null,                -- lowercased, trimmed, '@'-stripped Twitch login
+    action_id text not null,
+    enabled integer not null default 1,
+    note text not null default '',
+    created_at text not null,
+    updated_at text not null,
+    unique (trigger_id, login),
+    foreign key (trigger_id) references automation_triggers(id) on delete cascade,
+    foreign key (action_id) references actions(id) on delete cascade
+  );
 `);
 
 db.exec(`
@@ -499,6 +536,7 @@ db.exec(`
   create index if not exists idx_automation_triggers_module on automation_triggers(module_id);
   create index if not exists idx_category_module_games_module on category_module_games(module_id);
   create index if not exists idx_media_assets_enabled on media_assets(enabled);
+  create index if not exists idx_trigger_overrides_login on trigger_overrides(login);
 `);
 
 db.exec(`
