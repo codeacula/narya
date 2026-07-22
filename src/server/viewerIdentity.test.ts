@@ -11,6 +11,9 @@ import {
   saveChatterProfile,
   unflushViewer,
 } from './viewerIdentity';
+import { createAction } from './actions';
+import { createAutomationTrigger } from './automationTriggers';
+import { upsertTriggerOverride } from './triggerOverrides';
 
 function reset() {
   db.exec('delete from quotes');
@@ -271,5 +274,29 @@ describe('flushViewer and the quote book', () => {
     flushViewer('spambob');
     unflushViewer('spambob');
     expect(getQuote(quote.id)!.submittedBy).toBe('unknown');
+  });
+
+  test('flush deletes the login trigger overrides and reports the count; unflush does not resurrect them', () => {
+    db.exec('delete from trigger_overrides');
+    db.exec('delete from automation_triggers');
+    db.exec('delete from action_steps');
+    db.exec('delete from actions');
+    const action = createAction({
+      name: 'Flush target action', description: '', enabled: true,
+      steps: [{ type: 'send_chat', enabled: true, delayMs: 0, payload: { template: 'hi', sender: 'bot' } }],
+    });
+    const created = createAutomationTrigger({
+      kind: 'twitch_event', actionId: action.id, moduleId: null, enabled: true,
+      globalCooldownMs: 0, userCooldownMs: 0, config: { eventKind: 'sub' },
+    });
+    upsertTriggerOverride(created.id, { login: 'badbot', actionId: action.id, enabled: true, note: '' });
+
+    const removed = flushViewer('badbot');
+
+    expect(removed.overrides).toBe(1);
+    expect(db.prepare('select count(*) as n from trigger_overrides').get()).toEqual({ n: 0 });
+
+    unflushViewer('badbot');
+    expect(db.prepare('select count(*) as n from trigger_overrides').get()).toEqual({ n: 0 });
   });
 });

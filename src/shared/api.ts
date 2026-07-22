@@ -553,6 +553,12 @@ export type ViewerFlushResult = {
    * flushed viewer keep shaping the bot's replies.
    */
   interactionsRemoved: number;
+  /**
+   * Per-viewer trigger overrides deleted. An override without its viewer is
+   * meaningless, and unlike quote numbers nothing public circulates — so these are
+   * removed, not anonymized, and unflushViewer cannot restore them.
+   */
+  overridesRemoved: number;
 };
 
 export type IgnoredLogin = {

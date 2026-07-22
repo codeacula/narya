@@ -95,7 +95,10 @@ function ViewerRecordActions({
         const quotes = result.quotesAnonymized > 0
           ? `, ${result.quotesAnonymized} quote(s) anonymized`
           : '';
-        setNote(`Flushed — ${result.messagesRemoved} message(s) removed${quotes}.`);
+        const overrides = result.overridesRemoved > 0
+          ? `, ${result.overridesRemoved} trigger override(s) removed`
+          : '';
+        setNote(`Flushed — ${result.messagesRemoved} message(s) removed${quotes}${overrides}.`);
         onFlushed?.(login);
       })
       .catch(caught => setNote(errorMessage(caught, 'Flush failed')))
