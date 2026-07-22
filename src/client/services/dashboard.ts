@@ -86,6 +86,8 @@ import type {
   CounterInput,
   CounterUpdate,
   CountersResponse,
+  TriggerOverride,
+  TriggerOverrideInput,
 } from '../../shared/api';
 import { getDashboardToken, isDashboardTokenRejection, isSendableToken, reportDashboardTokenRejected } from '../auth';
 
@@ -694,6 +696,18 @@ export async function deleteAutomationTrigger(id: string): Promise<void> {
 /** Fires a trigger's Action, bypassing its cooldowns. Backs the manual Quick actions buttons. */
 export async function runAutomationTrigger(id: string): Promise<ActionRunResult> {
   return sendJson<ActionRunResult>(`/api/automation/triggers/${encodeURIComponent(id)}/run`, 'POST', {});
+}
+
+export async function getTriggerOverrides(): Promise<TriggerOverride[]> {
+  return fetchJson<TriggerOverride[]>('/api/automation/overrides');
+}
+
+export async function saveTriggerOverride(triggerId: string, input: TriggerOverrideInput): Promise<TriggerOverride> {
+  return sendJson<TriggerOverride>(`/api/automation/triggers/${encodeURIComponent(triggerId)}/overrides`, 'PUT', input);
+}
+
+export async function deleteTriggerOverride(id: string): Promise<void> {
+  return sendVoid(`/api/automation/overrides/${encodeURIComponent(id)}`, 'DELETE');
 }
 
 // --- Category modules --------------------------------------------------------

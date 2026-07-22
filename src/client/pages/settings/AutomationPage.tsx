@@ -8,6 +8,8 @@ import type {
   AutomationTriggerKind,
   CategoryModule,
   ChatPhraseMatch,
+  TriggerOverride,
+  TriggerOverrideInput,
   TriggerRole,
   ViewerReward,
 } from '../../../shared/api';
@@ -15,11 +17,14 @@ import { DEFAULT_GLOBAL_COOLDOWN_MS, DEFAULT_USER_COOLDOWN_MS } from '../../../s
 import {
   createAutomationTrigger,
   deleteAutomationTrigger,
+  deleteTriggerOverride,
   getActions,
   getAutomationTriggers,
   getCategoryModules,
+  getTriggerOverrides,
   getViewerRewards,
   runAutomationTrigger,
+  saveTriggerOverride,
   updateAutomationTrigger,
 } from '../../services/dashboard';
 import { SettingsHeader, SettingsStatus } from './shared';
@@ -41,6 +46,7 @@ import {
   runResultTone,
   summarizeRunResult,
   supportsCooldowns,
+  supportsOverrides,
   triggerScopeLabel,
   validateTrigger,
 } from './automation';
@@ -331,6 +337,119 @@ function TriggerConfigFields({
   }
 }
 
+/**
+ * Per-viewer overrides for one saved trigger. Rows save immediately via their own
+ * endpoint — they are separate resources, deliberately outside the trigger form's
+ * draft/save cycle so an override edit cannot be lost to an unsaved trigger draft.
+ */
+function TriggerOverridesSection({
+  triggerId,
+  overrides,
+  actions,
+  disabled,
+  onSave,
+  onDelete,
+}: {
+  triggerId: string;
+  overrides: TriggerOverride[];
+  actions: Action[];
+  disabled: boolean;
+  onSave: (triggerId: string, input: TriggerOverrideInput) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [newLogin, setNewLogin] = useState('');
+  const [newActionId, setNewActionId] = useState('');
+
+  const addProblem = (() => {
+    if (!newLogin.trim()) return null; // untouched: no nagging
+    const login = newLogin.trim().replace(/^@+/, '').toLowerCase();
+    if (!/^[a-z0-9_]{1,25}$/.test(login)) return 'Logins use letters, numbers, or underscores.';
+    if (overrides.some(existing => existing.login === login)) return `${login} already has an override on this trigger.`;
+    return null;
+  })();
+
+  const add = () => {
+    if (addProblem || !newLogin.trim() || !newActionId) return;
+    onSave(triggerId, {
+      login: newLogin.trim().replace(/^@+/, '').toLowerCase(),
+      actionId: newActionId,
+      enabled: true,
+      note: '',
+    });
+    setNewLogin('');
+    setNewActionId('');
+  };
+
+  return (
+    <div className="field">
+      <span>Per-viewer overrides</span>
+      {overrides.map(override => (
+        <div className="command-row-actions" key={override.id}>
+          <code>{override.login}</code>
+          <select
+            value={override.actionId}
+            disabled={disabled}
+            onChange={event => onSave(triggerId, {
+              login: override.login, actionId: event.target.value, enabled: override.enabled, note: override.note,
+            })}
+          >
+            {actions.map(action => (
+              <option key={action.id} value={action.id}>
+                {action.name}{action.enabled ? '' : ' (disabled)'}
+              </option>
+            ))}
+          </select>
+          <label className="command-enabled">
+            <input
+              type="checkbox"
+              checked={override.enabled}
+              disabled={disabled}
+              onChange={event => onSave(triggerId, {
+                login: override.login, actionId: override.actionId, enabled: event.target.checked, note: override.note,
+              })}
+            />
+            <span>On</span>
+          </label>
+          <button className="modbtn danger" type="button" disabled={disabled} onClick={() => onDelete(override.id)}>
+            Remove
+          </button>
+        </div>
+      ))}
+      <div className="command-row-actions">
+        <input
+          type="text"
+          value={newLogin}
+          maxLength={26}
+          placeholder="viewer login"
+          disabled={disabled}
+          onChange={event => setNewLogin(event.target.value)}
+        />
+        <select value={newActionId} disabled={disabled} onChange={event => setNewActionId(event.target.value)}>
+          <option value="">Runs this action instead…</option>
+          {actions.map(action => (
+            <option key={action.id} value={action.id}>
+              {action.name}{action.enabled ? '' : ' (disabled)'}
+            </option>
+          ))}
+        </select>
+        <button
+          className="modbtn"
+          type="button"
+          disabled={disabled || Boolean(addProblem) || !newLogin.trim() || !newActionId}
+          onClick={add}
+        >
+          Add
+        </button>
+      </div>
+      {addProblem && <small className="action-hint">{addProblem}</small>}
+      <small className="action-hint">
+        If the override's action can't run (skipped), the trigger's normal action plays
+        instead. Cooldowns are shared with this trigger.
+      </small>
+    </div>
+  );
+}
+
 function TriggerEditor({
   draft,
   editingId,
@@ -339,11 +458,14 @@ function TriggerEditor({
   rewards,
   saving,
   testing,
+  overrides,
   onChange,
   onSubmit,
   onClose,
   onTest,
   onDelete,
+  onSaveOverride,
+  onDeleteOverride,
 }: {
   draft: AutomationTriggerInput;
   editingId: string | null;
@@ -352,12 +474,15 @@ function TriggerEditor({
   rewards: ViewerReward[];
   saving: boolean;
   testing: boolean;
+  overrides: TriggerOverride[];
   onChange: (next: AutomationTriggerInput) => void;
   onSubmit: () => void;
   onClose: () => void;
   /** Absent on an unsaved draft — there is nothing on the server to fire or remove yet. */
   onTest?: () => void;
   onDelete?: () => void;
+  onSaveOverride: (triggerId: string, input: TriggerOverrideInput) => void;
+  onDeleteOverride: (id: string) => void;
 }) {
   const problem = validateTrigger(draft);
   const lifecycle = isLifecycleKind(draft.kind);
@@ -440,6 +565,21 @@ function TriggerEditor({
         <TriggerConfigFields draft={draft} rewards={rewards} disabled={saving} onChange={onChange} />
 
         {supportsCooldowns(draft.kind) && <CooldownFields draft={draft} disabled={saving} onChange={onChange} />}
+
+        {supportsOverrides(draft.kind) && (
+          editingId ? (
+            <TriggerOverridesSection
+              triggerId={editingId}
+              overrides={overrides}
+              actions={actions}
+              disabled={saving}
+              onSave={onSaveOverride}
+              onDelete={onDeleteOverride}
+            />
+          ) : (
+            <small className="action-hint">Save the trigger first, then add per-viewer overrides.</small>
+          )
+        )}
       </div>
 
       <SettingsStatus error={problem} />
@@ -458,6 +598,7 @@ export function AutomationSettingsPage() {
   const [actions, setActions] = useState<Action[]>([]);
   const [modules, setModules] = useState<CategoryModule[]>([]);
   const [rewards, setRewards] = useState<ViewerReward[]>([]);
+  const [overrides, setOverrides] = useState<TriggerOverride[]>([]);
   const [draft, setDraft] = useState<AutomationTriggerInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [runs, setRuns] = useState<Record<string, ActionRunResult>>({});
@@ -468,14 +609,16 @@ export function AutomationSettingsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [nextTriggers, nextActions, nextModules] = await Promise.all([
+    const [nextTriggers, nextActions, nextModules, nextOverrides] = await Promise.all([
       getAutomationTriggers(),
       getActions(),
       getCategoryModules(),
+      getTriggerOverrides(),
     ]);
     setTriggers(nextTriggers);
     setActions(nextActions);
     setModules(nextModules.modules);
+    setOverrides(nextOverrides);
   }, []);
 
   useEffect(() => {
@@ -575,12 +718,38 @@ export function AutomationSettingsPage() {
       .finally(() => setBusyId(null));
   };
 
+  const saveOverride = useCallback(async (triggerId: string, input: TriggerOverrideInput) => {
+    try {
+      await saveTriggerOverride(triggerId, input);
+      setOverrides(await getTriggerOverrides());
+      setError(null);
+    } catch (caught) {
+      setError(errorMessage(caught, 'Could not save the override.'));
+    }
+  }, []);
+
+  const removeOverride = useCallback(async (id: string) => {
+    try {
+      await deleteTriggerOverride(id);
+      setOverrides(await getTriggerOverrides());
+      setError(null);
+    } catch (caught) {
+      setError(errorMessage(caught, 'Could not remove the override.'));
+    }
+  }, []);
+
   const byKind = useMemo(() => {
     const grouped = new Map<AutomationTriggerKind, AutomationTrigger[]>();
     for (const kind of TRIGGER_KINDS) grouped.set(kind, []);
     for (const trigger of triggers) grouped.get(trigger.kind)?.push(trigger);
     return grouped;
   }, [triggers]);
+
+  const overrideCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const override of overrides) counts[override.triggerId] = (counts[override.triggerId] ?? 0) + 1;
+    return counts;
+  }, [overrides]);
 
   // Test and Delete act on the saved trigger, so they only exist while one is open.
   const editingTrigger = editingId ? triggers.find(trigger => trigger.id === editingId) ?? null : null;
@@ -664,6 +833,11 @@ export function AutomationSettingsPage() {
                               {!actionNames[trigger.actionId] && (
                                 <span className="media-asset-tag media-asset-tag--broken">action missing</span>
                               )}
+                              {(overrideCounts[trigger.id] ?? 0) > 0 && (
+                                <span className="media-asset-tag">
+                                  {overrideCounts[trigger.id]} viewer override{overrideCounts[trigger.id] === 1 ? '' : 's'}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </button>
@@ -704,11 +878,14 @@ export function AutomationSettingsPage() {
                     rewards={rewards}
                     saving={saving}
                     testing={editingId !== null && busyId === editingId}
+                    overrides={editingId ? overrides.filter(o => o.triggerId === editingId) : []}
                     onChange={setDraft}
                     onSubmit={handleSubmit}
                     onClose={closeEditor}
                     onTest={editingTrigger ? () => handleRun(editingTrigger) : undefined}
                     onDelete={editingTrigger ? () => handleDelete(editingTrigger) : undefined}
+                    onSaveOverride={saveOverride}
+                    onDeleteOverride={removeOverride}
                   />
                 </>
               )}

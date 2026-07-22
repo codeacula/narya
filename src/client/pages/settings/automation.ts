@@ -125,6 +125,11 @@ export function supportsCooldowns(kind: AutomationTriggerKind): boolean {
   return kind === 'reward' || kind === 'chat_phrase' || kind === 'viewer_command' || kind === 'twitch_event';
 }
 
+/** Kinds where a real viewer arrives on the signal, so a per-viewer override can match. */
+export function supportsOverrides(kind: AutomationTriggerKind): boolean {
+  return kind === 'reward' || kind === 'twitch_event' || kind === 'chat_phrase' || kind === 'viewer_command';
+}
+
 // --- Step editing ------------------------------------------------------------
 
 /**

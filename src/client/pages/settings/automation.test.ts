@@ -29,6 +29,7 @@ import {
   runResultTone,
   summarizeRunResult,
   supportsCooldowns,
+  supportsOverrides,
   triggerScopeLabel,
   triggerToInput,
   unplayableAssetIds,
@@ -446,6 +447,19 @@ describe('isLifecycleKind / supportsCooldowns', () => {
     expect(supportsCooldowns('chat_phrase')).toBe(true);
     expect(supportsCooldowns('viewer_command')).toBe(true);
     expect(supportsCooldowns('reward')).toBe(true);
+  });
+});
+
+describe('supportsOverrides', () => {
+  test('only kinds where a real viewer arrives on the signal', () => {
+    expect(supportsOverrides('reward')).toBe(true);
+    expect(supportsOverrides('twitch_event')).toBe(true);
+    expect(supportsOverrides('chat_phrase')).toBe(true);
+    expect(supportsOverrides('viewer_command')).toBe(true);
+    expect(supportsOverrides('dashboard_slash')).toBe(false);
+    expect(supportsOverrides('manual')).toBe(false);
+    expect(supportsOverrides('module_activate')).toBe(false);
+    expect(supportsOverrides('module_deactivate')).toBe(false);
   });
 });
 
