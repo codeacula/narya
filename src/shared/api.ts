@@ -1153,6 +1153,26 @@ export type AutomationTrigger =
 
 export type AutomationTriggerInput = DistributiveOmit<AutomationTrigger, 'id' | 'createdAt' | 'updatedAt'>;
 
+/**
+ * Per-viewer Action substitution on one trigger: when `triggerId` fires for `login`,
+ * run `actionId` instead of the trigger's own Action. The base trigger still matches,
+ * claims its one dedupe key, and owns the cooldowns — the override only decides which
+ * Action that single invocation runs, so a double alert is structurally impossible.
+ */
+export type TriggerOverride = {
+  id: string;
+  triggerId: string;
+  login: string;
+  actionId: string;
+  enabled: boolean;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// triggerId comes from the route path, so the body cannot disagree with it.
+export type TriggerOverrideInput = Omit<TriggerOverride, 'id' | 'triggerId' | 'createdAt' | 'updatedAt'>;
+
 /** Default cooldowns for a new chat-phrase trigger. Zero disables either limit. */
 export const DEFAULT_GLOBAL_COOLDOWN_MS = 30_000;
 export const DEFAULT_USER_COOLDOWN_MS = 60_000;
