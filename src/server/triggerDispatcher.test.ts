@@ -989,10 +989,12 @@ describe('per-viewer trigger overrides', () => {
     const { dispatcher, runner } = setup();
 
     await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-2', actor: 'Frodo', login: 'frodo' });
-    await dispatcher.handleTwitchEvent({ kind: 'gift', eventId: 'evt-3', actor: 'Anonymous', login: null });
+    await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-3', actor: 'Anonymous', login: null });
 
-    expect(runner.calls).toHaveLength(1); // the gift matched no trigger; the sub ran base
+    // Both matched the trigger; neither viewer has an override, so both ran the base.
+    expect(runner.calls).toHaveLength(2);
     expect(runner.calls[0]!.actionId).toBe(actionId);
+    expect(runner.calls[1]!.actionId).toBe(actionId);
   });
 
   test('a skipped override run falls back to the base action, once, same run row', async () => {
@@ -1035,6 +1037,27 @@ describe('per-viewer trigger overrides', () => {
     });
 
     const runs = await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-5', actor: 'Sorlus', login: 'sorlus' });
+
+    expect(calls).toEqual([specialId]);
+    expect(runs[0]!.actionId).toBe(specialId);
+    expect(runs[0]!.result.status).toBe('failed');
+  });
+
+  test('a throwing override run does NOT fall back either', async () => {
+    const specialId = specialAction();
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'sub' } });
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: specialId, enabled: true, note: '' });
+
+    const calls: string[] = [];
+    const { dispatcher } = setup({
+      runAction: async (id: string) => {
+        calls.push(id);
+        if (id === specialId) throw new Error('boom');
+        return { actionId: id, status: 'succeeded' as const, steps: [], ranAt: new Date().toISOString() };
+      },
+    });
+
+    const runs = await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-8', actor: 'Sorlus', login: 'sorlus' });
 
     expect(calls).toEqual([specialId]);
     expect(runs[0]!.result.status).toBe('failed');
