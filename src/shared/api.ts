@@ -628,6 +628,7 @@ export type AppConfig = {
   musicPlayerctlPlayer: string;
   // Default playback volume for tablet sound buttons.
   soundVolume: number;
+  redisConfigured: boolean;
   updatedAt: string | null;
 };
 
@@ -651,6 +652,8 @@ export type AppConfigUpdate = {
   musicPollIntervalMs?: number;
   musicPlayerctlPlayer?: string;
   soundVolume?: number;
+  redisUrl?: string;
+  clearRedisUrl?: boolean;
 };
 
 export type SettingsUpdatedPayload = {

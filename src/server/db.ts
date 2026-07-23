@@ -723,6 +723,7 @@ const allowedMigrationColumns = new Set([
   'planned_end_at',
   'applied_suffix',
   'raw_text',
+  'redis_url',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -781,6 +782,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // stream_status.text holds the rendered result, because that column feeds the
   // overlay-reachable GET and the status:updated broadcast.
   raw_text: "text not null default ''",
+  redis_url: "text not null default ''",
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -829,6 +831,9 @@ addColumnIfMissing('app_config', 'tengwar_api_key', "text not null default ''");
 // the live scene list that went stale the moment a scene was renamed in OBS.
 addColumnIfMissing('app_config', 'obs_scene_prefix', "text not null default 'Scene - '");
 addColumnIfMissing('app_config', 'sound_button_volume', 'real not null default 0.2');
+// Redis stream target for Phase A of the automation arc (see redis.ts, added in a
+// later task). No connection is made yet — this is config plumbing only.
+addColumnIfMissing('app_config', 'redis_url', "text not null default ''");
 addColumnIfMissing('actions', 'quick_disable', 'integer not null default 0');
 addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');
 // A failed go-live announcement used to be suppressed forever. Track how many

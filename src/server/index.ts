@@ -91,7 +91,14 @@ function reconcileServices(changes: Set<AppConfigChange>) {
   if (changes.has('discord')) {
     clearDiscordStatusCache();
   }
+  if (changes.has('redis')) {
+    reconcileRedis();
+  }
 }
+
+// No-op stub: Redis publishing lands in a later task (see redis.ts), which will
+// replace this with a real import and a connection reconnect.
+function reconcileRedis() {}
 
 // Auth is fail-closed on anything reachable off-box: an unauthenticated API here
 // can ban viewers, drive OBS, rewrite Twitch rewards, and replace credentials, so

@@ -26,6 +26,7 @@ const DEFAULTS = {
   musicPollIntervalMs: 2000,
   musicPlayerctlPlayer: 'strawberry',
   soundVolume: 0.2,
+  redisUrl: '',
 } as const;
 
 // Internal shape with secrets resolved — for server-side consumers only.
@@ -43,6 +44,7 @@ export type AppConfigInternal = {
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   soundVolume: number;
+  redisUrl: string;
   updatedAt: string;
 };
 
@@ -60,6 +62,7 @@ type AppConfigRow = {
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   soundVolume: number;
+  redisUrl: string;
   updatedAt: string;
 };
 
@@ -78,6 +81,7 @@ const selectRow = db.prepare(`
     music_poll_interval_ms as musicPollIntervalMs,
     music_playerctl_player as musicPlayerctlPlayer,
     sound_button_volume as soundVolume,
+    redis_url as redisUrl,
     updated_at as updatedAt
   from app_config
   where id = ?
@@ -106,6 +110,7 @@ const updateRow = db.prepare(`
     music_poll_interval_ms = ?,
     music_playerctl_player = ?,
     sound_button_volume = ?,
+    redis_url = ?,
     updated_at = ?
   where id = ?
 `);
@@ -187,6 +192,7 @@ function loadRow(): AppConfigInternal {
     musicPollIntervalMs: row.musicPollIntervalMs,
     musicPlayerctlPlayer: row.musicPlayerctlPlayer,
     soundVolume: row.soundVolume,
+    redisUrl: row.redisUrl || '',
     updatedAt: row.updatedAt,
   };
 }
@@ -220,6 +226,7 @@ export const appConfig = {
   get musicPollIntervalMs() { return current().musicPollIntervalMs; },
   get musicPlayerctlPlayer() { return current().musicPlayerctlPlayer; },
   get soundVolume() { return current().soundVolume; },
+  get redisUrl() { return current().redisUrl; },
 };
 
 export function getAppConfigInternal(): AppConfigInternal {
@@ -245,6 +252,7 @@ function toPublic(internal: AppConfigInternal, twitchChannelFromLogin: string): 
     musicPollIntervalMs: internal.musicPollIntervalMs,
     musicPlayerctlPlayer: internal.musicPlayerctlPlayer,
     soundVolume: internal.soundVolume,
+    redisConfigured: Boolean(internal.redisUrl),
     updatedAt: internal.updatedAt || null,
   };
 }
@@ -267,13 +275,14 @@ export type AppConfigChange =
   | 'obs'
   | 'obsScenePrefix'
   | 'music'
-  | 'discord';
+  | 'discord'
+  | 'redis';
 
 // Non-secret fields fully resolved (absent-means-keep already applied) plus the
 // secret directives that saveAppConfig feeds to resolveSecret.
 type NormalizedConfigUpdate = Omit<
   AppConfigInternal,
-  'updatedAt' | 'twitchClientSecret' | 'obsPassword' | 'discordBotToken' | 'tengwarApiKey'
+  'updatedAt' | 'twitchClientSecret' | 'obsPassword' | 'discordBotToken' | 'tengwarApiKey' | 'redisUrl'
 > & {
   twitchClientSecret?: string;
   clearTwitchClientSecret: boolean;
@@ -283,6 +292,8 @@ type NormalizedConfigUpdate = Omit<
   clearDiscordBotToken: boolean;
   tengwarApiKey?: string;
   clearTengwarApiKey: boolean;
+  redisUrl?: string;
+  clearRedisUrl: boolean;
 };
 
 function normalizeUpdate(body: unknown, prev: AppConfigInternal): NormalizedConfigUpdate {
@@ -360,6 +371,15 @@ function normalizeUpdate(body: unknown, prev: AppConfigInternal): NormalizedConf
     musicPollIntervalMs,
     musicPlayerctlPlayer: value.musicPlayerctlPlayer !== undefined ? str(value.musicPlayerctlPlayer) : prev.musicPlayerctlPlayer,
     soundVolume,
+    redisUrl: (() => {
+      if (typeof value.redisUrl !== 'string') return undefined;
+      const trimmed = value.redisUrl.trim();
+      if (trimmed && !/^rediss?:\/\//.test(trimmed)) {
+        throw new HttpRouteError(400, 'Redis URL must start with redis:// or rediss://');
+      }
+      return trimmed;
+    })(),
+    clearRedisUrl: value.clearRedisUrl === true,
   };
 }
 
@@ -390,6 +410,7 @@ export function saveAppConfig(
     musicPollIntervalMs: update.musicPollIntervalMs,
     musicPlayerctlPlayer: update.musicPlayerctlPlayer,
     soundVolume: update.soundVolume,
+    redisUrl: resolveSecret(update.clearRedisUrl, update.redisUrl, prev.redisUrl),
     updatedAt: nowIso(),
   };
 
@@ -407,6 +428,7 @@ export function saveAppConfig(
     next.musicPollIntervalMs,
     next.musicPlayerctlPlayer,
     next.soundVolume,
+    next.redisUrl,
     next.updatedAt,
     APP_CONFIG_ID,
   );
@@ -433,6 +455,7 @@ export function saveAppConfig(
   if (next.discordClientId !== prev.discordClientId || next.discordBotToken !== prev.discordBotToken) {
     changes.add('discord');
   }
+  if (next.redisUrl !== prev.redisUrl) changes.add('redis');
 
   return { config: toPublic(next, twitchChannelFromLogin), changes };
 }
