@@ -32,6 +32,7 @@ import { registerLlmRoutes } from './llm';
 import { restartMusicPolling, startMusicPolling } from './music';
 import { broadcastObsStatus, connectObs, reconnectObs } from './obs';
 import { app, broadcast, server } from './realtime';
+import { reconcileRedis, startRedis } from './redis';
 import { registerQuoteRoutes } from './quotes';
 import { registerCoreRoutes } from './routes';
 import { RuntimeState } from './runtime';
@@ -96,10 +97,6 @@ function reconcileServices(changes: Set<AppConfigChange>) {
     reconcileRedis();
   }
 }
-
-// No-op stub: Redis publishing lands in a later task (see redis.ts), which will
-// replace this with a real import and a connection reconnect.
-function reconcileRedis() {}
 
 // Auth is fail-closed on anything reachable off-box: an unauthenticated API here
 // can ban viewers, drive OBS, rewrite Twitch rewards, and replace credentials, so
@@ -172,6 +169,7 @@ server.listen(config.port, config.host, () => {
   }
   connectTwitchChat(runtimeState);
   void connectObs();
+  startRedis();
   startMusicPolling();
   startDashboardHeartbeat(runtimeState);
   startAutomaticAds(runtimeState);
