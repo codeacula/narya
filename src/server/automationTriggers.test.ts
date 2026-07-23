@@ -20,7 +20,6 @@ function input(overrides: Record<string, unknown> = {}) {
   return {
     kind: 'chat_phrase',
     name: 'Test trigger',
-    actionId,
     moduleId: null,
     enabled: true,
     globalCooldownMs: 1000,
@@ -317,6 +316,28 @@ describe('actions[]', () => {
       actions: [{ actionId: act1, position: 0, enabled: true }, { actionId: act1, position: 1, enabled: true }],
     })).toThrow();
   });
+
+  test('rejects more than the per-trigger action cap', () => {
+    // 21 distinct, existing actions — one over the cap. Each must exist and be unique
+    // or the "not found" / "listed once" checks would fire before the cap check does.
+    const manyActionIds = Array.from({ length: 21 }, (_, index) => createAction({
+      name: `Cap action ${index}`,
+      description: '',
+      enabled: true,
+      steps: [{ type: 'obs_transition', enabled: true, delayMs: 0, payload: {} }],
+    }).id);
+
+    expect(() => createAutomationTrigger({
+      kind: 'manual',
+      name: 'n',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: manyActionIds.map((id, position) => ({ actionId: id, position, enabled: true })),
+    })).toThrow(/at most 20 actions/i);
+  });
 });
 
 describe('seedBuiltInSlashCommands', () => {
@@ -361,7 +382,7 @@ describe('seedBuiltInSlashCommands', () => {
     expect(timeout).toBeDefined();
 
     const steps = db.prepare('select step_type as stepType, payload_json as payloadJson from action_steps where action_id = ?')
-      .all(timeout!.actionId) as { stepType: string; payloadJson: string }[];
+      .all(timeout!.actions[0]!.actionId) as { stepType: string; payloadJson: string }[];
     expect(steps).toHaveLength(1);
     expect(steps[0]!.stepType).toBe('twitch_timeout');
     // `/timeout bob 300 spam` must actually time bob out for 300s. A stored number
@@ -394,7 +415,9 @@ describe('seedBuiltInSlashCommands', () => {
     expect(triggers).toHaveLength(4);
     for (const trigger of triggers) {
       expect(trigger.name.trim().length).toBeGreaterThan(0);
-      expect(trigger.actions).toEqual([{ actionId: trigger.actionId, position: 0, enabled: true }]);
+      expect(trigger.actions).toHaveLength(1);
+      expect(trigger.actions[0]).toMatchObject({ position: 0, enabled: true });
+      expect(trigger.actions[0]!.actionId.length).toBeGreaterThan(0);
     }
   });
 });

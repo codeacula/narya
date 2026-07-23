@@ -27,6 +27,9 @@ const MAX_LABEL_LENGTH = 120;
 const MAX_ALIASES = 5;
 const MAX_COOLDOWN_MS = 86_400_000; // 24h — a cooldown longer than a stream is a typo.
 const MAX_REWARD_ID_LENGTH = 120;
+// Mirrors the client's MAX_ACTIONS_PER_TRIGGER (src/client/pages/settings/automation.ts) —
+// the client caps the editor UI, but the API must enforce the same limit independently.
+const MAX_ACTIONS_PER_TRIGGER = 20;
 
 const TRIGGER_KINDS = new Set<AutomationTriggerKind>([
   'reward',
@@ -248,6 +251,9 @@ export function normalizeAutomationTriggerInput(body: unknown): AutomationTrigge
     };
   });
   if (actions.length === 0) throw new HttpRouteError(400, 'A trigger needs at least one action.');
+  if (actions.length > MAX_ACTIONS_PER_TRIGGER) {
+    throw new HttpRouteError(400, `A trigger can run at most ${MAX_ACTIONS_PER_TRIGGER} actions.`);
+  }
 
   const moduleId = typeof value.moduleId === 'string' && value.moduleId.trim() ? value.moduleId.trim() : null;
   if (moduleId && !moduleExists.get(moduleId)) throw new HttpRouteError(400, 'Module not found.');
@@ -259,9 +265,6 @@ export function normalizeAutomationTriggerInput(body: unknown): AutomationTrigge
     kind,
     name,
     actions,
-    // Legacy single-Action pointer — additive alongside actions[] (see AutomationTrigger).
-    // Always actions[0], never read from the request body, so it cannot disagree with it.
-    actionId: actions[0]!.actionId,
     moduleId,
     enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
     globalCooldownMs: normalizeCooldown(value.globalCooldownMs, DEFAULT_GLOBAL_COOLDOWN_MS),
@@ -292,7 +295,6 @@ function rowToTrigger(row: TriggerRow): AutomationTrigger {
     id: row.id,
     kind: row.kind as AutomationTriggerKind,
     name: row.name,
-    actionId: row.actionId,
     actions,
     moduleId: row.moduleId,
     enabled: row.enabled === 1,

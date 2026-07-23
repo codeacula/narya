@@ -31,7 +31,7 @@ beforeEach(() => {
     steps: [{ type: 'send_chat', enabled: true, delayMs: 0, payload: { template: 'HI {actor}!!', sender: 'bot' } }],
   }).id;
   triggerId = createAutomationTrigger({
-    kind: 'twitch_event', name: 'Sub alert', actionId: baseActionId,
+    kind: 'twitch_event', name: 'Sub alert',
     actions: [{ actionId: baseActionId, position: 0, enabled: true }],
     moduleId: null, enabled: true,
     globalCooldownMs: 0, userCooldownMs: 0, config: { eventKind: 'sub' },
@@ -64,7 +64,7 @@ describe('upsertTriggerOverride', () => {
     expect(() => upsertTriggerOverride('nope', { login: 'sorlus', actionId: specialActionId, enabled: true, note: '' })).toThrow();
 
     const manual = createAutomationTrigger({
-      kind: 'manual', name: 'Button trigger', actionId: baseActionId,
+      kind: 'manual', name: 'Button trigger',
       actions: [{ actionId: baseActionId, position: 0, enabled: true }],
       moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0, config: { label: 'Button' },

@@ -286,7 +286,7 @@ describe('flushViewer and the quote book', () => {
       steps: [{ type: 'send_chat', enabled: true, delayMs: 0, payload: { template: 'hi', sender: 'bot' } }],
     });
     const created = createAutomationTrigger({
-      kind: 'twitch_event', name: 'Sub alert', actionId: action.id,
+      kind: 'twitch_event', name: 'Sub alert',
       actions: [{ actionId: action.id, position: 0, enabled: true }],
       moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0, config: { eventKind: 'sub' },

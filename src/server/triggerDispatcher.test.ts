@@ -46,7 +46,6 @@ let actionId = '';
 function trigger(input: Record<string, unknown> & { kind: string; config: unknown }) {
   return createAutomationTrigger({
     name: 'Test trigger',
-    actionId,
     actions: [{ actionId, position: 0, enabled: true }],
     moduleId: null,
     enabled: true,
@@ -143,7 +142,6 @@ describe('chat phrase triggers', () => {
     createAutomationTrigger({
       kind: 'chat_phrase',
       name: 'Second trigger',
-      actionId: second.id,
       actions: [{ actionId: second.id, position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
@@ -324,7 +322,6 @@ describe('deduplication', () => {
     createAutomationTrigger({
       kind: 'twitch_event',
       name: 'Second trigger',
-      actionId: second.id,
       actions: [{ actionId: second.id, position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
@@ -686,7 +683,6 @@ describe('slash commands', () => {
     createAutomationTrigger({
       kind: 'dashboard_slash',
       name: 'Whisper',
-      actionId: whisper.id,
       actions: [{ actionId: whisper.id, position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
