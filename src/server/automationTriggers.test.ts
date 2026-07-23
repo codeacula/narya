@@ -386,4 +386,15 @@ describe('seedBuiltInSlashCommands', () => {
     expect(() => seedBuiltInSlashCommands()).not.toThrow();
     expect(listEnabledTriggersOfKind('dashboard_slash')).toHaveLength(4);
   });
+
+  test('writes exactly one join row (position 0, enabled) and a non-empty name for each seeded trigger', () => {
+    seedBuiltInSlashCommands();
+
+    const triggers = listEnabledTriggersOfKind('dashboard_slash');
+    expect(triggers).toHaveLength(4);
+    for (const trigger of triggers) {
+      expect(trigger.name.trim().length).toBeGreaterThan(0);
+      expect(trigger.actions).toEqual([{ actionId: trigger.actionId, position: 0, enabled: true }]);
+    }
+  });
 });

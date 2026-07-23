@@ -90,8 +90,11 @@ const insertActionStep = db.prepare(`
 `);
 const insertTrigger = db.prepare(`
   insert into automation_triggers
-    (id, kind, action_id, module_id, enabled, config_json, global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
-  values (?, ?, ?, null, ?, ?, 0, 0, ?, ?)
+    (id, kind, name, action_id, module_id, enabled, config_json, global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
+  values (?, ?, ?, ?, null, ?, ?, 0, 0, ?, ?)
+`);
+const insertTriggerAction = db.prepare(`
+  insert into automation_trigger_actions (trigger_id, action_id, position, enabled) values (?, ?, 0, 1)
 `);
 
 /**
@@ -169,10 +172,12 @@ export function migrateLegacyChatbotCommands(): void {
         );
       });
 
+      const triggerId = crypto.randomUUID();
       insertTrigger.run(
-        crypto.randomUUID(), 'viewer_command', actionId, command.enabled ? 1 : 0,
+        triggerId, 'viewer_command', command.trigger, actionId, command.enabled ? 1 : 0,
         JSON.stringify({ command: command.trigger, aliases: [], roles: [] }), now, now,
       );
+      insertTriggerAction.run(triggerId, actionId);
     }
   });
 }
@@ -246,10 +251,12 @@ export function migrateLegacyRewardBindings(): void {
       steps.forEach((step, index) => {
         insertActionStep.run(crypto.randomUUID(), actionId, step.type, JSON.stringify(step.payload), 1, index, now, now);
       });
+      const triggerId = crypto.randomUUID();
       insertTrigger.run(
-        crypto.randomUUID(), 'reward', actionId, 1,
+        triggerId, 'reward', `Redeem: ${label}`, actionId, 1,
         JSON.stringify({ rewardId }), now, now,
       );
+      insertTriggerAction.run(triggerId, actionId);
     }
   });
 }
@@ -329,10 +336,12 @@ export function migrateLegacyAlerts(): void {
       steps.forEach((step, index) => {
         insertActionStep.run(crypto.randomUUID(), actionId, step.type, JSON.stringify(step.payload), 1, index, now, now);
       });
+      const triggerId = crypto.randomUUID();
       insertTrigger.run(
-        crypto.randomUUID(), 'twitch_event', actionId, alert.enabled ? 1 : 0,
+        triggerId, 'twitch_event', `Alert: ${alert.kind}`, actionId, alert.enabled ? 1 : 0,
         JSON.stringify({ eventKind: alert.kind }), now, now,
       );
+      insertTriggerAction.run(triggerId, actionId);
     }
   });
 }
@@ -420,9 +429,11 @@ export function migrateQuackCommandIntoAction(): void {
       JSON.stringify({ assetIds, selection: 'random' }),
       1, 0, now, now,
     );
+    const triggerId = crypto.randomUUID();
     insertTrigger.run(
-      crypto.randomUUID(), 'viewer_command', actionId, 1,
+      triggerId, 'viewer_command', 'Quack', actionId, 1,
       JSON.stringify({ command: '!quack', aliases: [], roles: [] }), now, now,
     );
+    insertTriggerAction.run(triggerId, actionId);
   });
 }

@@ -480,11 +480,9 @@ export function seedBuiltInSlashCommands(): void {
       const actionId = crypto.randomUUID();
       insertSeedAction.run(actionId, availableActionName(seed.name), seed.description, now, now);
       insertSeedStep.run(crypto.randomUUID(), actionId, seed.step.type, JSON.stringify(seed.step.payload), now, now);
-      // The join row (automation_trigger_actions) for these seeded triggers is written
-      // by a later Phase B1 task; action_id (the legacy column) still tracks the seed's
-      // one Action here, same as every other trigger.
+      const triggerId = crypto.randomUUID();
       insertTriggerRow.run(
-        crypto.randomUUID(),
+        triggerId,
         'dashboard_slash',
         seed.name,
         actionId,
@@ -496,6 +494,7 @@ export function seedBuiltInSlashCommands(): void {
         now,
         now,
       );
+      insertTriggerActionRow.run(triggerId, actionId, 0, 1);
     }
   });
 }
