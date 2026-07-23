@@ -395,7 +395,11 @@ function RewardRow({
           disabled={busy}
           onChange={event => onSourceChange(event.target.value)}
         >
-          <option value="">Unknown</option>
+          {/* Source is forward-only — there is no "clear source" operation, so this
+              placeholder is never a real choice. It only exists so the control has a
+              matching option for the (post-self-heal, theoretically unreachable) case
+              of a reward whose source is still falsy; picking it must be impossible. */}
+          <option value="" disabled>—</option>
           {sources.map(source => <option key={source} value={source}>{source}</option>)}
         </select>
       </label>

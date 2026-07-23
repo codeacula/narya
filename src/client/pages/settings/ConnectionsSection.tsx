@@ -325,7 +325,7 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
           <label className="field">
             <span>Redis URL</span>
             <input
-              type="text"
+              type="password"
               value={appConfigForm.redisUrl}
               disabled={appConfigLoading || appConfigSaving || appConfigForm.clearRedisUrl}
               placeholder={appConfigForm.redisConfigured ? 'Configured — leave blank to keep' : 'redis://127.0.0.1:6379'}
