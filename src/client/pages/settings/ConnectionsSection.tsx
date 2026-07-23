@@ -25,6 +25,10 @@ type AppConfigForm = {
   musicPollIntervalMs: number;
   musicPlayerctlPlayer: string;
   soundVolume: number;
+  // Write-only: the server never returns the URL itself, only whether one is stored.
+  redisUrl: string;
+  redisConfigured: boolean;
+  clearRedisUrl: boolean;
 };
 
 function appConfigToForm(config: AppConfig): AppConfigForm {
@@ -47,6 +51,9 @@ function appConfigToForm(config: AppConfig): AppConfigForm {
     musicPollIntervalMs: config.musicPollIntervalMs,
     musicPlayerctlPlayer: config.musicPlayerctlPlayer,
     soundVolume: config.soundVolume,
+    redisUrl: '',
+    redisConfigured: config.redisConfigured,
+    clearRedisUrl: false,
   };
 }
 
@@ -69,6 +76,9 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   musicPollIntervalMs: 2000,
   musicPlayerctlPlayer: '',
   soundVolume: 0.2,
+  redisUrl: '',
+  redisConfigured: false,
+  clearRedisUrl: false,
 };
 
 export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: boolean }) {
@@ -118,6 +128,8 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
       musicPollIntervalMs: appConfigForm.musicPollIntervalMs,
       musicPlayerctlPlayer: appConfigForm.musicPlayerctlPlayer,
       soundVolume: appConfigForm.soundVolume,
+      redisUrl: appConfigForm.redisUrl || undefined,
+      clearRedisUrl: appConfigForm.clearRedisUrl,
     })
       .then(config => {
         setAppConfigForm(appConfigToForm(config));
@@ -157,6 +169,16 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
           <span>
             Twitch app credentials are set but EventSub is not connected. Use “Login with Twitch”
             above to authorize, then events will start flowing.
+          </span>
+        </div>
+      )}
+      {!appConfigLoading && !appConfigForm.redisConfigured && (
+        <div className="settings-alert settings-alert--info">
+          <span className="settings-alert-icon">i</span>
+          <span>
+            Redis is optional. Set a Redis URL below to publish redeems and other events onto a
+            stream for external apps (see Settings → Apps) to consume — Narya works exactly the
+            same without it.
           </span>
         </div>
       )}
@@ -297,6 +319,34 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
               </label>
             )}
           </div>
+        </div>
+
+        <div>
+          <label className="field">
+            <span>Redis URL</span>
+            <input
+              type="text"
+              value={appConfigForm.redisUrl}
+              disabled={appConfigLoading || appConfigSaving || appConfigForm.clearRedisUrl}
+              placeholder={appConfigForm.redisConfigured ? 'Configured — leave blank to keep' : 'redis://127.0.0.1:6379'}
+              onChange={event => setAppConfigForm(current => ({ ...current, redisUrl: event.target.value, clearRedisUrl: false }))}
+            />
+            <small className="field-note">
+              Optional. Publishes reward redeems and other events onto a Redis stream for
+              registered apps (Settings → Apps) to consume.
+            </small>
+          </label>
+          {appConfigForm.redisConfigured && (
+            <label className="command-enabled" style={{ marginTop: 8 }}>
+              <input
+                type="checkbox"
+                checked={appConfigForm.clearRedisUrl}
+                disabled={appConfigLoading || appConfigSaving}
+                onChange={event => setAppConfigForm(current => ({ ...current, clearRedisUrl: event.target.checked, redisUrl: '' }))}
+              />
+              <span>Clear stored Redis URL</span>
+            </label>
+          )}
         </div>
 
         <div className="llm-settings-grid">

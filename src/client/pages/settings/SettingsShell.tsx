@@ -4,6 +4,7 @@ import type { SettingsRoute } from '../../routing';
 import { SETTINGS_GROUPS, sectionsInGroup } from './sections';
 import { SettingsHeader } from './shared';
 import { ConnectionsSettingsPage } from '../SettingsPage';
+import { AppsPage } from './AppsPage';
 import { GoLiveSection } from './GoLiveSection';
 import { WindDownSection } from './WindDownSection';
 import { ContentSection } from './ContentSection';
@@ -87,6 +88,8 @@ function SettingsBody({
           onTwitchBotLogout={onTwitchBotLogout}
         />
       );
+    case 'apps':
+      return <AppsPage />;
     case 'golive':
       return <><SettingsHeader section="golive" /><GoLiveSection /></>;
     case 'winddown':

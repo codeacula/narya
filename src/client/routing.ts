@@ -11,6 +11,7 @@ export type DashboardRoute =
  */
 export type SettingsRoute =
   | 'settings'
+  | 'apps'
   | 'golive'
   | 'winddown'
   | 'categories'
@@ -85,6 +86,7 @@ const PATH_BY_ROUTE: Record<Exclude<DashboardRoute, 'viewer'>, string> = {
   dashboard: '/dashboard',
   viewers: '/viewers',
   settings: '/settings',
+  apps: '/settings/apps',
   golive: '/settings/go-live',
   winddown: '/settings/wind-down',
   categories: '/settings/categories',
@@ -104,7 +106,7 @@ const ROUTE_BY_PATH = new Map<string, DashboardRoute>(
 );
 
 const SETTINGS_ROUTES: ReadonlySet<string> = new Set<SettingsRoute>([
-  'settings', 'golive', 'winddown', 'categories', 'rewards', 'quotes', 'actions', 'automation', 'modules', 'counters', 'content', 'speech', 'ai',
+  'settings', 'apps', 'golive', 'winddown', 'categories', 'rewards', 'quotes', 'actions', 'automation', 'modules', 'counters', 'content', 'speech', 'ai',
 ]);
 
 /** Whether a route lives inside the settings shell — which is what lights the top nav's settings link. */

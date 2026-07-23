@@ -4,6 +4,7 @@ import {
   addSavedStreamCategory,
   applyViewerRewardCategoryColor,
   createViewerReward,
+  getApps,
   getCategorySuggestions,
   getSavedStreamCategories,
   setSavedStreamCategoryHidden,
@@ -334,18 +335,22 @@ function RewardEditor({
 function RewardRow({
   reward,
   categories,
+  sources,
   busy,
   onEdit,
   onDelete,
   onCategoryChange,
+  onSourceChange,
   onPauseToggle,
 }: {
   reward: ViewerReward;
   categories: ViewerRewardCategory[];
+  sources: string[];
   busy: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onCategoryChange: (categoryId: string | null) => void;
+  onSourceChange: (source: string) => void;
   onPauseToggle: () => void;
 }) {
   const dimmed = !reward.isEnabled || reward.isPaused;
@@ -361,6 +366,7 @@ function RewardRow({
           {reward.isPaused ? <span className="reward-state paused">Paused</span> : null}
           {reward.skipQueue ? <span className="reward-state auto">Auto</span> : null}
           {!reward.canManage ? <span className="reward-state readonly">Twitch-managed</span> : null}
+          {reward.source ? <span className="reward-state readonly" title="Reward provenance source">{reward.source}</span> : null}
         </div>
         <div className="reward-meta">
           <span className="reward-meta-cost">{reward.cost.toLocaleString()} pts</span>
@@ -380,6 +386,17 @@ function RewardRow({
         >
           <option value="">Uncategorized</option>
           {categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+        </select>
+      </label>
+      <label className="reward-category-select">
+        <span className="sr-only">Source for {reward.title}</span>
+        <select
+          value={reward.source ?? ''}
+          disabled={busy}
+          onChange={event => onSourceChange(event.target.value)}
+        >
+          <option value="">Unknown</option>
+          {sources.map(source => <option key={source} value={source}>{source}</option>)}
         </select>
       </label>
       <div className="reward-actions">
@@ -573,6 +590,9 @@ export function ViewerRewardsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rewardForm, setRewardForm] = useState<ViewerRewardUpsert>(EMPTY_REWARD);
   const [savedCategories, setSavedCategories] = useState<SavedStreamCategory[]>([]);
+  // 'narya' and 'manual' are reserved source sentinels (never rows in the apps registry);
+  // the rest come from enabled apps registered in Settings → Apps.
+  const [sources, setSources] = useState<string[]>(['narya', 'manual']);
 
   const groupedRewards = useMemo(() => {
     const groups = new Map<string | null, ViewerReward[]>();
@@ -589,9 +609,10 @@ export function ViewerRewardsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [rewards, savedCats] = await Promise.all([getViewerRewards(), getSavedStreamCategories()]);
+      const [rewards, savedCats, apps] = await Promise.all([getViewerRewards(), getSavedStreamCategories(), getApps()]);
       setData(rewards);
       setSavedCategories(savedCats);
+      setSources(['narya', 'manual', ...apps.filter(app => !app.disabledAt).map(app => app.name)]);
     } catch (loadError) {
       setError(errorMessage(loadError, 'Could not load viewer rewards.'));
     } finally {
@@ -688,6 +709,20 @@ export function ViewerRewardsPage() {
       setMessage('Reward category updated.');
     } catch (updateError) {
       setError(errorMessage(updateError, 'Could not update reward category.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleSourceChange = async (reward: ViewerReward, source: string) => {
+    setBusyId(reward.id);
+    setError(null);
+    setMessage(null);
+    try {
+      setData(await updateViewerReward(reward.id, { source }));
+      setMessage('Reward source updated.');
+    } catch (updateError) {
+      setError(errorMessage(updateError, 'Could not update reward source.'));
     } finally {
       setBusyId(null);
     }
@@ -884,10 +919,12 @@ export function ViewerRewardsPage() {
               key={reward.id}
               reward={reward}
               categories={data.categories}
+              sources={sources}
               busy={Boolean(busyId)}
               onEdit={() => startEdit(reward)}
               onDelete={() => void handleRewardDelete(reward)}
               onCategoryChange={categoryId => void handleCategoryAssignment(reward, categoryId)}
+              onSourceChange={source => void handleSourceChange(reward, source)}
               onPauseToggle={() => void handlePauseToggle(reward)}
             />
           ))}

@@ -32,6 +32,13 @@ export const SETTINGS_SECTIONS: ReadonlyArray<SettingsSection> = [
     blurb: 'Sign in to Twitch, then point Narya at OBS and Discord. Saving reconnects only the service you changed — no restart.',
   },
   {
+    id: 'apps',
+    group: 'channel',
+    label: 'Apps',
+    title: 'Apps',
+    blurb: 'External apps allowed to publish onto the Redis event bus. \'narya\' and \'manual\' are reserved source names; register anything else here, then tag it on a reward in Viewer rewards.',
+  },
+  {
     id: 'golive',
     group: 'channel',
     label: 'Go live',
