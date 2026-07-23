@@ -12,7 +12,7 @@ Today a trigger is strictly **1:1**: each `automation_triggers` row has one `act
 
 **Decisions locked in this brainstorm (2026-07-23):**
 - **Full switch to `actions[]`** — `AutomationTrigger` exposes `actions: TriggerAction[]` as the single runtime truth; `TriggerRunSummary` and `SlashCommandResponse.run` reshape to N results. The DB `action_id` column is **kept** as the re-derivable migration source but is no longer the contract shape.
-- **Deleting the last action keeps the trigger, inert + flagged** (not delete). A zero-enabled-action trigger is skipped by the dispatcher (no claim, no cooldown) and flagged "no actions — won't fire" in the editor.
+- **A trigger always has ≥1 action row; "inert" = zero *enabled* actions** (no table rebuild). The legacy `automation_triggers.action_id` stays `NOT NULL` + FK, kept in sync with `actions[0]` on every save, so it always references a real action. Removing a trigger's *last* action is not allowed — the editor disables it instead (or the operator deletes the whole trigger); an all-disabled trigger is skipped by the dispatcher (no claim, no cooldown) and flagged "won't fire" in the editor. Chosen over a nullable-`action_id` table rebuild for far lower migration risk on the central trigger table.
 - **Execution is concurrent** (t0 model, `delayMs` relative to invocation start, mirroring `action_steps`); `position` is **display order only**.
 - **Per-viewer override** replaces the enabled action list with `[overrideAction]` for that login.
 
@@ -34,13 +34,13 @@ Today a trigger is strictly **1:1**: each `automation_triggers` row has one `act
   );
   ```
   The composite PK `(trigger_id, action_id)` is the **`UNIQUE`** that stops an action being listed twice on one trigger — which would double-play a clip with no redelivery, reopening the class `redeemOnce.test.ts` guards. On-delete-cascade on **both** FKs: deleting a trigger drops its rows; deleting an Action drops it from every trigger.
-- **`automation_triggers.action_id` is kept intact** after migration (CLAUDE.md "legacy left intact"), so the join is always re-derivable.
+- **`automation_triggers.action_id` is kept unchanged** — `NOT NULL` + its FK (CLAUDE.md "legacy left intact"). No table rebuild. Every trigger has **≥1 join row**, and on every save `action_id` is set to `actions[0].actionId` (the first action), so the legacy column always references a real action and the join is always re-derivable from it. **Residual, documented:** because the `action_id` FK is `on delete cascade`, deleting the Action that is a trigger's *first* action still deletes that trigger (the existing single-action semantics, extended); deleting a non-first action just unlinks it via the join FK.
 
 ## 3. Migration (the `bun --watch` + `runOnce` trap)
 
 - Add `automation_triggers` to `allowedMigrationTables`; `name` to the column/definition allowlists.
-- **Self-healing guard** modeled on `dropStaleTriggerOverrides`/`dropStaleLlmInteractions` (`db.ts`): if `automation_trigger_actions` exists but its shape is wrong (missing `position`/`enabled`, or an intermediate dev-server shape), **drop it** so the `create table` + `runOnce` copy rebuild it from `action_id`. This runs at load, **before** the `runOnce` copy — because a `bun --watch` reload that persisted a half-built table would otherwise burn the `runOnce` ledger id and skip the corrected migration forever.
-- **`runOnce('backfill-trigger-actions', …)`** copy: for every `automation_triggers` row, insert one `automation_trigger_actions(trigger_id, action_id, position=0, enabled=1)`. Re-derivable from the retained `action_id`, not a bare one-shot.
+- **Self-healing guard** modeled on `dropStaleTriggerOverrides` (`db.ts`): if `automation_trigger_actions` exists but its shape is wrong (missing `position`/`enabled`, missing the composite PK, or an intermediate dev-server shape), **drop it AND delete the backfill's `schema_migrations` ledger id**, so the `create table` recreates it and the `runOnce` copy re-runs and re-populates one row per trigger from `action_id`. This runs at load, **before** the DDL and the `runOnce` copy. Rationale: unlike `trigger_overrides` (cheap to re-enter), this table holds the core trigger→action mapping — a plain drop would leave it empty because the copy's ledger id is already recorded; resetting the ledger restores the **≥1-row invariant** from the retained `action_id`. (A dev-loop shape glitch loses multi-action *extras* but never crashes boot and never leaves a trigger with zero rows; on a shipped release the shape is stable and the guard never fires.)
+- **`runOnce('2026-07-trigger-actions-from-action-id', …)`** copy: `insert or ignore into automation_trigger_actions (trigger_id, action_id, position, enabled) select id, action_id, 0, 1 from automation_triggers`. `insert or ignore` makes it safe against a seed/legacy creator that already wrote its own join row (see §7), regardless of load order.
 - **`name` backfill:** a total function fills every existing trigger's `name` (also idempotent-safe: only fill where empty).
 - Verified in a `*.test.ts` against the in-memory DB (`NODE_ENV=test`) — never an ad-hoc script against the live DB (the import-hoist hazard).
 
@@ -71,8 +71,9 @@ export type TriggerAction = { actionId: string; position: number; enabled: boole
 
 - Trigger editor gains a **`name`** input and an **ordered action list**: add / remove / reorder (position) / enable-toggle per action, replacing the single action picker.
 - Enforce the UNIQUE client-side (the "add action" picker excludes actions already on the trigger) and server-side (the PK rejects a dupe).
-- A trigger with zero enabled actions renders a **"no actions — won't fire"** flag (the same treatment idiom as the existing trigger warnings).
-- `automation.ts` (React-free limits/validation) gains action-list limits and the normalize rules.
+- **≥1 action required:** the server (`normalizeAutomationTriggerInput`) rejects an empty `actions[]`, and the editor blocks removing the *last* action (the Remove control on the sole remaining row is disabled, with a hint to disable it or delete the trigger). `validateTrigger` keeps a "pick at least one action" gate.
+- A trigger with **zero *enabled* actions** (all toggled off) renders a **"won't fire — all actions disabled"** flag (the same treatment idiom as the existing trigger warnings); it is not a submit-blocking error.
+- `automation.ts` (React-free limits/validation) gains action-list limits (`MAX_ACTIONS_PER_TRIGGER`, mirroring `MAX_STEPS`) and the normalize rules.
 
 ## 7. Blast radius — every producer/consumer to update
 
