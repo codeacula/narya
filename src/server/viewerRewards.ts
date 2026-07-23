@@ -10,6 +10,7 @@ import type {
 import { db, isUniqueConstraintError } from './db';
 import { handle, HttpRouteError } from './http';
 import { broadcast } from './realtime';
+import { clearRewardSource, ensureManualProvenance, getRewardSource, setRewardSource } from './rewardProvenance';
 
 import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
@@ -129,33 +130,40 @@ export async function fetchRewards(
       .map(member => [member.rewardId, member.categoryId]),
   );
 
-  return allRewards.map(reward => ({
-    id: reward.id,
-    title: reward.title,
-    prompt: reward.prompt,
-    cost: reward.cost,
-    isEnabled: reward.is_enabled,
-    isPaused: reward.is_paused,
-    isInStock: reward.is_in_stock,
-    canManage: manageableIds.has(reward.id),
-    imageUrl: reward.image?.url_1x ?? reward.default_image?.url_1x ?? null,
-    backgroundColor: reward.background_color,
-    categoryId: categoryIds.get(reward.id) ?? null,
-    isUserInputRequired: reward.is_user_input_required ?? false,
-    skipQueue: reward.should_redemptions_skip_request_queue ?? false,
-    globalCooldown: {
-      enabled: reward.global_cooldown_setting?.is_enabled ?? false,
-      seconds: reward.global_cooldown_setting?.global_cooldown_seconds ?? 0,
-    },
-    maxPerStream: {
-      enabled: reward.max_per_stream_setting?.is_enabled ?? false,
-      max: reward.max_per_stream_setting?.max_per_stream ?? 1,
-    },
-    maxPerUserPerStream: {
-      enabled: reward.max_per_user_per_stream_setting?.is_enabled ?? false,
-      max: reward.max_per_user_per_stream_setting?.max_per_user_per_stream ?? 1,
-    },
-  }));
+  return allRewards.map(reward => {
+    // Self-heal: a reward with no provenance row (dashboard/mobile-born, or created
+    // before provenance existed) is tagged 'manual' here so every payload carries a
+    // source. Never overwrites an existing row — a real app's tag is left alone.
+    ensureManualProvenance(reward.id);
+    return {
+      id: reward.id,
+      title: reward.title,
+      prompt: reward.prompt,
+      cost: reward.cost,
+      isEnabled: reward.is_enabled,
+      isPaused: reward.is_paused,
+      isInStock: reward.is_in_stock,
+      canManage: manageableIds.has(reward.id),
+      imageUrl: reward.image?.url_1x ?? reward.default_image?.url_1x ?? null,
+      backgroundColor: reward.background_color,
+      categoryId: categoryIds.get(reward.id) ?? null,
+      isUserInputRequired: reward.is_user_input_required ?? false,
+      skipQueue: reward.should_redemptions_skip_request_queue ?? false,
+      globalCooldown: {
+        enabled: reward.global_cooldown_setting?.is_enabled ?? false,
+        seconds: reward.global_cooldown_setting?.global_cooldown_seconds ?? 0,
+      },
+      maxPerStream: {
+        enabled: reward.max_per_stream_setting?.is_enabled ?? false,
+        max: reward.max_per_stream_setting?.max_per_stream ?? 1,
+      },
+      maxPerUserPerStream: {
+        enabled: reward.max_per_user_per_stream_setting?.is_enabled ?? false,
+        max: reward.max_per_user_per_stream_setting?.max_per_user_per_stream ?? 1,
+      },
+      source: getRewardSource(reward.id),
+    };
+  });
 }
 
 function getCategories(rewards: ViewerReward[]): ViewerRewardCategory[] {
@@ -241,6 +249,7 @@ function normalizeReward(body: unknown): ViewerRewardUpsert {
     globalCooldown: { enabled: cooldownEnabled, seconds: cooldownSeconds },
     maxPerStream: { enabled: maxPerStreamEnabled, max: maxPerStreamVal },
     maxPerUserPerStream: { enabled: maxPerUserEnabled, max: maxPerUserVal },
+    source: typeof value.source === 'string' ? value.source : undefined,
   };
 }
 
@@ -446,8 +455,10 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     const created = data.data?.[0];
     if (!created) throw new HttpRouteError(502, 'Twitch did not return the created reward.');
     saveRewardCategory(created.id, reward.categoryId);
-    // Twitch mints the reward id, so the binding can only be saved here — the
-    // response returns the whole list, not the created reward.
+    // Twitch mints the reward id, so the binding — and the provenance tag — can only be
+    // saved here. Operator-created rewards default to 'narya'; a caller may pass an
+    // alternate app source. The response returns the whole list, not the created reward.
+    setRewardSource(created.id, reward.source ?? 'narya');
     response.status(201).json(await getRewardsResponse(state));
   }));
 
@@ -487,6 +498,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       }
     }
     saveRewardCategory(current.id, categoryId);
+    if (typeof request.body?.source === 'string') setRewardSource(current.id, request.body.source);
     response.json(await getRewardsResponse(state));
   }));
 
@@ -502,6 +514,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
       passthroughStatuses: [400, 401, 403, 404],
     });
     clearRewardCategory.run(request.params.id);
+    clearRewardSource(request.params.id);
     response.status(204).send();
   }));
 }

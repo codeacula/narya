@@ -1,5 +1,6 @@
 import { registerActionRoutes } from './actions';
 import { registerAppConfigRoutes, type AppConfigChange } from './appConfig';
+import { registerAppsRoutes } from './apps';
 import { getOverlayToken, requireDashboardToken } from './auth';
 import { getActionExecutor, getTriggerDispatcher, initAutomation } from './automation';
 import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './automationTriggers';
@@ -31,6 +32,7 @@ import { registerLlmRoutes } from './llm';
 import { restartMusicPolling, startMusicPolling } from './music';
 import { broadcastObsStatus, connectObs, reconnectObs } from './obs';
 import { app, broadcast, server } from './realtime';
+import { reconcileRedis, startRedis } from './redis';
 import { registerQuoteRoutes } from './quotes';
 import { registerCoreRoutes } from './routes';
 import { RuntimeState } from './runtime';
@@ -91,6 +93,9 @@ function reconcileServices(changes: Set<AppConfigChange>) {
   if (changes.has('discord')) {
     clearDiscordStatusCache();
   }
+  if (changes.has('redis')) {
+    reconcileRedis();
+  }
 }
 
 // Auth is fail-closed on anything reachable off-box: an unauthenticated API here
@@ -135,6 +140,7 @@ registerTwitchAuthRoutes({
 });
 registerTwitchApiRoutes(app, runtimeState);
 registerViewerRewardRoutes(app, runtimeState);
+registerAppsRoutes(app);
 registerMediaAssetRoutes(app);
 registerActionRoutes(app, getActionExecutor());
 registerAutomationTriggerRoutes(app, getTriggerDispatcher());
@@ -163,6 +169,7 @@ server.listen(config.port, config.host, () => {
   }
   connectTwitchChat(runtimeState);
   void connectObs();
+  startRedis();
   startMusicPolling();
   startDashboardHeartbeat(runtimeState);
   startAutomaticAds(runtimeState);

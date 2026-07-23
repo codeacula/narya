@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"bun run dev:server\" \"bun run dev:client\"",
     "dev:client": "vite",
-    "dev:server": "bun --watch src/server/index.ts",
+    "dev:server": "STREAMER_TOOLS_REDIS_PREFIX=dev bun --watch src/server/index.ts",
     "start": "bun src/server/index.ts",
     "build": "tsc && vite build",
     "preview": "vite preview",
@@ -20,6 +20,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.0",
     "express": "^5.1.0",
+    "ioredis": "^5.11.1",
     "obs-websocket-js": "^5.0.6",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

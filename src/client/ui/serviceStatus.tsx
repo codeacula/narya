@@ -8,11 +8,11 @@ import { useToast } from './notifications';
 // alerts on the Settings page complement these for issues that need operator action.
 export function ServiceStatusToasts() {
   const { pushToast } = useToast();
-  const previous = React.useRef<{ obs: boolean; eventSub: boolean } | null>(null);
+  const previous = React.useRef<{ obs: boolean; eventSub: boolean; redis: boolean } | null>(null);
 
   const onStatus = React.useCallback((status: DashboardStatus) => {
     const prev = previous.current;
-    previous.current = { obs: status.obsConnected, eventSub: status.eventSubConnected };
+    previous.current = { obs: status.obsConnected, eventSub: status.eventSubConnected, redis: status.redisConnected };
     if (!prev) return; // Skip the first snapshot so we only report transitions.
 
     if (prev.obs && !status.obsConnected) {
@@ -34,6 +34,16 @@ export function ServiceStatusToasts() {
       });
     } else if (!prev.eventSub && status.eventSubConnected) {
       pushToast({ kind: 'success', title: 'Twitch EventSub connected' });
+    }
+
+    if (prev.redis && !status.redisConnected) {
+      pushToast({
+        kind: 'error',
+        title: 'Redis disconnected',
+        message: status.lastPublishError ?? 'Check the Redis URL in Settings → Connections.',
+      });
+    } else if (!prev.redis && status.redisConnected) {
+      pushToast({ kind: 'success', title: 'Redis connected' });
     }
   }, [pushToast]);
 

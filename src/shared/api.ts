@@ -205,6 +205,8 @@ export type DashboardStatus = {
   obsConnected: boolean;
   eventSubConnected: boolean;
   eventSubError: string | null;
+  redisConnected: boolean;
+  lastPublishError: string | null;
   // Required EventSub subscriptions Twitch refused. Connected + non-empty = degraded:
   // the socket is up, but the events behind these types never arrive.
   eventSubFailedSubscriptions: string[];
@@ -402,6 +404,7 @@ export type ViewerReward = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
+  source: string | null;
 };
 
 export type ViewerRewardsResponse = {
@@ -422,6 +425,7 @@ export type ViewerRewardUpsert = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
+  source?: string;
 };
 
 export type ViewerRewardCategoryToggleResult = ViewerRewardsResponse & {
@@ -628,6 +632,7 @@ export type AppConfig = {
   musicPlayerctlPlayer: string;
   // Default playback volume for tablet sound buttons.
   soundVolume: number;
+  redisConfigured: boolean;
   updatedAt: string | null;
 };
 
@@ -651,6 +656,8 @@ export type AppConfigUpdate = {
   musicPollIntervalMs?: number;
   musicPlayerctlPlayer?: string;
   soundVolume?: number;
+  redisUrl?: string;
+  clearRedisUrl?: boolean;
 };
 
 export type SettingsUpdatedPayload = {
@@ -1303,3 +1310,28 @@ export type PlannedStreamEnd = { plannedEndAt: string | null };
  * still surface as a save error rather than being silently dropped alongside it.
  */
 export const NO_ACTIVE_SESSION_FOR_PLANNED_END = 'There is no active stream session to plan an end for.';
+
+// --- App registry --------------------------------------------------------------
+// Names-only registry of external apps allowed to publish onto the Redis bus
+// (Phase A). 'narya' and 'manual' are reserved source sentinels, not rows here.
+
+/** GET /api/apps row; also the POST/PATCH /api/apps/:id response body. */
+export type App = { id: string; name: string; createdAt: string; disabledAt: string | null };
+
+/** POST /api/apps body. */
+export type AppInput = { name: string };
+
+// --- Event bus -------------------------------------------------------------
+// The versioned envelope published onto the Redis stream (Phase A, outbound-only).
+// `data` carries only the fields the publishing function allowlists for that type.
+
+export type NaryaEventType = 'redeem' | 'twitch_event' | 'module_switch';
+export type NaryaEventEnvelope = {
+  version: 1;
+  id: string;
+  type: NaryaEventType;
+  ts: string;
+  channel: { id: string; login: string };
+  source: 'narya';
+  data: Record<string, unknown>;
+};

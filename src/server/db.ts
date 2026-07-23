@@ -544,6 +544,28 @@ db.exec(`
     foreign key (trigger_id) references automation_triggers(id) on delete cascade,
     foreign key (action_id) references actions(id) on delete cascade
   );
+
+  -- Names-only registry of external apps allowed to publish onto the Redis bus
+  -- (Phase A). 'narya' and 'manual' are reserved source sentinels and never rows
+  -- here — see apps.ts's RESERVED_SOURCES. Disabling an app is not deleting it: a
+  -- disabled app's past provenance stays a known source (isKnownSource), it just
+  -- drops out of listSelectableSources for new bindings.
+  create table if not exists apps (
+    id text primary key,
+    name text not null unique,
+    created_at text not null,
+    disabled_at text
+  );
+
+  -- Maps a Twitch reward id to the source that created/owns it: 'narya', 'manual',
+  -- or a registered app name (apps.ts). getRewardSource returns null on a join
+  -- miss rather than fabricating 'manual' — see rewardProvenance.ts.
+  create table if not exists reward_provenance (
+    reward_id text primary key,
+    source text not null,
+    external_ref text,
+    created_at text not null
+  );
 `);
 
 db.exec(`
@@ -723,6 +745,7 @@ const allowedMigrationColumns = new Set([
   'planned_end_at',
   'applied_suffix',
   'raw_text',
+  'redis_url',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -781,6 +804,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // stream_status.text holds the rendered result, because that column feeds the
   // overlay-reachable GET and the status:updated broadcast.
   raw_text: "text not null default ''",
+  redis_url: "text not null default ''",
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -829,6 +853,9 @@ addColumnIfMissing('app_config', 'tengwar_api_key', "text not null default ''");
 // the live scene list that went stale the moment a scene was renamed in OBS.
 addColumnIfMissing('app_config', 'obs_scene_prefix', "text not null default 'Scene - '");
 addColumnIfMissing('app_config', 'sound_button_volume', 'real not null default 0.2');
+// Redis stream target for Phase A of the automation arc (see redis.ts, added in a
+// later task). No connection is made yet — this is config plumbing only.
+addColumnIfMissing('app_config', 'redis_url', "text not null default ''");
 addColumnIfMissing('actions', 'quick_disable', 'integer not null default 0');
 addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');
 // A failed go-live announcement used to be suppressed forever. Track how many

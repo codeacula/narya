@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { saveAppConfig } from './appConfig';
+import { getAppConfig, saveAppConfig } from './appConfig';
 
 // The app_config row is a shared singleton, so each test first establishes a
 // known baseline (secrets cleared) before asserting the specific behavior.
@@ -122,5 +122,36 @@ describe('saveAppConfig', () => {
   test('never returns the Tengwar API key itself', () => {
     const { config } = saveAppConfig({ tengwarApiKey: 'sekrit' });
     expect(JSON.stringify(config)).not.toContain('sekrit');
+  });
+});
+
+describe('redisUrl (secret)', () => {
+  test('round-trips internally but is never returned to the client', () => {
+    saveAppConfig({ redisUrl: 'redis://127.0.0.1:6379' });
+    const pub = getAppConfig('');
+    expect(pub.redisConfigured).toBe(true);
+    expect((pub as Record<string, unknown>).redisUrl).toBeUndefined();
+  });
+
+  test('clearRedisUrl empties it', () => {
+    saveAppConfig({ redisUrl: 'redis://127.0.0.1:6379' });
+    expect(saveAppConfig({ clearRedisUrl: true }).config.redisConfigured).toBe(false);
+  });
+
+  test('a redisUrl change emits the redis AppConfigChange', () => {
+    saveAppConfig({ clearRedisUrl: true });
+    expect(saveAppConfig({ redisUrl: 'redis://localhost:6379' }).changes.has('redis')).toBe(true);
+    expect(saveAppConfig({ redisUrl: 'redis://localhost:6379' }).changes.has('redis')).toBe(false);
+  });
+
+  test('rejects a non-redis scheme', () => {
+    expect(() => saveAppConfig({ redisUrl: 'http://127.0.0.1:6379' })).toThrow(/redis:\/\/ or rediss:\/\//);
+  });
+
+  // Scheme-valid but otherwise unparseable: new Redis() would throw synchronously at
+  // boot on this, so reject it at save time with a 400 (F1) rather than let the bus go
+  // silently down. The scheme message is reserved for a wrong scheme.
+  test('rejects a scheme-valid but malformed URL', () => {
+    expect(() => saveAppConfig({ redisUrl: 'redis://host:notaport' })).toThrow(/not a valid URL/);
   });
 });

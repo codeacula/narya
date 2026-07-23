@@ -4,6 +4,7 @@ import type {
   ActionRunResult,
   ActionUpsert,
   AlertEventKind,
+  App,
   AutomationTrigger,
   AutomationTriggerInput,
   CategoryModule,
@@ -154,6 +155,22 @@ export async function getAppConfig(): Promise<AppConfig> {
 
 export async function updateAppConfig(update: AppConfigUpdate): Promise<AppConfig> {
   return sendJson<AppConfig>('/api/config', 'PUT', update);
+}
+
+// --- App registry --------------------------------------------------------------
+// Names-only registry of external apps allowed to publish onto the Redis bus.
+// 'narya' and 'manual' are reserved source sentinels and are never rows here.
+
+export async function getApps(): Promise<App[]> {
+  return fetchJson<App[]>('/api/apps');
+}
+
+export async function createApp(name: string): Promise<App> {
+  return sendJson<App>('/api/apps', 'POST', { name });
+}
+
+export async function setAppDisabled(id: string, disabled: boolean): Promise<App> {
+  return sendJson<App>(`/api/apps/${encodeURIComponent(id)}`, 'PATCH', { disabled });
 }
 
 export async function getViewers(): Promise<Record<string, Viewer>> {
