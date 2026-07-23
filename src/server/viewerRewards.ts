@@ -249,6 +249,7 @@ function normalizeReward(body: unknown): ViewerRewardUpsert {
     globalCooldown: { enabled: cooldownEnabled, seconds: cooldownSeconds },
     maxPerStream: { enabled: maxPerStreamEnabled, max: maxPerStreamVal },
     maxPerUserPerStream: { enabled: maxPerUserEnabled, max: maxPerUserVal },
+    source: typeof value.source === 'string' ? value.source : undefined,
   };
 }
 

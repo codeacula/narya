@@ -1,8 +1,13 @@
+import express from 'express';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { AddressInfo } from 'node:net';
+import { reloadAppConfig, saveAppConfig } from './appConfig';
 import { createApp } from './apps';
 import { db } from './db';
-import { setRewardSource } from './rewardProvenance';
-import { fetchRewards, type TwitchRewardCredentials } from './viewerRewards';
+import { RuntimeState } from './runtime';
+import type { TwitchUserToken } from './runtime';
+import { getRewardSource, setRewardSource } from './rewardProvenance';
+import { fetchRewards, REWARD_SCOPE, registerViewerRewardRoutes, type TwitchRewardCredentials } from './viewerRewards';
 
 // --- fetch stub --------------------------------------------------------------
 // Modeled on src/server/twitch/api.test.ts: a host-aware globalThis.fetch swap
@@ -84,5 +89,108 @@ describe('fetchRewards', () => {
 
     expect(byId.r1).toBe('manual');
     expect(byId.r2).toBe('pztmi');
+  });
+});
+
+// --- POST /api/twitch/rewards -------------------------------------------------
+// Drives the real Express route (registerViewerRewardRoutes) end to end, the same
+// pattern as src/server/twitch/api.test.ts's registerTwitchApiRoutes suite: a live
+// server on an ephemeral port, hit with the real global fetch (which passes 127.0.0.1
+// straight through to the real network stack while the Twitch stub intercepts
+// everything else).
+
+function twitchRewardPostBody(overrides: Record<string, unknown> = {}) {
+  return {
+    title: 'Reward',
+    prompt: '',
+    cost: 100,
+    isEnabled: true,
+    isPaused: false,
+    categoryId: null,
+    isUserInputRequired: false,
+    skipQueue: false,
+    backgroundColor: '#9147FF',
+    globalCooldown: { enabled: false, seconds: 60 },
+    maxPerStream: { enabled: false, max: 1 },
+    maxPerUserPerStream: { enabled: false, max: 1 },
+    ...overrides,
+  };
+}
+
+describe('POST /api/twitch/rewards', () => {
+  let server: import('node:http').Server;
+  let port: number;
+  let state: RuntimeState;
+
+  function seedUserToken(scopes: readonly string[]): TwitchUserToken {
+    const token: TwitchUserToken = { accessToken: 'user-access', refreshToken: 'user-refresh', scopes: [...scopes], tokenType: 'bearer', expiresAtMs: null };
+    state.runtimeUserToken = token;
+    return token;
+  }
+
+  beforeEach(async () => {
+    saveAppConfig({ twitchChannel: 'tester', twitchClientId: 'cid', twitchClientSecret: 'secret' });
+    reloadAppConfig();
+    state = new RuntimeState();
+    seedUserToken(REWARD_SCOPE);
+    state.broadcasterId = 'bid';
+
+    // Twitch is the source of truth for the reward list, so the stub must remember
+    // what it "created" and echo it back on the subsequent GET the route makes to
+    // build its response — otherwise the created reward would vanish from the payload.
+    const createdRewards: ReturnType<typeof rawReward>[] = [];
+    installFetch(({ url, method }) => {
+      if (url.pathname === '/helix/channel_points/custom_rewards') {
+        if (method === 'POST') {
+          const reward = rawReward({ id: `created${createdRewards.length + 1}` });
+          createdRewards.push(reward);
+          return jsonResponse({ data: [reward] });
+        }
+        return jsonResponse({ data: createdRewards });
+      }
+      return null;
+    });
+
+    const app = express();
+    app.use(express.json());
+    registerViewerRewardRoutes(app, state);
+    server = app.listen(0);
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    port = (server.address() as AddressInfo).port;
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  function url(path: string): string {
+    return `http://127.0.0.1:${port}${path}`;
+  }
+
+  test('honors a caller-supplied source', async () => {
+    createApp('pztmi');
+    const res = await fetch(url('/api/twitch/rewards'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(twitchRewardPostBody({ source: 'pztmi' })),
+    });
+    expect(res.status).toBe(201);
+    const payload = await res.json() as { rewards: Array<{ id: string; source: string | null }> };
+    const created = payload.rewards.find(r => r.id === 'created1');
+    expect(created?.source).toBe('pztmi');
+    expect(getRewardSource('created1')).toBe('pztmi');
+  });
+
+  test('defaults the source to narya when the caller sends none', async () => {
+    const res = await fetch(url('/api/twitch/rewards'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(twitchRewardPostBody()),
+    });
+    expect(res.status).toBe(201);
+    const payload = await res.json() as { rewards: Array<{ id: string; source: string | null }> };
+    const created = payload.rewards.find(r => r.id === 'created1');
+    expect(created?.source).toBe('narya');
+    expect(getRewardSource('created1')).toBe('narya');
   });
 });
