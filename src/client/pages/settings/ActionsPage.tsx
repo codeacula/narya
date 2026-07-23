@@ -30,13 +30,13 @@ import {
   MAX_STEPS,
   STEP_TYPES,
   STEP_TYPE_LABELS,
+  actionRunResultTone,
   actionToUpsert,
   formatDelay,
   moveStep,
   newStep,
   removeStep,
-  runResultTone,
-  summarizeRunResult,
+  summarizeActionRunResult,
   unplayableAssetIds,
   validateAction,
 } from './automation';
@@ -682,14 +682,14 @@ function StepRow({
 // --- Run result ---------------------------------------------------------------
 
 function RunResult({ result }: { result: ActionRunResult }) {
-  const tone = runResultTone(result);
+  const tone = actionRunResultTone(result);
   const failures = result.steps.filter(step => step.status !== 'succeeded');
 
   return (
     <div className={`action-run-result action-run-result--${tone}`}>
       <div className="action-run-head">
         <span className={`action-run-status action-run-status--${tone}`}>{result.status}</span>
-        <span>{summarizeRunResult(result)}</span>
+        <span>{summarizeActionRunResult(result)}</span>
       </div>
       {failures.length > 0 && (
         <ul className="action-run-steps">

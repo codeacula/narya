@@ -15,6 +15,7 @@ import type {
   Counter,
   MediaAsset,
   TriggerRole,
+  TriggerRunResult,
 } from '../../../shared/api';
 import {
   MAX_LLM_CHAT_HISTORY_LINES,
@@ -28,6 +29,7 @@ import {
 // validating here turns a 400 round-trip into an inline message, but the server
 // stays the authority.
 export const MAX_STEPS = 20;
+export const MAX_ACTIONS_PER_TRIGGER = 20;
 export const MAX_ASSETS_PER_STEP = 25;
 export const MAX_DELAY_MS = 600_000;
 export const MIN_TEXT_DURATION_MS = 1_000;
@@ -375,14 +377,20 @@ export function isGlobalTrigger(trigger: AutomationTrigger): boolean {
 /**
  * `partial` must never read like success: at least one step failed. Callers use the
  * tone to pick the status class, so a partial run stays visibly distinct.
+ *
+ * This is the single-Action variant — ActionsPage runs a bare Action (one
+ * ActionRunResult with its own `.steps`), never a trigger. `runResultTone`/
+ * `summarizeRunResult` below are the trigger (N-action) variant; keep both call
+ * sites on their own helper rather than collapsing them, since the shapes genuinely
+ * differ (steps vs. actions).
  */
-export function runResultTone(result: ActionRunResult): 'ok' | 'warn' | 'error' {
+export function actionRunResultTone(result: ActionRunResult): 'ok' | 'warn' | 'error' {
   if (result.status === 'succeeded') return 'ok';
   if (result.status === 'failed') return 'error';
   return 'warn'; // partial and skipped both need explaining, neither is a clean success.
 }
 
-export function summarizeRunResult(result: ActionRunResult): string {
+export function summarizeActionRunResult(result: ActionRunResult): string {
   const failed = result.steps.filter(step => step.status === 'failed').length;
   const skipped = result.steps.filter(step => step.status === 'skipped').length;
   const succeeded = result.steps.filter(step => step.status === 'succeeded').length;
@@ -396,6 +404,40 @@ export function summarizeRunResult(result: ActionRunResult): string {
       return `Failed: ${failed} step${failed === 1 ? '' : 's'} failed.`;
     case 'skipped':
       return 'Skipped: nothing ran. The action or every step is disabled, or every asset it plays is unavailable.';
+  }
+}
+
+/**
+ * The trigger (N-action) variant. `result.status` is already the rolled-up status
+ * across every action the trigger ran (see the server's `rollUpActions`), so the
+ * tone logic is identical to the single-Action case — only the summary needs to
+ * walk `.actions` instead of `.steps`.
+ */
+export function runResultTone(result: TriggerRunResult): 'ok' | 'warn' | 'error' {
+  if (result.status === 'succeeded') return 'ok';
+  if (result.status === 'failed') return 'error';
+  return 'warn'; // partial and skipped both need explaining, neither is a clean success.
+}
+
+export function summarizeRunResult(result: TriggerRunResult): string {
+  const failed = result.actions.filter(action => action.status === 'failed').length;
+  const skipped = result.actions.filter(action => action.status === 'skipped').length;
+  const partial = result.actions.filter(action => action.status === 'partial').length;
+  const succeeded = result.actions.filter(action => action.status === 'succeeded').length;
+
+  switch (result.status) {
+    case 'succeeded':
+      return `Ran ${succeeded} action${succeeded === 1 ? '' : 's'}.`;
+    case 'partial': {
+      const parts = [`${succeeded} succeeded`, `${failed} failed`];
+      if (partial > 0) parts.push(`${partial} partial`);
+      if (skipped > 0) parts.push(`${skipped} skipped`);
+      return `Partial: ${parts.join(', ')}.`;
+    }
+    case 'failed':
+      return `Failed: ${failed} action${failed === 1 ? '' : 's'} failed.`;
+    case 'skipped':
+      return 'Skipped: nothing ran. Every action is disabled, or every asset it plays is unavailable.';
   }
 }
 
@@ -529,7 +571,10 @@ export function validateAction(action: ActionUpsert): string | null {
 
 /** The first problem that would make the server reject this trigger, or null. */
 export function validateTrigger(trigger: AutomationTriggerInput): string | null {
-  if (!trigger.actionId) return 'Pick the action this trigger runs.';
+  if (trigger.actions.length === 0) return 'Add at least one action.';
+  if (trigger.actions.length > MAX_ACTIONS_PER_TRIGGER) {
+    return `A trigger can run at most ${MAX_ACTIONS_PER_TRIGGER} actions.`;
+  }
   if (trigger.globalCooldownMs < 0 || trigger.userCooldownMs < 0) {
     return 'Cooldowns cannot be negative. Use 0 to disable one.';
   }

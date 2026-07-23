@@ -9,10 +9,14 @@ import type {
   AutomationTriggerInput,
   CategoryModule,
   MediaAsset,
+  TriggerAction,
+  TriggerRunResult,
 } from '../../../shared/api';
 import {
+  MAX_ACTIONS_PER_TRIGGER,
   STEP_TYPES,
   STEP_TYPE_LABELS,
+  actionRunResultTone,
   actionToUpsert,
   describeStep,
   describeTriggerConfig,
@@ -27,6 +31,7 @@ import {
   parseAliases,
   removeStep,
   runResultTone,
+  summarizeActionRunResult,
   summarizeRunResult,
   supportsCooldowns,
   supportsOverrides,
@@ -106,6 +111,30 @@ describe('removeStep', () => {
   test('an out-of-range index leaves the list untouched', () => {
     const steps = ['a', 'b'];
     expect(removeStep(steps, 4)).toBe(steps);
+  });
+});
+
+// Both helpers are generic (T[]) and already covered above with strings; these
+// confirm they work the same way over a trigger's actions[] — the shape the trigger
+// editor's Up/Down/Remove controls actually reorder.
+describe('moveStep / removeStep over a TriggerAction[]', () => {
+  const actions: TriggerAction[] = [
+    { actionId: 'a1', position: 0, enabled: true },
+    { actionId: 'a2', position: 1, enabled: true },
+    { actionId: 'a3', position: 2, enabled: false },
+  ];
+
+  test('moveStep reorders by actionId, not by position field', () => {
+    const reordered = moveStep(actions, 0, 2);
+    expect(reordered.map(a => a.actionId)).toEqual(['a2', 'a3', 'a1']);
+    // moveStep itself does not touch position — the editor reindexes separately.
+    expect(reordered[0]!.position).toBe(1);
+  });
+
+  test('removeStep drops one action and leaves the rest untouched', () => {
+    const next = removeStep(actions, 1);
+    expect(next.map(a => a.actionId)).toEqual(['a1', 'a3']);
+    expect(next[1]!.enabled).toBe(false);
   });
 });
 
@@ -380,8 +409,36 @@ describe('validateTrigger', () => {
     expect(validateTrigger(base)).toBeNull();
   });
 
-  test('a trigger with no action is rejected', () => {
-    expect(validateTrigger({ ...base, actionId: '' })).toContain('Pick the action');
+  test('a trigger with no actions is rejected', () => {
+    expect(validateTrigger({ ...base, actions: [] })).toBe('Add at least one action.');
+  });
+
+  test('a single enabled action is enough', () => {
+    expect(validateTrigger({ ...base, actions: [{ actionId: 'action-1', position: 0, enabled: true }] })).toBeNull();
+  });
+
+  // >=1 stored action is the invariant; a trigger where every one is disabled is
+  // still valid to save — that is the deliberate "do nothing" state, not an error.
+  test('every action disabled is still a valid, just inert, trigger', () => {
+    expect(validateTrigger({ ...base, actions: [{ actionId: 'action-1', position: 0, enabled: false }] })).toBeNull();
+  });
+
+  test('more than the per-trigger action cap is rejected', () => {
+    const actions: TriggerAction[] = Array.from({ length: MAX_ACTIONS_PER_TRIGGER + 1 }, (_, index) => ({
+      actionId: `action-${index}`,
+      position: index,
+      enabled: true,
+    }));
+    expect(validateTrigger({ ...base, actions })).toContain(`at most ${MAX_ACTIONS_PER_TRIGGER}`);
+  });
+
+  test('exactly the cap is accepted', () => {
+    const actions: TriggerAction[] = Array.from({ length: MAX_ACTIONS_PER_TRIGGER }, (_, index) => ({
+      actionId: `action-${index}`,
+      position: index,
+      enabled: true,
+    }));
+    expect(validateTrigger({ ...base, actions })).toBeNull();
   });
 
   test('zero cooldowns are valid — that is how a cooldown is disabled', () => {
@@ -572,17 +629,17 @@ describe('describeTriggerConfig', () => {
   });
 });
 
-describe('run results', () => {
+describe('run results (single Action — ActionsPage)', () => {
   // A partial run must never be presentable as a success.
   test('a partial run is toned as a warning, not an ok', () => {
-    expect(runResultTone(runResult({ status: 'partial' }))).toBe('warn');
-    expect(runResultTone(runResult({ status: 'succeeded' }))).toBe('ok');
-    expect(runResultTone(runResult({ status: 'failed' }))).toBe('error');
-    expect(runResultTone(runResult({ status: 'skipped' }))).toBe('warn');
+    expect(actionRunResultTone(runResult({ status: 'partial' }))).toBe('warn');
+    expect(actionRunResultTone(runResult({ status: 'succeeded' }))).toBe('ok');
+    expect(actionRunResultTone(runResult({ status: 'failed' }))).toBe('error');
+    expect(actionRunResultTone(runResult({ status: 'skipped' }))).toBe('warn');
   });
 
   test('a partial summary names how many steps ran and how many failed', () => {
-    const summary = summarizeRunResult(runResult({
+    const summary = summarizeActionRunResult(runResult({
       status: 'partial',
       steps: [
         { stepId: 's1', type: 'show_text', status: 'succeeded', detail: '' },
@@ -593,11 +650,11 @@ describe('run results', () => {
   });
 
   test('a skipped run explains that nothing ran', () => {
-    expect(summarizeRunResult(runResult({ status: 'skipped' }))).toContain('nothing ran');
+    expect(summarizeActionRunResult(runResult({ status: 'skipped' }))).toContain('nothing ran');
   });
 
   test('a clean run counts the steps it ran', () => {
-    const summary = summarizeRunResult(runResult({
+    const summary = summarizeActionRunResult(runResult({
       status: 'succeeded',
       steps: [
         { stepId: 's1', type: 'show_text', status: 'succeeded', detail: '' },
@@ -605,6 +662,71 @@ describe('run results', () => {
       ],
     }));
     expect(summary).toBe('Ran 2 steps.');
+  });
+});
+
+describe('run results (trigger, N actions — AutomationPage / quickActions)', () => {
+  function triggerRunResult(overrides: Partial<TriggerRunResult> = {}): TriggerRunResult {
+    return {
+      status: 'succeeded',
+      actions: [runResult()],
+      ...overrides,
+    };
+  }
+
+  // This is the shape the server actually returns from a trigger run (Task 4):
+  // { status, actions: ActionRunResult[] } — no top-level `.steps`. Before this task
+  // the client read `.steps` off this object, which is undefined here, so
+  // summarizeRunResult would throw at runtime the first time an operator hit Test or
+  // a Quick action button.
+  test('has no top-level steps field to accidentally read', () => {
+    const result = triggerRunResult();
+    expect((result as unknown as { steps?: unknown }).steps).toBeUndefined();
+  });
+
+  test('a partial run is toned as a warning, not an ok', () => {
+    expect(runResultTone(triggerRunResult({ status: 'partial' }))).toBe('warn');
+    expect(runResultTone(triggerRunResult({ status: 'succeeded' }))).toBe('ok');
+    expect(runResultTone(triggerRunResult({ status: 'failed' }))).toBe('error');
+    expect(runResultTone(triggerRunResult({ status: 'skipped' }))).toBe('warn');
+  });
+
+  test('a clean run counts the actions it ran', () => {
+    const summary = summarizeRunResult(triggerRunResult({
+      status: 'succeeded',
+      actions: [runResult({ actionId: 'a1' }), runResult({ actionId: 'a2' })],
+    }));
+    expect(summary).toBe('Ran 2 actions.');
+  });
+
+  test('a single successful action is not pluralized', () => {
+    expect(summarizeRunResult(triggerRunResult({ status: 'succeeded', actions: [runResult()] }))).toBe('Ran 1 action.');
+  });
+
+  test('a partial summary names how many actions succeeded and how many failed', () => {
+    const summary = summarizeRunResult(triggerRunResult({
+      status: 'partial',
+      actions: [
+        runResult({ actionId: 'a1', status: 'succeeded' }),
+        runResult({ actionId: 'a2', status: 'failed' }),
+      ],
+    }));
+    expect(summary).toBe('Partial: 1 succeeded, 1 failed.');
+  });
+
+  test('a failed run counts the failed actions', () => {
+    const summary = summarizeRunResult(triggerRunResult({
+      status: 'failed',
+      actions: [
+        runResult({ actionId: 'a1', status: 'failed' }),
+        runResult({ actionId: 'a2', status: 'failed' }),
+      ],
+    }));
+    expect(summary).toBe('Failed: 2 actions failed.');
+  });
+
+  test('a skipped run explains that nothing ran', () => {
+    expect(summarizeRunResult(triggerRunResult({ status: 'skipped', actions: [] }))).toContain('nothing ran');
   });
 });
 
@@ -693,6 +815,33 @@ describe('triggerToInput', () => {
     const input = triggerToInput(phrase);
     if (input.kind !== 'chat_phrase') throw new Error('wrong kind');
     expect(input.config.phrase).toBe('!!! hype !!!');
+  });
+
+  test('round-trips name and the ordered actions list untouched', () => {
+    const trigger = {
+      id: 't5',
+      kind: 'manual',
+      name: 'Hype train',
+      actionId: 'a1',
+      actions: [
+        { actionId: 'a1', position: 0, enabled: true },
+        { actionId: 'a2', position: 1, enabled: false },
+      ] as TriggerAction[],
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'Hype train' },
+      createdAt: '2026-07-11T00:00:00.000Z',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+    } as AutomationTrigger;
+
+    const input = triggerToInput(trigger);
+    expect(input.name).toBe('Hype train');
+    expect(input.actions).toEqual([
+      { actionId: 'a1', position: 0, enabled: true },
+      { actionId: 'a2', position: 1, enabled: false },
+    ]);
   });
 
   test('drops the server-owned id and timestamps', () => {
