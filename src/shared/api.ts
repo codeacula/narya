@@ -402,6 +402,7 @@ export type ViewerReward = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
+  source: string | null;
 };
 
 export type ViewerRewardsResponse = {
@@ -422,6 +423,7 @@ export type ViewerRewardUpsert = {
   globalCooldown: { enabled: boolean; seconds: number };
   maxPerStream: { enabled: boolean; max: number };
   maxPerUserPerStream: { enabled: boolean; max: number };
+  source?: string;
 };
 
 export type ViewerRewardCategoryToggleResult = ViewerRewardsResponse & {
