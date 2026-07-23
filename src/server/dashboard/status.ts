@@ -14,6 +14,7 @@ import { db } from '../db';
 import { handle, HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
 import { broadcast, getSocketCount } from '../realtime';
+import { getRedisStatus, isRedisConnected } from '../redis';
 import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus } from '../runtime';
 import { getActiveStreamSession, getCurrentStreamSessionId, getSessionChatterCount } from '../streamSession';
 import { getTwitchAuthStatus, REQUIRED_TWITCH_OAUTH_SCOPES } from '../twitch/auth';
@@ -392,6 +393,8 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
     obsConnected: isObsConnected(),
     eventSubConnected: state.eventSubConnected,
     eventSubError: state.eventSubError,
+    redisConnected: isRedisConnected(),
+    lastPublishError: getRedisStatus().lastPublishError,
     eventSubFailedSubscriptions: state.eventSubFailedSubscriptions,
     ...getTwitchAuthStatus(state),
     ...streamStatus,
