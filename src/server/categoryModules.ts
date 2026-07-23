@@ -14,6 +14,7 @@ import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
 import { getTwitchActionCredentials, twitchFetch } from './twitch/api';
+import { getTwitchChannel } from './twitchIdentity';
 import {
   fetchRewards,
   REWARD_SCOPE,
@@ -408,6 +409,22 @@ function applyOutcome(
   if (previousId !== nextId) {
     if (previousId) void fireModuleLifecycle('deactivate', previousId);
     if (nextId) void fireModuleLifecycle('activate', nextId);
+    // Fire-and-forget onto the eventBus at the same post-transition choke point the
+    // lifecycle Actions use. Lazy import for the same reason fireModuleLifecycle is:
+    // a static import of eventBus -> automation would close the composition-root cycle.
+    // The coordinator holds no broadcaster id, so channel.id is blank and the login
+    // carries the channel identity.
+    void (async () => {
+      try {
+        const { publishModuleSwitch } = await import('./eventBus');
+        publishModuleSwitch({
+          channel: { id: '', login: getTwitchChannel() },
+          fromModuleId: previousId, toModuleId: nextId, categoryId: gameId, categoryName: gameName,
+        });
+      } catch (error) {
+        console.error('Redis module_switch publish failed:', error);
+      }
+    })();
   }
 }
 

@@ -7,7 +7,9 @@ import { getTriggerDispatcher } from './automation';
 import { recordAutomodHold, resolveAutomodHold } from './automod';
 import { onCategorySignal, reconcileCategoryModules } from './categoryModules';
 import { db } from './db';
+import { publishRedeem, publishTwitchEvent } from './eventBus';
 import { announceTwitchStreamOnline } from './goLive';
+import { getRewardSource } from './rewardProvenance';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import { endActiveStreamSession, getCurrentStreamSessionId } from './streamSession';
@@ -38,6 +40,17 @@ function emitStreamEvent(kind: string, actor: string, detail: string, tone: stri
 function loginOf(event: Record<string, unknown>, field = 'user_login'): string | undefined {
   const value = event[field];
   return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/**
+ * The broadcaster's own channel identity for an eventBus envelope. Most EventSub
+ * payloads carry `broadcaster_user_*`; an incoming raid targets the broadcaster under
+ * `to_broadcaster_user_*`, so fall back to that.
+ */
+function channelOf(event: Record<string, unknown>): { id: string; login: string } {
+  const id = event.broadcaster_user_id ?? event.to_broadcaster_user_id ?? '';
+  const login = event.broadcaster_user_login ?? event.to_broadcaster_user_login ?? '';
+  return { id: String(id), login: String(login) };
 }
 
 function updateStreamEvent(id: string, detail: string, tone: string) {
@@ -191,6 +204,10 @@ export async function handleEventSubNotification(
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'follow', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
       }));
+      publishTwitchEvent({
+        sourceId: messageId, channel: channelOf(event), eventKind: 'follow',
+        actorUserId: String(event.user_id ?? ''), actorLogin: loginOf(event) ?? '',
+      });
       break;
     case 'channel.subscribe': {
       if (event.is_gift as boolean) break;
@@ -209,6 +226,11 @@ export async function handleEventSubNotification(
         kind: 'sub', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
         tier: tierLabel(event.tier as string), months: 1,
       }));
+      publishTwitchEvent({
+        sourceId: messageId, channel: channelOf(event), eventKind: 'sub',
+        actorUserId: String(event.user_id ?? ''), actorLogin: loginOf(event) ?? '',
+        tier: tierLabel(event.tier as string),
+      });
       break;
     }
     case 'channel.subscription.message': {
@@ -228,6 +250,11 @@ export async function handleEventSubNotification(
         kind: 'sub', eventId: messageId, actor: event.user_name as string, login: loginOf(event) ?? null,
         tier: tierLabel(event.tier as string), months: Number(event.cumulative_months) || 1,
       }));
+      publishTwitchEvent({
+        sourceId: messageId, channel: channelOf(event), eventKind: 'sub',
+        actorUserId: String(event.user_id ?? ''), actorLogin: loginOf(event) ?? '',
+        tier: tierLabel(event.tier as string),
+      });
       break;
     }
     case 'channel.subscription.gift': {
@@ -238,6 +265,11 @@ export async function handleEventSubNotification(
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'gift', eventId: messageId, actor: gifter, login: loginOf(event) ?? null, amount: event.total as number,
       }));
+      publishTwitchEvent({
+        sourceId: messageId, channel: channelOf(event), eventKind: 'gift',
+        actorUserId: String(event.user_id ?? ''), actorLogin: loginOf(event) ?? '',
+        amount: event.total as number,
+      });
       break;
     }
     case 'channel.cheer': {
@@ -246,6 +278,11 @@ export async function handleEventSubNotification(
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'cheer', eventId: messageId, actor: cheerer, login: loginOf(event) ?? null, amount: event.bits as number,
       }));
+      publishTwitchEvent({
+        sourceId: messageId, channel: channelOf(event), eventKind: 'cheer',
+        actorUserId: String(event.user_id ?? ''), actorLogin: loginOf(event) ?? '',
+        amount: event.bits as number,
+      });
       break;
     }
     case 'channel.raid':
@@ -257,11 +294,18 @@ export async function handleEventSubNotification(
         kind: 'raid', eventId: messageId, actor: event.from_broadcaster_user_name as string,
         login: loginOf(event, 'from_broadcaster_user_login') ?? null, amount: event.viewers as number,
       }));
+      publishTwitchEvent({
+        sourceId: messageId, channel: channelOf(event), eventKind: 'raid',
+        actorUserId: String(event.from_broadcaster_user_id ?? ''),
+        actorLogin: loginOf(event, 'from_broadcaster_user_login') ?? '',
+        amount: event.viewers as number,
+      });
       break;
     case 'channel.channel_points_custom_reward_redemption.add': {
       const reward = event.reward as { id: string; title: string };
       emitStreamEvent('redeem', event.user_name as string, `redeemed "${reward.title}"`, 'info', loginOf(event));
       const userInput = typeof event.user_input === 'string' ? event.user_input.trim() : '';
+      const redemptionId = typeof event.id === 'string' ? event.id : null;
       // Media and TTS used to fire here directly. They are Action steps now — running
       // both paths would play every migrated redeem twice.
       await dispatchAutomation(() => getTriggerDispatcher().handleRewardRedemption({
@@ -272,6 +316,12 @@ export async function handleEventSubNotification(
         login: loginOf(event) ?? null,
         userInput,
       }));
+      publishRedeem({
+        sourceId: messageId, channel: channelOf(event),
+        rewardId: reward.id, rewardTitle: reward.title,
+        rewardSource: getRewardSource(reward.id), rewardExternalRef: null,
+        redemptionId, userId: String(event.user_id ?? ''), userLogin: loginOf(event) ?? '', userInput,
+      });
       break;
     }
     case 'channel.ad_break.begin': {
