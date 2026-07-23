@@ -556,6 +556,16 @@ db.exec(`
     created_at text not null,
     disabled_at text
   );
+
+  -- Maps a Twitch reward id to the source that created/owns it: 'narya', 'manual',
+  -- or a registered app name (apps.ts). getRewardSource returns null on a join
+  -- miss rather than fabricating 'manual' — see rewardProvenance.ts.
+  create table if not exists reward_provenance (
+    reward_id text primary key,
+    source text not null,
+    external_ref text,
+    created_at text not null
+  );
 `);
 
 db.exec(`
