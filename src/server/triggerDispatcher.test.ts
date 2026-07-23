@@ -45,7 +45,9 @@ let actionId = '';
 // Partial<> of the trigger union collapses each config to `never`.
 function trigger(input: Record<string, unknown> & { kind: string; config: unknown }) {
   return createAutomationTrigger({
+    name: 'Test trigger',
     actionId,
+    actions: [{ actionId, position: 0, enabled: true }],
     moduleId: null,
     enabled: true,
     globalCooldownMs: 0,
@@ -140,7 +142,9 @@ describe('chat phrase triggers', () => {
     trigger({ kind: 'chat_phrase', config: { phrase: 'hype', match: 'contains', roles: [] } });
     createAutomationTrigger({
       kind: 'chat_phrase',
+      name: 'Second trigger',
       actionId: second.id,
+      actions: [{ actionId: second.id, position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -319,7 +323,9 @@ describe('deduplication', () => {
     trigger({ kind: 'twitch_event', config: { eventKind: 'raid' } });
     createAutomationTrigger({
       kind: 'twitch_event',
+      name: 'Second trigger',
       actionId: second.id,
+      actions: [{ actionId: second.id, position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -679,7 +685,9 @@ describe('slash commands', () => {
     });
     createAutomationTrigger({
       kind: 'dashboard_slash',
+      name: 'Whisper',
       actionId: whisper.id,
+      actions: [{ actionId: whisper.id, position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,

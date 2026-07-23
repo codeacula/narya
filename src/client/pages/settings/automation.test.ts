@@ -366,7 +366,9 @@ describe('validateStep', () => {
 describe('validateTrigger', () => {
   const base: AutomationTriggerInput = {
     kind: 'manual',
+    name: 'Hype trigger',
     actionId: 'action-1',
+    actions: [{ actionId: 'action-1', position: 0, enabled: true }],
     moduleId: null,
     enabled: true,
     globalCooldownMs: 0,
@@ -385,7 +387,9 @@ describe('validateTrigger', () => {
   test('zero cooldowns are valid — that is how a cooldown is disabled', () => {
     const trigger: AutomationTriggerInput = {
       kind: 'chat_phrase',
+      name: 'Hype trigger',
       actionId: 'action-1',
+      actions: [{ actionId: 'action-1', position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -403,7 +407,9 @@ describe('validateTrigger', () => {
   test('a module lifecycle trigger with no module is accepted: it means every module', () => {
     const trigger: AutomationTriggerInput = {
       kind: 'module_activate',
+      name: 'Module switch',
       actionId: 'action-1',
+      actions: [{ actionId: 'action-1', position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -419,7 +425,9 @@ describe('validateTrigger', () => {
   test('a chat phrase trigger with no phrase is rejected', () => {
     const trigger: AutomationTriggerInput = {
       kind: 'chat_phrase',
+      name: 'Hype trigger',
       actionId: 'action-1',
+      actions: [{ actionId: 'action-1', position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -480,7 +488,9 @@ describe('trigger scope', () => {
     return {
       id: 't1',
       kind: 'manual',
+      name: 'Hype trigger',
       actionId: 'a1',
+      actions: [{ actionId: 'a1', position: 0, enabled: true }],
       moduleId,
       enabled: true,
       globalCooldownMs: 0,
@@ -512,7 +522,9 @@ describe('describeTriggerConfig', () => {
     return {
       id: 't1',
       kind: 'manual',
+      name: 'Hype trigger',
       actionId: 'a1',
+      actions: [{ actionId: 'a1', position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -618,13 +630,13 @@ describe('describeTriggerConfig command rendering', () => {
     // normalizeCommand on the server stores "!lurk" / "/ban", not "lurk" / "ban".
     // Prefixing again here rendered "!!lurk" and "//shoutout (//so)" in the UI.
     const viewer = {
-      id: 't1', kind: 'viewer_command', actionId: 'a', moduleId: null, enabled: true,
+      id: 't1', kind: 'viewer_command', name: 'Lurk', actionId: 'a', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { command: '!lurk', aliases: [], roles: [] },
       createdAt: '', updatedAt: '',
     } as AutomationTrigger;
     const slash = {
-      id: 't2', kind: 'dashboard_slash', actionId: 'a', moduleId: null, enabled: true,
+      id: 't2', kind: 'dashboard_slash', name: 'Shoutout', actionId: 'a', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { command: '/shoutout', aliases: ['/so'] },
       createdAt: '', updatedAt: '',
@@ -643,7 +655,7 @@ describe('triggerToInput', () => {
     // loading the stored value raw showed "Viewers type !!quack" and the field rewrote
     // itself on the first keystroke.
     const viewer = {
-      id: 't1', kind: 'viewer_command', actionId: 'a', moduleId: null, enabled: true,
+      id: 't1', kind: 'viewer_command', name: 'Quack', actionId: 'a', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { command: '!quack', aliases: ['!duck'], roles: [] },
       createdAt: '', updatedAt: '',
@@ -658,7 +670,7 @@ describe('triggerToInput', () => {
 
   test('strips the slash prefix from a dashboard command and its aliases', () => {
     const slash = {
-      id: 't2', kind: 'dashboard_slash', actionId: 'a', moduleId: null, enabled: true,
+      id: 't2', kind: 'dashboard_slash', name: 'Shoutout', actionId: 'a', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { command: '/shoutout', aliases: ['/so'] },
       createdAt: '', updatedAt: '',
@@ -672,7 +684,7 @@ describe('triggerToInput', () => {
 
   test('leaves a non-command trigger config untouched', () => {
     const phrase = {
-      id: 't3', kind: 'chat_phrase', actionId: 'a', moduleId: null, enabled: true,
+      id: 't3', kind: 'chat_phrase', name: 'Hype phrase', actionId: 'a', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { phrase: '!!! hype !!!', match: 'contains', roles: [] },
       createdAt: '', updatedAt: '',
@@ -685,7 +697,7 @@ describe('triggerToInput', () => {
 
   test('drops the server-owned id and timestamps', () => {
     const trigger = {
-      id: 't4', kind: 'manual', actionId: 'a', moduleId: null, enabled: true,
+      id: 't4', kind: 'manual', name: 'Hype train', actionId: 'a', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { label: 'Hype train' },
       createdAt: '2026-07-11T00:00:00.000Z', updatedAt: '2026-07-11T00:00:00.000Z',

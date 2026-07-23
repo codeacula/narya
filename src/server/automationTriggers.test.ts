@@ -19,12 +19,14 @@ let actionId = '';
 function input(overrides: Record<string, unknown> = {}) {
   return {
     kind: 'chat_phrase',
+    name: 'Test trigger',
     actionId,
     moduleId: null,
     enabled: true,
     globalCooldownMs: 1000,
     userCooldownMs: 2000,
     config: { phrase: 'hype', match: 'contains', roles: [] },
+    actions: [{ actionId, position: 0, enabled: true }],
     ...overrides,
   };
 }
@@ -54,7 +56,8 @@ describe('normalizeAutomationTriggerInput', () => {
   });
 
   test('rejects an action id that does not exist', () => {
-    expect(() => normalizeAutomationTriggerInput(input({ actionId: 'nope' }))).toThrow('Action not found.');
+    expect(() => normalizeAutomationTriggerInput(input({ actions: [{ actionId: 'nope', position: 0, enabled: true }] })))
+      .toThrow('Action not found.');
   });
 
   test('rejects a module id that does not exist', () => {
@@ -218,6 +221,101 @@ describe('crud', () => {
     const enabled = listEnabledTriggersOfKind('chat_phrase');
     expect(enabled).toHaveLength(1);
     expect(enabled[0]!.enabled).toBe(true);
+  });
+});
+
+describe('actions[]', () => {
+  let act1 = '';
+  let act2 = '';
+
+  beforeEach(() => {
+    act1 = actionId;
+    act2 = createAction({
+      name: 'Second action',
+      description: '',
+      enabled: true,
+      steps: [{ type: 'obs_transition', enabled: true, delayMs: 0, payload: {} }],
+    }).id;
+  });
+
+  test('a trigger persists N ordered actions and reads them back', () => {
+    const trigger = createAutomationTrigger({
+      kind: 'manual',
+      name: 'My combo',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [{ actionId: act1, position: 0, enabled: true }, { actionId: act2, position: 1, enabled: false }],
+    });
+
+    expect(trigger.name).toBe('My combo');
+    expect(trigger.actions).toEqual([
+      { actionId: act1, position: 0, enabled: true },
+      { actionId: act2, position: 1, enabled: false },
+    ]);
+    // legacy column tracks actions[0]
+    const row = db.prepare('select action_id as a from automation_triggers where id = ?').get(trigger.id) as { a: string };
+    expect(row.a).toBe(act1);
+
+    const reloaded = getAutomationTrigger(trigger.id);
+    expect(reloaded?.actions).toEqual([
+      { actionId: act1, position: 0, enabled: true },
+      { actionId: act2, position: 1, enabled: false },
+    ]);
+  });
+
+  test('an update replaces the action list rather than appending to it', () => {
+    const created = createAutomationTrigger({
+      kind: 'manual',
+      name: 'My combo',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [{ actionId: act1, position: 0, enabled: true }, { actionId: act2, position: 1, enabled: false }],
+    });
+
+    const updated = updateAutomationTrigger(created.id, {
+      kind: 'manual',
+      name: 'My combo',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [{ actionId: act2, position: 0, enabled: true }],
+    });
+
+    expect(updated.actions).toEqual([{ actionId: act2, position: 0, enabled: true }]);
+    const row = db.prepare('select action_id as a from automation_triggers where id = ?').get(created.id) as { a: string };
+    expect(row.a).toBe(act2);
+  });
+
+  test('rejects an empty actions[] and a duplicate action', () => {
+    expect(() => createAutomationTrigger({
+      kind: 'manual',
+      name: 'n',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [],
+    })).toThrow(/at least one action/i);
+
+    expect(() => createAutomationTrigger({
+      kind: 'manual',
+      name: 'n',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [{ actionId: act1, position: 0, enabled: true }, { actionId: act1, position: 1, enabled: true }],
+    })).toThrow();
   });
 });
 

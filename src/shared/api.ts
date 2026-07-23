@@ -1154,15 +1154,33 @@ export type DashboardSlashTriggerConfig = { command: string; aliases: string[] }
 export type ManualTriggerConfig = { label: string };
 export type ModuleLifecycleTriggerConfig = Record<string, never>;
 
+/**
+ * One ordered, individually-toggleable Action a trigger fires. `position` is display/run
+ * order; `enabled` lets an operator temporarily bench one action without removing it —
+ * the dispatcher skips a disabled entry rather than running and discarding it.
+ */
+export type TriggerAction = { actionId: string; position: number; enabled: boolean };
+
+/**
+ * The rolled-up outcome of firing every enabled action on a trigger. `status` follows the
+ * same 4-way roll-up as `ActionRunStatus` (see `ActionRunResult`), computed across `actions`.
+ */
+export type TriggerRunResult = { status: ActionRunStatus; actions: ActionRunResult[] };
+
+/**
+ * `actionId` is the legacy single-Action pointer — additive alongside `name` and `actions[]`
+ * so every existing reader still compiles. It always mirrors `actions[0].actionId` and is
+ * removed once every reader has switched to `actions[]` (Phase B1 Task 6).
+ */
 export type AutomationTrigger =
-  | { id: string; kind: 'reward'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: RewardTriggerConfig; createdAt: string; updatedAt: string }
-  | { id: string; kind: 'twitch_event'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: TwitchEventTriggerConfig; createdAt: string; updatedAt: string }
-  | { id: string; kind: 'chat_phrase'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ChatPhraseTriggerConfig; createdAt: string; updatedAt: string }
-  | { id: string; kind: 'viewer_command'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ViewerCommandTriggerConfig; createdAt: string; updatedAt: string }
-  | { id: string; kind: 'dashboard_slash'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: DashboardSlashTriggerConfig; createdAt: string; updatedAt: string }
-  | { id: string; kind: 'manual'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ManualTriggerConfig; createdAt: string; updatedAt: string }
-  | { id: string; kind: 'module_activate'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ModuleLifecycleTriggerConfig; createdAt: string; updatedAt: string }
-  | { id: string; kind: 'module_deactivate'; actionId: string; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ModuleLifecycleTriggerConfig; createdAt: string; updatedAt: string };
+  | { id: string; kind: 'reward'; name: string; actionId: string; actions: TriggerAction[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: RewardTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'twitch_event'; name: string; actionId: string; actions: TriggerAction[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: TwitchEventTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'chat_phrase'; name: string; actionId: string; actions: TriggerAction[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ChatPhraseTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'viewer_command'; name: string; actionId: string; actions: TriggerAction[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ViewerCommandTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'dashboard_slash'; name: string; actionId: string; actions: TriggerAction[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: DashboardSlashTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'manual'; name: string; actionId: string; actions: TriggerAction[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ManualTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'module_activate'; name: string; actionId: string; actions: TriggerAction[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ModuleLifecycleTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'module_deactivate'; name: string; actionId: string; actions: TriggerAction[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ModuleLifecycleTriggerConfig; createdAt: string; updatedAt: string };
 
 export type AutomationTriggerInput = DistributiveOmit<AutomationTrigger, 'id' | 'createdAt' | 'updatedAt'>;
 

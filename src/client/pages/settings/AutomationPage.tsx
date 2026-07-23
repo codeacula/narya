@@ -11,6 +11,7 @@ import type {
   TriggerOverride,
   TriggerOverrideInput,
   TriggerRole,
+  TriggerAction,
   ViewerReward,
 } from '../../../shared/api';
 import { DEFAULT_GLOBAL_COOLDOWN_MS, DEFAULT_USER_COOLDOWN_MS } from '../../../shared/api';
@@ -56,7 +57,11 @@ const ALERT_EVENT_KINDS: AlertEventKind[] = ['sub', 'gift', 'cheer', 'raid', 'fo
 /** A blank trigger of the given kind, with the right config shape for the union. */
 function newTrigger(kind: AutomationTriggerKind): AutomationTriggerInput {
   const base = {
+    // The single-action picker below keeps actionId and actions[] in sync (Phase B1
+    // Task 2 is additive; the ordered multi-action editor lands in a later task).
+    name: '',
     actionId: '',
+    actions: [] as TriggerAction[],
     moduleId: null,
     enabled: true,
     globalCooldownMs: supportsCooldowns(kind) ? DEFAULT_GLOBAL_COOLDOWN_MS : 0,
@@ -517,11 +522,31 @@ function TriggerEditor({
 
       <div className="settings-mini-form">
         <label className="field">
+          <span>Name</span>
+          <input
+            type="text"
+            value={draft.name}
+            disabled={saving}
+            placeholder="What is this trigger for?"
+            onChange={event => onChange({ ...draft, name: event.target.value })}
+          />
+        </label>
+
+        <label className="field">
           <span>Runs this action</span>
           <select
             value={draft.actionId}
             disabled={saving}
-            onChange={event => onChange({ ...draft, actionId: event.target.value })}
+            onChange={event => {
+              const nextActionId = event.target.value;
+              onChange({
+                ...draft,
+                actionId: nextActionId,
+                // The ordered multi-action editor lands in a later task; for now this
+                // picker is the only way to set actions[], so it must keep both in sync.
+                actions: nextActionId ? [{ actionId: nextActionId, position: 0, enabled: true }] : [],
+              });
+            }}
           >
             <option value="">Select an action…</option>
             {actions.map(action => (

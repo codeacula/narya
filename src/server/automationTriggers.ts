@@ -12,6 +12,7 @@ import type {
   RewardTriggerConfig,
   SlashCommandRequest,
   TemplateContext,
+  TriggerAction,
   TriggerRole,
   TwitchEventTriggerConfig,
   ViewerCommandTriggerConfig,
@@ -47,6 +48,7 @@ const COMMAND_BODY_PATTERN = /^[a-z0-9_-]{1,49}$/;
 type TriggerRow = {
   id: string;
   kind: string;
+  name: string;
   actionId: string;
   moduleId: string | null;
   enabled: number;
@@ -60,6 +62,7 @@ type TriggerRow = {
 const TRIGGER_COLUMNS = `
   id,
   kind,
+  name,
   action_id as actionId,
   module_id as moduleId,
   enabled,
@@ -80,13 +83,13 @@ const listEnabledRowsOfKind = db.prepare(`
 
 const insertTriggerRow = db.prepare(`
   insert into automation_triggers
-    (id, kind, action_id, module_id, enabled, config_json, global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
-  values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, kind, name, action_id, module_id, enabled, config_json, global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
+  values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const updateTriggerRow = db.prepare(`
   update automation_triggers
-  set kind = ?, action_id = ?, module_id = ?, enabled = ?, config_json = ?,
+  set kind = ?, name = ?, action_id = ?, module_id = ?, enabled = ?, config_json = ?,
       global_cooldown_ms = ?, user_cooldown_ms = ?, updated_at = ?
   where id = ?
 `);
@@ -94,6 +97,18 @@ const updateTriggerRow = db.prepare(`
 const deleteTriggerRow = db.prepare('delete from automation_triggers where id = ?');
 const actionExists = db.prepare('select 1 as present from actions where id = ?');
 const moduleExists = db.prepare('select 1 as present from category_modules where id = ?');
+
+// Phase B1: a trigger runs N ordered Actions. The join table is the source of truth for
+// actions[]; automation_triggers.action_id stays as the legacy actions[0] pointer (see
+// saveTriggerActions and the create/update transactions below).
+const listTriggerActionRows = db.prepare(`
+  select action_id as actionId, position, enabled from automation_trigger_actions
+  where trigger_id = ? order by position asc
+`);
+const insertTriggerActionRow = db.prepare(`
+  insert into automation_trigger_actions (trigger_id, action_id, position, enabled) values (?, ?, ?, ?)
+`);
+const deleteTriggerActionsForTrigger = db.prepare('delete from automation_trigger_actions where trigger_id = ?');
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -216,8 +231,23 @@ export function normalizeAutomationTriggerInput(body: unknown): AutomationTrigge
     throw new HttpRouteError(400, `Unsupported trigger kind: ${kind || 'unknown'}.`);
   }
 
-  const actionId = typeof value.actionId === 'string' ? value.actionId.trim() : '';
-  if (!actionId || !actionExists.get(actionId)) throw new HttpRouteError(400, 'Action not found.');
+  const name = requireText(value.name, MAX_LABEL_LENGTH, 'Name is required.');
+
+  if (!Array.isArray(value.actions)) throw new HttpRouteError(400, 'actions must be an array.');
+  const seen = new Set<string>();
+  const actions: TriggerAction[] = value.actions.map((raw, index) => {
+    const entry = asRecord(raw);
+    const entryActionId = typeof entry.actionId === 'string' ? entry.actionId.trim() : '';
+    if (!entryActionId || !actionExists.get(entryActionId)) throw new HttpRouteError(400, 'Action not found.');
+    if (seen.has(entryActionId)) throw new HttpRouteError(400, 'An action may only be listed once per trigger.');
+    seen.add(entryActionId);
+    return {
+      actionId: entryActionId,
+      position: index,
+      enabled: typeof entry.enabled === 'boolean' ? entry.enabled : true,
+    };
+  });
+  if (actions.length === 0) throw new HttpRouteError(400, 'A trigger needs at least one action.');
 
   const moduleId = typeof value.moduleId === 'string' && value.moduleId.trim() ? value.moduleId.trim() : null;
   if (moduleId && !moduleExists.get(moduleId)) throw new HttpRouteError(400, 'Module not found.');
@@ -227,7 +257,11 @@ export function normalizeAutomationTriggerInput(body: unknown): AutomationTrigge
 
   return {
     kind,
-    actionId,
+    name,
+    actions,
+    // Legacy single-Action pointer — additive alongside actions[] (see AutomationTrigger).
+    // Always actions[0], never read from the request body, so it cannot disagree with it.
+    actionId: actions[0]!.actionId,
     moduleId,
     enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
     globalCooldownMs: normalizeCooldown(value.globalCooldownMs, DEFAULT_GLOBAL_COOLDOWN_MS),
@@ -235,6 +269,8 @@ export function normalizeAutomationTriggerInput(body: unknown): AutomationTrigge
     config: normalizeConfig(kind as AutomationTriggerKind, value.config),
   } as AutomationTriggerInput;
 }
+
+type TriggerActionRow = { actionId: string; position: number; enabled: number };
 
 function rowToTrigger(row: TriggerRow): AutomationTrigger {
   // config_json is written only after normalizeConfig validated it against this
@@ -246,10 +282,18 @@ function rowToTrigger(row: TriggerRow): AutomationTrigger {
     console.error(`Automation: trigger ${row.id} has unreadable config JSON:`, error);
   }
 
+  const actions: TriggerAction[] = (listTriggerActionRows.all(row.id) as TriggerActionRow[]).map(action => ({
+    actionId: action.actionId,
+    position: action.position,
+    enabled: action.enabled === 1,
+  }));
+
   return {
     id: row.id,
     kind: row.kind as AutomationTriggerKind,
+    name: row.name,
     actionId: row.actionId,
+    actions,
     moduleId: row.moduleId,
     enabled: row.enabled === 1,
     globalCooldownMs: row.globalCooldownMs,
@@ -274,14 +318,22 @@ export function listEnabledTriggersOfKind(kind: AutomationTriggerKind): Automati
   return (listEnabledRowsOfKind.all(kind) as TriggerRow[]).map(rowToTrigger);
 }
 
-export function createAutomationTrigger(body: unknown): AutomationTrigger {
-  const input = normalizeAutomationTriggerInput(body);
+/** Delete-all-then-reinsert-with-array-index-as-position — mirrors actions.ts's saveSteps. */
+function saveTriggerActions(triggerId: string, actions: TriggerAction[]) {
+  deleteTriggerActionsForTrigger.run(triggerId);
+  actions.forEach((action, index) => {
+    insertTriggerActionRow.run(triggerId, action.actionId, index, action.enabled ? 1 : 0);
+  });
+}
+
+const createTriggerRecord = db.transaction((input: AutomationTriggerInput) => {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   insertTriggerRow.run(
     id,
     input.kind,
-    input.actionId,
+    input.name,
+    input.actions[0]!.actionId,
     input.moduleId,
     input.enabled ? 1 : 0,
     JSON.stringify(input.config),
@@ -290,17 +342,15 @@ export function createAutomationTrigger(body: unknown): AutomationTrigger {
     now,
     now,
   );
-  const saved = getAutomationTrigger(id);
-  if (!saved) throw new HttpRouteError(500, 'Trigger was not saved.');
-  return saved;
-}
+  saveTriggerActions(id, input.actions);
+  return id;
+});
 
-export function updateAutomationTrigger(id: string, body: unknown): AutomationTrigger {
-  if (!getTriggerRow.get(id)) throw new HttpRouteError(404, 'Trigger not found.');
-  const input = normalizeAutomationTriggerInput(body);
+const updateTriggerRecord = db.transaction((id: string, input: AutomationTriggerInput) => {
   updateTriggerRow.run(
     input.kind,
-    input.actionId,
+    input.name,
+    input.actions[0]!.actionId,
     input.moduleId,
     input.enabled ? 1 : 0,
     JSON.stringify(input.config),
@@ -309,6 +359,21 @@ export function updateAutomationTrigger(id: string, body: unknown): AutomationTr
     new Date().toISOString(),
     id,
   );
+  saveTriggerActions(id, input.actions);
+});
+
+export function createAutomationTrigger(body: unknown): AutomationTrigger {
+  const input = normalizeAutomationTriggerInput(body);
+  const id = createTriggerRecord(input);
+  const saved = getAutomationTrigger(id);
+  if (!saved) throw new HttpRouteError(500, 'Trigger was not saved.');
+  return saved;
+}
+
+export function updateAutomationTrigger(id: string, body: unknown): AutomationTrigger {
+  if (!getTriggerRow.get(id)) throw new HttpRouteError(404, 'Trigger not found.');
+  const input = normalizeAutomationTriggerInput(body);
+  updateTriggerRecord(id, input);
   const saved = getAutomationTrigger(id);
   if (!saved) throw new HttpRouteError(500, 'Trigger was not saved.');
   return saved;
@@ -415,9 +480,13 @@ export function seedBuiltInSlashCommands(): void {
       const actionId = crypto.randomUUID();
       insertSeedAction.run(actionId, availableActionName(seed.name), seed.description, now, now);
       insertSeedStep.run(crypto.randomUUID(), actionId, seed.step.type, JSON.stringify(seed.step.payload), now, now);
+      // The join row (automation_trigger_actions) for these seeded triggers is written
+      // by a later Phase B1 task; action_id (the legacy column) still tracks the seed's
+      // one Action here, same as every other trigger.
       insertTriggerRow.run(
         crypto.randomUUID(),
         'dashboard_slash',
+        seed.name,
         actionId,
         null,
         1,
