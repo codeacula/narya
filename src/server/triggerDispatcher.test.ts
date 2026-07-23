@@ -776,6 +776,22 @@ describe('manual runs', () => {
 
     expect(runner.calls).toHaveLength(1);
   });
+
+  test('a trigger with all actions disabled returns skipped instead of throwing', async () => {
+    const created = trigger({
+      kind: 'manual',
+      actions: [{ actionId, position: 0, enabled: false }],
+      config: { label: 'Intermission' },
+    });
+    const { dispatcher, runner } = setup();
+
+    const result = await dispatcher.runTriggerManually(created.id);
+
+    expect(result).toEqual({ status: 'skipped', actions: [] });
+    expect(runner.calls).toHaveLength(0);
+    const runs = db.prepare('select count(*) as n from automation_runs where trigger_id = ?').get(created.id) as { n: number };
+    expect(runs.n).toBe(0);
+  });
 });
 
 describe('run log', () => {

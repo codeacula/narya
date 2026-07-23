@@ -578,7 +578,11 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       actorLogin: stripAt(context.login?.trim() ?? '').toLowerCase() || null,
       enforceGates: false,
     });
-    if (!summary) throw new HttpRouteError(500, 'Trigger did not run.');
+    // A manual run passes eventId: null, so the claim never collides — the only way
+    // invoke() returns null here is the zero-enabled-actions inert skip. That is a
+    // benign no-op, not a failure: an operator clicking run on a trigger whose
+    // actions are all disabled should see "did nothing", not an error toast.
+    if (!summary) return { status: 'skipped', actions: [] };
     return { status: summary.status, actions: summary.actions };
   }
 

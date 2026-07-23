@@ -963,7 +963,8 @@ export function AutomationSettingsPage() {
                             onClick={() => startEdit(trigger)}
                           >
                             <div className="settings-item-main">
-                              <b>{describeTriggerConfig(trigger, rewardTitles)}</b>
+                              <b>{trigger.name}</b>
+                              <span>{describeTriggerConfig(trigger, rewardTitles)}</span>
                               <span>→ {actionLabel}</span>
                               <div className="media-asset-tags">
                                 <span
