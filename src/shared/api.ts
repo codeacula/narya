@@ -1306,3 +1306,13 @@ export type PlannedStreamEnd = { plannedEndAt: string | null };
  * still surface as a save error rather than being silently dropped alongside it.
  */
 export const NO_ACTIVE_SESSION_FOR_PLANNED_END = 'There is no active stream session to plan an end for.';
+
+// --- App registry --------------------------------------------------------------
+// Names-only registry of external apps allowed to publish onto the Redis bus
+// (Phase A). 'narya' and 'manual' are reserved source sentinels, not rows here.
+
+/** GET /api/apps row; also the POST/PATCH /api/apps/:id response body. */
+export type App = { id: string; name: string; createdAt: string; disabledAt: string | null };
+
+/** POST /api/apps body. */
+export type AppInput = { name: string };

@@ -1,5 +1,6 @@
 import { registerActionRoutes } from './actions';
 import { registerAppConfigRoutes, type AppConfigChange } from './appConfig';
+import { registerAppsRoutes } from './apps';
 import { getOverlayToken, requireDashboardToken } from './auth';
 import { getActionExecutor, getTriggerDispatcher, initAutomation } from './automation';
 import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './automationTriggers';
@@ -142,6 +143,7 @@ registerTwitchAuthRoutes({
 });
 registerTwitchApiRoutes(app, runtimeState);
 registerViewerRewardRoutes(app, runtimeState);
+registerAppsRoutes(app);
 registerMediaAssetRoutes(app);
 registerActionRoutes(app, getActionExecutor());
 registerAutomationTriggerRoutes(app, getTriggerDispatcher());

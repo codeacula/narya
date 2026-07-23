@@ -544,6 +544,18 @@ db.exec(`
     foreign key (trigger_id) references automation_triggers(id) on delete cascade,
     foreign key (action_id) references actions(id) on delete cascade
   );
+
+  -- Names-only registry of external apps allowed to publish onto the Redis bus
+  -- (Phase A). 'narya' and 'manual' are reserved source sentinels and never rows
+  -- here — see apps.ts's RESERVED_SOURCES. Disabling an app is not deleting it: a
+  -- disabled app's past provenance stays a known source (isKnownSource), it just
+  -- drops out of listSelectableSources for new bindings.
+  create table if not exists apps (
+    id text primary key,
+    name text not null unique,
+    created_at text not null,
+    disabled_at text
+  );
 `);
 
 db.exec(`
