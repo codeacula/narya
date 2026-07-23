@@ -1221,7 +1221,7 @@ export type SlashCommandRequest = {
 export type SlashCommandResponse = {
   ok: boolean;
   message: string;
-  run: ActionRunResult | null;
+  run: TriggerRunResult | null;
 };
 
 // --- Category modules --------------------------------------------------------

@@ -10,6 +10,7 @@ import type {
   SlashCommandResponse,
   TemplateContext,
   TriggerRole,
+  TriggerRunResult,
   ViewerCommandTriggerConfig,
 } from '../shared/api';
 import { getRoleFromBadges, getViewerRolesFromBadges } from '../shared/roles';
@@ -62,8 +63,8 @@ export type ModuleLifecyclePhase = 'activate' | 'deactivate';
 
 export type TriggerRunSummary = {
   triggerId: string;
-  actionId: string;
-  result: ActionRunResult;
+  status: ActionRunStatus;
+  actions: ActionRunResult[];
 };
 
 export type TriggerDispatcher = {
@@ -76,7 +77,7 @@ export type TriggerDispatcher = {
     moduleId: string,
     moduleName?: string,
   ): Promise<TriggerRunSummary[]>;
-  runTriggerManually(triggerId: string, context?: TemplateContext): Promise<ActionRunResult>;
+  runTriggerManually(triggerId: string, context?: TemplateContext): Promise<TriggerRunResult>;
 };
 
 const MAX_DETAIL_LENGTH = 500;
@@ -139,6 +140,25 @@ function detailOf(result: ActionRunResult): string {
     .map(step => step.detail)
     .join('; ');
   return problems.slice(0, MAX_DETAIL_LENGTH);
+}
+
+/**
+ * The trigger-level roll-up across its N action runs — the SAME 4-way logic
+ * actionExecutor.rollUp applies across a single Action's steps. A skipped run
+ * broadcast nothing, so it does not count against the others; an all-skipped
+ * fan-out is itself skipped.
+ */
+function rollUpActions(results: ActionRunResult[]): ActionRunStatus {
+  const ran = results.filter(result => result.status !== 'skipped');
+  if (ran.length === 0) return 'skipped';
+  if (ran.every(result => result.status === 'succeeded')) return 'succeeded';
+  if (ran.every(result => result.status === 'failed')) return 'failed';
+  return 'partial';
+}
+
+/** Joins each run's own problem detail — the multi-action analogue of detailOf. */
+function summarizeResults(results: ActionRunResult[]): string {
+  return results.map(detailOf).filter(Boolean).join('; ').slice(0, MAX_DETAIL_LENGTH);
 }
 
 function tokenize(text: string): string[] {
@@ -244,41 +264,57 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     const at = now();
 
     if (enforceGates && !isArmed(trigger)) return null;
+
+    // The enabled actions, in stored order. A trigger with none enabled is inert: it
+    // skips entirely BEFORE the cooldown check and the claim, so it neither records a
+    // run row nor consumes its cooldown. (The schema keeps >=1 stored action per
+    // trigger; every one of them being disabled is the deliberate "do nothing" state.)
+    const enabled = trigger.actions
+      .filter(action => action.enabled)
+      .sort((a, b) => a.position - b.position);
+    if (enabled.length === 0) return null;
+
     if (enforceGates && isOnCooldown(trigger, actorLogin, at)) return null;
 
     const runId = crypto.randomUUID();
     if (!claim(runId, trigger, eventId, actorLogin, at)) return null;
 
-    // Per-viewer substitution: the override decides WHICH Action this one claimed
-    // invocation runs — never whether a second one runs. See triggerOverrides.ts.
+    // Per-viewer substitution: the override decides WHICH Action(s) this one claimed
+    // invocation runs — never whether a second one runs. An override resolves to a
+    // single Action id and replaces the whole enabled list. See triggerOverrides.ts.
     const overrideActionId = actorLogin ? resolveOverrideActionId(trigger.id, actorLogin) : null;
-    let actionId = overrideActionId ?? trigger.actionId;
+    const list = overrideActionId ? [overrideActionId] : enabled.map(action => action.actionId);
     let detailPrefix = '';
 
-    let result: ActionRunResult;
+    let results: ActionRunResult[];
+    let status: ActionRunStatus;
     try {
-      result = await runAction(actionId, context);
-      if (overrideActionId && result.status === 'skipped') {
-        // A skipped run broadcast nothing (executor invariant), so the base Action can
+      // Concurrent, mirroring the executor's own Promise.all over an Action's steps:
+      // the trigger's actions all start together rather than queueing behind each other.
+      results = await Promise.all(list.map(id => runAction(id, context)));
+      status = rollUpActions(results);
+
+      if (overrideActionId && status === 'skipped') {
+        // A skipped run broadcast nothing (executor invariant), so the base actions can
         // still deliver the generic alert — the viewer gets fallback, not silence, once.
-        // Capture the override run's own skip reason before `result` is overwritten by
+        // Capture the override run's own skip reason before `results` is overwritten by
         // the fallback: it is the diagnostic signal for why a personalized alert
         // silently degraded to the generic one.
-        const skipReason = detailOf(result);
-        actionId = trigger.actionId;
-        detailPrefix = `Override for ${actorLogin} skipped${skipReason ? ` (${skipReason})` : ''}; ran the base action. `;
-        result = await runAction(trigger.actionId, context);
+        const skipReason = detailOf(results[0]!);
+        detailPrefix = `Override for ${actorLogin} skipped${skipReason ? ` (${skipReason})` : ''}; ran the base actions. `;
+        results = await Promise.all(enabled.map(action => runAction(action.actionId, context)));
+        status = rollUpActions(results);
       }
     } catch (error) {
       const detail = errorText(error);
       console.error(`Automation: trigger ${trigger.id} failed:`, error);
       finishRun.run('failed', `${detailPrefix}${detail}`.slice(0, MAX_DETAIL_LENGTH), runId);
-      result = { actionId, status: 'failed', steps: [], ranAt: at.toISOString() };
-      return { triggerId: trigger.id, actionId, result };
+      const failed: ActionRunResult[] = list.map(id => ({ actionId: id, status: 'failed', steps: [], ranAt: at.toISOString() }));
+      return { triggerId: trigger.id, status: 'failed', actions: failed };
     }
 
-    finishRun.run(result.status, `${detailPrefix}${detailOf(result)}`.slice(0, MAX_DETAIL_LENGTH), runId);
-    return { triggerId: trigger.id, actionId, result };
+    finishRun.run(status, `${detailPrefix}${summarizeResults(results)}`.slice(0, MAX_DETAIL_LENGTH), runId);
+    return { triggerId: trigger.id, status, actions: results };
   }
 
   async function invokeAll(
@@ -522,19 +558,19 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       return { ok: false, message: `${word} is cooling down.`, run: null };
     }
 
-    const status = summary.result.status;
+    const status = summary.status;
     const ok = status === 'succeeded' || status === 'partial';
     // A skipped run means every step rendered empty — almost always a missing argument.
     const message = ok
       ? `${word} ran.`
       : status === 'skipped'
         ? `${word} did nothing — check the command's arguments.`
-        : `${word} failed. ${detailOf(summary.result)}`.trim();
+        : `${word} failed. ${summarizeResults(summary.actions)}`.trim();
 
-    return { ok, message, run: summary.result };
+    return { ok, message, run: { status: summary.status, actions: summary.actions } };
   }
 
-  async function runTriggerManually(triggerId: string, context: TemplateContext = {}): Promise<ActionRunResult> {
+  async function runTriggerManually(triggerId: string, context: TemplateContext = {}): Promise<TriggerRunResult> {
     const trigger = getAutomationTrigger(triggerId);
     if (!trigger) throw new HttpRouteError(404, 'Trigger not found.');
 
@@ -543,7 +579,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       enforceGates: false,
     });
     if (!summary) throw new HttpRouteError(500, 'Trigger did not run.');
-    return summary.result;
+    return { status: summary.status, actions: summary.actions };
   }
 
   return {
