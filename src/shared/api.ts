@@ -1318,3 +1318,18 @@ export type App = { id: string; name: string; createdAt: string; disabledAt: str
 
 /** POST /api/apps body. */
 export type AppInput = { name: string };
+
+// --- Event bus -------------------------------------------------------------
+// The versioned envelope published onto the Redis stream (Phase A, outbound-only).
+// `data` carries only the fields the publishing function allowlists for that type.
+
+export type NaryaEventType = 'redeem' | 'twitch_event' | 'module_switch';
+export type NaryaEventEnvelope = {
+  version: 1;
+  id: string;
+  type: NaryaEventType;
+  ts: string;
+  channel: { id: string; login: string };
+  source: 'narya';
+  data: Record<string, unknown>;
+};
