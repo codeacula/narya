@@ -96,7 +96,10 @@ export function ConnectionsSettingsPage({
         </SettingsRow>
       </div>
 
-      <ConnectionsSection eventSubConnected={status.eventSubConnected} />
+      <ConnectionsSection
+        eventSubConnected={status.eventSubConnected}
+        redisConnected={status.redisConnected}
+      />
     </>
   );
 }

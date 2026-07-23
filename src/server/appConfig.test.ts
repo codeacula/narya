@@ -147,4 +147,11 @@ describe('redisUrl (secret)', () => {
   test('rejects a non-redis scheme', () => {
     expect(() => saveAppConfig({ redisUrl: 'http://127.0.0.1:6379' })).toThrow(/redis:\/\/ or rediss:\/\//);
   });
+
+  // Scheme-valid but otherwise unparseable: new Redis() would throw synchronously at
+  // boot on this, so reject it at save time with a 400 (F1) rather than let the bus go
+  // silently down. The scheme message is reserved for a wrong scheme.
+  test('rejects a scheme-valid but malformed URL', () => {
+    expect(() => saveAppConfig({ redisUrl: 'redis://host:notaport' })).toThrow(/not a valid URL/);
+  });
 });

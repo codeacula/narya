@@ -377,6 +377,18 @@ function normalizeUpdate(body: unknown, prev: AppConfigInternal): NormalizedConf
       if (trimmed && !/^rediss?:\/\//.test(trimmed)) {
         throw new HttpRouteError(400, 'Redis URL must start with redis:// or rediss://');
       }
+      // A scheme-valid but otherwise malformed URL still reaches new Redis() at boot,
+      // where it throws synchronously. startRedis() now degrades rather than aborting
+      // boot, but reject the obviously-broken ones here so the operator gets a 400 at
+      // save time instead of a silently-down bus. The scheme message above stays for a
+      // wrong scheme; this catches the rest.
+      if (trimmed) {
+        try {
+          new URL(trimmed);
+        } catch {
+          throw new HttpRouteError(400, 'Redis URL is not a valid URL — percent-encode any special characters in the password.');
+        }
+      }
       return trimmed;
     })(),
     clearRedisUrl: value.clearRedisUrl === true,

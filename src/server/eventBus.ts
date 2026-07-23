@@ -3,7 +3,15 @@ import { redisPublish } from './redis';
 import type { NaryaEventEnvelope, NaryaEventType } from '../shared/api';
 
 const RETENTION_MS = 48 * 60 * 60 * 1000; // ~48h rolling window (MINID trim)
-const STREAM_PREFIX = process.env['STREAMER_TOOLS_REDIS_PREFIX'] ?? process.env['NODE_ENV'] ?? 'dev';
+// Dev/prod isolation: the stream key is `narya:<prefix>:events`. When a dev box and
+// production share the SAME redisUrl they must NOT land on the same key, or a dev
+// redeem reaches a prod consumer (and back). Resolution order: explicit
+// STREAMER_TOOLS_REDIS_PREFIX, then NODE_ENV (so `bun test` gets `test`), then `prod`.
+// Production leaves the environment unset and publishes to `narya:prod:events`;
+// `bun run dev:server` sets STREAMER_TOOLS_REDIS_PREFIX=dev (see package.json) so a dev
+// box publishes to `narya:dev:events`. Defaulting to `prod` (not `dev`) keeps an unset
+// production box from silently sharing the dev stream.
+const STREAM_PREFIX = process.env['STREAMER_TOOLS_REDIS_PREFIX'] ?? process.env['NODE_ENV'] ?? 'prod';
 
 function streamKey(): string { return `narya:${STREAM_PREFIX}:events`; }
 function minId(now: number): string { return `${now - RETENTION_MS}-0`; }

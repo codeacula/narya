@@ -81,7 +81,7 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   clearRedisUrl: false,
 };
 
-export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: boolean }) {
+export function ConnectionsSection({ eventSubConnected, redisConnected }: { eventSubConnected: boolean; redisConnected: boolean }) {
   const { pushToast } = useToast();
   const [appConfigForm, setAppConfigForm] = useState<AppConfigForm>(EMPTY_APP_CONFIG_FORM);
   const [appConfigLoading, setAppConfigLoading] = useState(true);
@@ -179,6 +179,15 @@ export function ConnectionsSection({ eventSubConnected }: { eventSubConnected: b
             Redis is optional. Set a Redis URL below to publish redeems and other events onto a
             stream for external apps (see Settings → Apps) to consume — Narya works exactly the
             same without it.
+          </span>
+        </div>
+      )}
+      {!appConfigLoading && appConfigForm.redisConfigured && !redisConnected && (
+        <div className="settings-alert settings-alert--warn">
+          <span className="settings-alert-icon">!</span>
+          <span>
+            Redis is configured but not connected — check the URL and credentials. Events are not
+            being published until the connection recovers.
           </span>
         </div>
       )}
