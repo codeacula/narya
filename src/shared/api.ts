@@ -1371,6 +1371,12 @@ export type AppEvent = { appId: string; eventName: string; dataSchemaJson: strin
 /** POST /api/apps/:id/events body. */
 export type AppEventInput = { eventName: string };
 
+/** The coarse type recorded for one auto-learned data-catalog key (Phase C2). */
+export type AppEventDataKeyType = 'string' | 'number' | 'boolean';
+
+/** One entry of an event's data-key catalog, as sent to the client. */
+export type AppEventDataKey = { name: string; type: AppEventDataKeyType };
+
 // --- Event bus -------------------------------------------------------------
 // The versioned envelope published onto the Redis stream (Phase A, outbound-only).
 // `data` carries only the fields the publishing function allowlists for that type.
