@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
+import { createAction } from './actions';
 import { db } from './db';
 import {
   appExistsById,
+  countTriggersForEvent,
   createApp,
   declareAppEvent,
   isDeclaredEvent,
@@ -9,6 +11,7 @@ import {
   listApps,
   listAppEvents,
   listSelectableSources,
+  recordDataKeys,
   removeAppEvent,
   setAppDisabled,
 } from './apps';
@@ -66,5 +69,94 @@ describe('app events', () => {
     declareAppEvent(app.id, 'boss_killed');
     db.prepare('delete from apps where id = ?').run(app.id);
     expect(listAppEvents(app.id)).toEqual([]);
+  });
+});
+
+describe('app event data catalog', () => {
+  beforeEach(() => {
+    db.prepare('delete from automation_triggers').run();
+    db.prepare('delete from actions').run();
+    db.prepare('delete from app_events').run();
+    db.prepare('delete from apps').run();
+  });
+
+  test('a freshly declared event has an empty dataKeys catalog', () => {
+    const app = createApp('catalogapp');
+    const event = declareAppEvent(app.id, 'boss_killed');
+    expect(event.dataKeys).toEqual([]);
+    expect((event as unknown as Record<string, unknown>)['dataSchemaJson']).toBeUndefined();
+  });
+
+  test('recordDataKeys learns keys and is a no-op once converged', () => {
+    // total_changes() is a monotonic, per-connection counter of rows written by any
+    // INSERT/UPDATE/DELETE since the connection opened; a SELECT never bumps it. It
+    // proves the no-op branch performs literally zero writes, independent of the
+    // return value (a content-identical UPDATE would read back the same JSON, so
+    // comparing the stored string before/after would not catch a spurious write).
+    const totalChanges = () => (db.query('select total_changes() as c').get() as { c: number }).c;
+
+    const app = createApp('learnapp');
+    declareAppEvent(app.id, 'boss_killed');
+
+    expect(recordDataKeys(app.id, 'boss_killed', { boss: 'Dragon', wave: 3 })).toBe(true);
+    expect(listAppEvents(app.id)[0]!.dataKeys).toEqual([
+      { name: 'boss', type: 'string' },
+      { name: 'wave', type: 'number' },
+    ]);
+
+    // Same shape again -> no write at all (not just a same-value write).
+    const beforeNoOp = totalChanges();
+    expect(recordDataKeys(app.id, 'boss_killed', { boss: 'Hydra', wave: 9 })).toBe(false);
+    expect(totalChanges()).toBe(beforeNoOp);
+
+    // A new key -> a real write (the counter advances), and the old keys are retained.
+    const beforeRealWrite = totalChanges();
+    expect(recordDataKeys(app.id, 'boss_killed', { loot: true })).toBe(true);
+    expect(totalChanges()).toBe(beforeRealWrite + 1);
+    expect(listAppEvents(app.id)[0]!.dataKeys.map(k => k.name)).toEqual(['boss', 'loot', 'wave']);
+  });
+
+  test('recordDataKeys on an undeclared event writes nothing', () => {
+    const totalChanges = () => (db.query('select total_changes() as c').get() as { c: number }).c;
+    const app = createApp('nodeclapp');
+    const before = totalChanges();
+    expect(recordDataKeys(app.id, 'never_declared', { a: 1 })).toBe(false);
+    expect(totalChanges()).toBe(before);
+  });
+
+  test('countTriggersForEvent counts only redis_event triggers bound to that (app, event)', () => {
+    const app = createApp('countapp');
+    declareAppEvent(app.id, 'boss_killed');
+    declareAppEvent(app.id, 'other_event');
+    expect(countTriggersForEvent(app.id, 'boss_killed')).toBe(0);
+
+    const someActionId = createAction({
+      name: 'Catalog test action',
+      description: '',
+      enabled: true,
+      steps: [{ type: 'obs_transition', enabled: true, delayMs: 0, payload: {} }],
+    }).id;
+
+    // Insert a redis_event trigger bound to (app, boss_killed) directly via the DB,
+    // so this suite does not import automationTriggers.ts (that module imports THIS
+    // one — see the cycle note in apps.ts).
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert into automation_triggers (id, kind, action_id, module_id, enabled, config_json,
+         global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
+       values (?, 'redis_event', ?, null, 1, ?, 0, 0, ?, ?)`,
+    ).run(crypto.randomUUID(), someActionId, JSON.stringify({ appId: app.id, eventName: 'boss_killed' }), now, now);
+
+    // A redis_event trigger with unreadable config_json must be skipped, not thrown on.
+    db.prepare(
+      `insert into automation_triggers (id, kind, action_id, module_id, enabled, config_json,
+         global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
+       values (?, 'redis_event', ?, null, 1, ?, 0, 0, ?, ?)`,
+    ).run(crypto.randomUUID(), someActionId, 'not valid json{{{', now, now);
+
+    expect(() => countTriggersForEvent(app.id, 'boss_killed')).not.toThrow();
+    expect(countTriggersForEvent(app.id, 'boss_killed')).toBe(1);
+    expect(countTriggersForEvent(app.id, 'other_event')).toBe(0);
+    expect(countTriggersForEvent('someone-else', 'boss_killed')).toBe(0);
   });
 });
