@@ -4,6 +4,7 @@ import type {
   ActionRunStatus,
   ActionStep,
   ActionStepResult,
+  ActionStepType,
   ChatMessage,
   ChatSender,
   Counter,
@@ -101,8 +102,17 @@ export type ActionExecutorDeps = {
   resolveCounter?: CounterResolver;
 };
 
+/**
+ * Restricts an invocation to a safe subset of step types. Passed by an external
+ * source (an inbound Redis event) so an Action bound to that trigger can never run a
+ * moderation or OBS step even if the operator adds one later — enforcement is at run
+ * time, not save time, because Actions are shared and independently editable. Omitted
+ * (the default) is UNRESTRICTED: every existing source runs every step.
+ */
+export type RunActionOptions = { allowedStepTypes?: ReadonlySet<ActionStepType> };
+
 export type ActionExecutor = {
-  runAction(actionId: string, context: TemplateContext): Promise<ActionRunResult>;
+  runAction(actionId: string, context: TemplateContext, options?: RunActionOptions): Promise<ActionRunResult>;
 };
 
 type StepOutcome = { status: ActionStepResult['status']; detail: string };
@@ -398,7 +408,11 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
    * rest. Pending delays live only in this process — a restart drops them rather
    * than replaying time-sensitive steps against a stream that has moved on.
    */
-  async function runStep(step: ActionStep, context: TemplateContext): Promise<ActionStepResult> {
+  async function runStep(
+    step: ActionStep,
+    context: TemplateContext,
+    allowedStepTypes?: ReadonlySet<ActionStepType>,
+  ): Promise<ActionStepResult> {
     const result = (outcome: StepOutcome): ActionStepResult => ({
       stepId: step.id,
       type: step.type,
@@ -407,6 +421,14 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     });
 
     if (!step.enabled) return result(skipped('Step is disabled.'));
+
+    // Run-time allowlist for external events: a step whose type is not permitted is
+    // skipped BEFORE the delay and the dispatch, so it neither waits nor emits/plays/
+    // moderates. rollUp treats skipped as not-ran, so an all-blocked Action rolls up
+    // to skipped and broadcasts nothing.
+    if (allowedStepTypes && !allowedStepTypes.has(step.type)) {
+      return result(skipped(`Step type "${step.type}" is not allowed from an external event.`));
+    }
 
     try {
       if (step.delayMs > 0) await delay(step.delayMs);
@@ -426,7 +448,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     return 'partial';
   }
 
-  async function runAction(actionId: string, context: TemplateContext): Promise<ActionRunResult> {
+  async function runAction(actionId: string, context: TemplateContext, options?: RunActionOptions): Promise<ActionRunResult> {
     const ranAt = now().toISOString();
     const action = loadAction(actionId);
 
@@ -443,7 +465,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
       return { actionId, status: 'skipped', steps: [], ranAt };
     }
 
-    const steps = await Promise.all(action.steps.map(step => runStep(step, context)));
+    const steps = await Promise.all(action.steps.map(step => runStep(step, context, options?.allowedStepTypes)));
     return { actionId, status: rollUp(steps), steps, ranAt };
   }
 

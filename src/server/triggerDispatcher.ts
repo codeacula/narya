@@ -1,6 +1,7 @@
 import type {
   ActionRunResult,
   ActionRunStatus,
+  ActionStepType,
   AlertEventKind,
   AutomationTrigger,
   ChatMessage,
@@ -27,8 +28,23 @@ import { db, isUniqueConstraintError } from './db';
 import { HttpRouteError } from './http';
 import { getViewerTags } from './viewerIdentity';
 
+/**
+ * The safe subset an inbound external event (a Redis trigger) is allowed to run:
+ * only steps that produce local, non-destructive output. Moderation, OBS, whisper,
+ * wind-down, and quote-mutation steps are deliberately excluded, so an Action bound
+ * to an external trigger can never reach them even if the operator adds one later.
+ * This is an ALLOWLIST — any future step type is blocked until added here.
+ */
+export const REDIS_SAFE_STEP_TYPES: ReadonlySet<ActionStepType> = new Set([
+  'show_text',
+  'play_media',
+  'tts_speak',
+  'adjust_counter',
+  'send_chat',
+]);
+
 export type TriggerDispatcherDeps = {
-  runAction: (actionId: string, context: TemplateContext) => Promise<ActionRunResult>;
+  runAction: (actionId: string, context: TemplateContext, options?: { allowedStepTypes?: ReadonlySet<ActionStepType> }) => Promise<ActionRunResult>;
   /** Id of the module matching the live Twitch category, or null when none matches. */
   getActiveModuleId: () => string | null;
   /** Login of Narya's own bot identity, for loop prevention. */
@@ -254,6 +270,12 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     actorLogin?: string | null;
     /** Manual runs are an explicit operator action: they bypass cooldowns and arming. */
     enforceGates?: boolean;
+    /**
+     * The run-time safe subset for an external source (a Redis event). Forwarded to
+     * the executor, which skips any step whose type is not in it. Undefined (every
+     * internal source) is unrestricted.
+     */
+    allowedStepTypes?: ReadonlySet<ActionStepType>;
   };
 
   async function invoke(
@@ -261,7 +283,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     context: TemplateContext,
     options: InvokeOptions = {},
   ): Promise<TriggerRunSummary | null> {
-    const { eventId = null, actorLogin = null, enforceGates = true } = options;
+    const { eventId = null, actorLogin = null, enforceGates = true, allowedStepTypes } = options;
     const at = now();
 
     if (enforceGates && !isArmed(trigger)) return null;
@@ -298,7 +320,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     try {
       // Concurrent, mirroring the executor's own Promise.all over an Action's steps:
       // the trigger's actions all start together rather than queueing behind each other.
-      results = await Promise.all(list.map(id => runAction(id, context)));
+      results = await Promise.all(list.map(id => runAction(id, context, { allowedStepTypes })));
       status = rollUpActions(results);
 
       if (overrideActionId && status === 'skipped') {
@@ -309,7 +331,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
         // silently degraded to the generic one.
         const skipReason = detailOf(results[0]!);
         detailPrefix = `Override for ${actorLogin} skipped${skipReason ? ` (${skipReason})` : ''}; ran the base actions. `;
-        results = await Promise.all(enabled.map(action => runAction(action.actionId, context)));
+        results = await Promise.all(enabled.map(action => runAction(action.actionId, context, { allowedStepTypes })));
         status = rollUpActions(results);
       }
     } catch (error) {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import type { Action, ActionStep, MediaAsset, OverlayTextPlayback, Quote, QuoteInput, RewardMedia } from '../shared/api';
+import type { Action, ActionStep, ActionStepType, MediaAsset, OverlayTextPlayback, Quote, QuoteInput, RewardMedia } from '../shared/api';
 import { createActionExecutor, type ActionExecutorDeps } from './actionExecutor';
 import { db } from './db';
 import { HttpRouteError } from './http';
@@ -146,8 +146,12 @@ function harness(
 }
 
 // Runs an invocation to completion on virtual time.
-async function run(h: ReturnType<typeof harness>, context = {}) {
-  const pending = h.executor.runAction('action-1', context);
+async function run(
+  h: ReturnType<typeof harness>,
+  context = {},
+  options?: { allowedStepTypes?: ReadonlySet<ActionStepType> },
+) {
+  const pending = h.executor.runAction('action-1', context, options);
   await h.clock.runAll();
   return pending;
 }
@@ -1009,5 +1013,63 @@ describe('quote_add', () => {
     expect(result.status).toBe('failed');
     expect(result.steps[0]!.detail).toBe('A quote with the slug "farts" already exists.');
     expect(h.calls.chats).toEqual([]);
+  });
+});
+
+// The security boundary for inbound external events: an Action bound to an external
+// trigger can gain a moderation/OBS step later, so enforcement is at RUN time, not
+// save time. A blocked step is skipped — it neither delays nor dispatches.
+describe('allowedStepTypes safe subset', () => {
+  const SAFE: ReadonlySet<ActionStepType> = new Set(['show_text', 'play_media', 'tts_speak', 'adjust_counter', 'send_chat']);
+
+  test('a step whose type is not in the set is skipped, never dispatched, never delayed', async () => {
+    const h = harness(action([
+      step({ id: 'text', type: 'show_text', payload: { template: '{actor} did a thing', durationMs: 2000, style: 'banner' } } as never),
+      step({ id: 'ban', delayMs: 5000, type: 'twitch_ban', payload: { loginTemplate: '{login}', reasonTemplate: 'nope' } } as never),
+    ]));
+    const result = await run(h, { actor: 'Sorlus', login: 'sorlus' }, { allowedStepTypes: SAFE });
+
+    const banStep = result.steps.find(s => s.type === 'twitch_ban')!;
+    const textStep = result.steps.find(s => s.type === 'show_text')!;
+
+    expect(banStep.status).toBe('skipped');
+    expect(banStep.detail).toContain('not allowed');
+    expect(textStep.status).toBe('succeeded');
+    // The blocked step never reached the moderation service...
+    expect(h.calls.bans).toEqual([]);
+    // ...and never waited out its delay: the guard returns before delay/dispatch, so
+    // no waiter was ever registered and virtual time never advanced.
+    expect(h.clock.nowMs()).toBe(0);
+    // The one allowed step still went out.
+    expect(h.calls.broadcasts).toHaveLength(1);
+    // One allowed step succeeded, one blocked step skipped (not counted): succeeded.
+    expect(result.status).toBe('succeeded');
+  });
+
+  test('the allowlist blocks every unlisted type, including non-moderation ones', async () => {
+    const h = harness(action([
+      step({ id: 'scene', type: 'obs_scene', payload: { sceneName: 'Nope' } } as never),
+      step({ id: 'ban', type: 'twitch_ban', payload: { loginTemplate: '{login}', reasonTemplate: 'nope' } } as never),
+    ]));
+    const result = await run(h, { login: 'sorlus' }, { allowedStepTypes: SAFE });
+
+    // An all-blocked Action rolls up to skipped and broadcasts nothing.
+    expect(result.status).toBe('skipped');
+    expect(result.steps.every(s => s.status === 'skipped')).toBe(true);
+    expect(h.calls.scenes).toEqual([]);
+    expect(h.calls.bans).toEqual([]);
+    expect(h.calls.broadcasts).toEqual([]);
+  });
+
+  test('without allowedStepTypes every step runs — existing sources are unrestricted', async () => {
+    const h = harness(action([
+      step({ id: 'text', type: 'show_text', payload: { template: '{actor} did a thing', durationMs: 2000, style: 'banner' } } as never),
+      step({ id: 'ban', type: 'twitch_ban', payload: { loginTemplate: '{login}', reasonTemplate: 'nope' } } as never),
+    ]));
+    const result = await run(h, { actor: 'Sorlus', login: 'sorlus' });
+
+    expect(h.calls.bans).toEqual([{ login: 'sorlus', reason: 'nope' }]);
+    expect(h.calls.broadcasts).toHaveLength(1);
+    expect(result.status).toBe('succeeded');
   });
 });
