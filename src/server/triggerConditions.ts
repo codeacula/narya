@@ -35,6 +35,9 @@ function passes(condition: TriggerCondition, context: TemplateContext): boolean 
 }
 
 export function evaluateConditions(conditions: TriggerCondition[], context: TemplateContext): boolean {
-  if (conditions === CONDITIONS_UNREADABLE) return false;
+  // Fail closed against the parse sentinel AND any non-array (e.g. a hand-tampered
+  // conditions_json of `{}` or `"x"`): `.every` on a non-array would throw, so guarding
+  // here keeps this pure function total no matter what the caller hands it.
+  if (conditions === CONDITIONS_UNREADABLE || !Array.isArray(conditions)) return false;
   return conditions.every(condition => passes(condition, context));
 }

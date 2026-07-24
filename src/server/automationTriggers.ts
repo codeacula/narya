@@ -351,11 +351,15 @@ function rowToTrigger(row: TriggerRow): AutomationTrigger {
   }));
 
   // conditions_json is written only after normalizeConditions validated it against this
-  // row's kind. A parse failure fails closed to CONDITIONS_UNREADABLE rather than []
-  // (which would mean "no filter" and fire unconditionally) — see triggerConditions.ts.
+  // row's kind. A parse failure OR a syntactically-valid-but-non-array value (e.g. `{}`
+  // or `"x"` from manual DB tampering) both fail closed to CONDITIONS_UNREADABLE rather
+  // than [] (which would mean "no filter" and fire unconditionally). A non-array would
+  // also make evaluateConditions' `.every` throw — see triggerConditions.ts.
   let conditions: TriggerCondition[] = CONDITIONS_UNREADABLE;
   try {
-    conditions = JSON.parse(row.conditionsJson);
+    const parsed = JSON.parse(row.conditionsJson);
+    if (Array.isArray(parsed)) conditions = parsed;
+    else console.error(`Automation: trigger ${row.id} has non-array conditions JSON; failing closed.`);
   } catch (error) {
     console.error(`Automation: trigger ${row.id} has unreadable conditions JSON:`, error);
   }

@@ -41,6 +41,13 @@ describe('evaluateConditions', () => {
   test('the unreadable sentinel fails closed', () => {
     expect(evaluateConditions(CONDITIONS_UNREADABLE, ctx({ actor: 'bob' }))).toBe(false);
   });
+  test('a non-array conditions value fails closed without throwing', () => {
+    // A syntactically-valid-but-non-array conditions_json (e.g. {} or "x", reachable
+    // via manual DB tampering) must fail closed rather than throw on `.every`.
+    for (const bad of [{}, 'x', 42, null, undefined] as unknown[]) {
+      expect(evaluateConditions(bad as TriggerCondition[], ctx({ actor: 'bob' }))).toBe(false);
+    }
+  });
   test('unknown op → false', () => {
     expect(evaluateConditions([{ field: 'actor', op: 'wat' as never, value: 'x' }], ctx({ actor: 'x' }))).toBe(false);
   });
