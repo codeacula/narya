@@ -60,6 +60,10 @@ function rowToAppEvent(row: AppEventRow): AppEvent {
     appId: row.appId,
     eventName: row.eventName,
     dataKeys: catalogToDataKeys(parseDataCatalog(row.dataSchemaJson)),
+    // countTriggersForEvent is declared further down this file as a `function`
+    // (hoisted), so this forward reference resolves fine — it's only ever
+    // actually called at request time, long after the whole module has loaded.
+    boundTriggerCount: countTriggersForEvent(row.appId, row.eventName),
     createdAt: row.createdAt,
   };
 }

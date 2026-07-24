@@ -292,6 +292,11 @@ function RedisEventConfigFields({
   onChange: (next: RedisEventTriggerConfig) => void;
 }) {
   const warning = redisUnsafeStepWarning(triggerActions, actions);
+  // Reuses the `events` prop TriggerEditor already loaded via useAppEvents — no
+  // second fetch. Undefined while the bound event is still loading/undeclared;
+  // `dataKeys` is [] on an event nobody has ever sent yet, and both render the
+  // same "not learned yet" hint below.
+  const selectedEventDataKeys = events.find(entry => entry.eventName === config.eventName)?.dataKeys;
 
   return (
     <>
@@ -346,6 +351,29 @@ function RedisEventConfigFields({
           </small>
         )}
       </label>
+
+      {/* Advisory reference only (Phase C2, §6) — never validated against the bound
+          Actions' step templates. An Action is reusable across triggers and kinds
+          (one bound to a `reward` trigger has no `data` at all), so checking one
+          Action's template against one event's catalog would be wrong; this is
+          display-only, to tell the operator what they CAN type. */}
+      {config.appId && config.eventName && !loadingEvents && (
+        <div className="field settings-wide-field">
+          <span>{'{data.*}'} reference</span>
+          {selectedEventDataKeys && selectedEventDataKeys.length > 0 ? (
+            <small className="action-hint">
+              {selectedEventDataKeys.map(key => `{data.${key.name}} (${key.type})`).join('  ')}
+            </small>
+          ) : (
+            <small className="action-hint">
+              No keys learned yet. They appear here once this app sends its first "{config.eventName}" event.
+            </small>
+          )}
+          <small className="action-hint">
+            Usable in the bound Actions' text steps (e.g. Show text, Send chat).
+          </small>
+        </div>
+      )}
 
       {/* Advisory only — the server is the authority that skips a blocked step at
           dispatch time. This never blocks Save; a mixed Action is legal here. */}

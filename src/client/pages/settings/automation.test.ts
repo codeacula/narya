@@ -1336,7 +1336,7 @@ describe('REDIS_SAFE_STEP_TYPES / redisUnsafeStepWarning', () => {
 describe('redisTriggerInertReason', () => {
   test('flags a removed app, disabled app, and undeclared event', () => {
     const apps = [{ id: 'a1', name: 'pztmi', disabledAt: null }] as App[];
-    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
 
     expect(redisTriggerInertReason({ appId: 'a1', eventName: 'boss_killed' }, apps, events)).toBeNull();
     expect(redisTriggerInertReason({ appId: 'gone', eventName: 'boss_killed' }, apps, events)).toMatch(/app/i);
@@ -1353,7 +1353,7 @@ describe('redisTriggerInertReason', () => {
     const apps = [{ id: 'a1', name: 'pztmi', disabledAt: null }] as App[];
     // 'gone' has no app row AND no declared events at all in this fixture — both
     // conditions are true at once.
-    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
     const reason = redisTriggerInertReason({ appId: 'gone', eventName: 'boss_killed' }, apps, events);
     expect(reason).toMatch(/app/i);
     expect(reason).not.toMatch(/declared/i);
@@ -1361,7 +1361,7 @@ describe('redisTriggerInertReason', () => {
 
   test('precedence: a disabled app is reported as disabled, never as an undeclared event', () => {
     const disabled = [{ id: 'a1', name: 'pztmi', disabledAt: '2026-07-24T00:00:00.000Z' }] as App[];
-    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
     const reason = redisTriggerInertReason({ appId: 'a1', eventName: 'not_declared' }, disabled, events);
     expect(reason).toMatch(/disabled/i);
     expect(reason).not.toMatch(/declared/i);
@@ -1372,7 +1372,7 @@ describe('redisTriggerInertReason', () => {
       { id: 'a1', name: 'pztmi', disabledAt: null },
       { id: 'a2', name: 'other', disabledAt: null },
     ] as App[];
-    const events = [{ appId: 'a2', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+    const events = [{ appId: 'a2', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
     const reason = redisTriggerInertReason({ appId: 'a1', eventName: 'boss_killed' }, apps, events);
     expect(reason).toMatch(/declared/i);
   });
@@ -1385,7 +1385,7 @@ describe('redisTriggerInertReason', () => {
 // to, so these false-positive cases are testable without a component harness.
 describe('listInertReason', () => {
   const apps = [{ id: 'a1', name: 'pztmi', disabledAt: null }] as App[];
-  const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+  const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
   const config = { appId: 'a1', eventName: 'boss_killed' };
 
   test('apps not loaded yet: no badge, even though apps is empty', () => {
@@ -1400,7 +1400,7 @@ describe('listInertReason', () => {
     // Modeled as the page's Record<appId, AppEvent[]> cache: a lookup miss on the
     // trigger's own appId is `undefined`, exactly like "not loaded", even though the
     // cache is non-empty and holds real data for some other app.
-    const otherAppEvents = [{ appId: 'a2', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+    const otherAppEvents = [{ appId: 'a2', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
     const cache: Record<string, AppEvent[]> = { a2: otherAppEvents };
     expect(listInertReason({ config, apps, appsLoaded: true, events: cache[config.appId] })).toBeNull();
   });

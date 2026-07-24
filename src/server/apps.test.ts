@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createAction } from './actions';
 import { db } from './db';
 import {
@@ -80,10 +80,23 @@ describe('app event data catalog', () => {
     db.prepare('delete from apps').run();
   });
 
-  test('a freshly declared event has an empty dataKeys catalog', () => {
+  // Belt-and-suspenders alongside beforeEach's own cleanup: beforeEach only runs
+  // before the NEXT test, so whatever the LAST test in this block inserts directly
+  // into automation_triggers (countTriggersForEvent's own tests, and
+  // boundTriggerCount's below) would otherwise survive past this file and make
+  // rowToTrigger log "unreadable conditions JSON" noise in whichever suite runs
+  // next in the same process (see the apps.test.ts hygiene note in the Phase C2
+  // brief).
+  afterEach(() => {
+    db.prepare('delete from automation_triggers').run();
+    db.prepare('delete from actions').run();
+  });
+
+  test('a freshly declared event has an empty dataKeys catalog and boundTriggerCount 0', () => {
     const app = createApp('catalogapp');
     const event = declareAppEvent(app.id, 'boss_killed');
     expect(event.dataKeys).toEqual([]);
+    expect(event.boundTriggerCount).toBe(0);
     expect((event as unknown as Record<string, unknown>)['dataSchemaJson']).toBeUndefined();
   });
 
@@ -158,5 +171,43 @@ describe('app event data catalog', () => {
     expect(countTriggersForEvent(app.id, 'boss_killed')).toBe(1);
     expect(countTriggersForEvent(app.id, 'other_event')).toBe(0);
     expect(countTriggersForEvent('someone-else', 'boss_killed')).toBe(0);
+  });
+
+  test('listAppEvents reports each event\'s bound-trigger count (Task 7 wire-up)', () => {
+    const app = createApp('wiredapp');
+    declareAppEvent(app.id, 'boss_killed');
+    declareAppEvent(app.id, 'unbound_event');
+
+    // Before anything is bound, both declared events report 0.
+    const before = listAppEvents(app.id);
+    expect(before.find(e => e.eventName === 'boss_killed')?.boundTriggerCount).toBe(0);
+    expect(before.find(e => e.eventName === 'unbound_event')?.boundTriggerCount).toBe(0);
+
+    const someActionId = createAction({
+      name: 'Bound-count test action',
+      description: '',
+      enabled: true,
+      steps: [{ type: 'obs_transition', enabled: true, delayMs: 0, payload: {} }],
+    }).id;
+
+    // Bind a redis_event trigger directly via the DB — same rationale as
+    // countTriggersForEvent's test above: this suite must not import
+    // automationTriggers.ts, which already imports apps.ts.
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert into automation_triggers (id, kind, action_id, module_id, enabled, config_json,
+         global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
+       values (?, 'redis_event', ?, null, 1, ?, 0, 0, ?, ?)`,
+    ).run(crypto.randomUUID(), someActionId, JSON.stringify({ appId: app.id, eventName: 'boss_killed' }), now, now);
+
+    const after = listAppEvents(app.id);
+    expect(after.find(e => e.eventName === 'boss_killed')?.boundTriggerCount).toBe(1);
+    expect(after.find(e => e.eventName === 'unbound_event')?.boundTriggerCount).toBe(0);
+
+    // declareAppEvent returns the same shape as listAppEvents — a freshly declared
+    // event on this same app still reports 0, even though the app now has a bound
+    // trigger on a DIFFERENT event.
+    const freshEvent = declareAppEvent(app.id, 'freshly_declared');
+    expect(freshEvent.boundTriggerCount).toBe(0);
   });
 });

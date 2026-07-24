@@ -1373,8 +1373,11 @@ export type AppEventDataKey = { name: string; type: AppEventDataKeyType };
 
 /** GET /api/apps/:id/events row; also the POST /api/apps/:id/events response body.
  *  `dataKeys` is the auto-learned catalog (Phase C2) — advisory, not authoritative;
- *  storage keeps the raw JSON column, but it never reaches the wire. */
-export type AppEvent = { appId: string; eventName: string; dataKeys: AppEventDataKey[]; createdAt: string };
+ *  storage keeps the raw JSON column, but it never reaches the wire. `boundTriggerCount`
+ *  is how many `redis_event` triggers currently reference this (appId, eventName) —
+ *  it drives the AppsPage "N trigger(s) reference this" hint before a de-registration.
+ *  Removing the event stays allowed regardless of the count; this is advisory only. */
+export type AppEvent = { appId: string; eventName: string; dataKeys: AppEventDataKey[]; boundTriggerCount: number; createdAt: string };
 
 /** POST /api/apps/:id/events body. */
 export type AppEventInput = { eventName: string };
