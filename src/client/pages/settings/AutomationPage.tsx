@@ -270,9 +270,11 @@ function useAppEvents(appId: string): {
 function RedisEventConfigFields({
   config,
   apps,
+  appsLoaded,
   actions,
   triggerActions,
   events,
+  eventsLoaded,
   loadingEvents,
   inertReason,
   disabled,
@@ -280,9 +282,18 @@ function RedisEventConfigFields({
 }: {
   config: RedisEventTriggerConfig;
   apps: App[];
+  /** Whether the app roster's GET has actually resolved — `apps` is `[]` both before
+   *  it resolves and forever after a failed one, so every string below that would
+   *  otherwise state "this app does not exist" as fact is gated on this. Same
+   *  conflation the inert badge already fixed via listInertReason. */
+  appsLoaded: boolean;
   actions: Action[];
   triggerActions: TriggerAction[];
   events: AppEvent[];
+  /** Whether `events` genuinely belongs to config.appId (see useAppEvents' eventsAppId).
+   *  False for the whole in-flight window and for a failed fetch — the event strings
+   *  below must not call a declared event "(undeclared)" on either. */
+  eventsLoaded: boolean;
   loadingEvents: boolean;
   /** Computed by listInertReason (Phase C2) — null while the trigger would
    *  actually fire. Advisory: rendered here so the operator sees it right next to
@@ -315,15 +326,17 @@ function RedisEventConfigFields({
         >
           <option value="">Select an app…</option>
           {/* An app this operator can no longer see (deleted from under it) still has to
-              stay selected, or saving would silently re-point the trigger. */}
+              stay selected, or saving would silently re-point the trigger. The option is
+              therefore rendered whether or not `apps` has loaded — but it only CLAIMS the
+              app is unknown once the roster has actually resolved. */}
           {config.appId && !apps.some(app => app.id === config.appId) && (
-            <option value={config.appId}>{config.appId} (unknown app)</option>
+            <option value={config.appId}>{config.appId}{appsLoaded ? ' (unknown app)' : ''}</option>
           )}
           {apps.filter(app => !app.disabledAt).map(app => (
             <option key={app.id} value={app.id}>{app.name}</option>
           ))}
         </select>
-        {apps.length === 0 && (
+        {appsLoaded && apps.length === 0 && (
           <small className="action-hint">No apps registered. Register one in Settings → Apps.</small>
         )}
       </label>
@@ -338,14 +351,17 @@ function RedisEventConfigFields({
           <option value="">
             {!config.appId ? 'Pick an app first…' : loadingEvents ? 'Loading…' : 'Select an event…'}
           </option>
+          {/* Same rule as the app fallback above: the option must exist so the saved
+              event stays selected, but "(undeclared)" is a claim about the server's
+              state and is only made once this app's event list has actually resolved. */}
           {config.eventName && !events.some(entry => entry.eventName === config.eventName) && (
-            <option value={config.eventName}>{config.eventName} (undeclared)</option>
+            <option value={config.eventName}>{config.eventName}{eventsLoaded ? ' (undeclared)' : ''}</option>
           )}
           {events.map(entry => (
             <option key={entry.eventName} value={entry.eventName}>{entry.eventName}</option>
           ))}
         </select>
-        {config.appId && !loadingEvents && events.length === 0 && (
+        {config.appId && eventsLoaded && !loadingEvents && events.length === 0 && (
           <small className="action-hint">
             No events declared for this app yet. Declare one in Settings → Apps.
           </small>
@@ -386,8 +402,10 @@ function TriggerConfigFields({
   draft,
   rewards,
   apps,
+  appsLoaded,
   actions,
   events,
+  eventsLoaded,
   loadingEvents,
   redisInertReason,
   disabled,
@@ -396,8 +414,10 @@ function TriggerConfigFields({
   draft: AutomationTriggerInput;
   rewards: ViewerReward[];
   apps: App[];
+  appsLoaded: boolean;
   actions: Action[];
   events: AppEvent[];
+  eventsLoaded: boolean;
   loadingEvents: boolean;
   redisInertReason: string | null;
   disabled: boolean;
@@ -569,9 +589,11 @@ function TriggerConfigFields({
         <RedisEventConfigFields
           config={draft.config}
           apps={apps}
+          appsLoaded={appsLoaded}
           actions={actions}
           triggerActions={draft.actions}
           events={events}
+          eventsLoaded={eventsLoaded}
           loadingEvents={loadingEvents}
           inertReason={redisInertReason}
           disabled={disabled}
@@ -895,6 +917,17 @@ function ConditionsEditor({
                   updateAt(index, { field, op, value: defaultConditionValue(op) });
                 }}
               >
+                {/* A saved data.* field whose key isn't in `fieldOptions` — the catalog
+                    hasn't loaded, the fetch failed, or auto-learn hasn't seen the key yet
+                    — still has to appear, or the select falls back to rendering the FIRST
+                    option ("Actor") as selected while state actually holds `data.wave`.
+                    Editing only the op would then silently edit data.wave under a label
+                    saying Actor. Same fallback the App and Event pickers above use, and
+                    it changes nothing about validity: a data.* field is validated by
+                    pattern, never against the catalog. */}
+                {!fieldOptions.includes(condition.field) && (
+                  <option value={condition.field}>{conditionFieldLabel(condition.field)} (unlisted)</option>
+                )}
                 {fieldOptions.map(field => (
                   <option key={field} value={field}>{conditionFieldLabel(field)}</option>
                 ))}
@@ -1239,8 +1272,10 @@ function TriggerEditor({
           draft={draft}
           rewards={rewards}
           apps={apps}
+          appsLoaded={appsLoaded}
           actions={actions}
           events={redisEvents}
+          eventsLoaded={redisEventsLoaded}
           loadingEvents={redisLoadingEvents}
           redisInertReason={redisInertReason}
           disabled={saving}

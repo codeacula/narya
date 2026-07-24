@@ -663,8 +663,12 @@ db.exec(`
 
   -- The inbound event NAMES an app is allowed to publish (Phase C1). The consumer
   -- drops undeclared events and the trigger editor binds (appId, eventName) against
-  -- this table. data_schema_json defaults to '{}' and is unused here — it is
-  -- reserved for C2's data catalog.
+  -- this table. data_schema_json holds C2's auto-learned data catalog: a flat
+  -- {key: 'string'|'number'|'boolean'} map merged from observed payloads by
+  -- appEventCatalog.ts and written best-effort (post-XACK) by recordDataKeys in
+  -- apps.ts. It defaults to '{}', is ADVISORY only — the editor offers the keys it
+  -- lists, but a condition on an unlisted key is still valid, since learning lags a
+  -- newly-emitted key — and reads are total, so a malformed value degrades to {}.
   create table if not exists app_events (
     app_id text not null,
     event_name text not null,

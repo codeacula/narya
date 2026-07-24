@@ -1399,10 +1399,34 @@ describe('listInertReason', () => {
   test('a cache entry belonging to a different app is not "loaded" for this one', () => {
     // Modeled as the page's Record<appId, AppEvent[]> cache: a lookup miss on the
     // trigger's own appId is `undefined`, exactly like "not loaded", even though the
-    // cache is non-empty and holds real data for some other app.
-    const otherAppEvents = [{ appId: 'a2', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
-    const cache: Record<string, AppEvent[]> = { a2: otherAppEvents };
-    expect(listInertReason({ config, apps, appsLoaded: true, events: cache[config.appId] })).toBeNull();
+    // cache is non-empty and holds real data for some other app. Both halves are
+    // asserted against the SAME cache — without the second, the first is input-identical
+    // to the "events not loaded" case above and kills nothing extra.
+    const bothApps = [
+      { id: 'a1', name: 'pztmi', disabledAt: null },
+      { id: 'a2', name: 'other', disabledAt: null },
+    ] as App[];
+    const cache: Record<string, AppEvent[]> = {
+      a2: [{ appId: 'a2', eventName: 'other_event', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[],
+    };
+
+    // a1's trigger: nothing cached for a1, so a2's list must not stand in for it.
+    expect(listInertReason({ config, apps: bothApps, appsLoaded: true, events: cache[config.appId] })).toBeNull();
+
+    // The same cache DOES resolve for a trigger bound to a2 — and 'boss_killed' is
+    // genuinely absent from a2's declared events, so that one badges.
+    const a2Config = { appId: 'a2', eventName: 'boss_killed' };
+    expect(listInertReason({ config: a2Config, apps: bothApps, appsLoaded: true, events: cache[a2Config.appId] }))
+      .toMatch(/declared/i);
+  });
+
+  // The gate is `events === undefined`, NOT `!events?.length`: an app that has loaded
+  // and genuinely declares nothing is a confirmed fact, and a trigger bound to it can
+  // never fire. Without this case, loosening the gate to `!events?.length` leaves every
+  // other test here green — the same error/empty conflation this branch fixed, from the
+  // opposite direction.
+  test('loaded + healthy app that declares no events at all: still badges', () => {
+    expect(listInertReason({ config, apps, appsLoaded: true, events: [] })).toMatch(/declared/i);
   });
 
   test('loaded + genuinely undeclared event: the undeclared reason', () => {
