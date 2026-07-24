@@ -257,10 +257,16 @@ const CONDITION_FIELDS: Record<AutomationTriggerKind, Set<string>> = {
   manual: new Set(['actor', 'login']),
   module_activate: new Set(['actor', 'login']),
   module_deactivate: new Set(['actor', 'login']),
-  // Conditions over {data.*} are C2 — actor/login only for now.
+  // data.* is additionally accepted by pattern (see DATA_CONDITION_FIELD below) — the
+  // inbound {data.*} payload keys are not known at this layer, so they aren't listed here.
   redis_event: new Set(['actor', 'login']),
 };
 const COMPARISON_OPS = new Set(['eq', 'neq', 'contains', 'starts_with', 'gte', 'lte', 'in']);
+// A redis_event trigger may filter on any inbound {data.*} key. Validated by PATTERN,
+// never against the learned catalog: auto-learn (C1) lags a newly emitted key, so gating
+// on the catalog would reject a legitimate condition for a key the app is about to start
+// sending. The catalog only drives the editor's picker.
+const DATA_CONDITION_FIELD = /^data\.[A-Za-z0-9_.-]+$/;
 
 function normalizeConditions(kind: AutomationTriggerKind, value: unknown): TriggerCondition[] {
   if (value === undefined) return [];
@@ -283,7 +289,8 @@ function normalizeConditions(kind: AutomationTriggerKind, value: unknown): Trigg
     }
     if (!COMPARISON_OPS.has(String(c.op))) throw new HttpRouteError(400, `Unsupported condition op: ${c.op}.`);
     const field = typeof c.field === 'string' ? c.field : '';
-    if (!CONDITION_FIELDS[kind]?.has(field)) {
+    const isDataField = kind === 'redis_event' && DATA_CONDITION_FIELD.test(field);
+    if (!isDataField && !CONDITION_FIELDS[kind]?.has(field)) {
       throw new HttpRouteError(400, `Field "${field}" is not available on a ${kind} trigger.`);
     }
     if (op === 'in') {

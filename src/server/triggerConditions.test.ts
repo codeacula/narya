@@ -51,4 +51,26 @@ describe('evaluateConditions', () => {
   test('unknown op → false', () => {
     expect(evaluateConditions([{ field: 'actor', op: 'wat' as never, value: 'x' }], ctx({ actor: 'x' }))).toBe(false);
   });
+
+  test('a data.* field reads the nested payload', () => {
+    const data = { data: { boss: 'Dragon', wave: 7 } } as unknown as TemplateContext;
+    expect(evaluateConditions([{ field: 'data.boss', op: 'eq', value: 'dragon' }], data)).toBe(true);
+    expect(evaluateConditions([{ field: 'data.wave', op: 'gte', value: 5 }], data)).toBe(true);
+    expect(evaluateConditions([{ field: 'data.wave', op: 'gte', value: 9 }], data)).toBe(false);
+  });
+
+  test('a missing data key fails closed for every op including neq', () => {
+    const data = { data: { boss: 'Dragon' } } as unknown as TemplateContext;
+    expect(evaluateConditions([{ field: 'data.nope', op: 'neq', value: 'x' }], data)).toBe(false);
+  });
+
+  test('a data.* condition on a context with no data fails closed', () => {
+    expect(evaluateConditions([{ field: 'data.boss', op: 'eq', value: 'x' }], {} as TemplateContext)).toBe(false);
+  });
+
+  test('a non-scalar data value compares as its JSON form, never [object Object]', () => {
+    const data = { data: { loot: { rare: true } } } as unknown as TemplateContext;
+    expect(evaluateConditions([{ field: 'data.loot', op: 'contains', value: 'rare' }], data)).toBe(true);
+    expect(evaluateConditions([{ field: 'data.loot', op: 'contains', value: 'object' }], data)).toBe(false);
+  });
 });

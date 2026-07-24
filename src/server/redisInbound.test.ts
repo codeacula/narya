@@ -1,5 +1,15 @@
-import { describe, expect, test } from 'bun:test';
-import { processInboundEntry, type InboundEntryContext } from './redisInbound';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { createApp, declareAppEvent, listAppEvents, recordDataKeys as realRecordDataKeys } from './apps';
+import { initAutomation } from './automation';
+import { db } from './db';
+import type { RedisClientLike } from './redis';
+import {
+  __setRecordDataKeysForTest,
+  handleEntry,
+  processInboundEntry,
+  type InboundEntryContext,
+} from './redisInbound';
+import { RuntimeState } from './runtime';
 
 // These tests exercise the PURE decision core only — no live Redis, no DB. The
 // declaration check is injected as a predicate (`isDeclared`), so the core never
@@ -166,5 +176,125 @@ describe('processInboundEntry (decision core)', () => {
     expect(a.dispatch.eventId).toBe('app-a:shared-id');
     expect(b.dispatch.eventId).toBe('app-b:shared-id');
     expect(a.dispatch.eventId).not.toBe(b.dispatch.eventId);
+  });
+});
+
+// `handleEntry` exercises the live loop's per-entry wiring: decide -> dispatch ->
+// XACK -> learn. A hand-rolled fake client (matching the eventBus.test.ts pattern)
+// tracks xack calls by count, which is the load-bearing assertion below — NOT
+// mock.module, which this codebase has already found unreliable for re-linking a
+// module another test file loaded first (see eventBus.test.ts's own note, and
+// redisInboundSmoke.test.ts statically imports this module regardless of its
+// describe.skip).
+function fakeClient(): RedisClientLike & { xackCalls: unknown[][] } {
+  const xackCalls: unknown[][] = [];
+  return {
+    on() {},
+    xadd: async () => null,
+    xreadgroup: async () => null,
+    xack: async (...args: unknown[]) => { xackCalls.push(args); return 1; },
+    xautoclaim: async () => null,
+    xgroup: async () => null,
+    quit: async () => undefined,
+    disconnect() {},
+    xackCalls,
+  };
+}
+
+function entryFields(payload: Record<string, unknown>): unknown[] {
+  return ['v', JSON.stringify(payload)];
+}
+
+describe('handleEntry (live loop: decide -> dispatch -> XACK -> learn)', () => {
+  beforeEach(() => {
+    // handleEntry's dispatch branch runs the REAL trigger dispatcher, which scans the
+    // whole automation_triggers table for kind='redis_event' — clear it so a leftover
+    // row from another *.test.ts file (e.g. apps.test.ts's deliberately-unparseable
+    // fixture) cannot leak noise or, worse, a spurious match into these tests.
+    db.prepare('delete from automation_triggers').run();
+    db.prepare('delete from app_events').run();
+    db.prepare('delete from apps').run();
+    initAutomation(new RuntimeState());
+  });
+
+  afterEach(() => {
+    // Guard against leaking an injected throw into a later test/file.
+    __setRecordDataKeysForTest(realRecordDataKeys);
+  });
+
+  test('a declared entry that dispatches records its data keys', async () => {
+    const app = createApp('catalog-learn-app');
+    declareAppEvent(app.id, 'donation');
+    const client = fakeClient();
+
+    await handleEntry(client, app.id, 'stream-key', '1-1', entryFields({
+      type: 'donation',
+      id: 'evt-1',
+      data: { amount: 5, from: 'nova' },
+    }));
+
+    expect(client.xackCalls).toHaveLength(1);
+    const events = listAppEvents(app.id);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.dataKeys).toEqual([
+      { name: 'amount', type: 'number' },
+      { name: 'from', type: 'string' },
+    ]);
+  });
+
+  test('a dropped entry (undeclared type) records nothing', async () => {
+    const app = createApp('catalog-drop-app');
+    // A DIFFERENT event is declared so the catalog is observable and provably
+    // untouched — this isolates the `if ('dispatch' in decision)` guard in
+    // handleEntry from recordDataKeys' own (already-tested) undeclared no-op.
+    declareAppEvent(app.id, 'boss_killed');
+    const client = fakeClient();
+
+    await handleEntry(client, app.id, 'stream-key', '1-1', entryFields({
+      type: 'ghost_event',
+      id: 'evt-1',
+      data: { amount: 5 },
+    }));
+
+    // The entry is still XACKed even though it was dropped, undisturbed.
+    expect(client.xackCalls).toHaveLength(1);
+    const events = listAppEvents(app.id);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.dataKeys).toEqual([]);
+  });
+
+  test('a learn that throws does not stall the loop and does not double-XACK', async () => {
+    const app = createApp('catalog-throw-app');
+    declareAppEvent(app.id, 'donation');
+    __setRecordDataKeysForTest(() => { throw new Error('boom'); });
+    const client = fakeClient();
+
+    // The catalog throw is expected and caught here — it logs via logInboundError,
+    // so capture console.error rather than letting it print during the run.
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args); };
+    try {
+      // If the inner try/catch around the learn call were removed, this throw would
+      // propagate to handleEntry's OUTER catch, which XACKs a SECOND time — so
+      // xackCalls landing at exactly 1 (not 2) is what proves the isolation, not
+      // merely that the call resolved.
+      await expect(
+        handleEntry(client, app.id, 'stream-key', '1-1', entryFields({
+          type: 'donation',
+          id: 'evt-1',
+          data: { amount: 5 },
+        })),
+      ).resolves.toBeUndefined();
+    } finally {
+      console.error = originalError;
+    }
+
+    expect(client.xackCalls).toHaveLength(1);
+    // The dispatch itself was unaffected by the learn throwing — the entry's data
+    // was never recorded, but nothing here should have crashed the trigger run.
+    expect(listAppEvents(app.id)[0]!.dataKeys).toEqual([]);
+    // Logged through the inner catch's own context tag, not the outer 'entry' one.
+    expect(errors.some(a => String(a[0]).includes('catalog') && String(a[1]).includes('boom'))).toBe(true);
   });
 });

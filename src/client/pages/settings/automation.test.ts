@@ -6,6 +6,8 @@ import type {
   ActionStepInput,
   ActionStepType,
   ActionUpsert,
+  App,
+  AppEvent,
   AutomationTrigger,
   AutomationTriggerInput,
   AutomationTriggerKind,
@@ -33,11 +35,13 @@ import {
   formatRoles,
   isGlobalTrigger,
   isLifecycleKind,
+  listInertReason,
   moveStep,
   newStep,
   normalizeCommandName,
   opsForField,
   parseAliases,
+  redisTriggerInertReason,
   redisUnsafeStepWarning,
   removeStep,
   runResultTone,
@@ -920,6 +924,17 @@ describe('trigger conditions vocabulary', () => {
     expect(opsForField('reward', 'role')).toEqual([]);
     expect(opsForField('manual', 'tags')).toEqual([]);
   });
+
+  test('opsForField offers numeric ops for a number-typed data key and text ops otherwise', () => {
+    expect(opsForField('redis_event', 'data.wave', 'number')).toEqual(['eq', 'neq', 'gte', 'lte', 'in']);
+    expect(opsForField('redis_event', 'data.boss', 'string')).toEqual(['eq', 'neq', 'contains', 'starts_with', 'in']);
+    expect(opsForField('redis_event', 'data.unknown')).toEqual(['eq', 'neq', 'contains', 'starts_with', 'in']);
+  });
+
+  test('conditionFieldsForKind appends catalog keys for redis_event', () => {
+    expect(conditionFieldsForKind('redis_event', [{ name: 'boss', type: 'string' }])).toEqual(['actor', 'login', 'data.boss']);
+    expect(conditionFieldsForKind('redis_event')).toEqual(['actor', 'login']);
+  });
 });
 
 describe('validateConditions', () => {
@@ -1016,6 +1031,15 @@ describe('validateConditions', () => {
       { field: 'actor', op: 'eq', value: 'x' }
     ));
     expect(validateConditions('reward', conditions)).toBeNull();
+  });
+
+  test('validateConditions accepts a data.* field on redis_event and rejects it elsewhere', () => {
+    expect(validateConditions('redis_event', [{ field: 'data.wave', op: 'gte', value: 5 }])).toBeNull();
+    expect(validateConditions('reward', [{ field: 'data.wave', op: 'gte', value: 5 }])).not.toBeNull();
+  });
+
+  test('validateConditions rejects a malformed data field', () => {
+    expect(validateConditions('redis_event', [{ field: 'data.a b', op: 'eq', value: 'x' }])).not.toBeNull();
   });
 });
 
@@ -1306,5 +1330,126 @@ describe('REDIS_SAFE_STEP_TYPES / redisUnsafeStepWarning', () => {
 
   test('an unbound action is ignored', () => {
     expect(redisUnsafeStepWarning([], [action({ steps: [banStep] })])).toBeNull();
+  });
+});
+
+describe('redisTriggerInertReason', () => {
+  test('flags a removed app, disabled app, and undeclared event', () => {
+    const apps = [{ id: 'a1', name: 'pztmi', disabledAt: null }] as App[];
+    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
+
+    expect(redisTriggerInertReason({ appId: 'a1', eventName: 'boss_killed' }, apps, events)).toBeNull();
+    expect(redisTriggerInertReason({ appId: 'gone', eventName: 'boss_killed' }, apps, events)).toMatch(/app/i);
+    expect(redisTriggerInertReason({ appId: 'a1', eventName: 'not_declared' }, apps, events)).toMatch(/declared/i);
+    const disabled = [{ id: 'a1', name: 'pztmi', disabledAt: '2026-07-24T00:00:00.000Z' }] as App[];
+    expect(redisTriggerInertReason({ appId: 'a1', eventName: 'boss_killed' }, disabled, events)).toMatch(/disabled/i);
+  });
+
+  // Precedence is deliberate: de-registering an app cascade-deletes its declared
+  // events, so a MISSING app and an "undeclared" event are simultaneously true for
+  // every trigger that was bound to it. The app-existence check must win, or the
+  // operator sees a misleading "event not declared" instead of "app was removed".
+  test('precedence: a removed app is reported as removed, never as an undeclared event', () => {
+    const apps = [{ id: 'a1', name: 'pztmi', disabledAt: null }] as App[];
+    // 'gone' has no app row AND no declared events at all in this fixture — both
+    // conditions are true at once.
+    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
+    const reason = redisTriggerInertReason({ appId: 'gone', eventName: 'boss_killed' }, apps, events);
+    expect(reason).toMatch(/app/i);
+    expect(reason).not.toMatch(/declared/i);
+  });
+
+  test('precedence: a disabled app is reported as disabled, never as an undeclared event', () => {
+    const disabled = [{ id: 'a1', name: 'pztmi', disabledAt: '2026-07-24T00:00:00.000Z' }] as App[];
+    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
+    const reason = redisTriggerInertReason({ appId: 'a1', eventName: 'not_declared' }, disabled, events);
+    expect(reason).toMatch(/disabled/i);
+    expect(reason).not.toMatch(/declared/i);
+  });
+
+  test('an event declared for a different app does not count as declared for this one', () => {
+    const apps = [
+      { id: 'a1', name: 'pztmi', disabledAt: null },
+      { id: 'a2', name: 'other', disabledAt: null },
+    ] as App[];
+    const events = [{ appId: 'a2', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
+    const reason = redisTriggerInertReason({ appId: 'a1', eventName: 'boss_killed' }, apps, events);
+    expect(reason).toMatch(/declared/i);
+  });
+});
+
+// The wiring bug the Task 6 review found: "data not loaded yet" was being read as
+// "the thing is gone", so a healthy trigger got a false "won't fire" badge for the
+// entire in-flight window (or permanently, on a cache write from stale/failed
+// fetch state). listInertReason is the pure decision the page's effects delegate
+// to, so these false-positive cases are testable without a component harness.
+describe('listInertReason', () => {
+  const apps = [{ id: 'a1', name: 'pztmi', disabledAt: null }] as App[];
+  const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[];
+  const config = { appId: 'a1', eventName: 'boss_killed' };
+
+  test('apps not loaded yet: no badge, even though apps is empty', () => {
+    expect(listInertReason({ config, apps: [], appsLoaded: false, events: undefined })).toBeNull();
+  });
+
+  test('events not loaded for this app yet: no badge, even for an otherwise healthy app', () => {
+    expect(listInertReason({ config, apps, appsLoaded: true, events: undefined })).toBeNull();
+  });
+
+  test('a cache entry belonging to a different app is not "loaded" for this one', () => {
+    // Modeled as the page's Record<appId, AppEvent[]> cache: a lookup miss on the
+    // trigger's own appId is `undefined`, exactly like "not loaded", even though the
+    // cache is non-empty and holds real data for some other app. Both halves are
+    // asserted against the SAME cache — without the second, the first is input-identical
+    // to the "events not loaded" case above and kills nothing extra.
+    const bothApps = [
+      { id: 'a1', name: 'pztmi', disabledAt: null },
+      { id: 'a2', name: 'other', disabledAt: null },
+    ] as App[];
+    const cache: Record<string, AppEvent[]> = {
+      a2: [{ appId: 'a2', eventName: 'other_event', dataKeys: [], boundTriggerCount: 0, createdAt: '' }] as AppEvent[],
+    };
+
+    // a1's trigger: nothing cached for a1, so a2's list must not stand in for it.
+    expect(listInertReason({ config, apps: bothApps, appsLoaded: true, events: cache[config.appId] })).toBeNull();
+
+    // The same cache DOES resolve for a trigger bound to a2 — and 'boss_killed' is
+    // genuinely absent from a2's declared events, so that one badges.
+    const a2Config = { appId: 'a2', eventName: 'boss_killed' };
+    expect(listInertReason({ config: a2Config, apps: bothApps, appsLoaded: true, events: cache[a2Config.appId] }))
+      .toMatch(/declared/i);
+  });
+
+  // The gate is `events === undefined`, NOT `!events?.length`: an app that has loaded
+  // and genuinely declares nothing is a confirmed fact, and a trigger bound to it can
+  // never fire. Without this case, loosening the gate to `!events?.length` leaves every
+  // other test here green — the same error/empty conflation this branch fixed, from the
+  // opposite direction.
+  test('loaded + healthy app that declares no events at all: still badges', () => {
+    expect(listInertReason({ config, apps, appsLoaded: true, events: [] })).toMatch(/declared/i);
+  });
+
+  test('loaded + genuinely undeclared event: the undeclared reason', () => {
+    const reason = listInertReason({
+      config: { appId: 'a1', eventName: 'not_declared' },
+      apps,
+      appsLoaded: true,
+      events,
+    });
+    expect(reason).toMatch(/declared/i);
+  });
+
+  test('loaded + app genuinely missing: the removed reason, even with no events loaded for it', () => {
+    const reason = listInertReason({
+      config: { appId: 'gone', eventName: 'boss_killed' },
+      apps,
+      appsLoaded: true,
+      events: undefined,
+    });
+    expect(reason).toMatch(/app/i);
+  });
+
+  test('loaded + healthy: no badge', () => {
+    expect(listInertReason({ config, apps, appsLoaded: true, events })).toBeNull();
   });
 });

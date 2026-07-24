@@ -7,7 +7,29 @@ export const CONDITIONS_UNREADABLE: TriggerCondition[] = Object.freeze([]) as un
 
 const lc = (v: unknown): string => String(v ?? '').toLowerCase();
 
+/** Inbound {data.*} keys live in a nested `data` object on the context, so a
+ *  `data.<key>` condition field cannot be read by the flat property lookup every
+ *  other field uses. A non-scalar is JSON-stringified so `contains` never sees
+ *  [object Object]. That is the same coercion {data.*} rendering uses but NOT the same
+ *  result: actionTemplates.ts caps its render at 500 chars to bound overlay/chat output,
+ *  and this deliberately does not — an exact comparison has to see the whole value, or
+ *  an `eq` on a >500-char payload could never match and `contains` would go blind past
+ *  character 500.
+ *  A missing key stays `undefined`, preserving the fail-closed rule for every op. */
+const DATA_FIELD_PATTERN = /^data\.(.+)$/;
+
 function fieldValue(context: TemplateContext, field: string): unknown {
+  const dataMatch = DATA_FIELD_PATTERN.exec(field);
+  if (dataMatch) {
+    const raw = context.data?.[dataMatch[1]!];
+    if (raw === null || raw === undefined) return undefined;
+    if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') return raw;
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return undefined;
+    }
+  }
   return (context as Record<string, unknown>)[field];
 }
 
