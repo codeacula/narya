@@ -6,15 +6,20 @@ import {
   countTriggersForEvent,
   createApp,
   declareAppEvent,
+  findAppByTokenHash,
+  hashAppToken,
   isDeclaredEvent,
   isKnownSource,
   listApps,
   listAppEvents,
   listSelectableSources,
+  mintAppToken,
   recordDataKeys,
   removeAppEvent,
+  revokeAppToken,
   setAppDisabled,
 } from './apps';
+import { setRewardSource } from './rewardProvenance';
 
 describe('apps registry', () => {
   beforeEach(() => { db.prepare('delete from apps').run(); });
@@ -209,5 +214,67 @@ describe('app event data catalog', () => {
     // trigger on a DIFFERENT event.
     const freshEvent = declareAppEvent(app.id, 'freshly_declared');
     expect(freshEvent.boundTriggerCount).toBe(0);
+  });
+});
+
+describe('app API tokens', () => {
+  beforeEach(() => { db.prepare('delete from apps').run(); });
+
+  test('an app starts with no token and reports tokenConfigured false', () => {
+    const app = createApp('tokenapp');
+    expect(app.tokenConfigured).toBe(false);
+    expect((app as unknown as Record<string, unknown>)['tokenHash']).toBeUndefined();
+  });
+
+  test('minting returns a plaintext token once and only stores its hash', () => {
+    const app = createApp('mintapp');
+    const token = mintAppToken(app.id);
+    expect(token).toMatch(/^narya_app_[0-9a-f]{64}$/);
+    // The plaintext is never recoverable from the registry.
+    const listed = listApps().find(a => a.id === app.id)!;
+    expect(listed.tokenConfigured).toBe(true);
+    expect(JSON.stringify(listed)).not.toContain(token);
+    // The stored value is the hash, not the token.
+    expect(findAppByTokenHash(hashAppToken(token))?.id).toBe(app.id);
+    expect(findAppByTokenHash(token)).toBeNull();
+  });
+
+  test('re-minting rotates: the previous token stops resolving', () => {
+    const app = createApp('rotateapp');
+    const first = mintAppToken(app.id);
+    const second = mintAppToken(app.id);
+    expect(second).not.toBe(first);
+    expect(findAppByTokenHash(hashAppToken(first))).toBeNull();
+    expect(findAppByTokenHash(hashAppToken(second))?.id).toBe(app.id);
+  });
+
+  test('revoking clears the token', () => {
+    const app = createApp('revokeapp');
+    const token = mintAppToken(app.id);
+    revokeAppToken(app.id);
+    expect(findAppByTokenHash(hashAppToken(token))).toBeNull();
+    expect(listApps().find(a => a.id === app.id)!.tokenConfigured).toBe(false);
+  });
+});
+
+describe('reward_provenance idempotency index', () => {
+  beforeEach(() => { db.prepare('delete from reward_provenance').run(); });
+
+  // Task 3 will formalize a provenance writer that carries external_ref; until then
+  // this proves the index directly against the table, per the Phase D brief.
+  function setRewardSourceWithRef(rewardId: string, source: string, externalRef: string) {
+    db.prepare('insert into reward_provenance (reward_id, source, external_ref, created_at) values (?, ?, ?, ?)')
+      .run(rewardId, source, externalRef, new Date().toISOString());
+  }
+
+  test('the partial unique index rejects a duplicate (source, external_ref) but allows many nulls', () => {
+    // Two null external_refs for the same source are fine (Phase A rows look like this).
+    setRewardSource('r1', 'narya');
+    setRewardSource('r2', 'narya');
+    // A duplicate (source, external_ref) is rejected.
+    setRewardSourceWithRef('r3', 'appx', 'ext-1');
+    expect(() => setRewardSourceWithRef('r4', 'appx', 'ext-1')).toThrow();
+    // The same external_ref under a DIFFERENT source is independent.
+    expect(() => setRewardSourceWithRef('r5', 'appy', 'ext-1')).not.toThrow();
   });
 });

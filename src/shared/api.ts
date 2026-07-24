@@ -1359,8 +1359,11 @@ export const NO_ACTIVE_SESSION_FOR_PLANNED_END = 'There is no active stream sess
 // Names-only registry of external apps allowed to publish onto the Redis bus
 // (Phase A). 'narya' and 'manual' are reserved source sentinels, not rows here.
 
-/** GET /api/apps row; also the POST/PATCH /api/apps/:id response body. */
-export type App = { id: string; name: string; createdAt: string; disabledAt: string | null };
+/** GET /api/apps row; also the POST/PATCH /api/apps/:id response body.
+ *  `tokenConfigured` mirrors the `*Configured` pattern used for every other secret
+ *  in this codebase (e.g. the LLM `apiKeyConfigured`) — the hash and plaintext of
+ *  the app's API token never reach the wire, only whether one is set. */
+export type App = { id: string; name: string; createdAt: string; disabledAt: string | null; tokenConfigured: boolean };
 
 /** POST /api/apps body. */
 export type AppInput = { name: string };
