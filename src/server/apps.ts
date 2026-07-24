@@ -3,6 +3,7 @@ import type express from 'express';
 import { catalogToDataKeys, mergeDataCatalog, parseDataCatalog } from './appEventCatalog';
 import { db } from './db';
 import { handle, HttpRouteError } from './http';
+import { rewardCountsBySource } from './rewardProvenance';
 import type { App, AppEvent } from '../shared/api';
 
 const RESERVED_SOURCES = new Set(['narya', 'manual']);
@@ -22,18 +23,25 @@ const getAppByTokenHash = db.prepare(`select ${SELECT_COLUMNS} from apps where t
 
 // Never spread ...row here — that would put tokenHash back on the wire the moment
 // a new AppRow column is added and someone forgets this comment.
-function rowToApp(row: AppRow): App {
+//
+// rewardCounts defaults to a fresh rewardCountsBySource() call so every single-row
+// caller (createApp, setAppDisabled, findAppByTokenHash) stays a one-liner; listApps
+// below computes it once and threads it through the map instead, so listing N apps
+// costs one reward_provenance scan, not N.
+function rowToApp(row: AppRow, rewardCounts: Record<string, number> = rewardCountsBySource()): App {
   return {
     id: row.id,
     name: row.name,
     createdAt: row.createdAt,
     disabledAt: row.disabledAt,
     tokenConfigured: Boolean(row.tokenHash),
+    rewardCount: rewardCounts[row.name] ?? 0,
   };
 }
 
 export function listApps(): App[] {
-  return (listAppsRow.all() as AppRow[]).map(rowToApp);
+  const rewardCounts = rewardCountsBySource();
+  return (listAppsRow.all() as AppRow[]).map(row => rowToApp(row, rewardCounts));
 }
 
 function normalizeName(raw: unknown): string {

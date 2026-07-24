@@ -1,6 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { App, AppEvent } from '../../../shared/api';
-import { createApp, declareAppEvent, getAppEvents, getApps, removeAppEvent, setAppDisabled } from '../../services/dashboard';
+import {
+  createApp,
+  declareAppEvent,
+  getAppEvents,
+  getApps,
+  mintAppToken,
+  removeAppEvent,
+  revokeAppToken,
+  setAppDisabled,
+} from '../../services/dashboard';
 import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
 
@@ -101,6 +110,119 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
           Add
         </button>
       </div>
+      {error && <small className="action-hint">{error}</small>}
+    </div>
+  );
+}
+
+/**
+ * Per-app API token controls. `app.tokenConfigured` (has one / has none) comes from
+ * the already-loaded apps list — no fetch of its own. Minting/rotating is the only
+ * moment the plaintext ever exists on the client: it lives in `revealed`, this
+ * component's own state, and nowhere else — never `localStorage`, `sessionStorage`,
+ * a module-level variable, or a `console.log`. Dismissing the panel (or revoking)
+ * clears `revealed`, and unmounting this row (app list reload, navigation) drops it
+ * for free since it was never persisted anywhere to begin with.
+ */
+function AppTokenControls({
+  app,
+  disabled,
+  onChanged,
+}: {
+  app: App;
+  disabled: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const disabledOverall = disabled || busy;
+
+  const handleMint = () => {
+    setBusy(true);
+    setError(null);
+    setCopied(false);
+    void mintAppToken(app.id)
+      .then(async result => {
+        await onChanged();
+        setRevealed(result.token);
+      })
+      .catch(caught => setError(errorMessage(caught, 'Could not mint a token')))
+      .finally(() => setBusy(false));
+  };
+
+  const handleRevoke = () => {
+    setBusy(true);
+    setError(null);
+    // Revoking must drop any plaintext still on screen — a revoked token showing as
+    // if it still worked would be actively misleading.
+    setRevealed(null);
+    setCopied(false);
+    void revokeAppToken(app.id)
+      .then(() => onChanged())
+      .catch(caught => setError(errorMessage(caught, 'Could not revoke the token')))
+      .finally(() => setBusy(false));
+  };
+
+  const handleCopy = () => {
+    if (!revealed) return;
+    void navigator.clipboard.writeText(revealed)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch((copyError: unknown) => {
+        // The error object from the Clipboard API never carries the token itself.
+        console.error('Failed to copy the app token:', copyError);
+      });
+  };
+
+  return (
+    <div className="field">
+      <span>API token</span>
+      <div className="command-row-actions">
+        <code className="counter-row-token">{app.tokenConfigured ? 'token configured' : 'no token'}</code>
+        <small className="action-hint">
+          {app.rewardCount} reward{app.rewardCount === 1 ? '' : 's'} via this app
+        </small>
+      </div>
+      {app.tokenConfigured && !revealed && (
+        <small className="action-hint">
+          Rotating immediately invalidates the current token — the running app will break until it is
+          updated with the new one.
+        </small>
+      )}
+      <div className="command-row-actions">
+        <button className="modbtn gold" type="button" disabled={disabledOverall} onClick={handleMint}>
+          {app.tokenConfigured ? 'Rotate token' : 'Mint token'}
+        </button>
+        {app.tokenConfigured && (
+          <button className="modbtn danger" type="button" disabled={disabledOverall} onClick={handleRevoke}>
+            Revoke token
+          </button>
+        )}
+      </div>
+      {revealed && (
+        <div className="counter-row">
+          <div className="counter-row-main">
+            <code className="counter-row-token">{revealed}</code>
+            <div>
+              <small className="action-hint">
+                This is shown once and will not be shown again — copy it now and store it wherever
+                this app reads its credentials.
+              </small>
+            </div>
+          </div>
+          <div className="counter-row-actions">
+            <button className="modbtn" type="button" onClick={handleCopy}>{copied ? 'Copied' : 'Copy'}</button>
+            <button className="modbtn" type="button" onClick={() => { setRevealed(null); setCopied(false); }}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       {error && <small className="action-hint">{error}</small>}
     </div>
   );
@@ -209,6 +331,7 @@ export function AppsPage() {
             <div className="counter-row-main">
               <div className="counter-row-label">{app.name}</div>
               <code className="counter-row-token">{app.disabledAt ? `disabled ${app.disabledAt}` : 'enabled'}</code>
+              <AppTokenControls app={app} disabled={busyId === app.id} onChanged={load} />
               <AppEventsList app={app} disabled={busyId === app.id} />
             </div>
             <div className="counter-row-actions">

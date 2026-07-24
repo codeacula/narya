@@ -1362,11 +1362,27 @@ export const NO_ACTIVE_SESSION_FOR_PLANNED_END = 'There is no active stream sess
 /** GET /api/apps row; also the POST/PATCH /api/apps/:id response body.
  *  `tokenConfigured` mirrors the `*Configured` pattern used for every other secret
  *  in this codebase (e.g. the LLM `apiKeyConfigured`) — the hash and plaintext of
- *  the app's API token never reach the wire, only whether one is set. */
-export type App = { id: string; name: string; createdAt: string; disabledAt: string | null; tokenConfigured: boolean };
+ *  the app's API token never reach the wire, only whether one is set. `rewardCount`
+ *  mirrors AppEvent's `boundTriggerCount` hint (Phase C2): how many Twitch rewards
+ *  `reward_provenance` currently attributes to this app's NAME (its `source` value),
+ *  from `rewardCountsBySource()` — drives the Apps page's per-app consumption
+ *  display so an operator can see who is using the shared Twitch reward cap before
+ *  it is hit (Phase D). Advisory only, like `boundTriggerCount`. */
+export type App = {
+  id: string;
+  name: string;
+  createdAt: string;
+  disabledAt: string | null;
+  tokenConfigured: boolean;
+  rewardCount: number;
+};
 
 /** POST /api/apps body. */
 export type AppInput = { name: string };
+
+/** POST /api/apps/:id/token response body. The plaintext is returned exactly once
+ *  and is never recoverable afterward — only its hash is persisted (`apps.token_hash`). */
+export type AppTokenMintResult = { token: string };
 
 /** The coarse type recorded for one auto-learned data-catalog key (Phase C2). */
 export type AppEventDataKeyType = 'string' | 'number' | 'boolean';

@@ -257,6 +257,36 @@ describe('app API tokens', () => {
   });
 });
 
+describe('app reward counts (Task 7 wire-up)', () => {
+  beforeEach(() => {
+    db.prepare('delete from reward_provenance').run();
+    db.prepare('delete from apps').run();
+  });
+
+  test('listApps reports each app\'s reward count, keyed by name and unaffected by other sources', () => {
+    const appA = createApp('countsapp');
+    const appB = createApp('othercountsapp');
+
+    // A freshly registered app with no provenance rows at all reports 0.
+    expect(listApps().find(a => a.id === appA.id)?.rewardCount).toBe(0);
+    expect(listApps().find(a => a.id === appB.id)?.rewardCount).toBe(0);
+
+    // Provenance rows attributed to appA's NAME (reward_provenance.source) count
+    // toward appA only.
+    setRewardSource('r1', appA.name);
+    setRewardSource('r2', appA.name);
+    // A different app's rewards, and the reserved 'manual'/'narya' sentinels, must
+    // never leak into appA's count.
+    setRewardSource('r3', appB.name);
+    setRewardSource('r4', 'manual');
+    setRewardSource('r5', 'narya');
+
+    const apps = listApps();
+    expect(apps.find(a => a.id === appA.id)?.rewardCount).toBe(2);
+    expect(apps.find(a => a.id === appB.id)?.rewardCount).toBe(1);
+  });
+});
+
 describe('reward_provenance idempotency index', () => {
   beforeEach(() => { db.prepare('delete from reward_provenance').run(); });
 
