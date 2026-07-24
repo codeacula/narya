@@ -19,6 +19,7 @@ import {
   revokeAppToken,
   setAppDisabled,
 } from './apps';
+import { HttpRouteError } from './http';
 import { setRewardSource } from './rewardProvenance';
 
 describe('apps registry', () => {
@@ -254,6 +255,23 @@ describe('app API tokens', () => {
     revokeAppToken(app.id);
     expect(findAppByTokenHash(hashAppToken(token))).toBeNull();
     expect(listApps().find(a => a.id === app.id)!.tokenConfigured).toBe(false);
+  });
+
+  // An update against a non-existent id is a silent no-op in SQLite, so without this
+  // check a typo'd app id reads back to the operator as a successful revoke — they
+  // believe a credential is dead while it is still live. Mint already 404s; revoke,
+  // the one that matters for security, must not be the lenient half of the pair.
+  test('revoking an unknown app id is a 404, not a silent success', () => {
+    expect(() => revokeAppToken('no-such-app-id')).toThrow(HttpRouteError);
+    try {
+      revokeAppToken('no-such-app-id');
+      throw new Error('expected revokeAppToken to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(HttpRouteError);
+      expect((error as HttpRouteError).status).toBe(404);
+    }
+    // …and mint, the route it now matches, still behaves the same way.
+    expect(() => mintAppToken('no-such-app-id')).toThrow(HttpRouteError);
   });
 });
 

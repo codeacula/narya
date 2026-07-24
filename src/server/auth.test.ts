@@ -185,15 +185,22 @@ function callAppMiddleware(options: {
   method?: string;
   path?: string;
   token?: string | null;
+  /** Same token, presented the two ways OBS browser sources and OAuth <a href> links
+   *  use — neither of which an app has any reason to reach for. */
+  queryToken?: string;
+  dashboardHeaderToken?: string;
 }): AppRouteCall {
   const call: AppRouteCall = { status: null, body: null, nextCalled: false, resolvedApp: null };
   const fullPath = options.path ?? '/api/ext/rewards';
+  const headers: Record<string, string> = {};
+  if (options.token) headers.authorization = `Bearer ${options.token}`;
+  if (options.dashboardHeaderToken) headers['x-dashboard-token'] = options.dashboardHeaderToken;
   const request = {
     method: options.method ?? 'POST',
     baseUrl: '',
     path: fullPath,
-    headers: options.token ? { authorization: `Bearer ${options.token}` } : {},
-    query: {},
+    headers,
+    query: options.queryToken ? { token: options.queryToken } : {},
   } as unknown as express.Request;
   const response = {
     status(code: number) {
@@ -268,6 +275,32 @@ describe('requireAppToken', () => {
     expect(call.status).toBe(401);
     expect(call.nextCalled).toBe(false);
     expect(call.resolvedApp).toBeNull();
+  });
+
+  // `?token=` and `x-dashboard-token` exist for OBS browser sources and <a href> OAuth
+  // links — a server-side app is neither. A credential in a URL lands in access logs,
+  // proxy logs and Referer headers, so this surface takes the bearer header only. The
+  // token itself is valid in all three calls: it is the TRANSPORT being refused.
+  test('accepts the bearer header only — the same token via ?token= or x-dashboard-token is rejected', () => {
+    setToken(OPERATOR);
+    const app = createApp('extapp');
+    const token = mintAppToken(app.id);
+
+    const viaQuery = callAppMiddleware({ queryToken: token });
+    expect(viaQuery.status).toBe(401);
+    expect(viaQuery.nextCalled).toBe(false);
+    expect(viaQuery.resolvedApp).toBeNull();
+
+    const viaHeader = callAppMiddleware({ dashboardHeaderToken: token });
+    expect(viaHeader.status).toBe(401);
+    expect(viaHeader.nextCalled).toBe(false);
+    expect(viaHeader.resolvedApp).toBeNull();
+
+    // Same token, correct transport: still works, so this proves the transport check
+    // rather than a broken token.
+    const viaBearer = callAppMiddleware({ token });
+    expect(viaBearer.nextCalled).toBe(true);
+    expect(viaBearer.resolvedApp?.name).toBe('extapp');
   });
 
   test('rejects a disabled app', () => {

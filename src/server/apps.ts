@@ -88,7 +88,11 @@ export function mintAppToken(appId: string): string {
   return plaintext;
 }
 
+/** Existence-checked for the same reason mintAppToken is: an UPDATE against an id
+ *  that does not exist is a silent no-op in SQLite, so a typo'd id would answer 204
+ *  and leave the operator believing they had killed a credential that is still live. */
 export function revokeAppToken(appId: string): void {
+  if (!appExistsById(appId)) throw new HttpRouteError(404, 'App not found.');
   setTokenHash.run(null, appId);
 }
 

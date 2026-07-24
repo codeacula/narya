@@ -76,6 +76,11 @@ function provenanceOf(rewardId: string): ProvenanceRow | null {
 const insertProvenanceRow = db.prepare(
   'insert into reward_provenance (reward_id, source, external_ref, created_at) values (?, ?, null, ?)',
 );
+/** Claims a (source, external_ref) pair directly, standing in for the request that
+ *  WINS a concurrent race — it is written while the losing request is awaiting Twitch. */
+const insertProvenanceWithRef = db.prepare(
+  'insert into reward_provenance (reward_id, source, external_ref, created_at) values (?, ?, ?, ?)',
+);
 /** Seeds N synthetic provenance rows per source — only the per-source COUNT matters
  *  for the cap-rejection message, not any real Twitch reward behind these ids. */
 function seedProvenanceCounts(counts: Record<string, number>) {
@@ -83,6 +88,22 @@ function seedProvenanceCounts(counts: Record<string, number>) {
   let n = 0;
   for (const [source, count] of Object.entries(counts)) {
     for (let i = 0; i < count; i += 1) insertProvenanceRow.run(`seed-${source}-${n++}`, source, now);
+  }
+}
+
+/** Run one request with console.error captured. The per-source breakdown is the
+ *  OPERATOR'S diagnostic: on the app-facing route the log is the only place it may
+ *  appear, so a test that only inspects the response body cannot tell "moved to the
+ *  log" from "lost entirely". */
+async function withCapturedErrorLog<T>(fn: () => Promise<T>): Promise<{ result: T; logged: string }> {
+  const original = console.error;
+  const lines: string[] = [];
+  console.error = (...args: unknown[]) => { lines.push(args.map(arg => String(arg)).join(' ')); };
+  try {
+    const result = await fn();
+    return { result, logged: lines.join('\n') };
+  } finally {
+    console.error = original;
   }
 }
 
@@ -312,24 +333,40 @@ describe('/api/ext/rewards', () => {
       expect(rewardCalls('POST')).toHaveLength(0);
     });
 
-    // The compensating control for "no per-app quota": when Twitch rejects for the
-    // shared cap, the operator-visible error attributes current consumption per
-    // source, built from rewardCountsBySource() — reflecting a mix of app/narya/manual.
-    test('a Twitch cap rejection attributes current consumption per source', async () => {
-      seedProvenanceCounts({ pztmi: 7, narya: 3, manual: 12 });
+    // The compensating control for "no per-app quota" is the per-source breakdown —
+    // but that is the OPERATOR'S diagnostic, and this caller holds nothing but its own
+    // app token. Handing it "pztmi: 7, narya: 3, manual: 12" would disclose the
+    // operator's entire app registry and each app's consumption to app `foo`, which
+    // contradicts the same reasoning that makes every by-id miss a 404 and not a 403.
+    // The app gets a generic cap message plus its OWN count; the breakdown goes to
+    // the operator's log.
+    test('a Twitch cap rejection tells the app its own count and no other source\'s', async () => {
+      seedProvenanceCounts({ foo: 2, pztmi: 7, narya: 3, manual: 12 });
       installFetch(({ url, method }) => {
         if (url.pathname !== REWARDS_PATH) return null;
         if (method === 'POST') return jsonResponse(TWITCH_CAP_ERROR_BODY, 400);
         return jsonResponse({ data: twitchRewards });
       });
 
-      const res = await api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() });
+      const { result: res, logged } = await withCapturedErrorLog(
+        () => api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() }),
+      );
       expect(res.status).toBe(400);
       const payload = await res.json() as { error: string };
-      expect(payload.error).toContain("Twitch rejected the reward: the channel's reward limit is reached.");
-      expect(payload.error).toContain('pztmi: 7');
-      expect(payload.error).toContain('narya: 3');
-      expect(payload.error).toContain('manual: 12');
+      expect(payload.error).toContain("the channel's reward limit is reached");
+      // Its own consumption, so the app can act on its own footprint.
+      expect(payload.error).toContain('2');
+      // Nothing about anyone else: no other source's NAME and no other source's COUNT.
+      expect(payload.error).not.toContain('pztmi');
+      expect(payload.error).not.toContain('narya');
+      expect(payload.error).not.toContain('manual');
+      expect(payload.error).not.toContain('Current rewards by source');
+      expect(payload.error).not.toContain('7');
+      expect(payload.error).not.toContain('12');
+      // The operator still gets the attribution — in the log, where only they can read it.
+      expect(logged).toContain('pztmi: 7');
+      expect(logged).toContain('narya: 3');
+      expect(logged).toContain('manual: 12');
       // Never provisioned — the cap rejection must not leave a dangling provenance row.
       expect(rewardCalls('POST')).toHaveLength(1);
     });
@@ -345,12 +382,84 @@ describe('/api/ext/rewards', () => {
         return jsonResponse({ data: twitchRewards });
       });
 
-      const res = await api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() });
+      const { result: res, logged } = await withCapturedErrorLog(
+        () => api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() }),
+      );
       expect(res.status).toBe(400);
       const payload = await res.json() as { error: string };
       expect(payload.error).toBe('CREATE_CUSTOM_REWARD_DUPLICATE_REWARD');
       expect(payload.error).not.toContain('reward limit');
       expect(payload.error).not.toContain('Current rewards by source');
+      // …but the operator still gets attribution in the LOG, because the cap regex is
+      // the fragile part: Twitch renaming its enum would otherwise take the whole
+      // diagnostic away silently. Logging on every create failure is what makes the
+      // regex an optimization for the response body rather than a single point of loss.
+      expect(logged).toContain('pztmi: 7');
+      expect(logged).toContain('narya: 3');
+      expect(logged).toContain('manual: 12');
+    });
+
+    // The (source, external_ref) index is checked BEFORE the Twitch create and enforced
+    // only AFTER it, so two concurrent POSTs can both pass the check and both mint a
+    // reward. The loser must not leave its reward behind: an orphan self-heals to
+    // 'manual' on the next list and becomes indistinguishable from a reward the operator
+    // made by hand, silently consuming a slot out of a pool with no quota protecting it.
+    test('losing the external_ref race deletes the reward it just created', async () => {
+      installFetch(({ url, method }) => {
+        if (url.pathname !== REWARDS_PATH) return null;
+        if (method === 'POST') {
+          // The winning request lands while this one is awaiting Twitch — exactly the
+          // window between the idempotency read and the provenance write.
+          insertProvenanceWithRef.run('race-winner', 'foo', 'ref-1', new Date().toISOString());
+          const created = rawReward({ id: 'orphan' });
+          twitchRewards.push(created);
+          return jsonResponse({ data: [created] });
+        }
+        if (method === 'DELETE') {
+          twitchRewards = twitchRewards.filter(reward => reward.id !== url.searchParams.get('id'));
+          return new Response(null, { status: 204 });
+        }
+        return jsonResponse({ data: twitchRewards });
+      });
+
+      const { result: res, logged } = await withCapturedErrorLog(
+        () => api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() }),
+      );
+      expect(res.status).toBe(409);
+      // Compensated: the reward this request minted is gone from Twitch again.
+      const deletes = rewardCalls('DELETE');
+      expect(deletes).toHaveLength(1);
+      expect(deletes[0]?.url.searchParams.get('id')).toBe('orphan');
+      expect(twitchRewards.map(reward => reward.id)).not.toContain('orphan');
+      expect(provenanceOf('orphan')).toBeNull();
+      // The winner's claim is untouched.
+      expect(provenanceOf('race-winner')).toEqual({ source: 'foo', externalRef: 'ref-1' });
+      // The app never learned the id, so the operator's log is the only trace there can be.
+      expect(logged).toContain('orphan');
+    });
+
+    test('still 409s, and logs the orphan, when the compensating delete itself fails', async () => {
+      installFetch(({ url, method }) => {
+        if (url.pathname !== REWARDS_PATH) return null;
+        if (method === 'POST') {
+          insertProvenanceWithRef.run('race-winner', 'foo', 'ref-1', new Date().toISOString());
+          const created = rawReward({ id: 'orphan' });
+          twitchRewards.push(created);
+          return jsonResponse({ data: [created] });
+        }
+        if (method === 'DELETE') return jsonResponse({ message: 'Twitch is having a day' }, 500);
+        return jsonResponse({ data: twitchRewards });
+      });
+
+      const { result: res, logged } = await withCapturedErrorLog(
+        () => api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() }),
+      );
+      // A failed compensation is never swallowed into a 500 — the caller's answer is
+      // still "someone else claimed this ref", and the orphan is still reported.
+      expect(res.status).toBe(409);
+      expect(rewardCalls('DELETE')).toHaveLength(1);
+      expect(logged).toContain('orphan');
+      expect(provenanceOf('orphan')).toBeNull();
     });
   });
 

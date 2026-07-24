@@ -80,12 +80,20 @@ export function getOverlayToken(): string | null {
     .slice(0, 32);
 }
 
-function extractToken(request: express.Request): string | null {
+/** The Authorization bearer header and nothing else. Split out because the app
+ *  surface accepts only this transport — see requireAppToken. */
+function bearerToken(request: express.Request): string | null {
   const authHeader = request.headers.authorization;
   if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
     const token = authHeader.slice('Bearer '.length).trim();
     if (token) return token;
   }
+  return null;
+}
+
+function extractToken(request: express.Request): string | null {
+  const bearer = bearerToken(request);
+  if (bearer) return bearer;
   const headerToken = request.headers['x-dashboard-token'];
   if (typeof headerToken === 'string' && headerToken) return headerToken;
   // Query param is needed for <a href> OAuth links and OBS browser sources.
@@ -183,13 +191,17 @@ export function appFromRequest(request: express.Request): App | null {
  *  - Every rejection is the same bare 401. Saying which check failed would tell a
  *    caller whether a guessed token is well-formed, belongs to a real app, or
  *    belongs to a disabled one. The presented token is never echoed or logged.
+ *  - The BEARER HEADER ONLY, not extractToken's full set. `?token=` exists for OBS
+ *    browser sources and `x-dashboard-token` for the dashboard's own fetches; a
+ *    server-side app is neither, and a credential in a URL ends up in access logs,
+ *    proxy logs and Referer headers. requireDashboardToken keeps all three.
  */
 export function requireAppToken(
   request: express.Request,
   response: express.Response,
   next: express.NextFunction,
 ) {
-  const provided = extractToken(request);
+  const provided = bearerToken(request);
   if (!provided) {
     response.status(401).json({ error: 'Unauthorized' });
     return;

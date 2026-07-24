@@ -145,9 +145,17 @@ function AppTokenControls({
     setError(null);
     setCopied(false);
     void mintAppToken(app.id)
-      .then(async result => {
-        await onChanged();
+      .then(result => {
+        // FIRST, before anything that can fail. The server has already rotated the
+        // hash, so the app's previous token is dead and this plaintext is the only
+        // copy that will ever exist. Revealing it after an awaited reload meant one
+        // failed refetch threw the token away while telling the operator nothing had
+        // happened — leaving a live app whose every call 401s and no way to recover.
         setRevealed(result.token);
+        // Cosmetic: re-reads tokenConfigured and the reward count. It gets its OWN
+        // catch because by this point the token IS minted, and reporting "could not
+        // mint a token" over a failed list refresh would say the opposite of the truth.
+        return onChanged().catch(() => setError('Token minted, but the app list could not be refreshed — reload the page.'));
       })
       .catch(caught => setError(errorMessage(caught, 'Could not mint a token')))
       .finally(() => setBusy(false));

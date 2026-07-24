@@ -85,7 +85,11 @@ Therefore, when a create fails with Twitch's cap error, the response and the ope
 
 > `Twitch rejected the reward: the channel's reward limit is reached. Current rewards by source — pztmi: 7, narya: 3, manual: 12.`
 
-This applies to **both** the app-facing `POST /api/ext/rewards` and the operator's existing `POST /api/twitch/rewards`, since the operator is the party who has to act on it. A small `rewardCountsBySource()` helper in `rewardProvenance.ts` backs both.
+A small `rewardCountsBySource()` helper in `rewardProvenance.ts` backs this. **The audience of the breakdown is split three ways** (amended pre-merge — the original "applies to both routes" wording was written without considering cross-app disclosure, and directly contradicts §2's 404-never-403 rationale):
+
+- **The operator's `POST /api/twitch/rewards`** keeps the full per-source breakdown in the response. The operator is the party who has to decide whose rewards to retire, so they need the attribution in the surface they are looking at.
+- **The app-facing `POST /api/ext/rewards`** gets a **generic** cap message plus **its own** count, and no other source's name or number: `…the channel's reward limit is reached. This app currently holds 2 of the channel's rewards.` An app holds one token and knows one name; handing it `pztmi: 7, narya: 3, manual: 12` would disclose the operator's entire app registry and every app's consumption to any caller that can hit the cap — the same disclosure a 403 would make, which is why §2 answers 404 instead.
+- **The log gets the full breakdown on EVERY create failure**, cap-shaped or not, on both routes. The cap regex is the fragile piece (Twitch renaming its enum silently removes the diagnostic), so the operator's attribution must not depend on it matching. The breakdown is deliberately **not** attached to non-cap 400 responses: duplicate-title is the most common create rejection, and doing so would fire the disclosure constantly instead of at the one moment it is actionable.
 
 Additionally, the **Apps settings page shows a per-app reward count**, so consumption is visible before the cap is hit rather than only at failure. (Same shape as C2's `boundTriggerCount` hint.)
 

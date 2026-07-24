@@ -315,18 +315,57 @@ function isRewardCapError(error: unknown): error is HttpRouteError {
   return error instanceof HttpRouteError && error.status === 400 && REWARD_LIMIT_ERROR_PATTERN.test(error.message);
 }
 
+/**
+ * Who is about to read the create error, which decides how much of the per-source
+ * breakdown may appear in it. `operator` is the default because the operator's own
+ * route is the one that must be able to act on the cap.
+ */
+export type RewardCreateAudience = { kind: 'operator' } | { kind: 'app'; source: string };
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** The compensating control for Phase D shipping with no per-app quota: Twitch's
  *  cap is a single shared pool across manual rewards, Narya-UI rewards, and every
  *  app, so an opaque 400 leaves the operator unable to see who consumed it —
  *  including when it is the operator's own reward creation that starts failing.
  *  Called from the one place both create paths (the app-facing and operator
  *  routes) share (createTwitchReward below), so the attribution is not duplicated
- *  per caller. The underlying Twitch rejection is logged, never swallowed. */
-function toRewardCreateError(error: unknown): unknown {
-  if (!isRewardCapError(error)) return error;
-  console.error('Twitch reward creation rejected — the channel reward limit is reached:', error.message);
+ *  per caller. The underlying Twitch rejection is logged, never swallowed.
+ *
+ *  Who may see WHAT is the load-bearing part:
+ *
+ *   - The LOG gets the full breakdown on EVERY create failure, cap-shaped or not.
+ *     The cap regex is the fragile piece — Twitch renaming its enum would otherwise
+ *     take the whole diagnostic away silently — so the operator's attribution must
+ *     not depend on it matching.
+ *   - The OPERATOR'S response keeps the full breakdown: they are the party who has
+ *     to decide whose rewards to retire.
+ *   - An APP'S response gets a generic cap message plus its OWN count and nothing
+ *     else. An app holds one token and knows one name; naming the other sources
+ *     would hand it the operator's app registry and every app's consumption, which
+ *     is the same disclosure the 404-never-403 rule exists to prevent.
+ *   - The breakdown is NOT attached to non-cap 400s in any response. Duplicate-title
+ *     is the most common create rejection, so doing that would fire the disclosure
+ *     constantly rather than at the one moment it is actionable. */
+function toRewardCreateError(error: unknown, audience: RewardCreateAudience): unknown {
   const counts = rewardCountsBySource();
   const bySource = Object.entries(counts).map(([source, count]) => `${source}: ${count}`).join(', ');
+  console.error(
+    'Twitch reward creation failed — current rewards by source:',
+    bySource || '(none)',
+    '— Twitch said:',
+    describeError(error),
+  );
+  if (!isRewardCapError(error)) return error;
+  if (audience.kind === 'app') {
+    const own = counts[audience.source] ?? 0;
+    return new HttpRouteError(
+      400,
+      `Twitch rejected the reward: the channel's reward limit is reached. This app currently holds ${own} of the channel's rewards.`,
+    );
+  }
   return new HttpRouteError(
     400,
     `Twitch rejected the reward: the channel's reward limit is reached. Current rewards by source — ${bySource}.`,
@@ -339,6 +378,7 @@ export async function createTwitchReward(
   credentials: TwitchRewardCredentials,
   reward: ViewerRewardUpsert,
   isEnabled: boolean,
+  audience: RewardCreateAudience = { kind: 'operator' },
 ): Promise<TwitchReward> {
   const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
   let twitchResponse: Response;
@@ -351,7 +391,7 @@ export async function createTwitchReward(
       passthroughStatuses: [400, 401, 403],
     });
   } catch (error) {
-    throw toRewardCreateError(error);
+    throw toRewardCreateError(error, audience);
   }
   const data = await twitchResponse.json() as { data?: TwitchReward[] };
   const created = data.data?.[0];

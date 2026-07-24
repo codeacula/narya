@@ -167,15 +167,29 @@ export function registerAppRewardRoutes(app: express.Express, state: RuntimeStat
 
     const reward = normalizeAppReward(body, null);
     const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-    const created = await createTwitchReward(credentials, reward, reward.isEnabled);
+    // The cap diagnostic is audience-scoped: this caller may be told its OWN
+    // consumption but never another source's — see toRewardCreateError.
+    const created = await createTwitchReward(credentials, reward, reward.isEnabled, { kind: 'app', source });
     try {
       setRewardSourceWithRef(created.id, source, externalRef);
     } catch (error) {
-      // The Twitch create is the non-transactional step. If two requests race the same
-      // ref, the loser's reward exists on Twitch unattributed — recoverable (it shows up
-      // as 'manual' in the operator's reward UI) and strictly better than attributing a
-      // reward that does not exist.
+      // The Twitch create is the non-transactional step, and the idempotency read
+      // happened before it, so two requests racing the same ref both reach here having
+      // both minted a reward. The loser compensates: without the delete its reward
+      // stays on the channel unattributed, self-heals to 'manual' on the next list, and
+      // is then indistinguishable from one the operator made by hand — a slot silently
+      // consumed out of a pool that has no quota protecting it. Deleting is safe
+      // precisely because the 409 means the id was never returned, so nothing can
+      // depend on it.
       if (isUniqueConstraintError(error)) {
+        try {
+          await deleteTwitchReward(credentials, created.id);
+          console.error(`Rolled back a raced reward create: deleted orphan reward ${created.id} (source ${source}, external_ref ${externalRef}).`);
+        } catch (deleteError) {
+          // Never swallowed into a 500: the caller's answer is still "someone else
+          // claimed this ref", and the operator gets the id they must clean up by hand.
+          console.error(`Orphan reward ${created.id} (source ${source}, external_ref ${externalRef}) could not be rolled back after a raced create:`, deleteError);
+        }
         throw new HttpRouteError(409, 'That external_ref was just claimed by another request for this app.');
       }
       throw error;
