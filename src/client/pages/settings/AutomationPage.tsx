@@ -58,6 +58,7 @@ import {
   moveStep,
   normalizeCommandName,
   opsForField,
+  redisTriggerInertReason,
   redisUnsafeStepWarning,
   removeStep,
   triggerToInput,
@@ -236,6 +237,7 @@ function RedisEventConfigFields({
   triggerActions,
   events,
   loadingEvents,
+  inertReason,
   disabled,
   onChange,
 }: {
@@ -245,6 +247,10 @@ function RedisEventConfigFields({
   triggerActions: TriggerAction[];
   events: AppEvent[];
   loadingEvents: boolean;
+  /** Computed by redisTriggerInertReason (Phase C2) — null while the trigger would
+   *  actually fire. Advisory: rendered here so the operator sees it right next to
+   *  the App/Event pickers they would fix, same placement idea as `warning` below. */
+  inertReason: string | null;
   disabled: boolean;
   onChange: (next: RedisEventTriggerConfig) => void;
 }) {
@@ -252,6 +258,12 @@ function RedisEventConfigFields({
 
   return (
     <>
+      {inertReason && (
+        <div className="settings-wide-field">
+          <span className="media-asset-tag media-asset-tag--off">{inertReason}</span>
+        </div>
+      )}
+
       <label className="field settings-wide-field">
         <span>App</span>
         <select
@@ -312,6 +324,7 @@ function TriggerConfigFields({
   actions,
   events,
   loadingEvents,
+  redisInertReason,
   disabled,
   onChange,
 }: {
@@ -321,6 +334,7 @@ function TriggerConfigFields({
   actions: Action[];
   events: AppEvent[];
   loadingEvents: boolean;
+  redisInertReason: string | null;
   disabled: boolean;
   onChange: (next: AutomationTriggerInput) => void;
 }) {
@@ -494,6 +508,7 @@ function TriggerConfigFields({
           triggerActions={draft.actions}
           events={events}
           loadingEvents={loadingEvents}
+          inertReason={redisInertReason}
           disabled={disabled}
           onChange={config => onChange({ ...draft, config })}
         />
@@ -994,6 +1009,8 @@ function TriggerEditor({
   modules,
   rewards,
   apps,
+  redisEvents,
+  redisLoadingEvents,
   saving,
   testing,
   overrides,
@@ -1012,6 +1029,12 @@ function TriggerEditor({
   modules: CategoryModule[];
   rewards: ViewerReward[];
   apps: App[];
+  /** The bound app's declared events for a redis_event draft (empty for every other
+   *  kind). Lifted up to AutomationSettingsPage — not fetched here — so the trigger
+   *  LIST can reuse the same load to badge every redis_event row it covers, rather
+   *  than each editor instance keeping its own private copy. */
+  redisEvents: AppEvent[];
+  redisLoadingEvents: boolean;
   saving: boolean;
   testing: boolean;
   overrides: TriggerOverride[];
@@ -1028,14 +1051,19 @@ function TriggerEditor({
   const problem = validateTrigger(draft);
   const lifecycle = isLifecycleKind(draft.kind);
 
-  // Loaded once here (not inside RedisEventConfigFields) so ConditionsEditor's
-  // {data.*} picker and the event <select> share the same fetch. appId is '' for
-  // every non-redis_event kind, which useAppEvents already treats as "no events".
-  const redisAppId = draft.kind === 'redis_event' ? draft.config.appId : '';
-  const { events: redisEvents, loadingEvents: redisLoadingEvents } = useAppEvents(redisAppId);
   const redisDataKeys = draft.kind === 'redis_event'
     ? redisEvents.find(entry => entry.eventName === draft.config.eventName)?.dataKeys
     : undefined;
+  // Computed fresh from the just-loaded apps + events on every render — nothing is
+  // persisted. Gated on both fields being picked: a brand-new, not-yet-configured
+  // draft has an empty appId, which would otherwise resolve to "app removed" (no app
+  // has an empty id) before the operator has chosen one — validateTrigger's own
+  // "pick an app"/"pick an event" messages already cover that state. Also gated on
+  // !redisLoadingEvents, since redisEvents is [] mid-fetch, which would misreport
+  // "not declared" for an app that is otherwise fine.
+  const redisInertReason = draft.kind === 'redis_event' && draft.config.appId && draft.config.eventName && !redisLoadingEvents
+    ? redisTriggerInertReason(draft.config, apps, redisEvents)
+    : null;
 
   return (
     <form
@@ -1135,6 +1163,7 @@ function TriggerEditor({
           actions={actions}
           events={redisEvents}
           loadingEvents={redisLoadingEvents}
+          redisInertReason={redisInertReason}
           disabled={saving}
           onChange={onChange}
         />
@@ -1226,6 +1255,25 @@ export function AutomationSettingsPage() {
       .catch(() => setApps([]));
   }, []);
 
+  // Loaded once here (not inside TriggerEditor) so the trigger LIST and the editor
+  // share the same fetch — the list needs a redis_event row's app's events to badge
+  // it, and the editor needs them for the event picker and the {data.*} condition
+  // picker. appId is '' for every non-redis_event kind (or no draft open), which
+  // useAppEvents already treats as "no events".
+  const redisAppId = draft?.kind === 'redis_event' ? draft.config.appId : '';
+  const { events: redisEvents, loadingEvents: redisLoadingEvents } = useAppEvents(redisAppId);
+
+  // Accumulates by app id as the operator opens redis_event triggers, so a trigger
+  // list row keeps its inert badge even after the editor moves on to a different
+  // app — cleared only by a fresh page load, never by navigating within it. Only
+  // caches once a fetch has actually resolved (redisLoadingEvents false), so a
+  // brief loading window can never read as "this app has zero declared events".
+  const [appEventsCache, setAppEventsCache] = useState<Record<string, AppEvent[]>>({});
+  useEffect(() => {
+    if (!redisAppId || redisLoadingEvents) return;
+    setAppEventsCache(cache => ({ ...cache, [redisAppId]: redisEvents }));
+  }, [redisAppId, redisEvents, redisLoadingEvents]);
+
   const rewardTitles = useMemo(() => {
     const titles: Record<string, string> = {};
     for (const reward of rewards) titles[reward.id] = reward.title;
@@ -1237,6 +1285,22 @@ export function AutomationSettingsPage() {
     for (const action of actions) names[action.id] = action.name;
     return names;
   }, [actions]);
+
+  /**
+   * The list's version of redisTriggerInertReason: `apps` alone already answers the
+   * missing-app / disabled-app checks (both cases short-circuit before the events
+   * param is ever read, so [] is safe there), but "event undeclared" is only ever
+   * trustworthy once that specific app's events have actually loaded into
+   * appEventsCache — an app never opened in the editor yet reports null (no badge)
+   * rather than a false "not declared".
+   */
+  const redisInertReasonForList = useCallback((config: RedisEventTriggerConfig): string | null => {
+    const app = apps.find(candidate => candidate.id === config.appId);
+    if (!app || app.disabledAt) return redisTriggerInertReason(config, apps, []);
+    const events = appEventsCache[config.appId];
+    if (!events) return null;
+    return redisTriggerInertReason(config, apps, events);
+  }, [apps, appEventsCache]);
 
   const busy = loading || saving;
 
@@ -1407,6 +1471,7 @@ export function AutomationSettingsPage() {
                           : trigger.actions.map(entry => actionNames[entry.actionId] ?? 'unknown action').join(', ');
                         const missingAction = trigger.actions.some(entry => !actionNames[entry.actionId]);
                         const allActionsDisabled = trigger.actions.length > 0 && trigger.actions.every(entry => !entry.enabled);
+                        const redisInert = trigger.kind === 'redis_event' ? redisInertReasonForList(trigger.config) : null;
                         return (
                           <button
                             type="button"
@@ -1441,6 +1506,9 @@ export function AutomationSettingsPage() {
                                 )}
                                 {allActionsDisabled && (
                                   <span className="media-asset-tag media-asset-tag--off">won't fire — all actions disabled</span>
+                                )}
+                                {redisInert && (
+                                  <span className="media-asset-tag media-asset-tag--off">{redisInert}</span>
                                 )}
                                 {(overrideCounts[trigger.id] ?? 0) > 0 && (
                                   <span className="media-asset-tag">
@@ -1487,6 +1555,8 @@ export function AutomationSettingsPage() {
                     modules={modules}
                     rewards={rewards}
                     apps={apps}
+                    redisEvents={redisEvents}
+                    redisLoadingEvents={redisLoadingEvents}
                     saving={saving}
                     testing={editingId !== null && busyId === editingId}
                     overrides={editingId ? overrides.filter(o => o.triggerId === editingId) : []}

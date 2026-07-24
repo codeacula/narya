@@ -7,6 +7,8 @@ import type {
   ActionStepInput,
   ActionStepType,
   ActionUpsert,
+  App,
+  AppEvent,
   AppEventDataKey,
   AppEventDataKeyType,
   AutomationTrigger,
@@ -17,6 +19,7 @@ import type {
   ConditionOp,
   Counter,
   MediaAsset,
+  RedisEventTriggerConfig,
   TriggerAction,
   TriggerCondition,
   TriggerRole,
@@ -118,6 +121,41 @@ export function redisUnsafeStepWarning(triggerActions: TriggerAction[], actions:
   const labels = [...unsafeTypes].map(type => STEP_TYPE_LABELS[type]).join(', ');
   return `${labels} won't run when this trigger fires from an external event — only the safe step `
     + `subset (show text, play media, speak, adjust counter, send chat) runs inbound.`;
+}
+
+/**
+ * Computed, never persisted: whether a redis_event trigger is currently inert,
+ * given the FRESHLY loaded app roster and (when known) that app's declared events.
+ * Phase C1's inbound consumer already drops an event whose name is no longer
+ * declared and skips a disabled app entirely, so a trigger failing one of these
+ * checks is ALREADY doing nothing at runtime — this only surfaces that fact in the
+ * editor. There is no stored flag: re-declaring the event or re-enabling the app
+ * clears the reason on the next load, with no write anywhere.
+ *
+ * Precedence is deliberate and matters: de-registering (or deleting) an app
+ * cascade-deletes its declared events, so for a trigger bound to a REMOVED app,
+ * "app missing" and "event undeclared" are simultaneously true. The app checks run
+ * first, so the operator is told the app was removed rather than the more
+ * misleading "this event isn't declared" (which reads as fixable by re-declaring
+ * the event alone).
+ */
+export function redisTriggerInertReason(
+  config: RedisEventTriggerConfig,
+  apps: App[],
+  events: AppEvent[],
+): string | null {
+  const app = apps.find(candidate => candidate.id === config.appId);
+  if (!app) {
+    return "This trigger's app has been removed — it can never fire again.";
+  }
+  if (app.disabledAt) {
+    return "This trigger's app is disabled — it won't fire until the app is re-enabled.";
+  }
+  const declared = events.some(event => event.appId === config.appId && event.eventName === config.eventName);
+  if (!declared) {
+    return "This trigger's event is no longer declared — it won't fire until it is re-declared.";
+  }
+  return null;
 }
 
 export const TRIGGER_KINDS: AutomationTriggerKind[] = [

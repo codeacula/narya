@@ -6,6 +6,8 @@ import type {
   ActionStepInput,
   ActionStepType,
   ActionUpsert,
+  App,
+  AppEvent,
   AutomationTrigger,
   AutomationTriggerInput,
   AutomationTriggerKind,
@@ -38,6 +40,7 @@ import {
   normalizeCommandName,
   opsForField,
   parseAliases,
+  redisTriggerInertReason,
   redisUnsafeStepWarning,
   removeStep,
   runResultTone,
@@ -1326,5 +1329,50 @@ describe('REDIS_SAFE_STEP_TYPES / redisUnsafeStepWarning', () => {
 
   test('an unbound action is ignored', () => {
     expect(redisUnsafeStepWarning([], [action({ steps: [banStep] })])).toBeNull();
+  });
+});
+
+describe('redisTriggerInertReason', () => {
+  test('flags a removed app, disabled app, and undeclared event', () => {
+    const apps = [{ id: 'a1', name: 'pztmi', disabledAt: null }] as App[];
+    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+
+    expect(redisTriggerInertReason({ appId: 'a1', eventName: 'boss_killed' }, apps, events)).toBeNull();
+    expect(redisTriggerInertReason({ appId: 'gone', eventName: 'boss_killed' }, apps, events)).toMatch(/app/i);
+    expect(redisTriggerInertReason({ appId: 'a1', eventName: 'not_declared' }, apps, events)).toMatch(/declared/i);
+    const disabled = [{ id: 'a1', name: 'pztmi', disabledAt: '2026-07-24T00:00:00.000Z' }] as App[];
+    expect(redisTriggerInertReason({ appId: 'a1', eventName: 'boss_killed' }, disabled, events)).toMatch(/disabled/i);
+  });
+
+  // Precedence is deliberate: de-registering an app cascade-deletes its declared
+  // events, so a MISSING app and an "undeclared" event are simultaneously true for
+  // every trigger that was bound to it. The app-existence check must win, or the
+  // operator sees a misleading "event not declared" instead of "app was removed".
+  test('precedence: a removed app is reported as removed, never as an undeclared event', () => {
+    const apps = [{ id: 'a1', name: 'pztmi', disabledAt: null }] as App[];
+    // 'gone' has no app row AND no declared events at all in this fixture — both
+    // conditions are true at once.
+    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+    const reason = redisTriggerInertReason({ appId: 'gone', eventName: 'boss_killed' }, apps, events);
+    expect(reason).toMatch(/app/i);
+    expect(reason).not.toMatch(/declared/i);
+  });
+
+  test('precedence: a disabled app is reported as disabled, never as an undeclared event', () => {
+    const disabled = [{ id: 'a1', name: 'pztmi', disabledAt: '2026-07-24T00:00:00.000Z' }] as App[];
+    const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+    const reason = redisTriggerInertReason({ appId: 'a1', eventName: 'not_declared' }, disabled, events);
+    expect(reason).toMatch(/disabled/i);
+    expect(reason).not.toMatch(/declared/i);
+  });
+
+  test('an event declared for a different app does not count as declared for this one', () => {
+    const apps = [
+      { id: 'a1', name: 'pztmi', disabledAt: null },
+      { id: 'a2', name: 'other', disabledAt: null },
+    ] as App[];
+    const events = [{ appId: 'a2', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+    const reason = redisTriggerInertReason({ appId: 'a1', eventName: 'boss_killed' }, apps, events);
+    expect(reason).toMatch(/declared/i);
   });
 });
