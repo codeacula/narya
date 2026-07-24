@@ -7,19 +7,23 @@ import type {
   AutomationTriggerKind,
   ChatPhraseMatch,
   ChatPhraseTriggerConfig,
+  ConditionOp,
   DashboardSlashTriggerConfig,
   ManualTriggerConfig,
   RewardTriggerConfig,
   SlashCommandRequest,
   TemplateContext,
   TriggerAction,
+  TriggerCondition,
   TriggerRole,
   TwitchEventTriggerConfig,
   ViewerCommandTriggerConfig,
 } from '../shared/api';
 import { DEFAULT_GLOBAL_COOLDOWN_MS, DEFAULT_USER_COOLDOWN_MS } from '../shared/api';
+import { normalizeProfileTag } from '../shared/viewerTags';
 import { db, runOnce } from './db';
 import { handle, HttpRouteError } from './http';
+import { CONDITIONS_UNREADABLE } from './triggerConditions';
 import type { TriggerDispatcher } from './triggerDispatcher';
 
 const MAX_PHRASE_LENGTH = 200;
@@ -30,6 +34,7 @@ const MAX_REWARD_ID_LENGTH = 120;
 // Mirrors the client's MAX_ACTIONS_PER_TRIGGER (src/client/pages/settings/automation.ts) —
 // the client caps the editor UI, but the API must enforce the same limit independently.
 const MAX_ACTIONS_PER_TRIGGER = 20;
+const MAX_CONDITIONS = 10;
 
 const TRIGGER_KINDS = new Set<AutomationTriggerKind>([
   'reward',
@@ -56,6 +61,7 @@ type TriggerRow = {
   moduleId: string | null;
   enabled: number;
   configJson: string;
+  conditionsJson: string;
   globalCooldownMs: number;
   userCooldownMs: number;
   createdAt: string;
@@ -70,6 +76,7 @@ const TRIGGER_COLUMNS = `
   module_id as moduleId,
   enabled,
   config_json as configJson,
+  conditions_json as conditionsJson,
   global_cooldown_ms as globalCooldownMs,
   user_cooldown_ms as userCooldownMs,
   created_at as createdAt,
@@ -86,13 +93,13 @@ const listEnabledRowsOfKind = db.prepare(`
 
 const insertTriggerRow = db.prepare(`
   insert into automation_triggers
-    (id, kind, name, action_id, module_id, enabled, config_json, global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
-  values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, kind, name, action_id, module_id, enabled, config_json, conditions_json, global_cooldown_ms, user_cooldown_ms, created_at, updated_at)
+  values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const updateTriggerRow = db.prepare(`
   update automation_triggers
-  set kind = ?, name = ?, action_id = ?, module_id = ?, enabled = ?, config_json = ?,
+  set kind = ?, name = ?, action_id = ?, module_id = ?, enabled = ?, config_json = ?, conditions_json = ?,
       global_cooldown_ms = ?, user_cooldown_ms = ?, updated_at = ?
   where id = ?
 `);
@@ -226,6 +233,63 @@ function normalizeConfig(kind: AutomationTriggerKind, value: unknown): Automatio
   }
 }
 
+const CHAT_KINDS = new Set<AutomationTriggerKind>(['chat_phrase', 'viewer_command']);
+// Comparison-op fields per kind (role_is/tag_has use field 'role'/'tags' and are gated separately).
+const CONDITION_FIELDS: Record<AutomationTriggerKind, Set<string>> = {
+  reward: new Set(['actor', 'login', 'input', 'rewardTitle']),
+  twitch_event: new Set(['actor', 'login', 'amount', 'tier', 'months']),
+  chat_phrase: new Set(['actor', 'login', 'message']),
+  viewer_command: new Set(['actor', 'login', 'input', 'message']),
+  dashboard_slash: new Set(['actor', 'login', 'input']),
+  manual: new Set(['actor', 'login']),
+  module_activate: new Set(['actor', 'login']),
+  module_deactivate: new Set(['actor', 'login']),
+};
+const COMPARISON_OPS = new Set(['eq', 'neq', 'contains', 'starts_with', 'gte', 'lte', 'in']);
+
+function normalizeConditions(kind: AutomationTriggerKind, value: unknown): TriggerCondition[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new HttpRouteError(400, 'conditions must be an array.');
+  if (value.length > MAX_CONDITIONS) {
+    throw new HttpRouteError(400, `A trigger can have at most ${MAX_CONDITIONS} conditions.`);
+  }
+  return value.map(raw => {
+    const c = asRecord(raw);
+    const op = c.op as ConditionOp;
+    if (op === 'role_is' || op === 'tag_has') {
+      if (!CHAT_KINDS.has(kind)) throw new HttpRouteError(400, `${op} is only available on chat triggers.`);
+      if (op === 'role_is' && !['broadcaster', 'mod', 'vip', 'sub'].includes(String(c.value))) {
+        throw new HttpRouteError(400, 'role_is needs a valid role.');
+      }
+      if (op === 'tag_has' && !normalizeProfileTag(String(c.value ?? ''))) {
+        throw new HttpRouteError(400, 'tag_has needs a tag.');
+      }
+      return { field: op === 'role_is' ? 'role' : 'tags', op, value: String(c.value) };
+    }
+    if (!COMPARISON_OPS.has(String(c.op))) throw new HttpRouteError(400, `Unsupported condition op: ${c.op}.`);
+    const field = typeof c.field === 'string' ? c.field : '';
+    if (!CONDITION_FIELDS[kind]?.has(field)) {
+      throw new HttpRouteError(400, `Field "${field}" is not available on a ${kind} trigger.`);
+    }
+    if (op === 'in') {
+      if (!Array.isArray(c.value) || c.value.length === 0) throw new HttpRouteError(400, 'in needs a non-empty list.');
+      return { field, op, value: c.value.map(String) };
+    }
+    if (op === 'gte' || op === 'lte') {
+      // Number.isNaN alone is fail-open here: Number('1e999') / Number('Infinity')
+      // are non-NaN, but JSON.stringify(Infinity) === 'null', so conditions_json
+      // would persist "value":null and Number(null) === 0 on read-back — an "amount
+      // gte <huge>" filter would silently become always-true. An empty/whitespace
+      // value coerces to 0 the same way, so it must be rejected before coercion too.
+      const rawIsBlank = typeof c.value === 'string' && c.value.trim() === '';
+      const n = Number(c.value);
+      if (rawIsBlank || !Number.isFinite(n)) throw new HttpRouteError(400, `${op} needs a finite number.`);
+      return { field, op, value: n };
+    }
+    return { field, op, value: String(c.value ?? '') };
+  });
+}
+
 export function normalizeAutomationTriggerInput(body: unknown): AutomationTriggerInput {
   const value = asRecord(body);
 
@@ -265,6 +329,7 @@ export function normalizeAutomationTriggerInput(body: unknown): AutomationTrigge
     kind,
     name,
     actions,
+    conditions: normalizeConditions(kind as AutomationTriggerKind, value.conditions),
     moduleId,
     enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
     globalCooldownMs: normalizeCooldown(value.globalCooldownMs, DEFAULT_GLOBAL_COOLDOWN_MS),
@@ -291,11 +356,26 @@ function rowToTrigger(row: TriggerRow): AutomationTrigger {
     enabled: action.enabled === 1,
   }));
 
+  // conditions_json is written only after normalizeConditions validated it against this
+  // row's kind. A parse failure OR a syntactically-valid-but-non-array value (e.g. `{}`
+  // or `"x"` from manual DB tampering) both fail closed to CONDITIONS_UNREADABLE rather
+  // than [] (which would mean "no filter" and fire unconditionally). A non-array would
+  // also make evaluateConditions' `.every` throw — see triggerConditions.ts.
+  let conditions: TriggerCondition[] = CONDITIONS_UNREADABLE;
+  try {
+    const parsed = JSON.parse(row.conditionsJson);
+    if (Array.isArray(parsed)) conditions = parsed;
+    else console.error(`Automation: trigger ${row.id} has non-array conditions JSON; failing closed.`);
+  } catch (error) {
+    console.error(`Automation: trigger ${row.id} has unreadable conditions JSON:`, error);
+  }
+
   return {
     id: row.id,
     kind: row.kind as AutomationTriggerKind,
     name: row.name,
     actions,
+    conditions,
     moduleId: row.moduleId,
     enabled: row.enabled === 1,
     globalCooldownMs: row.globalCooldownMs,
@@ -339,6 +419,7 @@ const createTriggerRecord = db.transaction((input: AutomationTriggerInput) => {
     input.moduleId,
     input.enabled ? 1 : 0,
     JSON.stringify(input.config),
+    JSON.stringify(input.conditions),
     input.globalCooldownMs,
     input.userCooldownMs,
     now,
@@ -356,6 +437,7 @@ const updateTriggerRecord = db.transaction((id: string, input: AutomationTrigger
     input.moduleId,
     input.enabled ? 1 : 0,
     JSON.stringify(input.config),
+    JSON.stringify(input.conditions),
     input.globalCooldownMs,
     input.userCooldownMs,
     new Date().toISOString(),
@@ -491,6 +573,7 @@ export function seedBuiltInSlashCommands(): void {
         null,
         1,
         JSON.stringify({ command: seed.command, aliases: seed.aliases }),
+        JSON.stringify([]),
         0,
         0,
         now,

@@ -1152,6 +1152,112 @@ describe('per-viewer trigger overrides', () => {
   });
 });
 
+describe('trigger conditions', () => {
+  function runCount(triggerId: string): number {
+    return (db.prepare('select count(*) as n from automation_runs where trigger_id = ?').get(triggerId) as { n: number }).n;
+  }
+
+  test('a non-matching condition fires nothing — no run row, no cooldown consumed', async () => {
+    const created = trigger({
+      kind: 'twitch_event',
+      config: { eventKind: 'cheer' },
+      conditions: [{ field: 'amount', op: 'gte', value: 100 }],
+      globalCooldownMs: 60_000,
+    });
+    const { dispatcher, runner } = setup();
+
+    await dispatcher.handleTwitchEvent({ kind: 'cheer', eventId: 'e1', actor: 'bob', login: 'bob', amount: 50 });
+
+    expect(runner.calls).toHaveLength(0);
+    // The suppressed event claims no run row — which is also the proof no cooldown was
+    // burned, since cooldowns are computed from automation_runs.
+    expect(runCount(created.id)).toBe(0);
+
+    // ...so a matching event immediately after is not gated by a phantom cooldown.
+    await dispatcher.handleTwitchEvent({ kind: 'cheer', eventId: 'e2', actor: 'bob', login: 'bob', amount: 150 });
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  test('a matching condition fires', async () => {
+    trigger({ kind: 'twitch_event', config: { eventKind: 'cheer' }, conditions: [{ field: 'amount', op: 'gte', value: 100 }] });
+    const { dispatcher, runner } = setup();
+
+    await dispatcher.handleTwitchEvent({ kind: 'cheer', eventId: 'e1', actor: 'bob', login: 'bob', amount: 150 });
+
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  test('role_is fires for a sub in chat and not for a non-sub', async () => {
+    trigger({
+      kind: 'viewer_command',
+      config: { command: '!cmd', aliases: [], roles: [] },
+      conditions: [{ field: 'role', op: 'role_is', value: 'sub' }],
+    });
+    const { dispatcher, runner } = setup();
+
+    // No subscriber badge → context.roles is empty → role_is 'sub' is false → nothing fires.
+    await dispatcher.handleChatMessage(chat({ id: 'm1', message: '!cmd', badges: null }));
+    expect(runner.calls).toHaveLength(0);
+
+    // Subscriber badge → context.roles includes 'sub' → fires.
+    await dispatcher.handleChatMessage(chat({ id: 'm2', message: '!cmd', badges: { subscriber: '1' } }));
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  test('role_is never passes off the chat path (twitch_event carries no roles)', async () => {
+    // role_is is normally chat-only, but even a hand-tampered non-chat trigger cannot
+    // pass it: the twitch_event builder sets no roles, so the resolved set is empty.
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'cheer' } });
+    db.prepare('update automation_triggers set conditions_json = ? where id = ?')
+      .run(JSON.stringify([{ field: 'role', op: 'role_is', value: 'sub' }]), created.id);
+    const { dispatcher, runner } = setup();
+
+    await dispatcher.handleTwitchEvent({ kind: 'cheer', eventId: 'e1', actor: 'bob', login: 'bob', amount: 500 });
+
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  test('a manual run bypasses conditions and fires', async () => {
+    // The amount condition would fail against the empty manual context (amount missing),
+    // but a manual run sets enforceGates: false, so conditions are skipped entirely.
+    const created = trigger({
+      kind: 'twitch_event',
+      config: { eventKind: 'cheer' },
+      conditions: [{ field: 'amount', op: 'gte', value: 100 }],
+    });
+    const { dispatcher, runner } = setup();
+
+    const result = await dispatcher.runTriggerManually(created.id);
+
+    expect(result.status).not.toBe('skipped');
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  test('a non-array conditions_json fails closed without throwing', async () => {
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'cheer' } });
+    // Manual DB tampering: syntactically valid JSON that is not an array.
+    db.prepare('update automation_triggers set conditions_json = ? where id = ?').run('{}', created.id);
+    const { dispatcher, runner } = setup();
+
+    const runs = await dispatcher.handleTwitchEvent({ kind: 'cheer', eventId: 'e1', actor: 'bob', login: 'bob', amount: 500 });
+
+    expect(runner.calls).toHaveLength(0);
+    expect(runs).toHaveLength(0);
+    expect(runCount(created.id)).toBe(0);
+  });
+
+  test('unparseable conditions_json fails closed without throwing', async () => {
+    const created = trigger({ kind: 'twitch_event', config: { eventKind: 'cheer' } });
+    db.prepare('update automation_triggers set conditions_json = ? where id = ?').run('{not json', created.id);
+    const { dispatcher, runner } = setup();
+
+    const runs = await dispatcher.handleTwitchEvent({ kind: 'cheer', eventId: 'e1', actor: 'bob', login: 'bob', amount: 500 });
+
+    expect(runner.calls).toHaveLength(0);
+    expect(runs).toHaveLength(0);
+  });
+});
+
 describe('multi-action triggers', () => {
   function makeAction(name: string) {
     return createAction({

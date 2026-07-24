@@ -15,6 +15,7 @@ import type {
 } from '../shared/api';
 import { getRoleFromBadges, getViewerRolesFromBadges } from '../shared/roles';
 import { getAutomationTrigger, listEnabledTriggersOfKind } from './automationTriggers';
+import { evaluateConditions } from './triggerConditions';
 import { resolveOverrideActionId } from './triggerOverrides';
 import {
   adjustCounterByKey as adjustCounterByKeyRow,
@@ -265,6 +266,12 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
 
     if (enforceGates && !isArmed(trigger)) return null;
 
+    // Conditions gate BEFORE the enabled-actions skip, the cooldown, and the claim: a
+    // non-matching event must consume no run row and burn no cooldown. evaluateConditions
+    // fails closed on the unreadable sentinel and on any non-array, so a tampered
+    // conditions_json cannot fire. Manual runs (enforceGates: false) bypass conditions.
+    if (enforceGates && !evaluateConditions(trigger.conditions, context)) return null;
+
     // The enabled actions, in stored order. A trigger with none enabled is inert: it
     // skips entirely BEFORE the cooldown check and the claim, so it neither records a
     // run row nor consumes its cooldown. (The schema keeps >=1 stored action per
@@ -355,7 +362,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       if (!hit) continue;
       candidates.push({
         trigger,
-        context: { actor, login, role, tags, message: text, input: remainder, args: tokenize(remainder) },
+        context: { actor, login, role, roles: getViewerRolesFromBadges(message.badges), tags, message: text, input: remainder, args: tokenize(remainder) },
       });
     }
 
@@ -367,7 +374,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
         const input = text.trim().slice(word.length).trim();
         candidates.push({
           trigger,
-          context: { actor, login, role, tags, message: text, input, args: tokenize(input) },
+          context: { actor, login, role, roles: getViewerRolesFromBadges(message.badges), tags, message: text, input, args: tokenize(input) },
         });
       }
     }

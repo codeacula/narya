@@ -7,17 +7,22 @@ import type {
   ActionUpsert,
   AutomationTrigger,
   AutomationTriggerInput,
+  AutomationTriggerKind,
   CategoryModule,
   MediaAsset,
   TriggerAction,
+  TriggerCondition,
   TriggerRunResult,
 } from '../../../shared/api';
 import {
+  CONDITION_FIELDS_BY_KIND,
   MAX_ACTIONS_PER_TRIGGER,
+  MAX_CONDITIONS,
   STEP_TYPES,
   STEP_TYPE_LABELS,
   actionRunResultTone,
   actionToUpsert,
+  conditionFieldsForKind,
   describeStep,
   describeTriggerConfig,
   formatCooldown,
@@ -28,6 +33,7 @@ import {
   moveStep,
   newStep,
   normalizeCommandName,
+  opsForField,
   parseAliases,
   removeStep,
   runResultTone,
@@ -39,6 +45,7 @@ import {
   triggerToInput,
   unplayableAssetIds,
   validateAction,
+  validateConditions,
   validateStep,
   validateTrigger,
 } from './automation';
@@ -397,6 +404,7 @@ describe('validateTrigger', () => {
     kind: 'manual',
     name: 'Hype trigger',
     actions: [{ actionId: 'action-1', position: 0, enabled: true }],
+    conditions: [],
     moduleId: null,
     enabled: true,
     globalCooldownMs: 0,
@@ -445,6 +453,7 @@ describe('validateTrigger', () => {
       kind: 'chat_phrase',
       name: 'Hype trigger',
       actions: [{ actionId: 'action-1', position: 0, enabled: true }],
+      conditions: [],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -464,6 +473,7 @@ describe('validateTrigger', () => {
       kind: 'module_activate',
       name: 'Module switch',
       actions: [{ actionId: 'action-1', position: 0, enabled: true }],
+      conditions: [],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -481,6 +491,7 @@ describe('validateTrigger', () => {
       kind: 'chat_phrase',
       name: 'Hype trigger',
       actions: [{ actionId: 'action-1', position: 0, enabled: true }],
+      conditions: [],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -543,6 +554,7 @@ describe('trigger scope', () => {
       kind: 'manual',
       name: 'Hype trigger',
       actions: [{ actionId: 'a1', position: 0, enabled: true }],
+      conditions: [],
       moduleId,
       enabled: true,
       globalCooldownMs: 0,
@@ -576,6 +588,7 @@ describe('describeTriggerConfig', () => {
       kind: 'manual',
       name: 'Hype trigger',
       actions: [{ actionId: 'a1', position: 0, enabled: true }],
+      conditions: [],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -746,13 +759,13 @@ describe('describeTriggerConfig command rendering', () => {
     // normalizeCommand on the server stores "!lurk" / "/ban", not "lurk" / "ban".
     // Prefixing again here rendered "!!lurk" and "//shoutout (//so)" in the UI.
     const viewer = {
-      id: 't1', kind: 'viewer_command', name: 'Lurk', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
+      id: 't1', kind: 'viewer_command', name: 'Lurk', actions: [{ actionId: 'a', position: 0, enabled: true }], conditions: [], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { command: '!lurk', aliases: [], roles: [] },
       createdAt: '', updatedAt: '',
     } as AutomationTrigger;
     const slash = {
-      id: 't2', kind: 'dashboard_slash', name: 'Shoutout', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
+      id: 't2', kind: 'dashboard_slash', name: 'Shoutout', actions: [{ actionId: 'a', position: 0, enabled: true }], conditions: [], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { command: '/shoutout', aliases: ['/so'] },
       createdAt: '', updatedAt: '',
@@ -771,7 +784,7 @@ describe('triggerToInput', () => {
     // loading the stored value raw showed "Viewers type !!quack" and the field rewrote
     // itself on the first keystroke.
     const viewer = {
-      id: 't1', kind: 'viewer_command', name: 'Quack', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
+      id: 't1', kind: 'viewer_command', name: 'Quack', actions: [{ actionId: 'a', position: 0, enabled: true }], conditions: [], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { command: '!quack', aliases: ['!duck'], roles: [] },
       createdAt: '', updatedAt: '',
@@ -786,7 +799,7 @@ describe('triggerToInput', () => {
 
   test('strips the slash prefix from a dashboard command and its aliases', () => {
     const slash = {
-      id: 't2', kind: 'dashboard_slash', name: 'Shoutout', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
+      id: 't2', kind: 'dashboard_slash', name: 'Shoutout', actions: [{ actionId: 'a', position: 0, enabled: true }], conditions: [], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { command: '/shoutout', aliases: ['/so'] },
       createdAt: '', updatedAt: '',
@@ -800,7 +813,7 @@ describe('triggerToInput', () => {
 
   test('leaves a non-command trigger config untouched', () => {
     const phrase = {
-      id: 't3', kind: 'chat_phrase', name: 'Hype phrase', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
+      id: 't3', kind: 'chat_phrase', name: 'Hype phrase', actions: [{ actionId: 'a', position: 0, enabled: true }], conditions: [], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { phrase: '!!! hype !!!', match: 'contains', roles: [] },
       createdAt: '', updatedAt: '',
@@ -820,6 +833,7 @@ describe('triggerToInput', () => {
         { actionId: 'a1', position: 0, enabled: true },
         { actionId: 'a2', position: 1, enabled: false },
       ] as TriggerAction[],
+      conditions: [],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -839,7 +853,7 @@ describe('triggerToInput', () => {
 
   test('drops the server-owned id and timestamps', () => {
     const trigger = {
-      id: 't4', kind: 'manual', name: 'Hype train', actions: [{ actionId: 'a', position: 0, enabled: true }], moduleId: null, enabled: true,
+      id: 't4', kind: 'manual', name: 'Hype train', actions: [{ actionId: 'a', position: 0, enabled: true }], conditions: [], moduleId: null, enabled: true,
       globalCooldownMs: 0, userCooldownMs: 0,
       config: { label: 'Hype train' },
       createdAt: '2026-07-11T00:00:00.000Z', updatedAt: '2026-07-11T00:00:00.000Z',
@@ -848,6 +862,204 @@ describe('triggerToInput', () => {
     expect(triggerToInput(trigger)).not.toHaveProperty('id');
     expect(triggerToInput(trigger)).not.toHaveProperty('createdAt');
     expect(triggerToInput(trigger)).not.toHaveProperty('updatedAt');
+  });
+
+  // Task 4: the editor's draft must carry the saved filter back into the form
+  // unchanged, or every trigger with conditions would silently lose them on edit.
+  test('round-trips conditions untouched', () => {
+    const conditions: TriggerCondition[] = [
+      { field: 'amount', op: 'gte', value: 100 },
+      { field: 'actor', op: 'eq', value: 'bob' },
+    ];
+    const trigger = {
+      id: 't6', kind: 'twitch_event', name: 'Big cheer', actions: [{ actionId: 'a', position: 0, enabled: true }],
+      conditions,
+      moduleId: null, enabled: true,
+      globalCooldownMs: 0, userCooldownMs: 0,
+      config: { eventKind: 'cheer' },
+      createdAt: '2026-07-11T00:00:00.000Z', updatedAt: '2026-07-11T00:00:00.000Z',
+    } as AutomationTrigger;
+
+    expect(triggerToInput(trigger).conditions).toEqual(conditions);
+  });
+});
+
+describe('trigger conditions vocabulary', () => {
+  test('CONDITION_FIELDS_BY_KIND mirrors the server per-kind field list exactly', () => {
+    expect(CONDITION_FIELDS_BY_KIND.reward).toEqual(['actor', 'login', 'input', 'rewardTitle']);
+    expect(CONDITION_FIELDS_BY_KIND.twitch_event).toEqual(['actor', 'login', 'amount', 'tier', 'months']);
+    expect(CONDITION_FIELDS_BY_KIND.chat_phrase).toEqual(['actor', 'login', 'message']);
+    expect(CONDITION_FIELDS_BY_KIND.viewer_command).toEqual(['actor', 'login', 'input', 'message']);
+    expect(CONDITION_FIELDS_BY_KIND.dashboard_slash).toEqual(['actor', 'login', 'input']);
+    expect(CONDITION_FIELDS_BY_KIND.manual).toEqual(['actor', 'login']);
+    expect(CONDITION_FIELDS_BY_KIND.module_activate).toEqual(['actor', 'login']);
+    expect(CONDITION_FIELDS_BY_KIND.module_deactivate).toEqual(['actor', 'login']);
+  });
+
+  test('conditionFieldsForKind adds the chat-only role/tags pseudo-fields', () => {
+    expect(conditionFieldsForKind('chat_phrase')).toEqual(['actor', 'login', 'message', 'role', 'tags']);
+    expect(conditionFieldsForKind('viewer_command')).toContain('role');
+    expect(conditionFieldsForKind('reward')).not.toContain('role');
+    expect(conditionFieldsForKind('reward')).not.toContain('tags');
+  });
+
+  test('opsForField offers range ops on numeric fields, not on text fields', () => {
+    expect(opsForField('twitch_event', 'amount')).toEqual(['eq', 'neq', 'gte', 'lte', 'in']);
+    expect(opsForField('twitch_event', 'months')).toEqual(['eq', 'neq', 'gte', 'lte', 'in']);
+    expect(opsForField('reward', 'actor')).toEqual(['eq', 'neq', 'contains', 'starts_with', 'in']);
+  });
+
+  test('opsForField exposes role_is/tag_has only on chat kinds', () => {
+    expect(opsForField('chat_phrase', 'role')).toEqual(['role_is']);
+    expect(opsForField('viewer_command', 'tags')).toEqual(['tag_has']);
+    expect(opsForField('reward', 'role')).toEqual([]);
+    expect(opsForField('manual', 'tags')).toEqual([]);
+  });
+});
+
+describe('validateConditions', () => {
+  test('an empty list is valid — no filter', () => {
+    expect(validateConditions('reward', [])).toBeNull();
+  });
+
+  test('accepts a well-formed set of conditions', () => {
+    const conditions: TriggerCondition[] = [
+      { field: 'amount', op: 'gte', value: 100 },
+      { field: 'actor', op: 'eq', value: 'bob' },
+    ];
+    expect(validateConditions('twitch_event', conditions)).toBeNull();
+  });
+
+  test('rejects a gte with a non-numeric value', () => {
+    const conditions: TriggerCondition[] = [{ field: 'amount', op: 'gte', value: 'banana' }];
+    expect(validateConditions('twitch_event', conditions)).toContain('number');
+  });
+
+  test('rejects an lte with a non-numeric value', () => {
+    const conditions: TriggerCondition[] = [{ field: 'months', op: 'lte', value: 'banana' }];
+    expect(validateConditions('twitch_event', conditions)).toContain('number');
+  });
+
+  test('a numeric string is a valid gte value', () => {
+    const conditions: TriggerCondition[] = [{ field: 'amount', op: 'gte', value: '100' }];
+    expect(validateConditions('twitch_event', conditions)).toBeNull();
+  });
+
+  // Fail-open regression: Number('1e999') passes the old !Number.isNaN check and
+  // stores Infinity, which JSON.stringify drops to null — a "gte <huge>" filter
+  // silently became always-true. Mirrors the server's normalizeConditions guard.
+  test('rejects a gte with a value that coerces to a non-finite number', () => {
+    const conditions: TriggerCondition[] = [{ field: 'amount', op: 'gte', value: '1e999' }];
+    expect(validateConditions('twitch_event', conditions)).not.toBeNull();
+  });
+
+  test('rejects an lte with a value that coerces to a non-finite number', () => {
+    const conditions: TriggerCondition[] = [{ field: 'months', op: 'lte', value: 'Infinity' }];
+    expect(validateConditions('twitch_event', conditions)).not.toBeNull();
+  });
+
+  // Number('') === 0, so a blank value used to pass validation and become an
+  // always-true "gte 0" filter instead of a validation error.
+  test('rejects a gte with an empty or whitespace-only value', () => {
+    const empty: TriggerCondition[] = [{ field: 'amount', op: 'gte', value: '' }];
+    expect(validateConditions('twitch_event', empty)).not.toBeNull();
+
+    const whitespace: TriggerCondition[] = [{ field: 'amount', op: 'gte', value: '   ' }];
+    expect(validateConditions('twitch_event', whitespace)).not.toBeNull();
+  });
+
+  test('rejects role_is on a non-chat kind', () => {
+    const conditions: TriggerCondition[] = [{ field: 'role', op: 'role_is', value: 'sub' }];
+    expect(validateConditions('reward', conditions)).toContain('chat');
+  });
+
+  test('accepts role_is on a chat kind with a valid role', () => {
+    const conditions: TriggerCondition[] = [{ field: 'role', op: 'role_is', value: 'sub' }];
+    expect(validateConditions('chat_phrase', conditions)).toBeNull();
+  });
+
+  test('rejects role_is with an invalid role value', () => {
+    const conditions: TriggerCondition[] = [{ field: 'role', op: 'role_is', value: 'viewer' }];
+    expect(validateConditions('chat_phrase', conditions)).toContain('role');
+  });
+
+  test('rejects tag_has on a non-chat kind', () => {
+    const conditions: TriggerCondition[] = [{ field: 'tags', op: 'tag_has', value: 'friend' }];
+    expect(validateConditions('viewer_command', conditions)).toBeNull();
+    expect(validateConditions('dashboard_slash', conditions)).toContain('chat');
+  });
+
+  test('rejects a field not available on this kind', () => {
+    const conditions: TriggerCondition[] = [{ field: 'amount', op: 'eq', value: '5' }];
+    expect(validateConditions('reward', conditions)).toContain('not available');
+  });
+
+  test('rejects an empty "in" list', () => {
+    const conditions: TriggerCondition[] = [{ field: 'tier', op: 'in', value: [] }];
+    expect(validateConditions('twitch_event', conditions)).not.toBeNull();
+  });
+
+  test('rejects more than MAX_CONDITIONS', () => {
+    const conditions: TriggerCondition[] = Array.from({ length: MAX_CONDITIONS + 1 }, () => (
+      { field: 'actor', op: 'eq', value: 'x' }
+    ));
+    expect(validateConditions('reward', conditions)).toContain(`at most ${MAX_CONDITIONS}`);
+  });
+
+  test('exactly MAX_CONDITIONS is accepted', () => {
+    const conditions: TriggerCondition[] = Array.from({ length: MAX_CONDITIONS }, () => (
+      { field: 'actor', op: 'eq', value: 'x' }
+    ));
+    expect(validateConditions('reward', conditions)).toBeNull();
+  });
+});
+
+describe('validateTrigger with conditions', () => {
+  const base: AutomationTriggerInput = {
+    kind: 'twitch_event',
+    name: 'Big cheer',
+    actions: [{ actionId: 'action-1', position: 0, enabled: true }],
+    conditions: [],
+    moduleId: null,
+    enabled: true,
+    globalCooldownMs: 0,
+    userCooldownMs: 0,
+    config: { eventKind: 'cheer' },
+  };
+
+  test('a valid condition set is accepted', () => {
+    const trigger = { ...base, conditions: [{ field: 'amount', op: 'gte', value: 100 }] as TriggerCondition[] };
+    expect(validateTrigger(trigger)).toBeNull();
+  });
+
+  test('an invalid condition surfaces its own message rather than a generic one', () => {
+    const trigger = { ...base, conditions: [{ field: 'amount', op: 'gte', value: 'banana' }] as TriggerCondition[] };
+    expect(validateTrigger(trigger)).toContain('number');
+  });
+
+  test('a gte value that coerces to a non-finite number is rejected at the trigger level too', () => {
+    const trigger = { ...base, conditions: [{ field: 'amount', op: 'gte', value: '1e999' }] as TriggerCondition[] };
+    expect(validateTrigger(trigger)).not.toBeNull();
+  });
+
+  test('a blank gte value is rejected at the trigger level too', () => {
+    const trigger = { ...base, conditions: [{ field: 'amount', op: 'gte', value: '' }] as TriggerCondition[] };
+    expect(validateTrigger(trigger)).not.toBeNull();
+  });
+
+  test('a role_is on a non-chat kind trigger is rejected at the trigger level too', () => {
+    const trigger: AutomationTriggerInput = {
+      kind: 'manual',
+      name: 'Hype trigger',
+      actions: [{ actionId: 'action-1', position: 0, enabled: true }],
+      conditions: [{ field: 'role', op: 'role_is', value: 'sub' }],
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'Hype' },
+    };
+    expect(validateTrigger(trigger)).toContain('chat');
   });
 });
 

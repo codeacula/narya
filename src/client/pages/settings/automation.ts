@@ -12,8 +12,10 @@ import type {
   AutomationTriggerKind,
   CategoryModule,
   ChatPhraseMatch,
+  ConditionOp,
   Counter,
   MediaAsset,
+  TriggerCondition,
   TriggerRole,
   TriggerRunResult,
 } from '../../../shared/api';
@@ -24,6 +26,7 @@ import {
   MAX_LLM_INTERACTION_HISTORY,
   MAX_LLM_SYSTEM_PROMPT_LENGTH,
 } from '../../../shared/api';
+import { normalizeProfileTag } from '../../../shared/viewerTags';
 
 // Mirrors of the server's limits in src/server/actions.ts. Duplicated deliberately:
 // validating here turns a 400 round-trip into an inline message, but the server
@@ -130,6 +133,149 @@ export function supportsCooldowns(kind: AutomationTriggerKind): boolean {
 /** Kinds where a real viewer arrives on the signal, so a per-viewer override can match. */
 export function supportsOverrides(kind: AutomationTriggerKind): boolean {
   return kind === 'reward' || kind === 'twitch_event' || kind === 'chat_phrase' || kind === 'viewer_command';
+}
+
+// --- Trigger conditions --------------------------------------------------------
+// Mirrors the server's normalizeConditions (src/server/automationTriggers.ts): validating
+// here turns a 400 round-trip into an inline message, but the server stays the authority.
+
+/** Mirrors the server's MAX_CONDITIONS. */
+export const MAX_CONDITIONS = 10;
+
+/** Kinds where a real chat message carries the actor's resolved roles/tags, so
+ *  role_is/tag_has have something to compare against. Mirrors the server's CHAT_KINDS. */
+const CHAT_CONDITION_KINDS = new Set<AutomationTriggerKind>(['chat_phrase', 'viewer_command']);
+
+/**
+ * Comparison-op fields per kind — mirrors the server's CONDITION_FIELDS exactly.
+ * `role_is`/`tag_has` are gated separately below and use their own pseudo-fields
+ * ('role'/'tags') rather than living in this map, the same way the server keeps
+ * them out of CONDITION_FIELDS.
+ */
+export const CONDITION_FIELDS_BY_KIND: Record<AutomationTriggerKind, string[]> = {
+  reward: ['actor', 'login', 'input', 'rewardTitle'],
+  twitch_event: ['actor', 'login', 'amount', 'tier', 'months'],
+  chat_phrase: ['actor', 'login', 'message'],
+  viewer_command: ['actor', 'login', 'input', 'message'],
+  dashboard_slash: ['actor', 'login', 'input'],
+  manual: ['actor', 'login'],
+  module_activate: ['actor', 'login'],
+  module_deactivate: ['actor', 'login'],
+};
+
+/** Fields whose values are numbers, so the editor offers gte/lte alongside eq/neq/in
+ *  instead of contains/starts_with. */
+const NUMERIC_CONDITION_FIELDS = new Set(['amount', 'months']);
+
+/** Human labels for the field picker. 'role'/'tags' are the chat-only pseudo-fields
+ *  that map to the role_is/tag_has ops. */
+export const CONDITION_FIELD_LABELS: Record<string, string> = {
+  actor: 'Actor (display name)',
+  login: 'Login',
+  input: 'Input',
+  rewardTitle: 'Reward title',
+  amount: 'Amount',
+  tier: 'Tier',
+  months: 'Months',
+  message: 'Message',
+  role: 'Role',
+  tags: 'Tag',
+};
+
+export const CONDITION_OP_LABELS: Record<ConditionOp, string> = {
+  eq: 'is',
+  neq: 'is not',
+  contains: 'contains',
+  starts_with: 'starts with',
+  gte: 'is at least',
+  lte: 'is at most',
+  in: 'is one of',
+  role_is: 'has role',
+  tag_has: 'has tag',
+};
+
+/** role_is only matches these — the same asymmetry the server enforces: a plain
+ *  viewer never satisfies role_is, because "has an elevated role" cannot be true
+ *  of everyone. */
+export const CONDITION_ROLE_VALUES: TriggerRole[] = ['broadcaster', 'mod', 'vip', 'sub'];
+
+const COMPARISON_CONDITION_OPS = new Set<ConditionOp>(['eq', 'neq', 'contains', 'starts_with', 'gte', 'lte', 'in']);
+
+/**
+ * The fields selectable in the editor for this kind, including the chat-only
+ * role/tags pseudo-fields — they map to the role_is/tag_has ops rather than a
+ * comparison op, so they are appended here rather than folded into
+ * CONDITION_FIELDS_BY_KIND (which mirrors the server's comparison-only map).
+ */
+export function conditionFieldsForKind(kind: AutomationTriggerKind): string[] {
+  const fields = [...CONDITION_FIELDS_BY_KIND[kind]];
+  if (CHAT_CONDITION_KINDS.has(kind)) fields.push('role', 'tags');
+  return fields;
+}
+
+/**
+ * The ops valid for a given field on a given kind. 'role'/'tags' are single-op
+ * pseudo-fields available only on chat kinds; a numeric field offers gte/lte, a
+ * text field offers contains/starts_with instead — both offer eq/neq/in either way.
+ */
+export function opsForField(kind: AutomationTriggerKind, field: string): ConditionOp[] {
+  if (field === 'role') return CHAT_CONDITION_KINDS.has(kind) ? ['role_is'] : [];
+  if (field === 'tags') return CHAT_CONDITION_KINDS.has(kind) ? ['tag_has'] : [];
+  if (NUMERIC_CONDITION_FIELDS.has(field)) return ['eq', 'neq', 'gte', 'lte', 'in'];
+  return ['eq', 'neq', 'contains', 'starts_with', 'in'];
+}
+
+/**
+ * The first problem that would make the server reject these conditions, or null.
+ * Mirrors normalizeConditions in src/server/automationTriggers.ts exactly: the
+ * op/kind gate for role_is/tag_has runs before the field check (they are not in
+ * CONDITION_FIELDS_BY_KIND at all), gte/lte only checks that the VALUE is numeric
+ * (not that the field is a "numeric" one — opsForField is a UI convenience, the
+ * server has no such restriction), and `in` needs a non-empty array.
+ */
+export function validateConditions(kind: AutomationTriggerKind, conditions: TriggerCondition[]): string | null {
+  if (conditions.length > MAX_CONDITIONS) {
+    return `A trigger can have at most ${MAX_CONDITIONS} conditions.`;
+  }
+
+  for (const condition of conditions) {
+    const { field, op, value } = condition;
+
+    if (op === 'role_is' || op === 'tag_has') {
+      if (!CHAT_CONDITION_KINDS.has(kind)) {
+        return `"${CONDITION_OP_LABELS[op]}" is only available on chat triggers.`;
+      }
+      if (op === 'role_is' && !CONDITION_ROLE_VALUES.includes(String(value) as TriggerRole)) {
+        return '"Has role" needs a valid role.';
+      }
+      // normalizeProfileTag (not a bare trim) matches the server's check exactly: a
+      // value that is only a '#' or over-length trims down to empty there too.
+      if (op === 'tag_has' && !normalizeProfileTag(String(value ?? ''))) return '"Has tag" needs a tag.';
+      continue;
+    }
+
+    if (!COMPARISON_CONDITION_OPS.has(op)) return `Unsupported condition op: ${op}.`;
+    if (!CONDITION_FIELDS_BY_KIND[kind].includes(field)) {
+      return `Field "${CONDITION_FIELD_LABELS[field] ?? field}" is not available on a ${TRIGGER_KIND_LABELS[kind].toLowerCase()} trigger.`;
+    }
+
+    if (op === 'in') {
+      if (!Array.isArray(value) || value.length === 0) return '"Is one of" needs at least one value.';
+      continue;
+    }
+    if (op === 'gte' || op === 'lte') {
+      // Mirrors the server's normalizeConditions exactly: Number.isNaN alone lets
+      // '1e999'/'Infinity' through (they coerce to Infinity, which the server would
+      // then store as JSON null and read back as 0 — an always-true filter), and an
+      // empty/whitespace value coerces to 0 the same way, so both are rejected here
+      // before the server ever sees them.
+      const rawIsBlank = typeof value === 'string' && value.trim() === '';
+      if (rawIsBlank || !Number.isFinite(Number(value))) {
+        return `"${CONDITION_OP_LABELS[op]}" needs a finite number.`;
+      }
+    }
+  }
+  return null;
 }
 
 // --- Step editing ------------------------------------------------------------
@@ -578,6 +724,8 @@ export function validateTrigger(trigger: AutomationTriggerInput): string | null 
   if (trigger.globalCooldownMs < 0 || trigger.userCooldownMs < 0) {
     return 'Cooldowns cannot be negative. Use 0 to disable one.';
   }
+  const conditionsProblem = validateConditions(trigger.kind, trigger.conditions);
+  if (conditionsProblem) return conditionsProblem;
 
   switch (trigger.kind) {
     case 'reward':
