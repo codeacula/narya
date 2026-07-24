@@ -813,6 +813,7 @@ const allowedMigrationColumns = new Set([
   'raw_text',
   'redis_url',
   'name',
+  'conditions_json',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -876,6 +877,10 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // `kind` + a slice of `id` so an existing trigger gets a readable name instead
   // of staying blank.
   name: "text not null default ''",
+  // Phase B2: the trigger's optional AND-only condition filter, evaluated by the
+  // pure evaluateConditions (triggerConditions.ts). Default '[]' means "no filter,
+  // always matches" for every existing trigger.
+  conditions_json: "text not null default '[]'",
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -970,6 +975,10 @@ runOnce('seed-stream-status-raw-text', () => {
 // carries the ordering; `automation_triggers.action_id` stays as the legacy
 // single-Action pointer until later tasks migrate readers off it.
 addColumnIfMissing('automation_triggers', 'name', "text not null default ''");
+// Phase B2: optional AND-only condition filter (JSON-encoded TriggerCondition[]).
+// Default '[]' is "no filter" — no backfill needed, an existing trigger keeps firing
+// exactly as before.
+addColumnIfMissing('automation_triggers', 'conditions_json', "text not null default '[]'");
 // One join row per existing trigger, position 0, copied from its legacy
 // action_id. `insert or ignore` is safe against a seed that already wrote a
 // join row for a trigger before this backfill runs.
