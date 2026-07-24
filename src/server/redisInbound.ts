@@ -21,7 +21,7 @@
  * `redisUrl` is never logged.
  */
 import { listApps } from './apps';
-import { isDeclaredEvent } from './apps';
+import { isDeclaredEvent, recordDataKeys as recordDataKeysReal } from './apps';
 import { appConfig } from './appConfig';
 import { getTriggerDispatcher } from './automation';
 import { config } from './config';
@@ -167,6 +167,17 @@ function fieldValue(fields: unknown, name: string): unknown {
   return undefined;
 }
 
+// Indirected through a mutable local rather than called via the `./apps` import
+// directly, ONLY so a test can inject a throwing collaborator deterministically:
+// mock.module cannot reliably re-link a module another test file already loaded
+// (see eventBus.test.ts), and redisInboundSmoke.test.ts statically imports this
+// file regardless of its describe.skip. Production always runs the real one.
+let recordDataKeys = recordDataKeysReal;
+/** Test-only seam — swap (or restore) the learn call's implementation. */
+export function __setRecordDataKeysForTest(fn: typeof recordDataKeysReal): void {
+  recordDataKeys = fn;
+}
+
 /**
  * Process one stream entry: decide, dispatch if warranted, then ALWAYS XACK. The XACK
  * happens AFTER the dispatch — the dispatch's own `claim()` is what dedups, so a crash
@@ -175,7 +186,7 @@ function fieldValue(fields: unknown, name: string): unknown {
  * is caught, that entry is XACKed and skipped, and the loop continues — one poison
  * entry never stalls the stream.
  */
-async function handleEntry(c: RedisClientLike, appId: string, key: string, entryId: string, fields: unknown): Promise<void> {
+export async function handleEntry(c: RedisClientLike, appId: string, key: string, entryId: string, fields: unknown): Promise<void> {
   try {
     const decision = processInboundEntry(fieldValue(fields, ENVELOPE_FIELD), {
       appId,
@@ -186,6 +197,18 @@ async function handleEntry(c: RedisClientLike, appId: string, key: string, entry
       await getTriggerDispatcher().handleRedisEvent(decision.dispatch);
     }
     await c.xack(key, GROUP, entryId);
+    // Auto-learn the payload's key catalog. AFTER the XACK and in its own try/catch:
+    // learning is advisory bookkeeping, so it must never delay a fire, affect the
+    // XACK, or fall into the outer catch (which would log an entry error and XACK
+    // a second time). Only a dispatched — declared, well-formed, in-bounds — entry
+    // learns; a dropped entry never touches the catalog.
+    if ('dispatch' in decision) {
+      try {
+        recordDataKeys(appId, decision.dispatch.eventName, decision.dispatch.data);
+      } catch (error) {
+        logInboundError('catalog', error);
+      }
+    }
   } catch (error) {
     logInboundError('entry', error);
     try {
