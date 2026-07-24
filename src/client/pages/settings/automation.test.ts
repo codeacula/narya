@@ -920,6 +920,17 @@ describe('trigger conditions vocabulary', () => {
     expect(opsForField('reward', 'role')).toEqual([]);
     expect(opsForField('manual', 'tags')).toEqual([]);
   });
+
+  test('opsForField offers numeric ops for a number-typed data key and text ops otherwise', () => {
+    expect(opsForField('redis_event', 'data.wave', 'number')).toEqual(['eq', 'neq', 'gte', 'lte', 'in']);
+    expect(opsForField('redis_event', 'data.boss', 'string')).toEqual(['eq', 'neq', 'contains', 'starts_with', 'in']);
+    expect(opsForField('redis_event', 'data.unknown')).toEqual(['eq', 'neq', 'contains', 'starts_with', 'in']);
+  });
+
+  test('conditionFieldsForKind appends catalog keys for redis_event', () => {
+    expect(conditionFieldsForKind('redis_event', [{ name: 'boss', type: 'string' }])).toEqual(['actor', 'login', 'data.boss']);
+    expect(conditionFieldsForKind('redis_event')).toEqual(['actor', 'login']);
+  });
 });
 
 describe('validateConditions', () => {
@@ -1016,6 +1027,15 @@ describe('validateConditions', () => {
       { field: 'actor', op: 'eq', value: 'x' }
     ));
     expect(validateConditions('reward', conditions)).toBeNull();
+  });
+
+  test('validateConditions accepts a data.* field on redis_event and rejects it elsewhere', () => {
+    expect(validateConditions('redis_event', [{ field: 'data.wave', op: 'gte', value: 5 }])).toBeNull();
+    expect(validateConditions('reward', [{ field: 'data.wave', op: 'gte', value: 5 }])).not.toBeNull();
+  });
+
+  test('validateConditions rejects a malformed data field', () => {
+    expect(validateConditions('redis_event', [{ field: 'data.a b', op: 'eq', value: 'x' }])).not.toBeNull();
   });
 });
 

@@ -7,6 +7,8 @@ import type {
   ActionStepInput,
   ActionStepType,
   ActionUpsert,
+  AppEventDataKey,
+  AppEventDataKeyType,
   AutomationTrigger,
   AutomationTriggerInput,
   AutomationTriggerKind,
@@ -205,13 +207,26 @@ export const CONDITION_FIELDS_BY_KIND: Record<AutomationTriggerKind, string[]> =
   manual: ['actor', 'login'],
   module_activate: ['actor', 'login'],
   module_deactivate: ['actor', 'login'],
-  // Conditions over {data.*} land in a later task — actor/login only for now.
+  // data.* is additionally accepted by pattern (see DATA_CONDITION_FIELD_PATTERN below,
+  // and conditionFieldsForKind) — the inbound {data.*} payload keys aren't known at this
+  // layer, so they can't be listed here the way the fixed fields above are.
   redis_event: ['actor', 'login'],
 };
 
 /** Fields whose values are numbers, so the editor offers gte/lte alongside eq/neq/in
  *  instead of contains/starts_with. */
 const NUMERIC_CONDITION_FIELDS = new Set(['amount', 'months']);
+
+/** The two op sets a field can offer — named once so opsForField's numeric/text
+ *  branches (fixed fields and data.* alike) share the same array instances rather
+ *  than each spelling the literal out again. */
+const NUMERIC_COMPARISON_OPS: ConditionOp[] = ['eq', 'neq', 'gte', 'lte', 'in'];
+const TEXT_COMPARISON_OPS: ConditionOp[] = ['eq', 'neq', 'contains', 'starts_with', 'in'];
+
+/** Mirrors the server's DATA_CONDITION_FIELD (src/server/automationTriggers.ts): a
+ *  redis_event condition may target any inbound {data.*} key, validated by pattern
+ *  rather than against the learned catalog — see validateConditions. */
+const DATA_CONDITION_FIELD_PATTERN = /^data\.[A-Za-z0-9_.-]+$/;
 
 /** Human labels for the field picker. 'role'/'tags' are the chat-only pseudo-fields
  *  that map to the role_is/tag_has ops. */
@@ -252,10 +267,15 @@ const COMPARISON_CONDITION_OPS = new Set<ConditionOp>(['eq', 'neq', 'contains', 
  * role/tags pseudo-fields — they map to the role_is/tag_has ops rather than a
  * comparison op, so they are appended here rather than folded into
  * CONDITION_FIELDS_BY_KIND (which mirrors the server's comparison-only map).
+ *
+ * `dataKeys` is the auto-learned {data.*} catalog for the trigger's selected app +
+ * event (Phase C2) — advisory only, so callers that don't have it yet (or kinds
+ * other than redis_event) get the same field list as before.
  */
-export function conditionFieldsForKind(kind: AutomationTriggerKind): string[] {
+export function conditionFieldsForKind(kind: AutomationTriggerKind, dataKeys?: AppEventDataKey[]): string[] {
   const fields = [...CONDITION_FIELDS_BY_KIND[kind]];
   if (CHAT_CONDITION_KINDS.has(kind)) fields.push('role', 'tags');
+  if (kind === 'redis_event' && dataKeys) fields.push(...dataKeys.map(key => `data.${key.name}`));
   return fields;
 }
 
@@ -263,12 +283,26 @@ export function conditionFieldsForKind(kind: AutomationTriggerKind): string[] {
  * The ops valid for a given field on a given kind. 'role'/'tags' are single-op
  * pseudo-fields available only on chat kinds; a numeric field offers gte/lte, a
  * text field offers contains/starts_with instead — both offer eq/neq/in either way.
+ * A `data.*` field (redis_event only) follows the catalog's resolved type when known
+ * (`dataKeyType`), and falls back to the text set for an unrecognized key — the same
+ * "field absent from the catalog is still usable" rule validateConditions enforces.
  */
-export function opsForField(kind: AutomationTriggerKind, field: string): ConditionOp[] {
+export function opsForField(kind: AutomationTriggerKind, field: string, dataKeyType?: AppEventDataKeyType): ConditionOp[] {
   if (field === 'role') return CHAT_CONDITION_KINDS.has(kind) ? ['role_is'] : [];
   if (field === 'tags') return CHAT_CONDITION_KINDS.has(kind) ? ['tag_has'] : [];
-  if (NUMERIC_CONDITION_FIELDS.has(field)) return ['eq', 'neq', 'gte', 'lte', 'in'];
-  return ['eq', 'neq', 'contains', 'starts_with', 'in'];
+  if (field.startsWith('data.')) return dataKeyType === 'number' ? NUMERIC_COMPARISON_OPS : TEXT_COMPARISON_OPS;
+  if (NUMERIC_CONDITION_FIELDS.has(field)) return NUMERIC_COMPARISON_OPS;
+  return TEXT_COMPARISON_OPS;
+}
+
+/**
+ * The field picker's display label. `data.*` fields come from the auto-learned
+ * catalog (dynamic, per app/event) rather than the fixed CONDITION_FIELD_LABELS map,
+ * so they render as their bare key name instead of getting a static entry each.
+ */
+export function conditionFieldLabel(field: string): string {
+  if (field.startsWith('data.')) return `Data: ${field.slice('data.'.length)}`;
+  return CONDITION_FIELD_LABELS[field] ?? field;
 }
 
 /**
@@ -277,7 +311,10 @@ export function opsForField(kind: AutomationTriggerKind, field: string): Conditi
  * op/kind gate for role_is/tag_has runs before the field check (they are not in
  * CONDITION_FIELDS_BY_KIND at all), gte/lte only checks that the VALUE is numeric
  * (not that the field is a "numeric" one — opsForField is a UI convenience, the
- * server has no such restriction), and `in` needs a non-empty array.
+ * server has no such restriction), and `in` needs a non-empty array. A redis_event
+ * field matching DATA_CONDITION_FIELD_PATTERN skips the CONDITION_FIELDS_BY_KIND
+ * membership check the same way the server's isDataField does — validated by
+ * pattern, never against the (possibly lagging) auto-learned catalog.
  */
 export function validateConditions(kind: AutomationTriggerKind, conditions: TriggerCondition[]): string | null {
   if (conditions.length > MAX_CONDITIONS) {
@@ -301,7 +338,8 @@ export function validateConditions(kind: AutomationTriggerKind, conditions: Trig
     }
 
     if (!COMPARISON_CONDITION_OPS.has(op)) return `Unsupported condition op: ${op}.`;
-    if (!CONDITION_FIELDS_BY_KIND[kind].includes(field)) {
+    const isDataField = kind === 'redis_event' && DATA_CONDITION_FIELD_PATTERN.test(field);
+    if (!isDataField && !CONDITION_FIELDS_BY_KIND[kind].includes(field)) {
       return `Field "${CONDITION_FIELD_LABELS[field] ?? field}" is not available on a ${TRIGGER_KIND_LABELS[kind].toLowerCase()} trigger.`;
     }
 

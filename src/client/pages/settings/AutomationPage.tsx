@@ -4,6 +4,8 @@ import type {
   AlertEventKind,
   App,
   AppEvent,
+  AppEventDataKey,
+  AppEventDataKeyType,
   AutomationTrigger,
   AutomationTriggerInput,
   AutomationTriggerKind,
@@ -40,7 +42,6 @@ import { errorMessage } from '../../errors';
 import {
   CHAT_PHRASE_MATCHES,
   CHAT_PHRASE_MATCH_LABELS,
-  CONDITION_FIELD_LABELS,
   CONDITION_OP_LABELS,
   CONDITION_ROLE_VALUES,
   MAX_ACTIONS_PER_TRIGGER,
@@ -49,6 +50,7 @@ import {
   TRIGGER_KIND_HINTS,
   TRIGGER_KIND_LABELS,
   TRIGGER_ROLES,
+  conditionFieldLabel,
   conditionFieldsForKind,
   describeTriggerConfig,
   formatCooldown,
@@ -191,31 +193,18 @@ function CooldownFields({
 }
 
 /**
- * App + declared-event pickers for a redis_event trigger, plus the advisory
- * safe-subset warning. The event `<select>` reloads from getAppEvents whenever the
- * chosen app changes — picking a different app also clears eventName, since a
- * declared event name from the old app has no meaning under the new one.
+ * Loads (and reloads on appId change) the declared events for a redis_event
+ * trigger's chosen app. Lifted out of RedisEventConfigFields so both the event
+ * picker and ConditionsEditor (which needs the selected event's dataKeys for the
+ * {data.*} condition picker) share this one fetch instead of each keeping its own
+ * copy — TriggerEditor calls this once and passes the result down to both.
  */
-function RedisEventConfigFields({
-  config,
-  apps,
-  actions,
-  triggerActions,
-  disabled,
-  onChange,
-}: {
-  config: RedisEventTriggerConfig;
-  apps: App[];
-  actions: Action[];
-  triggerActions: TriggerAction[];
-  disabled: boolean;
-  onChange: (next: RedisEventTriggerConfig) => void;
-}) {
+function useAppEvents(appId: string): { events: AppEvent[]; loadingEvents: boolean } {
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
 
   useEffect(() => {
-    if (!config.appId) {
+    if (!appId) {
       setEvents([]);
       return;
     }
@@ -224,13 +213,41 @@ function RedisEventConfigFields({
     // selectable while loading B (the eventName reset on app change already dropped the value).
     setEvents([]);
     setLoadingEvents(true);
-    void getAppEvents(config.appId)
+    void getAppEvents(appId)
       .then(next => { if (!cancelled) setEvents(next); })
       .catch(() => { if (!cancelled) setEvents([]); })
       .finally(() => { if (!cancelled) setLoadingEvents(false); });
     return () => { cancelled = true; };
-  }, [config.appId]);
+  }, [appId]);
 
+  return { events, loadingEvents };
+}
+
+/**
+ * App + declared-event pickers for a redis_event trigger, plus the advisory
+ * safe-subset warning. `events`/`loadingEvents` come from TriggerEditor's
+ * useAppEvents call — picking a different app also clears eventName, since a
+ * declared event name from the old app has no meaning under the new one.
+ */
+function RedisEventConfigFields({
+  config,
+  apps,
+  actions,
+  triggerActions,
+  events,
+  loadingEvents,
+  disabled,
+  onChange,
+}: {
+  config: RedisEventTriggerConfig;
+  apps: App[];
+  actions: Action[];
+  triggerActions: TriggerAction[];
+  events: AppEvent[];
+  loadingEvents: boolean;
+  disabled: boolean;
+  onChange: (next: RedisEventTriggerConfig) => void;
+}) {
   const warning = redisUnsafeStepWarning(triggerActions, actions);
 
   return (
@@ -293,6 +310,8 @@ function TriggerConfigFields({
   rewards,
   apps,
   actions,
+  events,
+  loadingEvents,
   disabled,
   onChange,
 }: {
@@ -300,6 +319,8 @@ function TriggerConfigFields({
   rewards: ViewerReward[];
   apps: App[];
   actions: Action[];
+  events: AppEvent[];
+  loadingEvents: boolean;
   disabled: boolean;
   onChange: (next: AutomationTriggerInput) => void;
 }) {
@@ -471,6 +492,8 @@ function TriggerConfigFields({
           apps={apps}
           actions={actions}
           triggerActions={draft.actions}
+          events={events}
+          loadingEvents={loadingEvents}
           disabled={disabled}
           onChange={config => onChange({ ...draft, config })}
         />
@@ -726,16 +749,30 @@ function ConditionValueInput({
 function ConditionsEditor({
   kind,
   conditions,
+  dataKeys,
   disabled,
   onChange,
 }: {
   kind: AutomationTriggerKind;
   conditions: TriggerCondition[];
+  /** The bound redis_event's auto-learned {data.*} catalog (Phase C2), when known.
+   *  Undefined on every other kind, and on a redis_event trigger before an event is
+   *  picked or before its dataKeys have loaded — the picker just shows fewer options. */
+  dataKeys?: AppEventDataKey[];
   disabled: boolean;
   onChange: (next: TriggerCondition[]) => void;
 }) {
   const atLimit = conditions.length >= MAX_CONDITIONS;
-  const fieldOptions = conditionFieldsForKind(kind);
+  const fieldOptions = conditionFieldsForKind(kind, dataKeys);
+
+  // A data.* field's op set is type-aware (numeric vs. text) when the catalog knows
+  // the key's type — a UI convenience only, never a validation gate: a field absent
+  // from the catalog (auto-learn lag, or hand-typed via the "(undeclared)" fallback
+  // some day) still resolves to the text op set rather than being blocked.
+  const dataKeyTypeForField = (field: string): AppEventDataKeyType | undefined => {
+    if (!field.startsWith('data.')) return undefined;
+    return dataKeys?.find(entry => `data.${entry.name}` === field)?.type;
+  };
 
   // Conditions are plain {field,op,value} objects with no id of their own — and none
   // is added to the wire format sent to the server. A client-only id is generated once
@@ -774,12 +811,12 @@ function ConditionsEditor({
                 disabled={disabled}
                 onChange={event => {
                   const field = event.target.value;
-                  const op = opsForField(kind, field)[0] ?? 'eq';
+                  const op = opsForField(kind, field, dataKeyTypeForField(field))[0] ?? 'eq';
                   updateAt(index, { field, op, value: defaultConditionValue(op) });
                 }}
               >
                 {fieldOptions.map(field => (
-                  <option key={field} value={field}>{CONDITION_FIELD_LABELS[field] ?? field}</option>
+                  <option key={field} value={field}>{conditionFieldLabel(field)}</option>
                 ))}
               </select>
               <select
@@ -790,7 +827,7 @@ function ConditionsEditor({
                   updateAt(index, { field: condition.field, op, value: defaultConditionValue(op) });
                 }}
               >
-                {opsForField(kind, condition.field).map(op => (
+                {opsForField(kind, condition.field, dataKeyTypeForField(condition.field)).map(op => (
                   <option key={op} value={op}>{CONDITION_OP_LABELS[op]}</option>
                 ))}
               </select>
@@ -991,6 +1028,15 @@ function TriggerEditor({
   const problem = validateTrigger(draft);
   const lifecycle = isLifecycleKind(draft.kind);
 
+  // Loaded once here (not inside RedisEventConfigFields) so ConditionsEditor's
+  // {data.*} picker and the event <select> share the same fetch. appId is '' for
+  // every non-redis_event kind, which useAppEvents already treats as "no events".
+  const redisAppId = draft.kind === 'redis_event' ? draft.config.appId : '';
+  const { events: redisEvents, loadingEvents: redisLoadingEvents } = useAppEvents(redisAppId);
+  const redisDataKeys = draft.kind === 'redis_event'
+    ? redisEvents.find(entry => entry.eventName === draft.config.eventName)?.dataKeys
+    : undefined;
+
   return (
     <form
       className="settings-editor-section trigger-editor"
@@ -1042,6 +1088,7 @@ function TriggerEditor({
           key={editingId ?? 'new'}
           kind={draft.kind}
           conditions={draft.conditions}
+          dataKeys={redisDataKeys}
           disabled={saving}
           onChange={next => onChange({ ...draft, conditions: next })}
         />
@@ -1081,7 +1128,16 @@ function TriggerEditor({
           <span>Enabled</span>
         </label>
 
-        <TriggerConfigFields draft={draft} rewards={rewards} apps={apps} actions={actions} disabled={saving} onChange={onChange} />
+        <TriggerConfigFields
+          draft={draft}
+          rewards={rewards}
+          apps={apps}
+          actions={actions}
+          events={redisEvents}
+          loadingEvents={redisLoadingEvents}
+          disabled={saving}
+          onChange={onChange}
+        />
 
         {supportsCooldowns(draft.kind) && <CooldownFields draft={draft} disabled={saving} onChange={onChange} />}
 
