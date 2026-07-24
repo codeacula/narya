@@ -1,22 +1,47 @@
+import { createHash, randomBytes } from 'crypto';
 import type express from 'express';
 import { catalogToDataKeys, mergeDataCatalog, parseDataCatalog } from './appEventCatalog';
 import { db } from './db';
 import { handle, HttpRouteError } from './http';
+import { rewardCountsBySource } from './rewardProvenance';
 import type { App, AppEvent } from '../shared/api';
 
 const RESERVED_SOURCES = new Set(['narya', 'manual']);
 
-type AppRow = { id: string; name: string; createdAt: string; disabledAt: string | null };
+// The ROW shape from SQLite — distinct from App (the wire type). tokenHash never
+// leaves this module: rowToApp derives tokenConfigured from it and omits it.
+type AppRow = { id: string; name: string; createdAt: string; disabledAt: string | null; tokenHash: string | null };
 
-const SELECT_COLUMNS = 'id, name, created_at as createdAt, disabled_at as disabledAt';
+const SELECT_COLUMNS = 'id, name, created_at as createdAt, disabled_at as disabledAt, token_hash as tokenHash';
 const listAppsRow = db.prepare(`select ${SELECT_COLUMNS} from apps order by name`);
 const getAppRow = db.prepare(`select ${SELECT_COLUMNS} from apps where id = ?`);
 const getAppByName = db.prepare('select 1 as present from apps where name = ?');
 const insertApp = db.prepare('insert into apps (id, name, created_at, disabled_at) values (?, ?, ?, null)');
 const setDisabled = db.prepare('update apps set disabled_at = ? where id = ?');
+const setTokenHash = db.prepare('update apps set token_hash = ? where id = ?');
+const getAppByTokenHash = db.prepare(`select ${SELECT_COLUMNS} from apps where token_hash = ?`);
+
+// Never spread ...row here — that would put tokenHash back on the wire the moment
+// a new AppRow column is added and someone forgets this comment.
+//
+// rewardCounts defaults to a fresh rewardCountsBySource() call so every single-row
+// caller (createApp, setAppDisabled, findAppByTokenHash) stays a one-liner; listApps
+// below computes it once and threads it through the map instead, so listing N apps
+// costs one reward_provenance scan, not N.
+function rowToApp(row: AppRow, rewardCounts: Record<string, number> = rewardCountsBySource()): App {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.createdAt,
+    disabledAt: row.disabledAt,
+    tokenConfigured: Boolean(row.tokenHash),
+    rewardCount: rewardCounts[row.name] ?? 0,
+  };
+}
 
 export function listApps(): App[] {
-  return listAppsRow.all() as AppRow[];
+  const rewardCounts = rewardCountsBySource();
+  return (listAppsRow.all() as AppRow[]).map(row => rowToApp(row, rewardCounts));
 }
 
 function normalizeName(raw: unknown): string {
@@ -33,17 +58,48 @@ export function createApp(rawName: string): App {
   if (getAppByName.get(name)) throw new HttpRouteError(409, `An app named "${name}" already exists.`);
   const id = crypto.randomUUID();
   insertApp.run(id, name, new Date().toISOString());
-  return getAppRow.get(id) as App;
+  return rowToApp(getAppRow.get(id) as AppRow);
 }
 
 export function setAppDisabled(id: string, disabled: boolean): App | null {
   setDisabled.run(disabled ? new Date().toISOString() : null, id);
-  return (getAppRow.get(id) as App | undefined) ?? null;
+  const row = getAppRow.get(id) as AppRow | undefined;
+  return row ? rowToApp(row) : null;
 }
 
 export function isKnownSource(source: string): boolean {
   if (RESERVED_SOURCES.has(source)) return true;
   return Boolean(getAppByName.get(source));
+}
+
+const TOKEN_PREFIX = 'narya_app_';
+
+/** sha256 of the plaintext token. Only this is ever persisted. */
+export function hashAppToken(plaintext: string): string {
+  return createHash('sha256').update(plaintext).digest('hex');
+}
+
+/** Mint (or rotate) an app's token. Returns the plaintext EXACTLY once — it is not
+ *  stored and cannot be recovered. Rotating instantly invalidates the previous token. */
+export function mintAppToken(appId: string): string {
+  if (!appExistsById(appId)) throw new HttpRouteError(404, 'App not found.');
+  const plaintext = `${TOKEN_PREFIX}${randomBytes(32).toString('hex')}`;
+  setTokenHash.run(hashAppToken(plaintext), appId);
+  return plaintext;
+}
+
+/** Existence-checked for the same reason mintAppToken is: an UPDATE against an id
+ *  that does not exist is a silent no-op in SQLite, so a typo'd id would answer 204
+ *  and leave the operator believing they had killed a credential that is still live. */
+export function revokeAppToken(appId: string): void {
+  if (!appExistsById(appId)) throw new HttpRouteError(404, 'App not found.');
+  setTokenHash.run(null, appId);
+}
+
+/** Resolve a token HASH to its app. Callers hash first — never pass a plaintext. */
+export function findAppByTokenHash(tokenHash: string): App | null {
+  const row = getAppByTokenHash.get(tokenHash) as AppRow | undefined;
+  return row ? rowToApp(row) : null;
 }
 
 export function listSelectableSources(): string[] {
@@ -172,6 +228,15 @@ export function registerAppsRoutes(app: express.Express) {
   }));
   app.delete('/api/apps/:id/events/:name', handle(async (request, response) => {
     removeAppEvent(request.params.id, request.params.name);
+    response.status(204).end();
+  }));
+  // Operator-only (this is /api/apps/, not /api/ext/ — the token-authenticated
+  // surface Task 2/4 add). Mint returns the plaintext once; it is never shown again.
+  app.post('/api/apps/:id/token', handle(async (request, response) => {
+    response.status(201).json({ token: mintAppToken(request.params.id) });
+  }));
+  app.delete('/api/apps/:id/token', handle(async (request, response) => {
+    revokeAppToken(request.params.id);
     response.status(204).end();
   }));
 }

@@ -830,6 +830,7 @@ const allowedMigrationTables = new Set([
   'wind_down_state',
   'stream_status',
   'automation_triggers',
+  'apps',
 ]);
 const allowedMigrationColumns = new Set([
   'account_user_id',
@@ -871,6 +872,7 @@ const allowedMigrationColumns = new Set([
   'redis_url',
   'name',
   'conditions_json',
+  'token_hash',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -938,6 +940,9 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // pure evaluateConditions (triggerConditions.ts). Default '[]' means "no filter,
   // always matches" for every existing trigger.
   conditions_json: "text not null default '[]'",
+  // Phase D: sha256 of an app's API token. Null means the app has no token and
+  // cannot call /api/ext/*. See apps.ts's mintAppToken/revokeAppToken.
+  token_hash: 'text',
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -1126,3 +1131,17 @@ for (const [childTable, childKey, parentTable] of [
     console.log(`Database: removed ${orphans.changes} orphaned ${childTable} row(s) left by the disabled foreign keys.`);
   }
 }
+
+// A per-app API token for /api/ext/* (Phase D). Only the sha256 of the token is
+// stored — the plaintext is shown once at mint and is never recoverable. Null means
+// the app has no token and cannot call the API.
+addColumnIfMissing('apps', 'token_hash', 'text');
+
+// Phase D idempotency: an app's external_ref is its own key, so a retried provision
+// returns the existing reward instead of minting a second one and burning the
+// channel's shared reward cap. Partial, because Phase A rows (narya/manual) have a
+// null external_ref and many such rows per source are legitimate.
+db.exec(`
+  create unique index if not exists idx_reward_provenance_source_ref
+    on reward_provenance(source, external_ref) where external_ref is not null;
+`);

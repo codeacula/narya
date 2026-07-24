@@ -6,6 +6,7 @@ import type {
   AlertEventKind,
   App,
   AppEvent,
+  AppTokenMintResult,
   AutomationTrigger,
   AutomationTriggerInput,
   CategoryModule,
@@ -173,6 +174,17 @@ export async function createApp(name: string): Promise<App> {
 
 export async function setAppDisabled(id: string, disabled: boolean): Promise<App> {
   return sendJson<App>(`/api/apps/${encodeURIComponent(id)}`, 'PATCH', { disabled });
+}
+
+// Mint (or rotate) returns the plaintext token exactly once — the caller must show
+// it immediately and never persist it. Operator-only; this is /api/apps/, not the
+// token-authenticated /api/ext/ surface.
+export async function mintAppToken(id: string): Promise<AppTokenMintResult> {
+  return sendJson<AppTokenMintResult>(`/api/apps/${encodeURIComponent(id)}/token`, 'POST');
+}
+
+export async function revokeAppToken(id: string): Promise<void> {
+  return sendVoid(`/api/apps/${encodeURIComponent(id)}/token`, 'DELETE');
 }
 
 export async function getAppEvents(appId: string): Promise<AppEvent[]> {
