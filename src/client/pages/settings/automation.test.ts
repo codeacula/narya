@@ -945,6 +945,29 @@ describe('validateConditions', () => {
     expect(validateConditions('twitch_event', conditions)).toBeNull();
   });
 
+  // Fail-open regression: Number('1e999') passes the old !Number.isNaN check and
+  // stores Infinity, which JSON.stringify drops to null — a "gte <huge>" filter
+  // silently became always-true. Mirrors the server's normalizeConditions guard.
+  test('rejects a gte with a value that coerces to a non-finite number', () => {
+    const conditions: TriggerCondition[] = [{ field: 'amount', op: 'gte', value: '1e999' }];
+    expect(validateConditions('twitch_event', conditions)).not.toBeNull();
+  });
+
+  test('rejects an lte with a value that coerces to a non-finite number', () => {
+    const conditions: TriggerCondition[] = [{ field: 'months', op: 'lte', value: 'Infinity' }];
+    expect(validateConditions('twitch_event', conditions)).not.toBeNull();
+  });
+
+  // Number('') === 0, so a blank value used to pass validation and become an
+  // always-true "gte 0" filter instead of a validation error.
+  test('rejects a gte with an empty or whitespace-only value', () => {
+    const empty: TriggerCondition[] = [{ field: 'amount', op: 'gte', value: '' }];
+    expect(validateConditions('twitch_event', empty)).not.toBeNull();
+
+    const whitespace: TriggerCondition[] = [{ field: 'amount', op: 'gte', value: '   ' }];
+    expect(validateConditions('twitch_event', whitespace)).not.toBeNull();
+  });
+
   test('rejects role_is on a non-chat kind', () => {
     const conditions: TriggerCondition[] = [{ field: 'role', op: 'role_is', value: 'sub' }];
     expect(validateConditions('reward', conditions)).toContain('chat');
@@ -1012,6 +1035,16 @@ describe('validateTrigger with conditions', () => {
   test('an invalid condition surfaces its own message rather than a generic one', () => {
     const trigger = { ...base, conditions: [{ field: 'amount', op: 'gte', value: 'banana' }] as TriggerCondition[] };
     expect(validateTrigger(trigger)).toContain('number');
+  });
+
+  test('a gte value that coerces to a non-finite number is rejected at the trigger level too', () => {
+    const trigger = { ...base, conditions: [{ field: 'amount', op: 'gte', value: '1e999' }] as TriggerCondition[] };
+    expect(validateTrigger(trigger)).not.toBeNull();
+  });
+
+  test('a blank gte value is rejected at the trigger level too', () => {
+    const trigger = { ...base, conditions: [{ field: 'amount', op: 'gte', value: '' }] as TriggerCondition[] };
+    expect(validateTrigger(trigger)).not.toBeNull();
   });
 
   test('a role_is on a non-chat kind trigger is rejected at the trigger level too', () => {

@@ -276,8 +276,14 @@ function normalizeConditions(kind: AutomationTriggerKind, value: unknown): Trigg
       return { field, op, value: c.value.map(String) };
     }
     if (op === 'gte' || op === 'lte') {
+      // Number.isNaN alone is fail-open here: Number('1e999') / Number('Infinity')
+      // are non-NaN, but JSON.stringify(Infinity) === 'null', so conditions_json
+      // would persist "value":null and Number(null) === 0 on read-back — an "amount
+      // gte <huge>" filter would silently become always-true. An empty/whitespace
+      // value coerces to 0 the same way, so it must be rejected before coercion too.
+      const rawIsBlank = typeof c.value === 'string' && c.value.trim() === '';
       const n = Number(c.value);
-      if (Number.isNaN(n)) throw new HttpRouteError(400, `${op} needs a number.`);
+      if (rawIsBlank || !Number.isFinite(n)) throw new HttpRouteError(400, `${op} needs a finite number.`);
       return { field, op, value: n };
     }
     return { field, op, value: String(c.value ?? '') };

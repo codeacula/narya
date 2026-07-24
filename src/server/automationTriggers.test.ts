@@ -397,6 +397,48 @@ describe('conditions[]', () => {
     expect(() => createAutomationTrigger(input({ conditions }))).toThrow(/at most 10 conditions/i);
   });
 
+  // Fail-open regression: Number('1e999') / Number('Infinity') pass !Number.isNaN,
+  // and JSON.stringify(Infinity) === 'null', so the stored condition read back as
+  // `Number(null) === 0` — an "amount gte <huge>" filter silently became always-true.
+  test('rejects a gte/lte value that coerces to a non-finite number', () => {
+    expect(() => createAutomationTrigger(input({
+      kind: 'twitch_event',
+      config: { eventKind: 'cheer' },
+      conditions: [{ field: 'amount', op: 'gte', value: '1e999' }],
+    }))).toThrow(HttpRouteError);
+
+    expect(() => createAutomationTrigger(input({
+      kind: 'twitch_event',
+      config: { eventKind: 'cheer' },
+      conditions: [{ field: 'amount', op: 'lte', value: 'Infinity' }],
+    }))).toThrow(HttpRouteError);
+  });
+
+  // Number('') === 0 and Number('   ') === 0, so a blank/whitespace value used to
+  // pass validation too and become an always-true "gte 0" filter instead of an error.
+  test('rejects a gte/lte value that is empty or whitespace-only', () => {
+    expect(() => createAutomationTrigger(input({
+      kind: 'twitch_event',
+      config: { eventKind: 'cheer' },
+      conditions: [{ field: 'amount', op: 'gte', value: '' }],
+    }))).toThrow(HttpRouteError);
+
+    expect(() => createAutomationTrigger(input({
+      kind: 'twitch_event',
+      config: { eventKind: 'cheer' },
+      conditions: [{ field: 'amount', op: 'lte', value: '   ' }],
+    }))).toThrow(HttpRouteError);
+  });
+
+  test('a normal finite gte value is still accepted', () => {
+    const created = createAutomationTrigger(input({
+      kind: 'twitch_event',
+      config: { eventKind: 'cheer' },
+      conditions: [{ field: 'amount', op: 'gte', value: 100 }],
+    }));
+    expect(created.conditions).toEqual([{ field: 'amount', op: 'gte', value: 100 }]);
+  });
+
   test('a trigger with unreadable conditions_json reads back the fail-closed sentinel', () => {
     const created = createAutomationTrigger(input());
     db.prepare('update automation_triggers set conditions_json = ? where id = ?').run('{bad json', created.id);

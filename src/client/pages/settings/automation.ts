@@ -263,8 +263,16 @@ export function validateConditions(kind: AutomationTriggerKind, conditions: Trig
       if (!Array.isArray(value) || value.length === 0) return '"Is one of" needs at least one value.';
       continue;
     }
-    if ((op === 'gte' || op === 'lte') && Number.isNaN(Number(value))) {
-      return `"${CONDITION_OP_LABELS[op]}" needs a number.`;
+    if (op === 'gte' || op === 'lte') {
+      // Mirrors the server's normalizeConditions exactly: Number.isNaN alone lets
+      // '1e999'/'Infinity' through (they coerce to Infinity, which the server would
+      // then store as JSON null and read back as 0 — an always-true filter), and an
+      // empty/whitespace value coerces to 0 the same way, so both are rejected here
+      // before the server ever sees them.
+      const rawIsBlank = typeof value === 'string' && value.trim() === '';
+      if (rawIsBlank || !Number.isFinite(Number(value))) {
+        return `"${CONDITION_OP_LABELS[op]}" needs a finite number.`;
+      }
     }
   }
   return null;
