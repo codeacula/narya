@@ -31,4 +31,11 @@ export const config = {
   // local dev through the Vite proxy; override only if you deploy differently.
   twitchRedirectUri: process.env.TWITCH_REDIRECT_URI ?? 'http://localhost:5173/api/auth/twitch/callback',
   discordRedirectUri: process.env.DISCORD_REDIRECT_URI ?? 'http://localhost:5173/api/auth/discord/callback',
+  // Whether this box's process consumes inbound events off the Redis bus (Phase
+  // C1). This is a per-box deployment fact — which process is the consumer in a
+  // given topology — not app behavior an operator edits in Settings, so it cannot
+  // come from the database: the DB is shared across every box in the topology,
+  // and a config row can't tell one process "you're the consumer" without also
+  // telling every other box the same thing.
+  consumeInbound: process.env['STREAMER_TOOLS_CONSUME_INBOUND'] === '1',
 };

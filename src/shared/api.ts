@@ -1359,6 +1359,12 @@ export type App = { id: string; name: string; createdAt: string; disabledAt: str
 /** POST /api/apps body. */
 export type AppInput = { name: string };
 
+/** GET /api/apps/:id/events row; also the POST /api/apps/:id/events response body. */
+export type AppEvent = { appId: string; eventName: string; dataSchemaJson: string; createdAt: string };
+
+/** POST /api/apps/:id/events body. */
+export type AppEventInput = { eventName: string };
+
 // --- Event bus -------------------------------------------------------------
 // The versioned envelope published onto the Redis stream (Phase A, outbound-only).
 // `data` carries only the fields the publishing function allowlists for that type.

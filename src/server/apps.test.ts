@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { db } from './db';
-import { createApp, isKnownSource, listApps, listSelectableSources, setAppDisabled } from './apps';
+import {
+  appExistsById,
+  createApp,
+  declareAppEvent,
+  isDeclaredEvent,
+  isKnownSource,
+  listApps,
+  listAppEvents,
+  listSelectableSources,
+  removeAppEvent,
+  setAppDisabled,
+} from './apps';
 
 describe('apps registry', () => {
   beforeEach(() => { db.prepare('delete from apps').run(); });
@@ -30,5 +41,30 @@ describe('apps registry', () => {
     setAppDisabled(app.id, true);
     expect(isKnownSource('pztmi')).toBe(true);       // provenance rows stay valid
     expect(listSelectableSources()).toEqual(['narya', 'manual']);
+  });
+});
+
+describe('app events', () => {
+  beforeEach(() => { db.prepare('delete from app_events').run(); db.prepare('delete from apps').run(); });
+  test('declare / list / isDeclared / remove', () => {
+    const app = createApp('pztmi');
+    expect(appExistsById(app.id)).toBe(true);
+    declareAppEvent(app.id, 'boss_killed');
+    declareAppEvent(app.id, 'boss_killed'); // idempotent
+    expect(listAppEvents(app.id).map(e => e.eventName)).toEqual(['boss_killed']);
+    expect(isDeclaredEvent(app.id, 'boss_killed')).toBe(true);
+    expect(isDeclaredEvent(app.id, 'undeclared')).toBe(false);
+    removeAppEvent(app.id, 'boss_killed');
+    expect(isDeclaredEvent(app.id, 'boss_killed')).toBe(false);
+  });
+  test('an invalid event name is rejected', () => {
+    const app = createApp('pztmi');
+    expect(() => declareAppEvent(app.id, 'Bad Name!')).toThrow();
+  });
+  test('deleting an app cascades its events', () => {
+    const app = createApp('pztmi');
+    declareAppEvent(app.id, 'boss_killed');
+    db.prepare('delete from apps where id = ?').run(app.id);
+    expect(listAppEvents(app.id)).toEqual([]);
   });
 });
