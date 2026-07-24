@@ -2,12 +2,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   Action,
   AlertEventKind,
+  App,
+  AppEvent,
   AutomationTrigger,
   AutomationTriggerInput,
   AutomationTriggerKind,
   CategoryModule,
   ChatPhraseMatch,
   ConditionOp,
+  RedisEventTriggerConfig,
   TriggerCondition,
   TriggerOverride,
   TriggerOverrideInput,
@@ -22,6 +25,8 @@ import {
   deleteAutomationTrigger,
   deleteTriggerOverride,
   getActions,
+  getAppEvents,
+  getApps,
   getAutomationTriggers,
   getCategoryModules,
   getTriggerOverrides,
@@ -51,6 +56,7 @@ import {
   moveStep,
   normalizeCommandName,
   opsForField,
+  redisUnsafeStepWarning,
   removeStep,
   triggerToInput,
   parseAliases,
@@ -66,7 +72,7 @@ import {
 const ALERT_EVENT_KINDS: AlertEventKind[] = ['sub', 'gift', 'cheer', 'raid', 'follow'];
 
 /** A blank trigger of the given kind, with the right config shape for the union. */
-function newTrigger(kind: AutomationTriggerKind): AutomationTriggerInput {
+export function newTrigger(kind: AutomationTriggerKind): AutomationTriggerInput {
   const base = {
     name: '',
     // Legacy single-Action pointer, additive alongside actions[] (Phase B1 Task 2).
@@ -184,14 +190,113 @@ function CooldownFields({
   );
 }
 
+/**
+ * App + declared-event pickers for a redis_event trigger, plus the advisory
+ * safe-subset warning. The event `<select>` reloads from getAppEvents whenever the
+ * chosen app changes — picking a different app also clears eventName, since a
+ * declared event name from the old app has no meaning under the new one.
+ */
+function RedisEventConfigFields({
+  config,
+  apps,
+  actions,
+  triggerActions,
+  disabled,
+  onChange,
+}: {
+  config: RedisEventTriggerConfig;
+  apps: App[];
+  actions: Action[];
+  triggerActions: TriggerAction[];
+  disabled: boolean;
+  onChange: (next: RedisEventTriggerConfig) => void;
+}) {
+  const [events, setEvents] = useState<AppEvent[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+
+  useEffect(() => {
+    if (!config.appId) {
+      setEvents([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingEvents(true);
+    void getAppEvents(config.appId)
+      .then(next => { if (!cancelled) setEvents(next); })
+      .catch(() => { if (!cancelled) setEvents([]); })
+      .finally(() => { if (!cancelled) setLoadingEvents(false); });
+    return () => { cancelled = true; };
+  }, [config.appId]);
+
+  const warning = redisUnsafeStepWarning(triggerActions, actions);
+
+  return (
+    <>
+      <label className="field settings-wide-field">
+        <span>App</span>
+        <select
+          value={config.appId}
+          disabled={disabled}
+          onChange={event => onChange({ appId: event.target.value, eventName: '' })}
+        >
+          <option value="">Select an app…</option>
+          {/* An app this operator can no longer see (deleted from under it) still has to
+              stay selected, or saving would silently re-point the trigger. */}
+          {config.appId && !apps.some(app => app.id === config.appId) && (
+            <option value={config.appId}>{config.appId} (unknown app)</option>
+          )}
+          {apps.filter(app => !app.disabledAt).map(app => (
+            <option key={app.id} value={app.id}>{app.name}</option>
+          ))}
+        </select>
+        {apps.length === 0 && (
+          <small className="action-hint">No apps registered. Register one in Settings → Apps.</small>
+        )}
+      </label>
+
+      <label className="field settings-wide-field">
+        <span>Event</span>
+        <select
+          value={config.eventName}
+          disabled={disabled || !config.appId}
+          onChange={event => onChange({ ...config, eventName: event.target.value })}
+        >
+          <option value="">
+            {!config.appId ? 'Pick an app first…' : loadingEvents ? 'Loading…' : 'Select an event…'}
+          </option>
+          {config.eventName && !events.some(entry => entry.eventName === config.eventName) && (
+            <option value={config.eventName}>{config.eventName} (undeclared)</option>
+          )}
+          {events.map(entry => (
+            <option key={entry.eventName} value={entry.eventName}>{entry.eventName}</option>
+          ))}
+        </select>
+        {config.appId && !loadingEvents && events.length === 0 && (
+          <small className="action-hint">
+            No events declared for this app yet. Declare one in Settings → Apps.
+          </small>
+        )}
+      </label>
+
+      {/* Advisory only — the server is the authority that skips a blocked step at
+          dispatch time. This never blocks Save; a mixed Action is legal here. */}
+      {warning && <small className="action-hint">{warning}</small>}
+    </>
+  );
+}
+
 function TriggerConfigFields({
   draft,
   rewards,
+  apps,
+  actions,
   disabled,
   onChange,
 }: {
   draft: AutomationTriggerInput;
   rewards: ViewerReward[];
+  apps: App[];
+  actions: Action[];
   disabled: boolean;
   onChange: (next: AutomationTriggerInput) => void;
 }) {
@@ -354,6 +459,18 @@ function TriggerConfigFields({
             Nothing else to configure.
           </small>
         </div>
+      );
+
+    case 'redis_event':
+      return (
+        <RedisEventConfigFields
+          config={draft.config}
+          apps={apps}
+          actions={actions}
+          triggerActions={draft.actions}
+          disabled={disabled}
+          onChange={config => onChange({ ...draft, config })}
+        />
       );
   }
 }
@@ -836,6 +953,7 @@ function TriggerEditor({
   actions,
   modules,
   rewards,
+  apps,
   saving,
   testing,
   overrides,
@@ -853,6 +971,7 @@ function TriggerEditor({
   actions: Action[];
   modules: CategoryModule[];
   rewards: ViewerReward[];
+  apps: App[];
   saving: boolean;
   testing: boolean;
   overrides: TriggerOverride[];
@@ -959,7 +1078,7 @@ function TriggerEditor({
           <span>Enabled</span>
         </label>
 
-        <TriggerConfigFields draft={draft} rewards={rewards} disabled={saving} onChange={onChange} />
+        <TriggerConfigFields draft={draft} rewards={rewards} apps={apps} actions={actions} disabled={saving} onChange={onChange} />
 
         {supportsCooldowns(draft.kind) && <CooldownFields draft={draft} disabled={saving} onChange={onChange} />}
 
@@ -995,6 +1114,7 @@ export function AutomationSettingsPage() {
   const [actions, setActions] = useState<Action[]>([]);
   const [modules, setModules] = useState<CategoryModule[]>([]);
   const [rewards, setRewards] = useState<ViewerReward[]>([]);
+  const [apps, setApps] = useState<App[]>([]);
   const [overrides, setOverrides] = useState<TriggerOverride[]>([]);
   const [draft, setDraft] = useState<AutomationTriggerInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1037,6 +1157,14 @@ export function AutomationSettingsPage() {
     void getViewerRewards()
       .then(response => setRewards(response.rewards))
       .catch(() => setRewards([]));
+  }, []);
+
+  // The redis_event app picker's option list; without it the picker just has
+  // nothing to offer, same as the reward picker above.
+  useEffect(() => {
+    void getApps()
+      .then(setApps)
+      .catch(() => setApps([]));
   }, []);
 
   const rewardTitles = useMemo(() => {
@@ -1299,6 +1427,7 @@ export function AutomationSettingsPage() {
                     actions={actions}
                     modules={modules}
                     rewards={rewards}
+                    apps={apps}
                     saving={saving}
                     testing={editingId !== null && busyId === editingId}
                     overrides={editingId ? overrides.filter(o => o.triggerId === editingId) : []}

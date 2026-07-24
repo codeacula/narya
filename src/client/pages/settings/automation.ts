@@ -15,6 +15,7 @@ import type {
   ConditionOp,
   Counter,
   MediaAsset,
+  TriggerAction,
   TriggerCondition,
   TriggerRole,
   TriggerRunResult,
@@ -77,6 +78,46 @@ export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
   quote_show: 'Announce a quote',
 };
 
+/**
+ * Mirrors the server's REDIS_SAFE_STEP_TYPES (src/server/triggerDispatcher.ts) — the
+ * allowlist a redis_event trigger's bound Actions are restricted to at dispatch time.
+ * Duplicated deliberately, same as the other server mirrors in this file: drift here
+ * only produces a wrong or missing advisory warning below, never a security hole —
+ * the server is still the sole authority that actually skips a blocked step for an
+ * inbound run.
+ */
+export const REDIS_SAFE_STEP_TYPES: ReadonlySet<ActionStepType> = new Set([
+  'show_text',
+  'play_media',
+  'tts_speak',
+  'adjust_counter',
+  'send_chat',
+]);
+
+/**
+ * Advisory only, never a submit gate: names the step types on this redis_event
+ * trigger's bound and ENABLED Actions that fall outside REDIS_SAFE_STEP_TYPES, or
+ * null when every bound step is safe. A disabled TriggerAction entry never runs at
+ * all (from any source), so it is excluded rather than flagged. Returns null (no
+ * warning) for an action id the trigger references but that no longer exists —
+ * that is a "missing action" problem the editor already surfaces elsewhere.
+ */
+export function redisUnsafeStepWarning(triggerActions: TriggerAction[], actions: Action[]): string | null {
+  const unsafeTypes = new Set<ActionStepType>();
+  for (const entry of triggerActions) {
+    if (!entry.enabled) continue;
+    const action = actions.find(candidate => candidate.id === entry.actionId);
+    if (!action) continue;
+    for (const step of action.steps) {
+      if (!REDIS_SAFE_STEP_TYPES.has(step.type)) unsafeTypes.add(step.type);
+    }
+  }
+  if (unsafeTypes.size === 0) return null;
+  const labels = [...unsafeTypes].map(type => STEP_TYPE_LABELS[type]).join(', ');
+  return `${labels} won't run when this trigger fires from an external event — only the safe step `
+    + `subset (show text, play media, speak, adjust counter, send chat) runs inbound.`;
+}
+
 export const TRIGGER_KINDS: AutomationTriggerKind[] = [
   'reward',
   'twitch_event',
@@ -86,6 +127,7 @@ export const TRIGGER_KINDS: AutomationTriggerKind[] = [
   'manual',
   'module_activate',
   'module_deactivate',
+  'redis_event',
 ];
 
 export const TRIGGER_KIND_LABELS: Record<AutomationTriggerKind, string> = {
@@ -97,9 +139,6 @@ export const TRIGGER_KIND_LABELS: Record<AutomationTriggerKind, string> = {
   manual: 'Manual button',
   module_activate: 'Module activated',
   module_deactivate: 'Module deactivated',
-  // Not yet offered in the "add trigger" picker (TRIGGER_KINDS) — the app/event
-  // editor UI lands in a later task. The label/hint/field entries exist only to
-  // satisfy the exhaustive Record over AutomationTriggerKind.
   redis_event: 'External app event',
 };
 
