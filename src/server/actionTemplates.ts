@@ -3,7 +3,7 @@ import type { TemplateContext } from '../shared/api';
 // Tokens an Action template may interpolate. {arg1}, {arg2}… index into args and
 // are handled separately because their names are open-ended.
 //
-// ':', '.', and '-' are admitted for {counter:some-key} and {data.some.path}. Widening
+// ':', '.', '_', and '-' are admitted for {counter:some-key} and {data.some_path}. Widening
 // the class is safe by construction: neither '{' nor '}' is in it, so a match's extent
 // is fixed by its opening brace and the next closing one, independent of what the class
 // allows. Widening therefore cannot change an existing match's extent or let a new match
@@ -12,7 +12,7 @@ import type { TemplateContext } from '../shared/api';
 //
 // That identity holds ONLY because the unknown branch below returns `match` rather
 // than ''. The widening and the leave-typos-visible rule are now coupled.
-const TOKEN_PATTERN = /\{([A-Za-z][A-Za-z0-9:.-]*)\}/g;
+const TOKEN_PATTERN = /\{([A-Za-z][A-Za-z0-9:._-]*)\}/g;
 // {counter:some-key}. The key grammar matches counters.ts's normalizeCounterKey.
 const COUNTER_TOKEN_PATTERN = /^counter:([a-z0-9-]+)$/;
 const ARG_TOKEN_PATTERN = /^arg([1-9][0-9]*)$/;

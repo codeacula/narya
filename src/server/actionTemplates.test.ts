@@ -171,6 +171,15 @@ describe('{data.*}', () => {
     expect(renderActionTemplate('{data.missing}', ctx)).toBe('');             // known family → empty, not literal
     expect(renderActionTemplate('{data.inject}', { actor: 'ADMIN', data: { inject: '{actor}' } })).toBe('{actor}'); // single-pass: not re-expanded
   });
+
+  test('an underscore key renders, empties when missing, and stays single-pass', () => {
+    // snake_case is the dominant key convention for external app payloads; the outer
+    // tokenizer must admit '_' or {data.gift_count} emits as its own literal.
+    const ctx = { actor: 'ADMIN', data: { gift_count: 5, foo_bar: '{actor}' } };
+    expect(renderActionTemplate('{data.gift_count}', ctx)).toBe('5');
+    expect(renderActionTemplate('{data.other_key}', ctx)).toBe('');            // known family → empty, not literal
+    expect(renderActionTemplate('{data.foo_bar}', ctx)).toBe('{actor}');       // single-pass: not re-expanded
+  });
 });
 
 describe('renderCounterTokens', () => {

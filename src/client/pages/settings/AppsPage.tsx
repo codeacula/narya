@@ -31,7 +31,9 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
     return () => { cancelled = true; };
   }, [load]);
 
-  const disabledOverall = disabled || busy;
+  // Include `loading`: Add must stay disabled during the mount fetch, or a fast add before
+  // the mount GET resolves lets that stale snapshot overwrite the just-added row.
+  const disabledOverall = disabled || busy || loading;
 
   const handleAdd = () => {
     const eventName = newName.trim();

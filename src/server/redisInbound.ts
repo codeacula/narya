@@ -106,14 +106,20 @@ export function processInboundEntry(rawValue: unknown, ctx: InboundEntryContext)
 
   const eventId = `${ctx.appId}:${dedupId(parsed['id']) ?? ctx.streamEntryId}`;
 
-  return {
-    dispatch: {
-      appId: ctx.appId,
-      eventName: type,
-      eventId,
-      data,
-    },
+  const signal: RedisEventSignal = {
+    appId: ctx.appId,
+    eventName: type,
+    eventId,
+    data,
   };
+  // Reserved keys (spec §3): lift `actor`/`login` out of the payload so the editor's
+  // actor/login conditions and {actor}/{login} tokens resolve inbound. LIFTED, not moved —
+  // the keys stay in `data` so {data.actor} renders the same value. Only strings are
+  // lifted; a non-string reserved key leaves the field ABSENT ("otherwise absent").
+  if (typeof data['actor'] === 'string') signal.actor = data['actor'];
+  if (typeof data['login'] === 'string') signal.login = data['login'];
+
+  return { dispatch: signal };
 }
 
 // --- live loop ---

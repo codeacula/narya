@@ -220,6 +220,9 @@ function RedisEventConfigFields({
       return;
     }
     let cancelled = false;
+    // Clear the previous app's options before B's fetch resolves, so A's events are never
+    // selectable while loading B (the eventName reset on app change already dropped the value).
+    setEvents([]);
     setLoadingEvents(true);
     void getAppEvents(config.appId)
       .then(next => { if (!cancelled) setEvents(next); })

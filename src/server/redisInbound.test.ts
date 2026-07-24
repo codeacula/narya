@@ -122,6 +122,39 @@ describe('processInboundEntry (decision core)', () => {
     expect(decision.dispatch.data).toEqual({});
   });
 
+  test('lifts reserved actor/login string keys from data without deleting them', () => {
+    const decision = processInboundEntry(
+      envelope({ type: 'boss', id: 'e', data: { actor: 'Ada', login: 'ada', boss: 'Dragon' } }),
+      ctx({ appId: 'app-a' }),
+    );
+    if (!('dispatch' in decision)) throw new Error('expected dispatch');
+    expect(decision.dispatch.actor).toBe('Ada');
+    expect(decision.dispatch.login).toBe('ada');
+    // Reserved keys are lifted, NOT moved: {actor} and {data.actor} render the same value.
+    expect(decision.dispatch.data).toEqual({ actor: 'Ada', login: 'ada', boss: 'Dragon' });
+  });
+
+  test('a non-string reserved key leaves the field absent but still dispatches', () => {
+    const decision = processInboundEntry(
+      envelope({ type: 'boss', id: 'e', data: { actor: 42, boss: 'Dragon' } }),
+      ctx({ appId: 'app-a' }),
+    );
+    if (!('dispatch' in decision)) throw new Error('expected dispatch');
+    expect('actor' in decision.dispatch).toBe(false);
+    expect('login' in decision.dispatch).toBe(false);
+    expect(decision.dispatch.data).toEqual({ actor: 42, boss: 'Dragon' });
+  });
+
+  test('an entry with no reserved keys leaves actor/login absent', () => {
+    const decision = processInboundEntry(
+      envelope({ type: 'ping', id: 'e', data: { boss: 'Dragon' } }),
+      ctx({ appId: 'app-a' }),
+    );
+    if (!('dispatch' in decision)) throw new Error('expected dispatch');
+    expect('actor' in decision.dispatch).toBe(false);
+    expect('login' in decision.dispatch).toBe(false);
+  });
+
   // The load-bearing property: eventId is namespaced by appId, so two DIFFERENT apps
   // that each supply the SAME id can never collide on the per-trigger dedup key.
   // Cross-app suppression is therefore structurally impossible.
