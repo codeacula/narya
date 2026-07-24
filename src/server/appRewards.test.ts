@@ -73,6 +73,18 @@ function provenanceOf(rewardId: string): ProvenanceRow | null {
   return (readProvenance.get(rewardId) as ProvenanceRow | undefined) ?? null;
 }
 
+// Raw inserts (mirroring viewerRewards.ts's own statements) so a GET test can prove
+// an operator-assigned category is NOT leaked into the app-facing payload — a null
+// categoryId wouldn't distinguish "omitted" from "assigned but stripped".
+const insertCategoryRow = db.prepare(`
+  insert into viewer_reward_categories (id, name, enabled, created_at, updated_at)
+  values (?, ?, 1, ?, ?)
+`);
+const insertCategoryMember = db.prepare(`
+  insert into viewer_reward_category_members (reward_id, category_id, updated_at)
+  values (?, ?, ?)
+`);
+
 describe('/api/ext/rewards', () => {
   let server: import('node:http').Server;
   let port: number;
@@ -86,6 +98,7 @@ describe('/api/ext/rewards', () => {
     db.prepare('delete from reward_provenance').run();
     db.prepare('delete from apps').run();
     db.prepare('delete from viewer_reward_category_members').run();
+    db.prepare('delete from viewer_reward_categories').run();
 
     fooToken = mintAppToken(createApp('foo').id);
     barToken = mintAppToken(createApp('bar').id);
@@ -120,7 +133,12 @@ describe('/api/ext/rewards', () => {
         return jsonResponse({ data: [existing] });
       }
       if (method === 'DELETE') {
-        twitchRewards = twitchRewards.filter(reward => reward.id !== url.searchParams.get('id'));
+        const id = url.searchParams.get('id');
+        const existed = twitchRewards.some(reward => reward.id === id);
+        twitchRewards = twitchRewards.filter(reward => reward.id !== id);
+        // Real Twitch 404s deleting a reward that isn't there — the shape the
+        // "already gone" recovery test below depends on.
+        if (!existed) return jsonResponse({ message: 'The Custom Reward specified was not found' }, 404);
         return new Response(null, { status: 204 });
       }
       return jsonResponse({ data: twitchRewards });
@@ -181,6 +199,27 @@ describe('/api/ext/rewards', () => {
       const res = await api('/api/ext/rewards', { token: fooToken });
       const payload = await res.json() as { rewards: unknown[] };
       expect(payload.rewards).toEqual([]);
+    });
+
+    // categoryId is the operator's reward-group UUID and canManage is Twitch's own
+    // manageable-by-this-client_id flag — both operator-internal, neither belongs in
+    // a public app contract that must not silently change when ViewerReward does.
+    test('omits operator-internal fields (categoryId, canManage)', async () => {
+      seedReward('mine', 'foo');
+      const categoryId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      insertCategoryRow.run(categoryId, 'Some Group', now, now);
+      insertCategoryMember.run('mine', categoryId, now);
+
+      const res = await api('/api/ext/rewards', { token: fooToken });
+      const payload = await res.json() as { rewards: Array<Record<string, unknown>> };
+      expect(payload.rewards).toHaveLength(1);
+      const reward = payload.rewards[0]!;
+      expect('categoryId' in reward).toBe(false);
+      expect('canManage' in reward).toBe(false);
+      expect(reward.id).toBe('mine');
+      expect(reward.title).toBe('Reward');
+      expect(reward.cost).toBe(100);
     });
   });
 
@@ -276,7 +315,6 @@ describe('/api/ext/rewards', () => {
       seedReward('theirs', 'bar');
       const res = await api('/api/ext/rewards/theirs', { token: fooToken, method: 'PATCH', body: { title: 'Hijacked' } });
       expect(res.status).toBe(404);
-      expect(res.status).not.toBe(403);
       expect(rewardCalls('PATCH')).toHaveLength(0);
     });
 
@@ -306,7 +344,6 @@ describe('/api/ext/rewards', () => {
       seedReward('theirs', 'bar');
       const res = await api('/api/ext/rewards/theirs', { token: fooToken, method: 'DELETE' });
       expect(res.status).toBe(404);
-      expect(res.status).not.toBe(403);
       expect(rewardCalls('DELETE')).toHaveLength(0);
       expect(provenanceOf('theirs')).toEqual({ source: 'bar', externalRef: null });
     });
@@ -316,6 +353,43 @@ describe('/api/ext/rewards', () => {
       const res = await api('/api/ext/rewards/operator-made', { token: fooToken, method: 'DELETE' });
       expect(res.status).toBe(404);
       expect(rewardCalls('DELETE')).toHaveLength(0);
+    });
+
+    // The reviewer's repro: the operator deletes the reward from Twitch's own
+    // dashboard (routine, out of band). Provenance survives that; Twitch's list
+    // does not. A DELETE against an already-gone reward must still clear
+    // provenance, or the app's external_ref is wedged forever.
+    test('when Twitch already deleted the reward, still succeeds and clears provenance', async () => {
+      seedReward('created1', 'foo');
+      twitchRewards = twitchRewards.filter(reward => reward.id !== 'created1');
+
+      const res = await api('/api/ext/rewards/created1', { token: fooToken, method: 'DELETE' });
+      expect(res.status).toBe(204);
+      expect(rewardCalls('DELETE')).toHaveLength(1);
+      expect(provenanceOf('created1')).toBeNull();
+    });
+
+    // The recovery loop the fix exists for: once provenance is cleared, the same
+    // external_ref can provision a fresh reward instead of being wedged on a dead id.
+    test('after a Twitch-side deletion, re-POSTing the same external_ref creates a NEW reward', async () => {
+      const first = await api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() });
+      expect(first.status).toBe(201);
+      const firstPayload = await first.json() as { id: string };
+
+      // Operator deletes it on Twitch, outside the app entirely.
+      twitchRewards = twitchRewards.filter(reward => reward.id !== firstPayload.id);
+
+      const deleteRes = await api(`/api/ext/rewards/${firstPayload.id}`, { token: fooToken, method: 'DELETE' });
+      expect(deleteRes.status).toBe(204);
+      expect(provenanceOf(firstPayload.id)).toBeNull();
+
+      const second = await api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() });
+      expect(second.status).toBe(201);
+      const secondPayload = await second.json() as { id: string; created: boolean };
+      expect(secondPayload.created).toBe(true);
+      expect(secondPayload.id).not.toBe(firstPayload.id);
+      expect(rewardCalls('POST')).toHaveLength(2);
+      expect(provenanceOf(secondPayload.id)).toEqual({ source: 'foo', externalRef: 'ref-1' });
     });
   });
 

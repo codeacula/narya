@@ -39,9 +39,52 @@ import {
  * every /api/ext/* request with zero auth.
  */
 
-export type AppRewardListResponse = { rewards: ViewerReward[] };
+// An explicit projection of ViewerReward, NOT a type alias — the operator's UI type
+// is free to grow new fields without silently expanding this public app contract.
+// `categoryId` (the operator's reward-group UUID) and `canManage` (Twitch's own
+// manageable-by-this-client_id flag, true for every narya reward regardless of which
+// app asked for it) are operator-internal and deliberately never appear here.
+export type AppReward = {
+  id: string;
+  title: string;
+  prompt: string;
+  cost: number;
+  isEnabled: boolean;
+  isPaused: boolean;
+  isInStock: boolean;
+  imageUrl: string | null;
+  backgroundColor: string;
+  isUserInputRequired: boolean;
+  skipQueue: boolean;
+  globalCooldown: { enabled: boolean; seconds: number };
+  maxPerStream: { enabled: boolean; max: number };
+  maxPerUserPerStream: { enabled: boolean; max: number };
+  source: string | null;
+};
+
+export type AppRewardListResponse = { rewards: AppReward[] };
 export type AppRewardRef = { id: string; source: string };
 export type AppRewardCreateResult = AppRewardRef & { externalRef: string; created: boolean };
+
+function toAppReward(reward: ViewerReward): AppReward {
+  return {
+    id: reward.id,
+    title: reward.title,
+    prompt: reward.prompt,
+    cost: reward.cost,
+    isEnabled: reward.isEnabled,
+    isPaused: reward.isPaused,
+    isInStock: reward.isInStock,
+    imageUrl: reward.imageUrl,
+    backgroundColor: reward.backgroundColor,
+    isUserInputRequired: reward.isUserInputRequired,
+    skipQueue: reward.skipQueue,
+    globalCooldown: reward.globalCooldown,
+    maxPerStream: reward.maxPerStream,
+    maxPerUserPerStream: reward.maxPerUserPerStream,
+    source: reward.source,
+  };
+}
 
 const MAX_EXTERNAL_REF_LENGTH = 200;
 
@@ -103,7 +146,9 @@ export function registerAppRewardRoutes(app: express.Express, state: RuntimeStat
     // Provenance rows joined to live Twitch state: a reward the operator deleted on
     // Twitch is simply absent rather than reported as still provisioned.
     const rewards = await fetchRewards(credentials);
-    response.json({ rewards: rewards.filter(reward => owned.has(reward.id)) } satisfies AppRewardListResponse);
+    response.json({
+      rewards: rewards.filter(reward => owned.has(reward.id)).map(toAppReward),
+    } satisfies AppRewardListResponse);
   }));
 
   app.post('/api/ext/rewards', handle(async (request, response) => {
@@ -155,7 +200,16 @@ export function registerAppRewardRoutes(app: express.Express, state: RuntimeStat
     const source = sourceFor(request);
     const rewardId = requireOwnedReward(request.params.id, source);
     const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-    await deleteTwitchReward(credentials, rewardId);
+    try {
+      await deleteTwitchReward(credentials, rewardId);
+    } catch (error) {
+      // A reward the operator already deleted from Twitch's own dashboard is not a
+      // delete failure — it is already deleted. Swallowing exactly the 404 here (and
+      // only here, not in the operator route) lets forgetRewardLocalState still run
+      // below and clear the provenance row, which is what lets the app re-POST the
+      // same external_ref and get a fresh reward instead of being wedged on a dead id.
+      if (!(error instanceof HttpRouteError) || error.status !== 404) throw error;
+    }
     forgetRewardLocalState(rewardId);
     response.status(204).send();
   }));
