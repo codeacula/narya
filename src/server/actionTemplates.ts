@@ -3,16 +3,16 @@ import type { TemplateContext } from '../shared/api';
 // Tokens an Action template may interpolate. {arg1}, {arg2}… index into args and
 // are handled separately because their names are open-ended.
 //
-// ':' and '-' are admitted for {counter:some-key}. Widening the class is safe by
-// construction: neither '{' nor '}' is in it, so a match's extent is fixed by its
-// opening brace and the next closing one, independent of what the class allows.
-// Widening therefore cannot change an existing match's extent or let a new match
+// ':', '.', and '-' are admitted for {counter:some-key} and {data.some.path}. Widening
+// the class is safe by construction: neither '{' nor '}' is in it, so a match's extent
+// is fixed by its opening brace and the next closing one, independent of what the class
+// allows. Widening therefore cannot change an existing match's extent or let a new match
 // cannibalize an old one — strings like {a-b} merely start *entering* the callback,
 // where the unknown branch returns them verbatim.
 //
 // That identity holds ONLY because the unknown branch below returns `match` rather
 // than ''. The widening and the leave-typos-visible rule are now coupled.
-const TOKEN_PATTERN = /\{([A-Za-z][A-Za-z0-9:-]*)\}/g;
+const TOKEN_PATTERN = /\{([A-Za-z][A-Za-z0-9:.-]*)\}/g;
 // {counter:some-key}. The key grammar matches counters.ts's normalizeCounterKey.
 const COUNTER_TOKEN_PATTERN = /^counter:([a-z0-9-]+)$/;
 const ARG_TOKEN_PATTERN = /^arg([1-9][0-9]*)$/;
@@ -21,6 +21,8 @@ const ARG_TOKEN_PATTERN = /^arg([1-9][0-9]*)$/;
 // there` binds {arg1} as the target and {rest1} as the message, where {args} would
 // wrongly re-include the target.
 const REST_TOKEN_PATTERN = /^rest([1-9][0-9]*)?$/;
+// {data.foo}: a field out of the (attacker-controlled) inbound event payload.
+const DATA_TOKEN_PATTERN = /^data\.([A-Za-z0-9_.-]+)$/;
 
 function scalar(value: string | number | undefined): string | undefined {
   if (value === undefined) return undefined;
@@ -62,6 +64,17 @@ function resolveToken(token: string, context: TemplateContext): string | undefin
   if (restMatch) {
     const from = Number(restMatch[1] ?? '1');
     return context.args ? context.args.slice(from).join(' ') : undefined;
+  }
+
+  const dataMatch = DATA_TOKEN_PATTERN.exec(token);
+  if (dataMatch) {
+    const value = context.data?.[dataMatch[1]!];
+    if (value === undefined || value === null) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    // Non-scalar (object/array): coerced to JSON rather than "[object Object]", and
+    // capped so a huge inbound payload field can't blow up output.
+    try { return JSON.stringify(value).slice(0, 500); } catch { return ''; }
   }
 
   return undefined;
@@ -165,6 +178,6 @@ function isKnownToken(token: string): boolean {
     case 'quoteDate':
       return true;
     default:
-      return ARG_TOKEN_PATTERN.test(token) || REST_TOKEN_PATTERN.test(token);
+      return ARG_TOKEN_PATTERN.test(token) || REST_TOKEN_PATTERN.test(token) || DATA_TOKEN_PATTERN.test(token);
   }
 }

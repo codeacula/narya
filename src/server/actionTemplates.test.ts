@@ -162,6 +162,17 @@ describe('the widened token pattern does not change existing behavior', () => {
   });
 });
 
+describe('{data.*}', () => {
+  test('{data.*} renders scalars, coerces non-scalars, empties missing, single-pass', () => {
+    const ctx = { data: { boss: 'Dragon', hp: 100, evil: true, obj: { a: 1 }, arr: [1, 2], inject: '{actor}' } };
+    expect(renderActionTemplate('Killed {data.boss} ({data.hp} hp)', ctx)).toBe('Killed Dragon (100 hp)');
+    expect(renderActionTemplate('{data.evil}', ctx)).toBe('true');
+    expect(renderActionTemplate('{data.obj}', ctx)).toBe('{"a":1}');          // JSON, not [object Object]
+    expect(renderActionTemplate('{data.missing}', ctx)).toBe('');             // known family → empty, not literal
+    expect(renderActionTemplate('{data.inject}', { actor: 'ADMIN', data: { inject: '{actor}' } })).toBe('{actor}'); // single-pass: not re-expanded
+  });
+});
+
 describe('renderCounterTokens', () => {
   const counters = (values: Record<string, number>) =>
     (key: string) => (key in values ? values[key] : undefined);
