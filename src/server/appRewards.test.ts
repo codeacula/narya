@@ -73,6 +73,26 @@ function provenanceOf(rewardId: string): ProvenanceRow | null {
   return (readProvenance.get(rewardId) as ProvenanceRow | undefined) ?? null;
 }
 
+const insertProvenanceRow = db.prepare(
+  'insert into reward_provenance (reward_id, source, external_ref, created_at) values (?, ?, null, ?)',
+);
+/** Seeds N synthetic provenance rows per source — only the per-source COUNT matters
+ *  for the cap-rejection message, not any real Twitch reward behind these ids. */
+function seedProvenanceCounts(counts: Record<string, number>) {
+  const now = new Date().toISOString();
+  let n = 0;
+  for (const [source, count] of Object.entries(counts)) {
+    for (let i = 0; i < count; i += 1) insertProvenanceRow.run(`seed-${source}-${n++}`, source, now);
+  }
+}
+
+/** Twitch's real create-custom-reward 400 body when the channel's reward cap is
+ *  reached — an enum-style `message` field, same convention as the confirmed
+ *  duplicate-title rejection (`CREATE_CUSTOM_REWARD_DUPLICATE_REWARD`). */
+const TWITCH_CAP_ERROR_BODY = { error: 'Bad Request', status: 400, message: 'CREATE_CUSTOM_REWARDS_REWARD_LIMIT_REACHED' };
+/** A real, DIFFERENT Twitch 400 (duplicate title) — must NOT get the cap message. */
+const TWITCH_DUPLICATE_TITLE_ERROR_BODY = { error: 'Bad Request', status: 400, message: 'CREATE_CUSTOM_REWARD_DUPLICATE_REWARD' };
+
 // Raw inserts (mirroring viewerRewards.ts's own statements) so a GET test can prove
 // an operator-assigned category is NOT leaked into the app-facing payload — a null
 // categoryId wouldn't distinguish "omitted" from "assigned but stripped".
@@ -290,6 +310,47 @@ describe('/api/ext/rewards', () => {
       const res = await api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody({ cost: 0 }) });
       expect(res.status).toBe(400);
       expect(rewardCalls('POST')).toHaveLength(0);
+    });
+
+    // The compensating control for "no per-app quota": when Twitch rejects for the
+    // shared cap, the operator-visible error attributes current consumption per
+    // source, built from rewardCountsBySource() — reflecting a mix of app/narya/manual.
+    test('a Twitch cap rejection attributes current consumption per source', async () => {
+      seedProvenanceCounts({ pztmi: 7, narya: 3, manual: 12 });
+      installFetch(({ url, method }) => {
+        if (url.pathname !== REWARDS_PATH) return null;
+        if (method === 'POST') return jsonResponse(TWITCH_CAP_ERROR_BODY, 400);
+        return jsonResponse({ data: twitchRewards });
+      });
+
+      const res = await api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() });
+      expect(res.status).toBe(400);
+      const payload = await res.json() as { error: string };
+      expect(payload.error).toContain("Twitch rejected the reward: the channel's reward limit is reached.");
+      expect(payload.error).toContain('pztmi: 7');
+      expect(payload.error).toContain('narya: 3');
+      expect(payload.error).toContain('manual: 12');
+      // Never provisioned — the cap rejection must not leave a dangling provenance row.
+      expect(rewardCalls('POST')).toHaveLength(1);
+    });
+
+    // Over-matching risk: Twitch's create returns 400 for several reasons. Only the
+    // cap-shaped rejection may get the attribution message; a different real Twitch
+    // 400 (duplicate title) must pass through unchanged, underlying message intact.
+    test('a non-cap Twitch 400 is NOT rewritten to the cap message', async () => {
+      seedProvenanceCounts({ pztmi: 7, narya: 3, manual: 12 });
+      installFetch(({ url, method }) => {
+        if (url.pathname !== REWARDS_PATH) return null;
+        if (method === 'POST') return jsonResponse(TWITCH_DUPLICATE_TITLE_ERROR_BODY, 400);
+        return jsonResponse({ data: twitchRewards });
+      });
+
+      const res = await api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody() });
+      expect(res.status).toBe(400);
+      const payload = await res.json() as { error: string };
+      expect(payload.error).toBe('CREATE_CUSTOM_REWARD_DUPLICATE_REWARD');
+      expect(payload.error).not.toContain('reward limit');
+      expect(payload.error).not.toContain('Current rewards by source');
     });
   });
 

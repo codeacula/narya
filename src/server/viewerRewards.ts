@@ -10,7 +10,13 @@ import type {
 import { db, isUniqueConstraintError } from './db';
 import { handle, HttpRouteError } from './http';
 import { broadcast } from './realtime';
-import { clearRewardSource, ensureManualProvenance, getRewardSource, setRewardSource } from './rewardProvenance';
+import {
+  clearRewardSource,
+  ensureManualProvenance,
+  getRewardSource,
+  rewardCountsBySource,
+  setRewardSource,
+} from './rewardProvenance';
 
 import type { RuntimeState } from './runtime';
 import { parseTwitchGameId } from './streamCategories';
@@ -297,6 +303,36 @@ export async function sendTwitchRewardUpdate(
   });
 }
 
+// Twitch's create-custom-reward 400 for "the channel already has the maximum number
+// of rewards" carries an enum-style message, the same convention as the confirmed
+// duplicate-title rejection (CREATE_CUSTOM_REWARD_DUPLICATE_REWARD). Matched on that
+// substring — NOT on status 400 alone, which Twitch also returns for a duplicate
+// title, a bad cost, and other reasons a mis-detection would misleadingly relabel
+// as "the cap is reached" when it is not.
+const REWARD_LIMIT_ERROR_PATTERN = /REWARD_LIMIT_REACHED/;
+
+function isRewardCapError(error: unknown): error is HttpRouteError {
+  return error instanceof HttpRouteError && error.status === 400 && REWARD_LIMIT_ERROR_PATTERN.test(error.message);
+}
+
+/** The compensating control for Phase D shipping with no per-app quota: Twitch's
+ *  cap is a single shared pool across manual rewards, Narya-UI rewards, and every
+ *  app, so an opaque 400 leaves the operator unable to see who consumed it —
+ *  including when it is the operator's own reward creation that starts failing.
+ *  Called from the one place both create paths (the app-facing and operator
+ *  routes) share (createTwitchReward below), so the attribution is not duplicated
+ *  per caller. The underlying Twitch rejection is logged, never swallowed. */
+function toRewardCreateError(error: unknown): unknown {
+  if (!isRewardCapError(error)) return error;
+  console.error('Twitch reward creation rejected — the channel reward limit is reached:', error.message);
+  const counts = rewardCountsBySource();
+  const bySource = Object.entries(counts).map(([source, count]) => `${source}: ${count}`).join(', ');
+  return new HttpRouteError(
+    400,
+    `Twitch rejected the reward: the channel's reward limit is reached. Current rewards by source — ${bySource}.`,
+  );
+}
+
 /** Mint a reward on Twitch. Twitch owns the id, so provenance can only be written
  *  by the caller afterwards. */
 export async function createTwitchReward(
@@ -305,13 +341,18 @@ export async function createTwitchReward(
   isEnabled: boolean,
 ): Promise<TwitchReward> {
   const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
-  const twitchResponse = await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
-    credentials,
-    method: 'POST',
-    body: twitchRewardBody(reward, isEnabled, false),
-    errorMessage: 'Twitch reward creation failed.',
-    passthroughStatuses: [400, 401, 403],
-  });
+  let twitchResponse: Response;
+  try {
+    twitchResponse = await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
+      credentials,
+      method: 'POST',
+      body: twitchRewardBody(reward, isEnabled, false),
+      errorMessage: 'Twitch reward creation failed.',
+      passthroughStatuses: [400, 401, 403],
+    });
+  } catch (error) {
+    throw toRewardCreateError(error);
+  }
   const data = await twitchResponse.json() as { data?: TwitchReward[] };
   const created = data.data?.[0];
   if (!created) throw new HttpRouteError(502, 'Twitch did not return the created reward.');
