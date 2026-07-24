@@ -491,6 +491,47 @@ function newCondition(kind: AutomationTriggerKind): TriggerCondition {
   return { field, op, value: defaultConditionValue(op) };
 }
 
+/**
+ * The `in` op's value editor, kept as its OWN component rather than inline JSX in
+ * ConditionValueInput. React tells rows apart by element TYPE at a given tree
+ * position, not by which `if` branch produced them — a plain `<input>` reused
+ * across an op switch (e.g. `contains` → `in`) is the SAME DOM node to React, so an
+ * uncontrolled `defaultValue` on it keeps whatever the browser last had typed into
+ * it. Giving `in` its own component type forces React to unmount the old node and
+ * mount this one fresh whenever a row's op becomes (or stops being) `in`, so its
+ * `useState` initializer reliably reseeds from the row's current value.
+ *
+ * The text is kept in local state and reparsed on every keystroke — rather than a
+ * fully-controlled `value={list.join(', ')}` — because immediately rejoining the
+ * parsed array back into the displayed string would eat a trailing comma the
+ * instant it is typed (`"a,"` → parses to `["a"]` → redisplays as `"a"`), making it
+ * impossible to ever start a second entry.
+ */
+function InListValueInput({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string[];
+  disabled: boolean;
+  onChange: (next: string[]) => void;
+}) {
+  const [text, setText] = useState(() => value.join(', '));
+
+  return (
+    <input
+      type="text"
+      value={text}
+      disabled={disabled}
+      placeholder="value1, value2"
+      onChange={event => {
+        setText(event.target.value);
+        onChange(event.target.value.split(',').map(entry => entry.trim()).filter(Boolean));
+      }}
+    />
+  );
+}
+
 /** The value editor for one condition row, typed by its op: a role picker for
  *  role_is, a single tag field for tag_has, a number field for gte/lte, a
  *  comma-separated list for `in`, and plain text otherwise. */
@@ -525,24 +566,21 @@ function ConditionValueInput({
 
   if (condition.op === 'in') {
     const listValue = Array.isArray(condition.value) ? condition.value : [];
-    return (
-      <input
-        type="text"
-        defaultValue={listValue.join(', ')}
-        disabled={disabled}
-        placeholder="value1, value2"
-        onBlur={event => onChange(event.target.value.split(',').map(entry => entry.trim()).filter(Boolean))}
-      />
-    );
+    return <InListValueInput value={listValue} disabled={disabled} onChange={onChange} />;
   }
 
   if (condition.op === 'gte' || condition.op === 'lte') {
+    // Controlled directly off the stored value rather than through `Number(...) ||
+    // 0`: coercing a NaN-producing value to 0 would silently rewrite what the
+    // operator typed. validateConditions already flags a non-numeric gte/lte inline
+    // — this input's job is to preserve exactly what was typed for that message to
+    // refer to, not to sanitize it.
     return (
       <input
         type="number"
-        value={typeof condition.value === 'number' ? condition.value : Number(condition.value) || 0}
+        value={typeof condition.value === 'number' || typeof condition.value === 'string' ? condition.value : ''}
         disabled={disabled}
-        onChange={event => onChange(Number(event.target.value))}
+        onChange={event => onChange(event.target.value)}
       />
     );
   }
@@ -577,8 +615,29 @@ function ConditionsEditor({
   const atLimit = conditions.length >= MAX_CONDITIONS;
   const fieldOptions = conditionFieldsForKind(kind);
 
+  // Conditions are plain {field,op,value} objects with no id of their own — and none
+  // is added to the wire format sent to the server. A client-only id is generated once
+  // per row here and kept in lockstep with add/remove, so each row's DOM subtree (in
+  // particular an `in` row's InListValueInput local state) stays keyed to the SAME row
+  // across a reorder rather than to an array index. Without this, removing row 2 of 3
+  // shifts row 3 into row 2's old index-keyed slot, and if that shifted-in row is also
+  // an `in` condition, it would inherit row 2's still-mounted typed text instead of
+  // its own. The parent keys this whole component by which trigger is being edited
+  // (see TriggerEditor), so switching triggers gets a fresh id list for free.
+  const [rowIds, setRowIds] = useState<string[]>(() => conditions.map(() => crypto.randomUUID()));
+
   const updateAt = (index: number, next: TriggerCondition) => {
     onChange(conditions.map((entry, i) => (i === index ? next : entry)));
+  };
+
+  const addRow = () => {
+    setRowIds(ids => [...ids, crypto.randomUUID()]);
+    onChange([...conditions, newCondition(kind)]);
+  };
+
+  const removeRow = (index: number) => {
+    setRowIds(ids => ids.filter((_, i) => i !== index));
+    onChange(removeStep(conditions, index));
   };
 
   return (
@@ -586,7 +645,7 @@ function ConditionsEditor({
       <span>Conditions</span>
       <div className="action-steps">
         {conditions.map((condition, index) => (
-          <div className="action-step" key={index}>
+          <div className="action-step" key={rowIds[index] ?? index}>
             <div className="action-step-head">
               <select
                 value={condition.field}
@@ -623,7 +682,7 @@ function ConditionsEditor({
                   className="modbtn danger"
                   type="button"
                   disabled={disabled}
-                  onClick={() => onChange(removeStep(conditions, index))}
+                  onClick={() => removeRow(index)}
                 >
                   Remove
                 </button>
@@ -641,7 +700,7 @@ function ConditionsEditor({
           className="modbtn"
           type="button"
           disabled={disabled || atLimit}
-          onClick={() => onChange([...conditions, newCondition(kind)])}
+          onClick={addRow}
         >
           {atLimit ? `Condition limit reached (${MAX_CONDITIONS})` : 'Add condition'}
         </button>
@@ -851,6 +910,12 @@ function TriggerEditor({
         />
 
         <ConditionsEditor
+          // Keyed by which trigger is open (not by `draft.kind` — the kind is fixed
+          // per trigger, so this is equivalent to keying by identity): TriggerEditor
+          // itself never unmounts as the operator clicks between triggers in the list
+          // (see AutomationSettingsPage), so without this key ConditionsEditor's row
+          // ids would carry over from whichever trigger was open a moment ago.
+          key={editingId ?? 'new'}
           kind={draft.kind}
           conditions={draft.conditions}
           disabled={saving}
