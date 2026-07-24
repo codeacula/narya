@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type express from 'express';
-import { INVALID_DASHBOARD_TOKEN } from '../shared/api';
+import { INVALID_DASHBOARD_TOKEN, type App } from '../shared/api';
+import { findAppByTokenHash, hashAppToken } from './apps';
 import { config } from './config';
 
 // Two capabilities share one secret. The operator token (DASHBOARD_TOKEN) is
@@ -10,6 +11,13 @@ import { config } from './config';
 // collections that get shared), so it must not be able to ban a viewer, rewrite
 // credentials, or read whispers.
 export type AuthRole = 'operator' | 'overlay';
+
+// The app-token surface. Deliberately NOT '/api/app/': the operator's app registry
+// is '/api/apps/', and '/api/apps/x'.startsWith('/api/app') is true, so a prefix
+// check one character short would skip the operator guard on the registry itself —
+// handing app management, including token minting, to an app token or to no token.
+// The trailing slash is load-bearing for the same reason ('/api/extras').
+export const APP_API_PREFIX = '/api/ext/';
 
 // External OAuth redirects can't carry our token, so they're exempt. The Twitch
 // callback is already protected by its state cookie; the Discord callback
@@ -123,6 +131,13 @@ export function requireDashboardToken(
     next();
     return;
   }
+  // Delegated to requireAppToken, which is mounted on every /api/ext/* route.
+  // Skipping here is safe ONLY because of that — the two are registered together,
+  // so a new /api/ext route that forgets requireAppToken is an unguarded route.
+  if (fullPath.startsWith(APP_API_PREFIX)) {
+    next();
+    return;
+  }
   const role = roleForToken(extractToken(request));
   if (role === 'operator') {
     next();
@@ -140,6 +155,62 @@ export function requireDashboardToken(
   // ambiguous with the routes that 401 over a missing *Twitch* login, and the
   // client uses that distinction to decide whether to discard its stored token.
   response.status(401).json({ error: 'Unauthorized', code: INVALID_DASHBOARD_TOKEN });
+}
+
+// Express already owns `request.app` — it is the Application instance, and the
+// `req.ip`, `req.protocol`, `req.hostname` and `req.subdomains` getters all call
+// `this.app.get(...)`. The resolved app therefore rides on its own property rather
+// than shadowing it.
+export type AppAuthedRequest = express.Request & { naryaApp?: App };
+
+/** The app a /api/ext/* request authenticated as, or null on any other request. */
+export function appFromRequest(request: express.Request): App | null {
+  return (request as AppAuthedRequest).naryaApp ?? null;
+}
+
+/**
+ * Guards /api/ext/*. A presented token resolves to a registered, ENABLED app or the
+ * request is refused. Three things this does deliberately:
+ *
+ *  - An operator or overlay token is rejected EXPLICITLY, not incidentally. Pasting
+ *    the dashboard token into an app's config is a realistic operator error, and it
+ *    must fail closed instead of depending on that token happening not to be a hash
+ *    in apps.token_hash.
+ *  - roleForToken is never consulted, so the loopback-only mode (no DASHBOARD_TOKEN
+ *    configured, every caller is the operator) does not make every caller a valid
+ *    app. This surface is about *which app* is acting; that needs a real app token.
+ *  - Every rejection is the same bare 401. Saying which check failed would tell a
+ *    caller whether a guessed token is well-formed, belongs to a real app, or
+ *    belongs to a disabled one. The presented token is never echoed or logged.
+ */
+export function requireAppToken(
+  request: express.Request,
+  response: express.Response,
+  next: express.NextFunction,
+) {
+  const provided = extractToken(request);
+  if (!provided) {
+    response.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  if (config.dashboardToken && tokensMatch(provided, config.dashboardToken)) {
+    response.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const overlay = getOverlayToken();
+  if (overlay && tokensMatch(provided, overlay)) {
+    response.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  // A revoked app stores SQL NULL, which no hash can equal, so a revoked token
+  // falls out here as an unknown one.
+  const app = findAppByTokenHash(hashAppToken(provided));
+  if (!app || app.disabledAt) {
+    response.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  (request as AppAuthedRequest).naryaApp = app;
+  next();
 }
 
 // The capability a WebSocket connection URL carries, or null to reject it.
