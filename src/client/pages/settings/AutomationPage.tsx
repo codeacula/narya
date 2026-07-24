@@ -7,6 +7,7 @@ import type {
   AutomationTriggerKind,
   CategoryModule,
   ChatPhraseMatch,
+  ConditionOp,
   TriggerCondition,
   TriggerOverride,
   TriggerOverrideInput,
@@ -34,16 +35,22 @@ import { errorMessage } from '../../errors';
 import {
   CHAT_PHRASE_MATCHES,
   CHAT_PHRASE_MATCH_LABELS,
+  CONDITION_FIELD_LABELS,
+  CONDITION_OP_LABELS,
+  CONDITION_ROLE_VALUES,
   MAX_ACTIONS_PER_TRIGGER,
+  MAX_CONDITIONS,
   TRIGGER_KINDS,
   TRIGGER_KIND_HINTS,
   TRIGGER_KIND_LABELS,
   TRIGGER_ROLES,
+  conditionFieldsForKind,
   describeTriggerConfig,
   formatCooldown,
   isGlobalTrigger,
   moveStep,
   normalizeCommandName,
+  opsForField,
   removeStep,
   triggerToInput,
   parseAliases,
@@ -463,6 +470,189 @@ function TriggerActionsEditor({
   );
 }
 
+/** A fresh value of the right shape for a newly chosen op, so switching ops never
+ *  leaves a value of the wrong type behind (a leftover string[] under `eq`, or a
+ *  leftover string under `in`). */
+function defaultConditionValue(op: ConditionOp): TriggerCondition['value'] {
+  switch (op) {
+    case 'in': return [];
+    case 'gte':
+    case 'lte': return 0;
+    case 'role_is': return CONDITION_ROLE_VALUES[0];
+    default: return '';
+  }
+}
+
+/** A blank condition for this trigger kind: its first available field, that field's
+ *  first available op, and a value of the right shape for that op. */
+function newCondition(kind: AutomationTriggerKind): TriggerCondition {
+  const field = conditionFieldsForKind(kind)[0] ?? 'actor';
+  const op = opsForField(kind, field)[0] ?? 'eq';
+  return { field, op, value: defaultConditionValue(op) };
+}
+
+/** The value editor for one condition row, typed by its op: a role picker for
+ *  role_is, a single tag field for tag_has, a number field for gte/lte, a
+ *  comma-separated list for `in`, and plain text otherwise. */
+function ConditionValueInput({
+  condition,
+  disabled,
+  onChange,
+}: {
+  condition: TriggerCondition;
+  disabled: boolean;
+  onChange: (value: TriggerCondition['value']) => void;
+}) {
+  if (condition.op === 'role_is') {
+    return (
+      <select value={String(condition.value)} disabled={disabled} onChange={event => onChange(event.target.value)}>
+        {CONDITION_ROLE_VALUES.map(role => <option key={role} value={role}>{role}</option>)}
+      </select>
+    );
+  }
+
+  if (condition.op === 'tag_has') {
+    return (
+      <input
+        type="text"
+        value={typeof condition.value === 'string' ? condition.value : ''}
+        disabled={disabled}
+        placeholder="tag"
+        onChange={event => onChange(event.target.value)}
+      />
+    );
+  }
+
+  if (condition.op === 'in') {
+    const listValue = Array.isArray(condition.value) ? condition.value : [];
+    return (
+      <input
+        type="text"
+        defaultValue={listValue.join(', ')}
+        disabled={disabled}
+        placeholder="value1, value2"
+        onBlur={event => onChange(event.target.value.split(',').map(entry => entry.trim()).filter(Boolean))}
+      />
+    );
+  }
+
+  if (condition.op === 'gte' || condition.op === 'lte') {
+    return (
+      <input
+        type="number"
+        value={typeof condition.value === 'number' ? condition.value : Number(condition.value) || 0}
+        disabled={disabled}
+        onChange={event => onChange(Number(event.target.value))}
+      />
+    );
+  }
+
+  return (
+    <input
+      type="text"
+      value={typeof condition.value === 'string' ? condition.value : ''}
+      disabled={disabled}
+      onChange={event => onChange(event.target.value)}
+    />
+  );
+}
+
+/**
+ * The trigger's optional AND-only event filter: a list of (field, op, value) rows,
+ * kind-aware in both the field and op vocabulary (mirrors the server's
+ * normalizeConditions — see automation.ts). An empty list is the normal case and
+ * means no extra filter, so it is never presented as a problem.
+ */
+function ConditionsEditor({
+  kind,
+  conditions,
+  disabled,
+  onChange,
+}: {
+  kind: AutomationTriggerKind;
+  conditions: TriggerCondition[];
+  disabled: boolean;
+  onChange: (next: TriggerCondition[]) => void;
+}) {
+  const atLimit = conditions.length >= MAX_CONDITIONS;
+  const fieldOptions = conditionFieldsForKind(kind);
+
+  const updateAt = (index: number, next: TriggerCondition) => {
+    onChange(conditions.map((entry, i) => (i === index ? next : entry)));
+  };
+
+  return (
+    <div className="field settings-wide-field">
+      <span>Conditions</span>
+      <div className="action-steps">
+        {conditions.map((condition, index) => (
+          <div className="action-step" key={index}>
+            <div className="action-step-head">
+              <select
+                value={condition.field}
+                disabled={disabled}
+                onChange={event => {
+                  const field = event.target.value;
+                  const op = opsForField(kind, field)[0] ?? 'eq';
+                  updateAt(index, { field, op, value: defaultConditionValue(op) });
+                }}
+              >
+                {fieldOptions.map(field => (
+                  <option key={field} value={field}>{CONDITION_FIELD_LABELS[field] ?? field}</option>
+                ))}
+              </select>
+              <select
+                value={condition.op}
+                disabled={disabled}
+                onChange={event => {
+                  const op = event.target.value as ConditionOp;
+                  updateAt(index, { field: condition.field, op, value: defaultConditionValue(op) });
+                }}
+              >
+                {opsForField(kind, condition.field).map(op => (
+                  <option key={op} value={op}>{CONDITION_OP_LABELS[op]}</option>
+                ))}
+              </select>
+              <ConditionValueInput
+                condition={condition}
+                disabled={disabled}
+                onChange={value => updateAt(index, { ...condition, value })}
+              />
+              <div className="command-row-actions">
+                <button
+                  className="modbtn danger"
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onChange(removeStep(conditions, index))}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {conditions.length === 0 && (
+          <div className="command-empty">No conditions — fires on every match.</div>
+        )}
+      </div>
+
+      <div className="settings-wide-field">
+        <button
+          className="modbtn"
+          type="button"
+          disabled={disabled || atLimit}
+          onClick={() => onChange([...conditions, newCondition(kind)])}
+        >
+          {atLimit ? `Condition limit reached (${MAX_CONDITIONS})` : 'Add condition'}
+        </button>
+      </div>
+      <small className="action-hint">
+        All conditions must match (AND). An empty list is normal — it just means no extra filter.
+      </small>
+    </div>
+  );
+}
+
 /**
  * Per-viewer overrides for one saved trigger. Rows save immediately via their own
  * endpoint — they are separate resources, deliberately outside the trigger form's
@@ -658,6 +848,13 @@ function TriggerEditor({
           actions={actions}
           disabled={saving}
           onChange={next => onChange({ ...draft, actions: next })}
+        />
+
+        <ConditionsEditor
+          kind={draft.kind}
+          conditions={draft.conditions}
+          disabled={saving}
+          onChange={next => onChange({ ...draft, conditions: next })}
         />
 
         <label className="field">
