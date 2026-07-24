@@ -76,6 +76,20 @@ export type RewardRedemptionSignal = {
   userInput?: string;
 };
 
+/**
+ * One inbound event from an external app's Redis stream. `eventId` is the caller's
+ * dedupe key (typically `${appId}:${appSuppliedId}`) — combined with the existing
+ * per-trigger claim key `${trigger.id}:${eventId}`, a redelivery cannot fire twice.
+ */
+export type RedisEventSignal = {
+  appId: string;
+  eventName: string;
+  eventId: string | null;
+  actor?: string;
+  login?: string | null;
+  data: Record<string, unknown>;
+};
+
 export type ModuleLifecyclePhase = 'activate' | 'deactivate';
 
 export type TriggerRunSummary = {
@@ -88,6 +102,7 @@ export type TriggerDispatcher = {
   handleChatMessage(message: ChatMessage): Promise<TriggerRunSummary[]>;
   handleTwitchEvent(signal: TwitchEventSignal): Promise<TriggerRunSummary[]>;
   handleRewardRedemption(signal: RewardRedemptionSignal): Promise<TriggerRunSummary[]>;
+  handleRedisEvent(signal: RedisEventSignal): Promise<TriggerRunSummary[]>;
   handleSlashCommand(input: string): Promise<SlashCommandResponse>;
   handleModuleLifecycle(
     phase: ModuleLifecyclePhase,
@@ -421,6 +436,21 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     return invokeAll(candidates, { eventId: signal.eventId, actorLogin: login || null });
   }
 
+  async function handleRedisEvent(signal: RedisEventSignal): Promise<TriggerRunSummary[]> {
+    const login = signal.login?.trim().toLowerCase() ?? '';
+    const context: TemplateContext = {
+      ...(signal.actor === undefined ? {} : { actor: signal.actor }),
+      ...(login ? { login } : {}),
+      data: signal.data,
+    };
+
+    const candidates = listEnabledTriggersOfKind('redis_event')
+      .filter(trigger => trigger.kind === 'redis_event' && trigger.config.appId === signal.appId && trigger.config.eventName === signal.eventName)
+      .map(trigger => ({ trigger, context }));
+
+    return invokeAll(candidates, { eventId: signal.eventId, actorLogin: login || null, allowedStepTypes: REDIS_SAFE_STEP_TYPES });
+  }
+
   async function handleRewardRedemption(signal: RewardRedemptionSignal): Promise<TriggerRunSummary[]> {
     const login = signal.login?.trim().toLowerCase() ?? '';
     const input = signal.userInput?.trim() ?? '';
@@ -619,6 +649,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     handleChatMessage,
     handleTwitchEvent,
     handleRewardRedemption,
+    handleRedisEvent,
     handleSlashCommand,
     handleModuleLifecycle,
     runTriggerManually,

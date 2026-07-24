@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import type { ActionRunResult, ChatMessage, TemplateContext } from '../shared/api';
+import type { ActionRunResult, ActionStepType, ChatMessage, TemplateContext } from '../shared/api';
 import { createAction } from './actions';
+import { createApp, declareAppEvent } from './apps';
 import { createAutomationTrigger } from './automationTriggers';
 import { db } from './db';
-import { createTriggerDispatcher, pruneAutomationRuns, type TriggerDispatcherDeps } from './triggerDispatcher';
+import { createTriggerDispatcher, pruneAutomationRuns, REDIS_SAFE_STEP_TYPES, type TriggerDispatcherDeps } from './triggerDispatcher';
 import { upsertTriggerOverride } from './triggerOverrides';
 
 // A hand-cranked clock: cooldown tests move time forward explicitly instead of sleeping.
@@ -528,6 +529,129 @@ describe('twitch events', () => {
 
     expect(runner.calls).toHaveLength(2);
     expect(runner.calls[0]!.context.amount).toBe(3);
+  });
+});
+
+describe('redis events', () => {
+  beforeEach(() => {
+    db.exec('delete from app_events');
+    db.exec('delete from apps');
+  });
+
+  function createBossKilledAction() {
+    return createAction({
+      name: 'Boss killed alert',
+      description: '',
+      enabled: true,
+      steps: [
+        { type: 'show_text', enabled: true, delayMs: 0, payload: { template: '{data.boss} was slain!', durationMs: 4000, style: 'banner' } },
+        { type: 'twitch_ban', enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', reasonTemplate: 'nope' } },
+      ],
+    }).id;
+  }
+
+  /**
+   * Stands in for the real executor: honors allowedStepTypes the same way
+   * actionExecutor.ts does (already covered by actionExecutor.test.ts), so the
+   * run's step statuses here prove what the dispatcher actually passed through,
+   * not just that runAction was called.
+   */
+  function createSafeSubsetRunner() {
+    const calls: Array<{ actionId: string; context: TemplateContext; allowedStepTypes?: ReadonlySet<ActionStepType> }> = [];
+    const runAction = async (
+      id: string,
+      context: TemplateContext,
+      options?: { allowedStepTypes?: ReadonlySet<ActionStepType> },
+    ): Promise<ActionRunResult> => {
+      calls.push({ actionId: id, context, allowedStepTypes: options?.allowedStepTypes });
+      const banAllowed = !options?.allowedStepTypes || options.allowedStepTypes.has('twitch_ban');
+      return {
+        actionId: id,
+        status: 'succeeded',
+        steps: [
+          { stepId: 's-text', type: 'show_text', status: 'succeeded', detail: '' },
+          {
+            stepId: 's-ban',
+            type: 'twitch_ban',
+            status: banAllowed ? 'succeeded' : 'skipped',
+            detail: banAllowed ? '' : 'twitch_ban not allowed for this source.',
+          },
+        ],
+        ranAt: new Date().toISOString(),
+      };
+    };
+    return { calls, runAction };
+  }
+
+  function runCount(triggerId: string): number {
+    return (db.prepare('select count(*) as n from automation_runs where trigger_id = ?').get(triggerId) as { n: number }).n;
+  }
+
+  test('fires the safe subset only — show_text runs, twitch_ban is skipped', async () => {
+    const app = createApp('bossapp');
+    declareAppEvent(app.id, 'boss_killed');
+    const boundActionId = createBossKilledAction();
+    trigger({
+      kind: 'redis_event',
+      config: { appId: app.id, eventName: 'boss_killed' },
+      actions: [{ actionId: boundActionId, position: 0, enabled: true }],
+    });
+    const safeRunner = createSafeSubsetRunner();
+    const { dispatcher } = setup({ runAction: safeRunner.runAction });
+
+    const runs = await dispatcher.handleRedisEvent({ appId: app.id, eventName: 'boss_killed', eventId: 'x1', data: { boss: 'Dragon' } });
+
+    expect(runs).toHaveLength(1);
+    expect(safeRunner.calls).toHaveLength(1);
+    // The exact same allowlist reference the module exports — proof this path is not
+    // silently unrestricted or a widened copy.
+    expect(safeRunner.calls[0]!.allowedStepTypes).toBe(REDIS_SAFE_STEP_TYPES);
+    expect(safeRunner.calls[0]!.context.data).toEqual({ boss: 'Dragon' });
+
+    const steps = runs[0]!.actions[0]!.steps;
+    expect(steps.find(step => step.type === 'show_text')!.status).toBe('succeeded');
+    expect(steps.find(step => step.type === 'twitch_ban')!.status).toBe('skipped');
+  });
+
+  test('a redelivery with the same eventId is a no-op — one automation_runs row', async () => {
+    const app = createApp('bossapp');
+    declareAppEvent(app.id, 'boss_killed');
+    const boundActionId = createBossKilledAction();
+    const created = trigger({
+      kind: 'redis_event',
+      config: { appId: app.id, eventName: 'boss_killed' },
+      actions: [{ actionId: boundActionId, position: 0, enabled: true }],
+    });
+    const safeRunner = createSafeSubsetRunner();
+    const { dispatcher } = setup({ runAction: safeRunner.runAction });
+    const signal = { appId: app.id, eventName: 'boss_killed', eventId: 'x1', data: { boss: 'Dragon' } };
+
+    await dispatcher.handleRedisEvent(signal);
+    const second = await dispatcher.handleRedisEvent(signal);
+
+    expect(second).toHaveLength(0);
+    expect(safeRunner.calls).toHaveLength(1);
+    expect(runCount(created.id)).toBe(1);
+  });
+
+  test('an event for an unbound (appId, eventName) fires nothing', async () => {
+    const app = createApp('bossapp');
+    declareAppEvent(app.id, 'boss_killed');
+    const boundActionId = createBossKilledAction();
+    trigger({
+      kind: 'redis_event',
+      config: { appId: app.id, eventName: 'boss_killed' },
+      actions: [{ actionId: boundActionId, position: 0, enabled: true }],
+    });
+    const safeRunner = createSafeSubsetRunner();
+    const { dispatcher } = setup({ runAction: safeRunner.runAction });
+
+    const wrongEventName = await dispatcher.handleRedisEvent({ appId: app.id, eventName: 'boss_spawned', eventId: 'y1', data: {} });
+    const wrongApp = await dispatcher.handleRedisEvent({ appId: 'unknown-app', eventName: 'boss_killed', eventId: 'y2', data: {} });
+
+    expect(wrongEventName).toHaveLength(0);
+    expect(wrongApp).toHaveLength(0);
+    expect(safeRunner.calls).toHaveLength(0);
   });
 });
 
