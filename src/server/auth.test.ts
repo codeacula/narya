@@ -179,7 +179,8 @@ describe('requireDashboardToken', () => {
 
 type AppRouteCall = RouteCall & { resolvedApp: { id: string; name: string } | null };
 
-// Drive requireAppToken, which is mounted per-route on /api/ext/* rather than at /api.
+// Drive requireAppToken directly. In the server it is mounted once on the /api/ext
+// prefix (index.ts), not at /api.
 function callAppMiddleware(options: {
   method?: string;
   path?: string;

@@ -1,7 +1,8 @@
 import { registerActionRoutes } from './actions';
 import { registerAppConfigRoutes, type AppConfigChange } from './appConfig';
+import { registerAppRewardRoutes } from './appRewards';
 import { registerAppsRoutes } from './apps';
-import { getOverlayToken, requireDashboardToken } from './auth';
+import { getOverlayToken, requireAppToken, requireDashboardToken } from './auth';
 import { getActionExecutor, getTriggerDispatcher, initAutomation } from './automation';
 import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './automationTriggers';
 import { registerTriggerOverrideRoutes } from './triggerOverrides';
@@ -119,6 +120,13 @@ if (!config.dashboardToken && !isLoopbackHost(config.host)) {
 // read-only allowlist in auth.ts. Unauthenticated only on a loopback-bound server.
 app.use('/api', requireDashboardToken);
 
+// The app-token surface. Mounted ONCE for the whole prefix, before any /api/ext route
+// is registered: requireDashboardToken deliberately next()s /api/ext/* with zero auth
+// and delegates here, so an ext route that is reachable without this guard is
+// completely unauthenticated. Guarding the prefix rather than each route makes
+// forgetting it impossible for every route added later.
+app.use('/api/ext', requireAppToken);
+
 // The URL an OBS browser source should use. Operator-only (the middleware above
 // blocks overlay tokens from reaching it), so an overlay can't read it back.
 app.get('/api/auth/overlay-token', (_request, response) => {
@@ -146,6 +154,7 @@ registerTwitchAuthRoutes({
 });
 registerTwitchApiRoutes(app, runtimeState);
 registerViewerRewardRoutes(app, runtimeState);
+registerAppRewardRoutes(app, runtimeState);
 registerAppsRoutes(app);
 registerMediaAssetRoutes(app);
 registerActionRoutes(app, getActionExecutor());

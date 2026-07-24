@@ -131,9 +131,10 @@ export function requireDashboardToken(
     next();
     return;
   }
-  // Delegated to requireAppToken, which is mounted on every /api/ext/* route.
-  // Skipping here is safe ONLY because of that — the two are registered together,
-  // so a new /api/ext route that forgets requireAppToken is an unguarded route.
+  // Delegated to requireAppToken, which index.ts mounts ONCE on the whole prefix
+  // (app.use('/api/ext', requireAppToken)) before any ext route is registered.
+  // Skipping here is safe ONLY because of that: guarding the prefix rather than each
+  // route is what makes an unguarded /api/ext route impossible to add.
   if (fullPath.startsWith(APP_API_PREFIX)) {
     next();
     return;

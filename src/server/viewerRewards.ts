@@ -21,7 +21,7 @@ const REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards';
 
 export type TwitchRewardCredentials = Awaited<ReturnType<typeof getTwitchActionCredentials>>;
 
-type TwitchReward = {
+export type TwitchReward = {
   id: string;
   title: string;
   prompt: string;
@@ -213,7 +213,9 @@ function normalizeHexColor(value: unknown, fallback = '#9147FF'): string {
   return /^#[0-9A-F]{6}$/.test(trimmed) ? trimmed : fallback;
 }
 
-function normalizeReward(body: unknown): ViewerRewardUpsert {
+// Exported for the app-facing routes (appRewards.ts), which validate the same reward
+// shape but never read `source` from the body — theirs comes from the app token.
+export function normalizeReward(body: unknown): ViewerRewardUpsert {
   const value = body as Partial<ViewerRewardUpsert>;
   const title = typeof value.title === 'string' ? value.title.trim() : '';
   const prompt = typeof value.prompt === 'string' ? value.prompt.trim() : '';
@@ -256,7 +258,7 @@ function normalizeReward(body: unknown): ViewerRewardUpsert {
 // Twitch's create/update endpoints take FLAT fields (is_global_cooldown_enabled, global_cooldown_seconds,
 // is_max_per_stream_enabled, …) even though the GET response nests them under *_setting objects. Sending the
 // nested shape here is silently ignored, which is why limits set through this app never applied before.
-function twitchRewardBody(reward: ViewerRewardUpsert, isEnabled: boolean, includePaused: boolean): Record<string, unknown> {
+export function twitchRewardBody(reward: ViewerRewardUpsert, isEnabled: boolean, includePaused: boolean): Record<string, unknown> {
   const body: Record<string, unknown> = {
     title: reward.title,
     prompt: reward.prompt,
@@ -277,8 +279,11 @@ function twitchRewardBody(reward: ViewerRewardUpsert, isEnabled: boolean, includ
   return body;
 }
 
-async function sendTwitchRewardUpdate(
-  credentials: Awaited<ReturnType<typeof getTwitchActionCredentials>>,
+// The three Twitch write calls live here, exported, so the app-facing routes in
+// appRewards.ts drive the same requests the operator routes do rather than growing a
+// second copy of the Helix contract.
+export async function sendTwitchRewardUpdate(
+  credentials: TwitchRewardCredentials,
   rewardId: string,
   fields: Record<string, unknown>,
 ) {
@@ -292,6 +297,45 @@ async function sendTwitchRewardUpdate(
   });
 }
 
+/** Mint a reward on Twitch. Twitch owns the id, so provenance can only be written
+ *  by the caller afterwards. */
+export async function createTwitchReward(
+  credentials: TwitchRewardCredentials,
+  reward: ViewerRewardUpsert,
+  isEnabled: boolean,
+): Promise<TwitchReward> {
+  const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
+  const twitchResponse = await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
+    credentials,
+    method: 'POST',
+    body: twitchRewardBody(reward, isEnabled, false),
+    errorMessage: 'Twitch reward creation failed.',
+    passthroughStatuses: [400, 401, 403],
+  });
+  const data = await twitchResponse.json() as { data?: TwitchReward[] };
+  const created = data.data?.[0];
+  if (!created) throw new HttpRouteError(502, 'Twitch did not return the created reward.');
+  return created;
+}
+
+export async function deleteTwitchReward(credentials: TwitchRewardCredentials, rewardId: string): Promise<void> {
+  const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, id: rewardId });
+  await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
+    credentials,
+    method: 'DELETE',
+    headers: JSON_CONTENT_TYPE,
+    errorMessage: 'Twitch reward deletion failed.',
+    passthroughStatuses: [400, 401, 403, 404],
+  });
+}
+
+/** Local rows that must not outlive the Twitch reward: group membership and provenance.
+ *  Called only after Twitch confirms the delete, so a failed delete leaves the reward
+ *  attributed rather than orphaned. */
+export function forgetRewardLocalState(rewardId: string): void {
+  clearRewardCategory.run(rewardId);
+  clearRewardSource(rewardId);
+}
 
 function saveRewardCategory(rewardId: string, categoryId: string | null) {
   if (categoryId) setRewardCategory.run(rewardId, categoryId, new Date().toISOString());
@@ -443,17 +487,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     const reward = normalizeReward(request.body);
     const category = reward.categoryId ? getCategory.get(reward.categoryId) as CategoryRow : null;
     const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-    const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId });
-    const twitchResponse = await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
-      credentials,
-      method: 'POST',
-      body: twitchRewardBody(reward, category?.enabled === 0 ? false : reward.isEnabled, false),
-      errorMessage: 'Twitch reward creation failed.',
-      passthroughStatuses: [400, 401, 403],
-    });
-    const data = await twitchResponse.json() as { data?: TwitchReward[] };
-    const created = data.data?.[0];
-    if (!created) throw new HttpRouteError(502, 'Twitch did not return the created reward.');
+    const created = await createTwitchReward(credentials, reward, category?.enabled === 0 ? false : reward.isEnabled);
     saveRewardCategory(created.id, reward.categoryId);
     // Twitch mints the reward id, so the binding — and the provenance tag — can only be
     // saved here. Operator-created rewards default to 'narya'; a caller may pass an
@@ -505,16 +539,8 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
 
   app.delete('/api/twitch/rewards/:id', handle(async (request, response) => {
     const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
-    const params = new URLSearchParams({ broadcaster_id: credentials.broadcasterId, id: request.params.id });
-    await twitchFetch(`${REWARDS_URL}?${params.toString()}`, {
-      credentials,
-      method: 'DELETE',
-      headers: JSON_CONTENT_TYPE,
-      errorMessage: 'Twitch reward deletion failed.',
-      passthroughStatuses: [400, 401, 403, 404],
-    });
-    clearRewardCategory.run(request.params.id);
-    clearRewardSource(request.params.id);
+    await deleteTwitchReward(credentials, request.params.id);
+    forgetRewardLocalState(request.params.id);
     response.status(204).send();
   }));
 }
