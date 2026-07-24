@@ -35,6 +35,7 @@ import {
   formatRoles,
   isGlobalTrigger,
   isLifecycleKind,
+  listInertReason,
   moveStep,
   newStep,
   normalizeCommandName,
@@ -1374,5 +1375,57 @@ describe('redisTriggerInertReason', () => {
     const events = [{ appId: 'a2', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
     const reason = redisTriggerInertReason({ appId: 'a1', eventName: 'boss_killed' }, apps, events);
     expect(reason).toMatch(/declared/i);
+  });
+});
+
+// The wiring bug the Task 6 review found: "data not loaded yet" was being read as
+// "the thing is gone", so a healthy trigger got a false "won't fire" badge for the
+// entire in-flight window (or permanently, on a cache write from stale/failed
+// fetch state). listInertReason is the pure decision the page's effects delegate
+// to, so these false-positive cases are testable without a component harness.
+describe('listInertReason', () => {
+  const apps = [{ id: 'a1', name: 'pztmi', disabledAt: null }] as App[];
+  const events = [{ appId: 'a1', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+  const config = { appId: 'a1', eventName: 'boss_killed' };
+
+  test('apps not loaded yet: no badge, even though apps is empty', () => {
+    expect(listInertReason({ config, apps: [], appsLoaded: false, events: undefined })).toBeNull();
+  });
+
+  test('events not loaded for this app yet: no badge, even for an otherwise healthy app', () => {
+    expect(listInertReason({ config, apps, appsLoaded: true, events: undefined })).toBeNull();
+  });
+
+  test('a cache entry belonging to a different app is not "loaded" for this one', () => {
+    // Modeled as the page's Record<appId, AppEvent[]> cache: a lookup miss on the
+    // trigger's own appId is `undefined`, exactly like "not loaded", even though the
+    // cache is non-empty and holds real data for some other app.
+    const otherAppEvents = [{ appId: 'a2', eventName: 'boss_killed', dataKeys: [], createdAt: '' }] as AppEvent[];
+    const cache: Record<string, AppEvent[]> = { a2: otherAppEvents };
+    expect(listInertReason({ config, apps, appsLoaded: true, events: cache[config.appId] })).toBeNull();
+  });
+
+  test('loaded + genuinely undeclared event: the undeclared reason', () => {
+    const reason = listInertReason({
+      config: { appId: 'a1', eventName: 'not_declared' },
+      apps,
+      appsLoaded: true,
+      events,
+    });
+    expect(reason).toMatch(/declared/i);
+  });
+
+  test('loaded + app genuinely missing: the removed reason, even with no events loaded for it', () => {
+    const reason = listInertReason({
+      config: { appId: 'gone', eventName: 'boss_killed' },
+      apps,
+      appsLoaded: true,
+      events: undefined,
+    });
+    expect(reason).toMatch(/app/i);
+  });
+
+  test('loaded + healthy: no badge', () => {
+    expect(listInertReason({ config, apps, appsLoaded: true, events })).toBeNull();
   });
 });

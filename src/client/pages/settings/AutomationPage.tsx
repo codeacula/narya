@@ -55,10 +55,10 @@ import {
   describeTriggerConfig,
   formatCooldown,
   isGlobalTrigger,
+  listInertReason,
   moveStep,
   normalizeCommandName,
   opsForField,
-  redisTriggerInertReason,
   redisUnsafeStepWarning,
   removeStep,
   triggerToInput,
@@ -199,29 +199,66 @@ function CooldownFields({
  * picker and ConditionsEditor (which needs the selected event's dataKeys for the
  * {data.*} condition picker) share this one fetch instead of each keeping its own
  * copy — TriggerEditor calls this once and passes the result down to both.
+ *
+ * `eventsAppId` is the app id `events` actually belongs to, and is set ONLY once a
+ * fetch for that exact id has resolved — never optimistically, never on the id
+ * that is merely being requested. That is deliberate: on the very first render
+ * after `appId` changes to a new app B, this hook's own effect has not run yet, so
+ * it still returns the PREVIOUS commit's `events`/`loadingEvents` (React flushes a
+ * commit's passive effects before reacting to state scheduled during that flush).
+ * A caller gating on `loadingEvents === false` alone would misread that stale
+ * render as "B's events, loaded, and empty" — this is the false "won't fire" badge
+ * the Task 6 review found. Comparing `eventsAppId` (still A, or '') against the
+ * caller's own `appId` (B) catches that mismatch even though both were read from
+ * the same stale render, because they're set together. `eventsError` mirrors this
+ * for a failed fetch, so a network blip is never conflated with "confirmed empty
+ * event list" the way a bare `events.length === 0` would read it.
  */
-function useAppEvents(appId: string): { events: AppEvent[]; loadingEvents: boolean } {
+function useAppEvents(appId: string): {
+  events: AppEvent[];
+  loadingEvents: boolean;
+  eventsAppId: string;
+  eventsError: boolean;
+} {
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const [eventsAppId, setEventsAppId] = useState('');
+  const [eventsError, setEventsError] = useState(false);
 
   useEffect(() => {
     if (!appId) {
       setEvents([]);
+      setEventsAppId('');
+      setEventsError(false);
+      setLoadingEvents(false);
       return;
     }
     let cancelled = false;
     // Clear the previous app's options before B's fetch resolves, so A's events are never
     // selectable while loading B (the eventName reset on app change already dropped the value).
+    // eventsAppId is cleared here too (not set to appId until the fetch actually settles),
+    // so "loaded for THIS app" stays false for the whole in-flight window, not just while
+    // loadingEvents happens to already be true.
     setEvents([]);
+    setEventsAppId('');
+    setEventsError(false);
     setLoadingEvents(true);
     void getAppEvents(appId)
-      .then(next => { if (!cancelled) setEvents(next); })
-      .catch(() => { if (!cancelled) setEvents([]); })
+      .then(next => {
+        if (cancelled) return;
+        setEvents(next);
+        setEventsAppId(appId);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEvents([]);
+        setEventsError(true);
+      })
       .finally(() => { if (!cancelled) setLoadingEvents(false); });
     return () => { cancelled = true; };
   }, [appId]);
 
-  return { events, loadingEvents };
+  return { events, loadingEvents, eventsAppId, eventsError };
 }
 
 /**
@@ -247,7 +284,7 @@ function RedisEventConfigFields({
   triggerActions: TriggerAction[];
   events: AppEvent[];
   loadingEvents: boolean;
-  /** Computed by redisTriggerInertReason (Phase C2) — null while the trigger would
+  /** Computed by listInertReason (Phase C2) — null while the trigger would
    *  actually fire. Advisory: rendered here so the operator sees it right next to
    *  the App/Event pickers they would fix, same placement idea as `warning` below. */
   inertReason: string | null;
@@ -1009,8 +1046,10 @@ function TriggerEditor({
   modules,
   rewards,
   apps,
+  appsLoaded,
   redisEvents,
   redisLoadingEvents,
+  redisEventsLoaded,
   saving,
   testing,
   overrides,
@@ -1029,12 +1068,20 @@ function TriggerEditor({
   modules: CategoryModule[];
   rewards: ViewerReward[];
   apps: App[];
+  /** Whether the app roster's GET has actually resolved at least once — `apps`
+   *  starts (and stays, on a failed fetch) as `[]`, which is indistinguishable
+   *  from "no apps exist" without this. See listInertReason. */
+  appsLoaded: boolean;
   /** The bound app's declared events for a redis_event draft (empty for every other
    *  kind). Lifted up to AutomationSettingsPage — not fetched here — so the trigger
    *  LIST can reuse the same load to badge every redis_event row it covers, rather
    *  than each editor instance keeping its own private copy. */
   redisEvents: AppEvent[];
   redisLoadingEvents: boolean;
+  /** True only once `redisEvents` genuinely belongs to draft.config.appId — see
+   *  useAppEvents' eventsAppId. False for the entire in-flight window AND for a
+   *  failed fetch, not merely while redisLoadingEvents happens to already be true. */
+  redisEventsLoaded: boolean;
   saving: boolean;
   testing: boolean;
   overrides: TriggerOverride[];
@@ -1058,11 +1105,15 @@ function TriggerEditor({
   // persisted. Gated on both fields being picked: a brand-new, not-yet-configured
   // draft has an empty appId, which would otherwise resolve to "app removed" (no app
   // has an empty id) before the operator has chosen one — validateTrigger's own
-  // "pick an app"/"pick an event" messages already cover that state. Also gated on
-  // !redisLoadingEvents, since redisEvents is [] mid-fetch, which would misreport
-  // "not declared" for an app that is otherwise fine.
-  const redisInertReason = draft.kind === 'redis_event' && draft.config.appId && draft.config.eventName && !redisLoadingEvents
-    ? redisTriggerInertReason(draft.config, apps, redisEvents)
+  // "pick an app"/"pick an event" messages already cover that state. listInertReason
+  // itself handles the apps-not-loaded and events-not-loaded-for-this-app gates.
+  const redisInertReason = draft.kind === 'redis_event' && draft.config.appId && draft.config.eventName
+    ? listInertReason({
+        config: draft.config,
+        apps,
+        appsLoaded,
+        events: redisEventsLoaded ? redisEvents : undefined,
+      })
     : null;
 
   return (
@@ -1248,10 +1299,15 @@ export function AutomationSettingsPage() {
   }, []);
 
   // The redis_event app picker's option list; without it the picker just has
-  // nothing to offer, same as the reward picker above.
+  // nothing to offer, same as the reward picker above. appsLoaded flips true only
+  // on a SUCCESSFUL fetch (never in a .finally) — apps stays `[]` on a failed one,
+  // which is indistinguishable from "no apps exist" without a separate flag, and a
+  // 500/slow response must not read as "every app was removed" for the rest of the
+  // visit (see listInertReason, which returns null — no badge — while this is false).
+  const [appsLoaded, setAppsLoaded] = useState(false);
   useEffect(() => {
     void getApps()
-      .then(setApps)
+      .then(next => { setApps(next); setAppsLoaded(true); })
       .catch(() => setApps([]));
   }, []);
 
@@ -1261,18 +1317,32 @@ export function AutomationSettingsPage() {
   // picker. appId is '' for every non-redis_event kind (or no draft open), which
   // useAppEvents already treats as "no events".
   const redisAppId = draft?.kind === 'redis_event' ? draft.config.appId : '';
-  const { events: redisEvents, loadingEvents: redisLoadingEvents } = useAppEvents(redisAppId);
+  const {
+    events: redisEvents,
+    loadingEvents: redisLoadingEvents,
+    eventsAppId: redisEventsAppId,
+    eventsError: redisEventsError,
+  } = useAppEvents(redisAppId);
+
+  // True only once `redisEvents` genuinely belongs to `redisAppId` — see
+  // useAppEvents' eventsAppId/eventsError. False for the ENTIRE in-flight window
+  // (not just while redisLoadingEvents happens to already be true on the render
+  // where redisAppId just changed — that render still carries the previous app's
+  // stale, already-resolved state) and false on a failed fetch, so neither a race
+  // nor a network blip can be read as "this app's events, confirmed".
+  const redisEventsLoaded = Boolean(redisAppId) && redisEventsAppId === redisAppId && !redisEventsError;
 
   // Accumulates by app id as the operator opens redis_event triggers, so a trigger
   // list row keeps its inert badge even after the editor moves on to a different
   // app — cleared only by a fresh page load, never by navigating within it. Only
-  // caches once a fetch has actually resolved (redisLoadingEvents false), so a
-  // brief loading window can never read as "this app has zero declared events".
+  // ever written from a settled, successful fetch that belongs to redisAppId
+  // (redisEventsLoaded) — never from a stale render, an in-flight fetch, or a
+  // failed one, any of which would poison the cache with a false-empty list.
   const [appEventsCache, setAppEventsCache] = useState<Record<string, AppEvent[]>>({});
   useEffect(() => {
-    if (!redisAppId || redisLoadingEvents) return;
+    if (!redisEventsLoaded) return;
     setAppEventsCache(cache => ({ ...cache, [redisAppId]: redisEvents }));
-  }, [redisAppId, redisEvents, redisLoadingEvents]);
+  }, [redisAppId, redisEvents, redisEventsLoaded]);
 
   const rewardTitles = useMemo(() => {
     const titles: Record<string, string> = {};
@@ -1287,20 +1357,16 @@ export function AutomationSettingsPage() {
   }, [actions]);
 
   /**
-   * The list's version of redisTriggerInertReason: `apps` alone already answers the
-   * missing-app / disabled-app checks (both cases short-circuit before the events
-   * param is ever read, so [] is safe there), but "event undeclared" is only ever
-   * trustworthy once that specific app's events have actually loaded into
-   * appEventsCache — an app never opened in the editor yet reports null (no badge)
-   * rather than a false "not declared".
+   * The list's version of the editor's redisInertReason: `appEventsCache` supplies
+   * `undefined` (not-loaded) on a miss for exactly the same reasons the editor's own
+   * `redisEventsLoaded` gate exists — an app never opened in the editor yet, or one
+   * whose only fetch is still in flight or failed, reports null (no badge) rather
+   * than a false "not declared". listInertReason owns the apps-not-loaded gate and
+   * the app-missing/disabled precedence.
    */
   const redisInertReasonForList = useCallback((config: RedisEventTriggerConfig): string | null => {
-    const app = apps.find(candidate => candidate.id === config.appId);
-    if (!app || app.disabledAt) return redisTriggerInertReason(config, apps, []);
-    const events = appEventsCache[config.appId];
-    if (!events) return null;
-    return redisTriggerInertReason(config, apps, events);
-  }, [apps, appEventsCache]);
+    return listInertReason({ config, apps, appsLoaded, events: appEventsCache[config.appId] });
+  }, [apps, appsLoaded, appEventsCache]);
 
   const busy = loading || saving;
 
@@ -1555,8 +1621,10 @@ export function AutomationSettingsPage() {
                     modules={modules}
                     rewards={rewards}
                     apps={apps}
+                    appsLoaded={appsLoaded}
                     redisEvents={redisEvents}
                     redisLoadingEvents={redisLoadingEvents}
+                    redisEventsLoaded={redisEventsLoaded}
                     saving={saving}
                     testing={editingId !== null && busyId === editingId}
                     overrides={editingId ? overrides.filter(o => o.triggerId === editingId) : []}

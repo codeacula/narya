@@ -158,6 +158,41 @@ export function redisTriggerInertReason(
   return null;
 }
 
+/**
+ * The badge decision an in-flight (or failed, or stale) fetch must never drive:
+ * wraps redisTriggerInertReason with the "have we actually loaded this yet"
+ * gate the caller's fetch state answers. Returns null — no badge — whenever an
+ * input isn't loaded, rather than letting an empty placeholder (`apps: []`
+ * before the GET resolves, `events: []` mid-fetch or on a failed fetch) read as
+ * a confirmed "removed"/"undeclared" fact. Never changes redisTriggerInertReason's
+ * own logic or precedence (app missing → app disabled → event undeclared); it only
+ * decides whether that helper is trustworthy to call at all yet.
+ *
+ * `events: undefined` means "not loaded for THIS app" — a cache keyed by app id
+ * naturally produces that on a lookup miss, so a stale entry left over from a
+ * different app (or a still-in-flight/errored fetch a caller hasn't cached yet)
+ * is indistinguishable from "never fetched", which is exactly the safe reading.
+ *
+ * The app-missing/app-disabled checks don't need `events` at all (mirrors the
+ * precedence inside redisTriggerInertReason itself), so those still resolve as
+ * soon as `apps` has loaded even if this particular app's events have not.
+ */
+export function listInertReason(input: {
+  config: RedisEventTriggerConfig;
+  apps: App[];
+  appsLoaded: boolean;
+  /** undefined = events not yet loaded for config.appId specifically. */
+  events: AppEvent[] | undefined;
+}): string | null {
+  if (!input.appsLoaded) return null;
+  const app = input.apps.find(candidate => candidate.id === input.config.appId);
+  if (!app || app.disabledAt) {
+    return redisTriggerInertReason(input.config, input.apps, input.events ?? []);
+  }
+  if (input.events === undefined) return null;
+  return redisTriggerInertReason(input.config, input.apps, input.events);
+}
+
 export const TRIGGER_KINDS: AutomationTriggerKind[] = [
   'reward',
   'twitch_event',
