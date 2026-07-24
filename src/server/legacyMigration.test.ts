@@ -194,9 +194,14 @@ function addCommand(id: string, trigger: string, actions: Array<{ type: string; 
 }
 
 function triggerFor(command: string) {
-  const rows = db.prepare('select action_id as actionId, kind, enabled, config_json as configJson from automation_triggers').all() as
-    Array<{ actionId: string; kind: string; enabled: number; configJson: string }>;
+  const rows = db.prepare('select id, action_id as actionId, kind, enabled, name, config_json as configJson from automation_triggers').all() as
+    Array<{ id: string; actionId: string; kind: string; enabled: number; name: string; configJson: string }>;
   return rows.find(row => (JSON.parse(row.configJson) as { command?: string }).command === command);
+}
+
+function joinRowsFor(triggerId: string) {
+  return db.prepare('select action_id as actionId, position, enabled from automation_trigger_actions where trigger_id = ?')
+    .all(triggerId) as Array<{ actionId: string; position: number; enabled: number }>;
 }
 
 function stepsOf(actionId: string) {
@@ -265,11 +270,21 @@ describe('migrateLegacyChatbotCommands', () => {
     const triggers = db.prepare("select count(*) as count from automation_triggers").get() as { count: number };
     expect(triggers.count).toBe(1);
   });
+
+  test('writes one join row (position 0, enabled) and a non-empty name for the migrated trigger', () => {
+    addCommand('c5', '!hug', [{ type: 'chat_reply', payload: { template: 'hug!' } }]);
+
+    migrateLegacyChatbotCommands();
+
+    const trigger = triggerFor('!hug');
+    expect(trigger?.name.trim().length).toBeGreaterThan(0);
+    expect(joinRowsFor(trigger!.id)).toEqual([{ actionId: trigger!.actionId, position: 0, enabled: 1 }]);
+  });
 });
 
 function triggersOfKind(kind: string) {
-  return (db.prepare('select action_id as actionId, kind, enabled, config_json as configJson from automation_triggers where kind = ?')
-    .all(kind) as Array<{ actionId: string; kind: string; enabled: number; configJson: string }>);
+  return (db.prepare('select id, action_id as actionId, kind, enabled, name, config_json as configJson from automation_triggers where kind = ?')
+    .all(kind) as Array<{ id: string; actionId: string; kind: string; enabled: number; name: string; configJson: string }>);
 }
 
 describe('migrateLegacyRewardBindings', () => {
@@ -324,6 +339,19 @@ describe('migrateLegacyRewardBindings', () => {
     migrateLegacyRewardBindings();
 
     expect(triggersOfKind('reward')).toHaveLength(1);
+  });
+
+  test('writes one join row (position 0, enabled) and a non-empty name for the migrated trigger', () => {
+    db.prepare('insert into clip_buttons (id, label, filename) values (?, ?, ?)').run('c1', 'Dinosaur', '/clips/dinosaur.mp4');
+    db.prepare('insert into reward_media (reward_id, kind, src, volume, updated_at) values (?, ?, ?, ?, ?)')
+      .run('reward-1', 'video', '/clips/dinosaur.mp4', 1, '');
+
+    migrateLegacyMediaIntoAssets();
+    migrateLegacyRewardBindings();
+
+    const trigger = triggersOfKind('reward')[0]!;
+    expect(trigger.name.trim().length).toBeGreaterThan(0);
+    expect(joinRowsFor(trigger.id)).toEqual([{ actionId: trigger.actionId, position: 0, enabled: 1 }]);
   });
 });
 
@@ -395,6 +423,16 @@ describe('migrateLegacyAlerts', () => {
 
     expect(triggersOfKind('twitch_event')).toHaveLength(1);
   });
+
+  test('writes one join row (position 0, enabled) and a non-empty name for the migrated trigger', () => {
+    addAlert('sub', 1, '{user} just subscribed!', null, null);
+
+    migrateLegacyAlerts();
+
+    const trigger = triggersOfKind('twitch_event')[0]!;
+    expect(trigger.name.trim().length).toBeGreaterThan(0);
+    expect(joinRowsFor(trigger.id)).toEqual([{ actionId: trigger.actionId, position: 0, enabled: 1 }]);
+  });
 });
 
 describe('migrateQuackCommandIntoAction', () => {
@@ -460,5 +498,15 @@ describe('migrateQuackCommandIntoAction', () => {
     migrateQuackCommandIntoAction();
 
     expect(triggersOfKind('viewer_command')).toHaveLength(1);
+  });
+
+  test('writes one join row (position 0, enabled) and a non-empty name for the migrated trigger', () => {
+    addQuackAssets('/sounds/quacks/a.mp3');
+
+    migrateQuackCommandIntoAction();
+
+    const trigger = triggerFor('!quack');
+    expect(trigger?.name.trim().length).toBeGreaterThan(0);
+    expect(joinRowsFor(trigger!.id)).toEqual([{ actionId: trigger!.actionId, position: 0, enabled: 1 }]);
   });
 });

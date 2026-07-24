@@ -107,6 +107,55 @@ export function dropStaleTriggerOverrides(database: Database): boolean {
   return true;
 }
 
+/**
+ * automation_trigger_actions is Phase B1's join table (a trigger runs N ordered
+ * Actions instead of one). Same self-healing rationale as trigger_overrides above: a
+ * mid-edit `bun --watch` save can persist a partial shape into the real database, and
+ * `create table if not exists` never heals it.
+ *
+ * Column names alone are not enough here either: the double-play guard is the
+ * composite primary key `(trigger_id, action_id)`, so also require a unique index
+ * over exactly that column pair.
+ *
+ * On a mismatch, this also clears the backfill's ledger row. The backfill
+ * (`2026-07-trigger-actions-from-action-id`) is a runOnce, so once its ledger id is
+ * recorded it never runs again — but a freshly recreated (empty) table with no ledger
+ * clear would then never regain its rows, silently violating the >=1-row-per-trigger
+ * invariant the rest of Phase B1 assumes.
+ */
+const TRIGGER_ACTION_COLUMNS_SHIPPED = ['action_id', 'enabled', 'position', 'trigger_id'];
+
+function hasTriggerActionPrimaryKey(database: Database): boolean {
+  const indexes = database.prepare("PRAGMA index_list('automation_trigger_actions')").all() as Array<{ name: string; unique: number; origin: string }>;
+  return indexes.some(index => {
+    if (!index.unique) return false;
+    const columns = (database.prepare(`PRAGMA index_info('${index.name}')`).all() as Array<{ name: string }>)
+      .map(c => c.name).sort();
+    return columns.length === 2 && columns[0] === 'action_id' && columns[1] === 'trigger_id';
+  });
+}
+
+export function dropStaleTriggerActions(database: Database): boolean {
+  const columns = database.prepare("PRAGMA table_info('automation_trigger_actions')").all() as Array<{ name: string }>;
+  if (columns.length === 0) return false;
+  const names = columns.map(c => c.name).sort();
+  const shipped = [...TRIGGER_ACTION_COLUMNS_SHIPPED].sort();
+  const columnsMatch = names.length === shipped.length && names.every((n, i) => n === shipped[i]);
+  if (columnsMatch && hasTriggerActionPrimaryKey(database)) return false;
+  database.exec('drop table automation_trigger_actions');
+  // The backfill copy is a runOnce; its ledger id is already recorded, so a plain drop
+  // would leave the table empty. Clear the id so the copy re-runs and restores the
+  // >=1-row invariant from action_id. schema_migrations may not exist yet at this
+  // point in boot (the guard shelf runs before the DDL that creates it), so a missing
+  // ledger table is not an error here.
+  try {
+    database.exec("delete from schema_migrations where id = '2026-07-trigger-actions-from-action-id'");
+  } catch {
+    /* ledger not created yet */
+  }
+  return true;
+}
+
 db.exec('pragma journal_mode = WAL');
 // The schema declares `on delete cascade` in four places, but SQLite ignores
 // every one of them unless foreign keys are enabled per-connection (the default
@@ -116,6 +165,7 @@ restrictDatabaseFiles();
 
 dropStaleLlmInteractions(db);
 dropStaleTriggerOverrides(db);
+dropStaleTriggerActions(db);
 
 db.exec(`
   create table if not exists chat_messages (
@@ -545,6 +595,20 @@ db.exec(`
     foreign key (action_id) references actions(id) on delete cascade
   );
 
+  -- Phase B1: a trigger runs N ordered Actions instead of one. Composite primary
+  -- key (trigger_id, action_id) is the double-play guard — the same trigger cannot
+  -- queue the same Action twice. Both FKs cascade so deleting either side cleans up
+  -- its join rows automatically.
+  create table if not exists automation_trigger_actions (
+    trigger_id text not null,
+    action_id text not null,
+    position integer not null default 0,
+    enabled integer not null default 1,
+    primary key (trigger_id, action_id),
+    foreign key (trigger_id) references automation_triggers(id) on delete cascade,
+    foreign key (action_id) references actions(id) on delete cascade
+  );
+
   -- Names-only registry of external apps allowed to publish onto the Redis bus
   -- (Phase A). 'narya' and 'manual' are reserved source sentinels and never rows
   -- here — see apps.ts's RESERVED_SOURCES. Disabling an app is not deleting it: a
@@ -573,6 +637,7 @@ db.exec(`
   create index if not exists idx_automation_runs_cooldown on automation_runs(trigger_id, ran_at);
   create index if not exists idx_automation_runs_user_cooldown on automation_runs(trigger_id, actor_login, ran_at);
   create index if not exists idx_action_steps_action on action_steps(action_id, position);
+  create index if not exists idx_automation_trigger_actions_trigger on automation_trigger_actions(trigger_id, position);
   create index if not exists idx_automation_triggers_kind on automation_triggers(kind, enabled);
   create index if not exists idx_automation_triggers_module on automation_triggers(module_id);
   create index if not exists idx_category_module_games_module on category_module_games(module_id);
@@ -707,6 +772,7 @@ const allowedMigrationTables = new Set([
   'actions',
   'wind_down_state',
   'stream_status',
+  'automation_triggers',
 ]);
 const allowedMigrationColumns = new Set([
   'account_user_id',
@@ -746,6 +812,7 @@ const allowedMigrationColumns = new Set([
   'applied_suffix',
   'raw_text',
   'redis_url',
+  'name',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -805,6 +872,10 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // overlay-reachable GET and the status:updated broadcast.
   raw_text: "text not null default ''",
   redis_url: "text not null default ''",
+  // Phase B1: an operator-facing label for a trigger. Backfilled below from
+  // `kind` + a slice of `id` so an existing trigger gets a readable name instead
+  // of staying blank.
+  name: "text not null default ''",
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -893,6 +964,23 @@ addColumnIfMissing('wind_down_state', 'applied_suffix', 'text');
 addColumnIfMissing('stream_status', 'raw_text', "text not null default ''");
 runOnce('seed-stream-status-raw-text', () => {
   db.exec('update stream_status set raw_text = text');
+});
+
+// Phase B1: a trigger runs N ordered Actions instead of one. The join table
+// carries the ordering; `automation_triggers.action_id` stays as the legacy
+// single-Action pointer until later tasks migrate readers off it.
+addColumnIfMissing('automation_triggers', 'name', "text not null default ''");
+// One join row per existing trigger, position 0, copied from its legacy
+// action_id. `insert or ignore` is safe against a seed that already wrote a
+// join row for a trigger before this backfill runs.
+runOnce('2026-07-trigger-actions-from-action-id', () => {
+  db.exec("insert or ignore into automation_trigger_actions (trigger_id, action_id, position, enabled) select id, action_id, 0, 1 from automation_triggers");
+});
+// Only fills a blank name, so an operator who already named a trigger (or a
+// re-run after dropStaleTriggerActions clears the OTHER ledger id) never has
+// their name clobbered.
+runOnce('2026-07-backfill-trigger-names', () => {
+  db.exec("update automation_triggers set name = kind || ' · ' || substr(id, 1, 6) where name = ''");
 });
 
 // tmi logins are already lowercase, but historically some rows were stored with

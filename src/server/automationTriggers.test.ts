@@ -19,12 +19,13 @@ let actionId = '';
 function input(overrides: Record<string, unknown> = {}) {
   return {
     kind: 'chat_phrase',
-    actionId,
+    name: 'Test trigger',
     moduleId: null,
     enabled: true,
     globalCooldownMs: 1000,
     userCooldownMs: 2000,
     config: { phrase: 'hype', match: 'contains', roles: [] },
+    actions: [{ actionId, position: 0, enabled: true }],
     ...overrides,
   };
 }
@@ -54,7 +55,8 @@ describe('normalizeAutomationTriggerInput', () => {
   });
 
   test('rejects an action id that does not exist', () => {
-    expect(() => normalizeAutomationTriggerInput(input({ actionId: 'nope' }))).toThrow('Action not found.');
+    expect(() => normalizeAutomationTriggerInput(input({ actions: [{ actionId: 'nope', position: 0, enabled: true }] })))
+      .toThrow('Action not found.');
   });
 
   test('rejects a module id that does not exist', () => {
@@ -221,6 +223,123 @@ describe('crud', () => {
   });
 });
 
+describe('actions[]', () => {
+  let act1 = '';
+  let act2 = '';
+
+  beforeEach(() => {
+    act1 = actionId;
+    act2 = createAction({
+      name: 'Second action',
+      description: '',
+      enabled: true,
+      steps: [{ type: 'obs_transition', enabled: true, delayMs: 0, payload: {} }],
+    }).id;
+  });
+
+  test('a trigger persists N ordered actions and reads them back', () => {
+    const trigger = createAutomationTrigger({
+      kind: 'manual',
+      name: 'My combo',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [{ actionId: act1, position: 0, enabled: true }, { actionId: act2, position: 1, enabled: false }],
+    });
+
+    expect(trigger.name).toBe('My combo');
+    expect(trigger.actions).toEqual([
+      { actionId: act1, position: 0, enabled: true },
+      { actionId: act2, position: 1, enabled: false },
+    ]);
+    // legacy column tracks actions[0]
+    const row = db.prepare('select action_id as a from automation_triggers where id = ?').get(trigger.id) as { a: string };
+    expect(row.a).toBe(act1);
+
+    const reloaded = getAutomationTrigger(trigger.id);
+    expect(reloaded?.actions).toEqual([
+      { actionId: act1, position: 0, enabled: true },
+      { actionId: act2, position: 1, enabled: false },
+    ]);
+  });
+
+  test('an update replaces the action list rather than appending to it', () => {
+    const created = createAutomationTrigger({
+      kind: 'manual',
+      name: 'My combo',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [{ actionId: act1, position: 0, enabled: true }, { actionId: act2, position: 1, enabled: false }],
+    });
+
+    const updated = updateAutomationTrigger(created.id, {
+      kind: 'manual',
+      name: 'My combo',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [{ actionId: act2, position: 0, enabled: true }],
+    });
+
+    expect(updated.actions).toEqual([{ actionId: act2, position: 0, enabled: true }]);
+    const row = db.prepare('select action_id as a from automation_triggers where id = ?').get(created.id) as { a: string };
+    expect(row.a).toBe(act2);
+  });
+
+  test('rejects an empty actions[] and a duplicate action', () => {
+    expect(() => createAutomationTrigger({
+      kind: 'manual',
+      name: 'n',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [],
+    })).toThrow(/at least one action/i);
+
+    expect(() => createAutomationTrigger({
+      kind: 'manual',
+      name: 'n',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: [{ actionId: act1, position: 0, enabled: true }, { actionId: act1, position: 1, enabled: true }],
+    })).toThrow();
+  });
+
+  test('rejects more than the per-trigger action cap', () => {
+    // 21 distinct, existing actions — one over the cap. Each must exist and be unique
+    // or the "not found" / "listed once" checks would fire before the cap check does.
+    const manyActionIds = Array.from({ length: 21 }, (_, index) => createAction({
+      name: `Cap action ${index}`,
+      description: '',
+      enabled: true,
+      steps: [{ type: 'obs_transition', enabled: true, delayMs: 0, payload: {} }],
+    }).id);
+
+    expect(() => createAutomationTrigger({
+      kind: 'manual',
+      name: 'n',
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { label: 'x' },
+      actions: manyActionIds.map((id, position) => ({ actionId: id, position, enabled: true })),
+    })).toThrow(/at most 20 actions/i);
+  });
+});
+
 describe('seedBuiltInSlashCommands', () => {
   beforeEach(() => {
     // runOnce is once per database; clear the ledger so the seed is exercisable here.
@@ -263,7 +382,7 @@ describe('seedBuiltInSlashCommands', () => {
     expect(timeout).toBeDefined();
 
     const steps = db.prepare('select step_type as stepType, payload_json as payloadJson from action_steps where action_id = ?')
-      .all(timeout!.actionId) as { stepType: string; payloadJson: string }[];
+      .all(timeout!.actions[0]!.actionId) as { stepType: string; payloadJson: string }[];
     expect(steps).toHaveLength(1);
     expect(steps[0]!.stepType).toBe('twitch_timeout');
     // `/timeout bob 300 spam` must actually time bob out for 300s. A stored number
@@ -287,5 +406,18 @@ describe('seedBuiltInSlashCommands', () => {
 
     expect(() => seedBuiltInSlashCommands()).not.toThrow();
     expect(listEnabledTriggersOfKind('dashboard_slash')).toHaveLength(4);
+  });
+
+  test('writes exactly one join row (position 0, enabled) and a non-empty name for each seeded trigger', () => {
+    seedBuiltInSlashCommands();
+
+    const triggers = listEnabledTriggersOfKind('dashboard_slash');
+    expect(triggers).toHaveLength(4);
+    for (const trigger of triggers) {
+      expect(trigger.name.trim().length).toBeGreaterThan(0);
+      expect(trigger.actions).toHaveLength(1);
+      expect(trigger.actions[0]).toMatchObject({ position: 0, enabled: true });
+      expect(trigger.actions[0]!.actionId.length).toBeGreaterThan(0);
+    }
   });
 });

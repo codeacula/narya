@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   Action,
-  ActionRunResult,
   AlertEventKind,
   AutomationTrigger,
   AutomationTriggerInput,
@@ -11,6 +10,8 @@ import type {
   TriggerOverride,
   TriggerOverrideInput,
   TriggerRole,
+  TriggerAction,
+  TriggerRunResult,
   ViewerReward,
 } from '../../../shared/api';
 import { DEFAULT_GLOBAL_COOLDOWN_MS, DEFAULT_USER_COOLDOWN_MS } from '../../../shared/api';
@@ -32,6 +33,7 @@ import { errorMessage } from '../../errors';
 import {
   CHAT_PHRASE_MATCHES,
   CHAT_PHRASE_MATCH_LABELS,
+  MAX_ACTIONS_PER_TRIGGER,
   TRIGGER_KINDS,
   TRIGGER_KIND_HINTS,
   TRIGGER_KIND_LABELS,
@@ -39,7 +41,9 @@ import {
   describeTriggerConfig,
   formatCooldown,
   isGlobalTrigger,
+  moveStep,
   normalizeCommandName,
+  removeStep,
   triggerToInput,
   parseAliases,
   isLifecycleKind,
@@ -56,7 +60,13 @@ const ALERT_EVENT_KINDS: AlertEventKind[] = ['sub', 'gift', 'cheer', 'raid', 'fo
 /** A blank trigger of the given kind, with the right config shape for the union. */
 function newTrigger(kind: AutomationTriggerKind): AutomationTriggerInput {
   const base = {
+    name: '',
+    // Legacy single-Action pointer, additive alongside actions[] (Phase B1 Task 2).
+    // The server derives it from actions[0] and never reads it from the request body,
+    // so an empty placeholder here is fine — validateTrigger blocks submit until at
+    // least one entry is added to actions[].
     actionId: '',
+    actions: [] as TriggerAction[],
     moduleId: null,
     enabled: true,
     globalCooldownMs: supportsCooldowns(kind) ? DEFAULT_GLOBAL_COOLDOWN_MS : 0,
@@ -338,6 +348,120 @@ function TriggerConfigFields({
 }
 
 /**
+ * The ordered list of actions a trigger runs, modelled on ActionsPage's step-list
+ * editor: per-row enable checkbox + Up/Down/Remove, plus an add-select that excludes
+ * actions already on the trigger. Position always mirrors array order — the server
+ * re-derives `position` from that order on save (see normalizeAutomationTriggerInput),
+ * so nothing here needs to keep a client-computed number in sync with anything.
+ */
+function TriggerActionsEditor({
+  triggerActions,
+  actions,
+  disabled,
+  onChange,
+}: {
+  triggerActions: TriggerAction[];
+  actions: Action[];
+  disabled: boolean;
+  onChange: (next: TriggerAction[]) => void;
+}) {
+  const actionName = (id: string) => actions.find(action => action.id === id)?.name;
+  const available = actions.filter(action => !triggerActions.some(entry => entry.actionId === action.id));
+  const allDisabled = triggerActions.length > 0 && triggerActions.every(entry => !entry.enabled);
+  const atLimit = triggerActions.length >= MAX_ACTIONS_PER_TRIGGER;
+
+  // Position is display/run order (array index) — reassign it after every
+  // reorder/add/remove so a saved draft's `position` never drifts from where the row
+  // actually sits, even though the server would re-derive it anyway.
+  const reindex = (next: TriggerAction[]): TriggerAction[] =>
+    next.map((entry, index) => ({ ...entry, position: index }));
+
+  return (
+    <div className="field settings-wide-field">
+      <span>Runs these actions</span>
+      <div className="action-steps">
+        {triggerActions.map((entry, index) => (
+          <div key={entry.actionId} className={'action-step' + (entry.enabled ? '' : ' action-step--off')}>
+            <div className="action-step-head">
+              <span className="action-step-index">{index + 1}</span>
+              <span className="action-step-name" style={{ flex: '1 1 200px', minWidth: 0, fontWeight: 600 }}>
+                {actionName(entry.actionId) ?? 'unknown action'}
+              </span>
+              <label className="command-enabled">
+                <input
+                  type="checkbox"
+                  checked={entry.enabled}
+                  disabled={disabled}
+                  onChange={event => onChange(
+                    triggerActions.map((item, i) => (i === index ? { ...item, enabled: event.target.checked } : item)),
+                  )}
+                />
+                <span>On</span>
+              </label>
+              <div className="command-row-actions">
+                <button
+                  className="modbtn"
+                  type="button"
+                  title="Move up"
+                  disabled={disabled || index === 0}
+                  onClick={() => onChange(reindex(moveStep(triggerActions, index, index - 1)))}
+                >
+                  ↑
+                </button>
+                <button
+                  className="modbtn"
+                  type="button"
+                  title="Move down"
+                  disabled={disabled || index === triggerActions.length - 1}
+                  onClick={() => onChange(reindex(moveStep(triggerActions, index, index + 1)))}
+                >
+                  ↓
+                </button>
+                <button
+                  className="modbtn danger"
+                  type="button"
+                  title={triggerActions.length === 1 ? 'A trigger needs at least one action' : 'Remove'}
+                  disabled={disabled || triggerActions.length === 1}
+                  onClick={() => onChange(reindex(removeStep(triggerActions, index)))}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {triggerActions.length === 0 && <div className="command-empty">No actions yet. Add one below.</div>}
+      </div>
+
+      {allDisabled && <small className="action-hint">Won't fire — all actions are disabled.</small>}
+
+      <select
+        value=""
+        disabled={disabled || atLimit || available.length === 0}
+        onChange={event => {
+          const actionId = event.target.value;
+          if (!actionId) return;
+          onChange(reindex([...triggerActions, { actionId, position: triggerActions.length, enabled: true }]));
+        }}
+      >
+        <option value="">
+          {atLimit
+            ? `Action limit reached (${MAX_ACTIONS_PER_TRIGGER})`
+            : available.length === 0
+              ? 'All actions already added'
+              : 'Add an action…'}
+        </option>
+        {available.map(action => (
+          <option key={action.id} value={action.id}>
+            {action.name}{action.enabled ? '' : ' (disabled)'}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/**
  * Per-viewer overrides for one saved trigger. Rows save immediately via their own
  * endpoint — they are separate resources, deliberately outside the trigger form's
  * draft/save cycle so an override edit cannot be lost to an unsaved trigger draft.
@@ -517,20 +641,22 @@ function TriggerEditor({
 
       <div className="settings-mini-form">
         <label className="field">
-          <span>Runs this action</span>
-          <select
-            value={draft.actionId}
+          <span>Name</span>
+          <input
+            type="text"
+            value={draft.name}
             disabled={saving}
-            onChange={event => onChange({ ...draft, actionId: event.target.value })}
-          >
-            <option value="">Select an action…</option>
-            {actions.map(action => (
-              <option key={action.id} value={action.id}>
-                {action.name}{action.enabled ? '' : ' (disabled)'}
-              </option>
-            ))}
-          </select>
+            placeholder="What is this trigger for?"
+            onChange={event => onChange({ ...draft, name: event.target.value })}
+          />
         </label>
+
+        <TriggerActionsEditor
+          triggerActions={draft.actions}
+          actions={actions}
+          disabled={saving}
+          onChange={next => onChange({ ...draft, actions: next })}
+        />
 
         <label className="field">
           <span>Scope</span>
@@ -606,7 +732,7 @@ export function AutomationSettingsPage() {
   const [overrides, setOverrides] = useState<TriggerOverride[]>([]);
   const [draft, setDraft] = useState<AutomationTriggerInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [runs, setRuns] = useState<Record<string, ActionRunResult>>({});
+  const [runs, setRuns] = useState<Record<string, TriggerRunResult>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -822,46 +948,57 @@ export function AutomationSettingsPage() {
                   return (
                     <React.Fragment key={kind}>
                       <div className="split-group-label">{TRIGGER_KIND_LABELS[kind]}</div>
-                      {kindTriggers.map(trigger => (
-                        <button
-                          type="button"
-                          key={trigger.id}
-                          className={'settings-item-row' + (editingId === trigger.id ? ' is-selected' : '')}
-                          aria-current={editingId === trigger.id ? 'true' : undefined}
-                          onClick={() => startEdit(trigger)}
-                        >
-                          <div className="settings-item-main">
-                            <b>{describeTriggerConfig(trigger, rewardTitles)}</b>
-                            <span>→ {actionNames[trigger.actionId] ?? 'unknown action'}</span>
-                            <div className="media-asset-tags">
-                              <span
-                                className={'media-asset-tag' + (isGlobalTrigger(trigger) ? ' media-asset-tag--global' : ' media-asset-tag--scoped')}
-                              >
-                                {triggerScopeLabel(trigger, modules)}
-                              </span>
-                              {!trigger.enabled && <span className="media-asset-tag media-asset-tag--off">disabled</span>}
-                              {supportsCooldowns(trigger.kind) && (
-                                <>
-                                  <span className="media-asset-tag">
-                                    global cd {formatCooldown(trigger.globalCooldownMs)}
-                                  </span>
-                                  <span className="media-asset-tag">
-                                    per-viewer cd {formatCooldown(trigger.userCooldownMs)}
-                                  </span>
-                                </>
-                              )}
-                              {!actionNames[trigger.actionId] && (
-                                <span className="media-asset-tag media-asset-tag--broken">action missing</span>
-                              )}
-                              {(overrideCounts[trigger.id] ?? 0) > 0 && (
-                                <span className="media-asset-tag">
-                                  {overrideCounts[trigger.id]} viewer override{overrideCounts[trigger.id] === 1 ? '' : 's'}
+                      {kindTriggers.map(trigger => {
+                        const actionLabel = trigger.actions.length === 0
+                          ? 'no actions'
+                          : trigger.actions.map(entry => actionNames[entry.actionId] ?? 'unknown action').join(', ');
+                        const missingAction = trigger.actions.some(entry => !actionNames[entry.actionId]);
+                        const allActionsDisabled = trigger.actions.length > 0 && trigger.actions.every(entry => !entry.enabled);
+                        return (
+                          <button
+                            type="button"
+                            key={trigger.id}
+                            className={'settings-item-row' + (editingId === trigger.id ? ' is-selected' : '')}
+                            aria-current={editingId === trigger.id ? 'true' : undefined}
+                            onClick={() => startEdit(trigger)}
+                          >
+                            <div className="settings-item-main">
+                              <b>{trigger.name}</b>
+                              <span>{describeTriggerConfig(trigger, rewardTitles)}</span>
+                              <span>→ {actionLabel}</span>
+                              <div className="media-asset-tags">
+                                <span
+                                  className={'media-asset-tag' + (isGlobalTrigger(trigger) ? ' media-asset-tag--global' : ' media-asset-tag--scoped')}
+                                >
+                                  {triggerScopeLabel(trigger, modules)}
                                 </span>
-                              )}
+                                {!trigger.enabled && <span className="media-asset-tag media-asset-tag--off">disabled</span>}
+                                {supportsCooldowns(trigger.kind) && (
+                                  <>
+                                    <span className="media-asset-tag">
+                                      global cd {formatCooldown(trigger.globalCooldownMs)}
+                                    </span>
+                                    <span className="media-asset-tag">
+                                      per-viewer cd {formatCooldown(trigger.userCooldownMs)}
+                                    </span>
+                                  </>
+                                )}
+                                {missingAction && (
+                                  <span className="media-asset-tag media-asset-tag--broken">action missing</span>
+                                )}
+                                {allActionsDisabled && (
+                                  <span className="media-asset-tag media-asset-tag--off">won't fire — all actions disabled</span>
+                                )}
+                                {(overrideCounts[trigger.id] ?? 0) > 0 && (
+                                  <span className="media-asset-tag">
+                                    {overrideCounts[trigger.id]} viewer override{overrideCounts[trigger.id] === 1 ? '' : 's'}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
                     </React.Fragment>
                   );
                 })}

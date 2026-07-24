@@ -2,7 +2,7 @@
 // Both surfaces share useQuickActions; only the chrome differs (the dashboard uses
 // kebab-case panel.css classes, the tablet the camelCase classes in styles.css).
 import React from 'react';
-import type { ActionRunResult, AutomationTrigger, CategoryModulesResponse } from '../shared/api';
+import type { AutomationTrigger, CategoryModulesResponse, TriggerRunResult } from '../shared/api';
 import { getAutomationTriggers, getCategoryModules, runAutomationTrigger } from './services/dashboard';
 import { useSocket } from './realtime';
 import { runResultTone, summarizeRunResult } from './pages/settings/automation';
@@ -23,7 +23,7 @@ export type QuickActionsState = {
   loading: boolean;
   error: string | null;
   /** The most recent run, keyed by trigger id, so a partial run stays visible on the button. */
-  runs: Record<string, ActionRunResult>;
+  runs: Record<string, TriggerRunResult>;
   runningId: string | null;
   run: (id: string) => void;
 };
@@ -38,7 +38,7 @@ export function useQuickActions(): QuickActionsState {
   const [modules, setModules] = React.useState<CategoryModulesResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [runs, setRuns] = React.useState<Record<string, ActionRunResult>>({});
+  const [runs, setRuns] = React.useState<Record<string, TriggerRunResult>>({});
   const [runningId, setRunningId] = React.useState<string | null>(null);
 
   React.useEffect(() => {

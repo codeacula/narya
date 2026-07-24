@@ -149,3 +149,59 @@ describe('per-viewer overrides keep the exactly-once guarantee', () => {
     expect(plays[0]!.src).toBe('/clips/dinosaur.mp4');
   });
 });
+
+describe('a multi-action trigger keeps the exactly-once guarantee', () => {
+  function migratedRewardTriggerId(): string {
+    const row = db.prepare("select id from automation_triggers where kind = 'reward'").get() as { id: string };
+    return row.id;
+  }
+
+  function runCount(triggerId: string): number {
+    return (db.prepare('select count(*) as n from automation_runs where trigger_id = ?').get(triggerId) as { n: number }).n;
+  }
+
+  test('a redelivered redeem with N actions still claims one dedupe key — no replay', async () => {
+    // Give the migrated reward trigger a second enabled action, so its one claimed
+    // invocation now fans out to two — the base clip plus a banner.
+    const second = createAction({
+      name: 'Second reward action', description: '', enabled: true,
+      steps: [{ type: 'show_text', enabled: true, delayMs: 0, payload: { template: 'SECOND', durationMs: 3000, style: 'banner' } }],
+    });
+    const triggerId = migratedRewardTriggerId();
+    db.prepare('insert into automation_trigger_actions (trigger_id, action_id, position, enabled) values (?, ?, 1, 1)')
+      .run(triggerId, second.id);
+
+    await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
+      user_name: 'Sorlus', user_login: 'sorlus', reward: { id: REWARD_ID, title: 'Play a clip' },
+    }, 'evt-multi-redeem');
+
+    // Both actions fired once: the base clip AND the second banner.
+    expect(emitted.filter(entry => entry.event === 'media:play')).toHaveLength(1);
+    const texts = emitted.filter(entry => entry.event === 'overlay:text');
+    expect(texts).toHaveLength(1);
+    expect(texts[0]!.text).toBe('SECOND');
+    // A single claimed run row despite two actions — the fan-out runs after the one claim.
+    expect(runCount(triggerId)).toBe(1);
+
+    // Redelivery of the same EventSub message id replays neither action.
+    emitted.length = 0;
+    await handleEventSubNotification(new RuntimeState(), 'channel.channel_points_custom_reward_redemption.add', {
+      user_name: 'Sorlus', user_login: 'sorlus', reward: { id: REWARD_ID, title: 'Play a clip' },
+    }, 'evt-multi-redeem');
+    expect(emitted.filter(entry => entry.event === 'media:play' || entry.event === 'overlay:text')).toHaveLength(0);
+    expect(runCount(triggerId)).toBe(1);
+  });
+
+  test('the composite primary key rejects listing one action twice on a trigger', async () => {
+    const triggerId = migratedRewardTriggerId();
+    const existing = db.prepare('select action_id as actionId from automation_trigger_actions where trigger_id = ?')
+      .get(triggerId) as { actionId: string };
+
+    // Listing the same action a second time is what would double-play it; the
+    // (trigger_id, action_id) primary key makes that unrepresentable in the schema.
+    expect(() =>
+      db.prepare('insert into automation_trigger_actions (trigger_id, action_id, position, enabled) values (?, ?, 1, 1)')
+        .run(triggerId, existing.actionId),
+    ).toThrow();
+  });
+});

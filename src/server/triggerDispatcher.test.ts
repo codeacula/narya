@@ -45,7 +45,8 @@ let actionId = '';
 // Partial<> of the trigger union collapses each config to `never`.
 function trigger(input: Record<string, unknown> & { kind: string; config: unknown }) {
   return createAutomationTrigger({
-    actionId,
+    name: 'Test trigger',
+    actions: [{ actionId, position: 0, enabled: true }],
     moduleId: null,
     enabled: true,
     globalCooldownMs: 0,
@@ -140,7 +141,8 @@ describe('chat phrase triggers', () => {
     trigger({ kind: 'chat_phrase', config: { phrase: 'hype', match: 'contains', roles: [] } });
     createAutomationTrigger({
       kind: 'chat_phrase',
-      actionId: second.id,
+      name: 'Second trigger',
+      actions: [{ actionId: second.id, position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -319,7 +321,8 @@ describe('deduplication', () => {
     trigger({ kind: 'twitch_event', config: { eventKind: 'raid' } });
     createAutomationTrigger({
       kind: 'twitch_event',
-      actionId: second.id,
+      name: 'Second trigger',
+      actions: [{ actionId: second.id, position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -679,7 +682,8 @@ describe('slash commands', () => {
     });
     createAutomationTrigger({
       kind: 'dashboard_slash',
-      actionId: whisper.id,
+      name: 'Whisper',
+      actions: [{ actionId: whisper.id, position: 0, enabled: true }],
       moduleId: null,
       enabled: true,
       globalCooldownMs: 0,
@@ -772,6 +776,22 @@ describe('manual runs', () => {
 
     expect(runner.calls).toHaveLength(1);
   });
+
+  test('a trigger with all actions disabled returns skipped instead of throwing', async () => {
+    const created = trigger({
+      kind: 'manual',
+      actions: [{ actionId, position: 0, enabled: false }],
+      config: { label: 'Intermission' },
+    });
+    const { dispatcher, runner } = setup();
+
+    const result = await dispatcher.runTriggerManually(created.id);
+
+    expect(result).toEqual({ status: 'skipped', actions: [] });
+    expect(runner.calls).toHaveLength(0);
+    const runs = db.prepare('select count(*) as n from automation_runs where trigger_id = ?').get(created.id) as { n: number };
+    expect(runs.n).toBe(0);
+  });
 });
 
 describe('run log', () => {
@@ -798,7 +818,7 @@ describe('run log', () => {
 
     const runs = await dispatcher.handleChatMessage(chat({ message: 'hype' }));
 
-    expect(runs[0]!.result.status).toBe('failed');
+    expect(runs[0]!.status).toBe('failed');
     const logged = db.prepare('select status, detail from automation_runs where trigger_id = ?').all(created.id) as { status: string; detail: string }[];
     expect(logged[0]!.status).toBe('failed');
     expect(logged[0]!.detail).toContain('executor exploded');
@@ -979,7 +999,7 @@ describe('per-viewer trigger overrides', () => {
 
     expect(runner.calls).toHaveLength(1);
     expect(runner.calls[0]!.actionId).toBe(specialId);
-    expect(runs[0]!.actionId).toBe(specialId);
+    expect(runs[0]!.actions[0]!.actionId).toBe(specialId);
   });
 
   test('other viewers and anonymous events take the base action', async () => {
@@ -1015,12 +1035,12 @@ describe('per-viewer trigger overrides', () => {
     const runs = await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-4', actor: 'Sorlus', login: 'sorlus' });
 
     expect(calls.map(call => call.actionId)).toEqual([specialId, actionId]);
-    expect(runs[0]!.actionId).toBe(actionId);
-    expect(runs[0]!.result.status).toBe('succeeded');
+    expect(runs[0]!.actions[0]!.actionId).toBe(actionId);
+    expect(runs[0]!.status).toBe('succeeded');
     // One claimed run row, its detail recording the substitution.
     const rows = db.prepare('select detail from automation_runs').all() as Array<{ detail: string }>;
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.detail).toStartWith('Override for sorlus skipped; ran the base action.');
+    expect(rows[0]!.detail).toStartWith('Override for sorlus skipped; ran the base actions.');
   });
 
   test('the skip-fallback detail carries the override run\'s own skip reason', async () => {
@@ -1052,7 +1072,7 @@ describe('per-viewer trigger overrides', () => {
     const rows = db.prepare('select detail from automation_runs').all() as Array<{ detail: string }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.detail).toStartWith(
-      'Override for sorlus skipped (No media asset for this step is available.); ran the base action.',
+      'Override for sorlus skipped (No media asset for this step is available.); ran the base actions.',
     );
   });
 
@@ -1072,8 +1092,8 @@ describe('per-viewer trigger overrides', () => {
     const runs = await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-5', actor: 'Sorlus', login: 'sorlus' });
 
     expect(calls).toEqual([specialId]);
-    expect(runs[0]!.actionId).toBe(specialId);
-    expect(runs[0]!.result.status).toBe('failed');
+    expect(runs[0]!.actions[0]!.actionId).toBe(specialId);
+    expect(runs[0]!.status).toBe('failed');
   });
 
   test('a throwing override run does NOT fall back either', async () => {
@@ -1093,7 +1113,7 @@ describe('per-viewer trigger overrides', () => {
     const runs = await dispatcher.handleTwitchEvent({ kind: 'sub', eventId: 'evt-8', actor: 'Sorlus', login: 'sorlus' });
 
     expect(calls).toEqual([specialId]);
-    expect(runs[0]!.result.status).toBe('failed');
+    expect(runs[0]!.status).toBe('failed');
   });
 
   test('the override run arms the base trigger cooldowns (shared throttle)', async () => {
@@ -1129,5 +1149,171 @@ describe('per-viewer trigger overrides', () => {
     await dispatcher.runTriggerManually(created.id, { login: '@sorlus' });
 
     expect(runner.calls[0]!.actionId).toBe(specialId);
+  });
+});
+
+describe('multi-action triggers', () => {
+  function makeAction(name: string) {
+    return createAction({
+      name, description: '', enabled: true,
+      steps: [{ type: 'send_chat', enabled: true, delayMs: 0, payload: { template: 'x', sender: 'bot' } }],
+    }).id;
+  }
+
+  function triggerWithActions(actions: Array<{ actionId: string; enabled: boolean }>) {
+    return trigger({
+      kind: 'twitch_event',
+      config: { eventKind: 'raid' },
+      actions: actions.map((entry, index) => ({ actionId: entry.actionId, position: index, enabled: entry.enabled })),
+    });
+  }
+
+  function raid(eventId: string, login: string | null = 'sorlus') {
+    return { kind: 'raid' as const, eventId, actor: 'Sorlus', login };
+  }
+
+  function runCount(triggerId: string): number {
+    return (db.prepare('select count(*) as n from automation_runs where trigger_id = ?').get(triggerId) as { n: number }).n;
+  }
+
+  test('runs every enabled action once and rolls up succeeded; exactly one run row', async () => {
+    const a1 = actionId;
+    const a2 = makeAction('A2');
+    const a3 = makeAction('A3');
+    const created = triggerWithActions([
+      { actionId: a1, enabled: true },
+      { actionId: a2, enabled: false },
+      { actionId: a3, enabled: true },
+    ]);
+    const { dispatcher, runner } = setup();
+
+    const summaries = await dispatcher.handleTwitchEvent(raid('evt-multi-1'));
+
+    // a2 is disabled → skipped entirely; a1 and a3 each run exactly once.
+    expect(runner.calls.map(call => call.actionId).sort()).toEqual([a1, a3].sort());
+    expect(summaries[0]!.status).toBe('succeeded');
+    expect(summaries[0]!.actions).toHaveLength(2);
+    // The N-action fan-out claims ONE automation_runs row, not one per action: a
+    // second claim would collide on the dedupe unique index and silently no-op.
+    expect(runCount(created.id)).toBe(1);
+  });
+
+  test('a trigger with zero enabled actions never claims — no run row, no cooldown burned', async () => {
+    const a2 = makeAction('A2');
+    // A positive cooldown would leave a telltale row if the skip landed after the
+    // claim; the assertion that no row exists is exactly the proof no cooldown was
+    // consumed, because cooldowns are computed from automation_runs.
+    const created = triggerWithActions([
+      { actionId: actionId, enabled: false },
+      { actionId: a2, enabled: false },
+    ]);
+    const { dispatcher, runner } = setup();
+
+    const summaries = await dispatcher.handleTwitchEvent(raid('evt-multi-2'));
+
+    expect(summaries).toHaveLength(0);
+    expect(runner.calls).toHaveLength(0);
+    expect(runCount(created.id)).toBe(0);
+  });
+
+  test('rolls up to partial when enabled actions have mixed outcomes', async () => {
+    const a1 = actionId;
+    const a2 = makeAction('A2');
+    const created = triggerWithActions([
+      { actionId: a1, enabled: true },
+      { actionId: a2, enabled: true },
+    ]);
+    const { dispatcher } = setup({
+      runAction: async (id: string): Promise<ActionRunResult> => ({
+        actionId: id, status: id === a1 ? 'succeeded' : 'failed', steps: [], ranAt: new Date().toISOString(),
+      }),
+    });
+
+    const summaries = await dispatcher.handleTwitchEvent(raid('evt-multi-3'));
+
+    expect(summaries[0]!.status).toBe('partial');
+    const row = db.prepare('select status from automation_runs where trigger_id = ?').get(created.id) as { status: string };
+    expect(row.status).toBe('partial');
+    expect(runCount(created.id)).toBe(1);
+  });
+
+  test('rolls up to failed when every enabled action fails', async () => {
+    const a2 = makeAction('A2');
+    const created = triggerWithActions([
+      { actionId: actionId, enabled: true },
+      { actionId: a2, enabled: true },
+    ]);
+    const { dispatcher } = setup({
+      runAction: async (id: string): Promise<ActionRunResult> => ({ actionId: id, status: 'failed', steps: [], ranAt: new Date().toISOString() }),
+    });
+
+    const summaries = await dispatcher.handleTwitchEvent(raid('evt-multi-4'));
+
+    expect(summaries[0]!.status).toBe('failed');
+    expect(runCount(created.id)).toBe(1);
+  });
+
+  test('rolls up to skipped when every enabled action skips (a skipped run broadcasts nothing)', async () => {
+    const a2 = makeAction('A2');
+    const created = triggerWithActions([
+      { actionId: actionId, enabled: true },
+      { actionId: a2, enabled: true },
+    ]);
+    const { dispatcher } = setup({
+      runAction: async (id: string): Promise<ActionRunResult> => ({ actionId: id, status: 'skipped', steps: [], ranAt: new Date().toISOString() }),
+    });
+
+    const summaries = await dispatcher.handleTwitchEvent(raid('evt-multi-5'));
+
+    expect(summaries[0]!.status).toBe('skipped');
+    expect(runCount(created.id)).toBe(1);
+  });
+
+  test('an override replaces the whole enabled list with the single override action', async () => {
+    const a1 = actionId;
+    const a2 = makeAction('A2');
+    const special = makeAction('Special');
+    const created = triggerWithActions([
+      { actionId: a1, enabled: true },
+      { actionId: a2, enabled: true },
+    ]);
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: special, enabled: true, note: '' });
+    const { dispatcher, runner } = setup();
+
+    const summaries = await dispatcher.handleTwitchEvent(raid('evt-multi-ovr-1'));
+
+    // Only the override runs — never the base list, and still under one claimed row.
+    expect(runner.calls.map(call => call.actionId)).toEqual([special]);
+    expect(summaries[0]!.actions.map(result => result.actionId)).toEqual([special]);
+    expect(runCount(created.id)).toBe(1);
+  });
+
+  test('a skipped override falls back to the FULL base list, once, under one run row', async () => {
+    const a1 = actionId;
+    const a2 = makeAction('A2');
+    const special = makeAction('Special');
+    const created = triggerWithActions([
+      { actionId: a1, enabled: true },
+      { actionId: a2, enabled: true },
+    ]);
+    upsertTriggerOverride(created.id, { login: 'sorlus', actionId: special, enabled: true, note: '' });
+
+    const calls: string[] = [];
+    const { dispatcher } = setup({
+      runAction: async (id: string): Promise<ActionRunResult> => {
+        calls.push(id);
+        return { actionId: id, status: id === special ? 'skipped' : 'succeeded', steps: [], ranAt: new Date().toISOString() };
+      },
+    });
+
+    const summaries = await dispatcher.handleTwitchEvent(raid('evt-multi-ovr-2'));
+
+    // The override runs first and skips; the base list (a1, a2) then delivers, once each.
+    expect(calls).toEqual([special, a1, a2]);
+    expect(summaries[0]!.status).toBe('succeeded');
+    expect(summaries[0]!.actions.map(result => result.actionId)).toEqual([a1, a2]);
+    expect(runCount(created.id)).toBe(1);
+    const row = db.prepare('select detail from automation_runs where trigger_id = ?').get(created.id) as { detail: string };
+    expect(row.detail).toStartWith('Override for sorlus skipped; ran the base actions.');
   });
 });
