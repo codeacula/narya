@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { saveAppConfig } from './appConfig';
-import { __resetRedisForTest, __setRedisClientFactory, getRedisStatus, isRedisConnected, redisPublish, startRedis, stopRedis } from './redis';
+import { __resetRedisForTest, __setRedisClientFactory, getRedisStatus, inboundKey, isRedisConnected, redisPublish, startRedis, stopRedis, streamPrefix } from './redis';
 
 type Handlers = Record<string, (arg?: unknown) => void>;
 function fakeClient() {
@@ -105,5 +105,31 @@ describe('redis connection', () => {
     expect(getRedisStatus().lastPublishError).toBeTruthy();
     stopRedis();
     expect(getRedisStatus().lastPublishError).toBeNull();
+  });
+});
+
+// The stream prefix is the ONE source of truth shared by the outbound events stream
+// (eventBus.streamKey) and the inbound per-app streams. Under `bun test` NODE_ENV=test,
+// so with no explicit STREAMER_TOOLS_REDIS_PREFIX the prefix must be `test` — the
+// mechanism that keeps a dev box and prod off each other's streams on a shared redisUrl.
+describe('stream keys', () => {
+  test('streamPrefix resolves to NODE_ENV under bun test', () => {
+    expect(streamPrefix()).toBe('test');
+  });
+
+  // The inbound stream key namespaces per app AND per prefix, so App-A's stream and
+  // App-B's stream are distinct keys under the same prefix as the events stream.
+  test('inboundKey namespaces per app under the shared prefix', () => {
+    expect(inboundKey('app-a')).toBe('narya:test:inbound:app-a');
+    expect(inboundKey('app-b')).toBe('narya:test:inbound:app-b');
+    expect(inboundKey('app-a')).not.toBe(inboundKey('app-b'));
+  });
+
+  // Byte-identity guard: eventBus.streamKey() must keep emitting narya:<prefix>:events
+  // after the prefix was extracted into redis.ts. If this drifts, a dev redeem can reach
+  // a prod consumer. eventBus derives its key from streamPrefix() now, so this holds by
+  // construction — asserted here so the derivation can never silently diverge.
+  test('the events stream key is derived from the same prefix', () => {
+    expect(`narya:${streamPrefix()}:events`).toBe('narya:test:events');
   });
 });

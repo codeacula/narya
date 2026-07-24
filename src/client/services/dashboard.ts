@@ -5,6 +5,7 @@ import type {
   ActionUpsert,
   AlertEventKind,
   App,
+  AppEvent,
   AutomationTrigger,
   AutomationTriggerInput,
   CategoryModule,
@@ -172,6 +173,18 @@ export async function createApp(name: string): Promise<App> {
 
 export async function setAppDisabled(id: string, disabled: boolean): Promise<App> {
   return sendJson<App>(`/api/apps/${encodeURIComponent(id)}`, 'PATCH', { disabled });
+}
+
+export async function getAppEvents(appId: string): Promise<AppEvent[]> {
+  return fetchJson<AppEvent[]>(`/api/apps/${encodeURIComponent(appId)}/events`);
+}
+
+export async function declareAppEvent(appId: string, eventName: string): Promise<AppEvent> {
+  return sendJson<AppEvent>(`/api/apps/${encodeURIComponent(appId)}/events`, 'POST', { eventName });
+}
+
+export async function removeAppEvent(appId: string, eventName: string): Promise<void> {
+  return sendVoid(`/api/apps/${encodeURIComponent(appId)}/events/${encodeURIComponent(eventName)}`, 'DELETE');
 }
 
 export async function getViewers(): Promise<Record<string, Viewer>> {

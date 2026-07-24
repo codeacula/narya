@@ -30,7 +30,7 @@ export function initAutomation(state: RuntimeState): void {
     isMuted: () => getMediaMuted(),
   });
   dispatcher = createTriggerDispatcher({
-    runAction: (actionId, context) => executor!.runAction(actionId, context),
+    runAction: (actionId, context, options) => executor!.runAction(actionId, context, options),
     getActiveModuleId: () => getCategoryModulesResponse().activeModuleId,
     // Loop prevention: without this, a send_chat step whose text matches its own
     // chat_phrase trigger would re-fire itself forever.

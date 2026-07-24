@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type {
   Action,
   ActionRunResult,
+  ActionStep,
   ActionStepInput,
   ActionStepType,
   ActionUpsert,
@@ -18,8 +19,10 @@ import {
   CONDITION_FIELDS_BY_KIND,
   MAX_ACTIONS_PER_TRIGGER,
   MAX_CONDITIONS,
+  REDIS_SAFE_STEP_TYPES,
   STEP_TYPES,
   STEP_TYPE_LABELS,
+  TRIGGER_KINDS,
   actionRunResultTone,
   actionToUpsert,
   conditionFieldsForKind,
@@ -35,6 +38,7 @@ import {
   normalizeCommandName,
   opsForField,
   parseAliases,
+  redisUnsafeStepWarning,
   removeStep,
   runResultTone,
   summarizeActionRunResult,
@@ -49,6 +53,7 @@ import {
   validateStep,
   validateTrigger,
 } from './automation';
+import { newTrigger } from './AutomationPage';
 
 function asset(overrides: Partial<MediaAsset> = {}): MediaAsset {
   return {
@@ -1171,5 +1176,135 @@ describe('quote steps', () => {
       expect(STEP_TYPE_LABELS[type]).toBeTruthy();
       expect(newStep(type).type).toBe(type);
     }
+  });
+});
+
+describe('redis_event trigger', () => {
+  test('TRIGGER_KINDS now offers redis_event — the editor exists', () => {
+    expect(TRIGGER_KINDS).toContain('redis_event');
+  });
+
+  test('newTrigger seeds an empty appId/eventName', () => {
+    const draft = newTrigger('redis_event');
+    expect(draft.kind).toBe('redis_event');
+    if (draft.kind !== 'redis_event') throw new Error('wrong kind');
+    expect(draft.config).toEqual({ appId: '', eventName: '' });
+  });
+
+  const base: AutomationTriggerInput = {
+    kind: 'redis_event',
+    name: 'External event',
+    actions: [{ actionId: 'action-1', position: 0, enabled: true }],
+    conditions: [],
+    moduleId: null,
+    enabled: true,
+    globalCooldownMs: 0,
+    userCooldownMs: 0,
+    config: { appId: 'app-1', eventName: 'boss_killed' },
+  };
+
+  test('accepts a well-formed redis_event trigger', () => {
+    expect(validateTrigger(base)).toBeNull();
+  });
+
+  test('an empty appId is rejected', () => {
+    const trigger = { ...base, config: { ...base.config, appId: '' } };
+    expect(validateTrigger(trigger)).toContain('app');
+  });
+
+  test('an empty eventName is rejected', () => {
+    const trigger = { ...base, config: { ...base.config, eventName: '' } };
+    expect(validateTrigger(trigger)).toContain('event');
+  });
+
+  test('triggerToInput round-trips a redis_event config untouched', () => {
+    const trigger: AutomationTrigger = {
+      id: 't1',
+      kind: 'redis_event',
+      name: 'External event',
+      actions: [{ actionId: 'action-1', position: 0, enabled: true }],
+      conditions: [],
+      moduleId: null,
+      enabled: true,
+      globalCooldownMs: 0,
+      userCooldownMs: 0,
+      config: { appId: 'app-1', eventName: 'boss_killed' },
+      createdAt: '2026-07-23T00:00:00.000Z',
+      updatedAt: '2026-07-23T00:00:00.000Z',
+    };
+
+    const input = triggerToInput(trigger);
+    expect(input.kind).toBe('redis_event');
+    if (input.kind !== 'redis_event') throw new Error('wrong kind');
+    expect(input.config).toEqual({ appId: 'app-1', eventName: 'boss_killed' });
+  });
+});
+
+describe('REDIS_SAFE_STEP_TYPES / redisUnsafeStepWarning', () => {
+  // Mirrors the server's REDIS_SAFE_STEP_TYPES (src/server/triggerDispatcher.ts)
+  // exactly — drift here only means a wrong/missing advisory warning, never a
+  // security hole, but it must still match.
+  test('is exactly the five safe step types', () => {
+    expect([...REDIS_SAFE_STEP_TYPES].sort()).toEqual(
+      ['adjust_counter', 'play_media', 'send_chat', 'show_text', 'tts_speak'],
+    );
+  });
+
+  function action(overrides: Partial<Action> = {}): Action {
+    return {
+      id: 'action-1',
+      name: 'Boss killed',
+      description: '',
+      enabled: true,
+      quickDisable: false,
+      steps: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  const banStep: ActionStep = {
+    id: 's1',
+    position: 0,
+    enabled: true,
+    delayMs: 0,
+    type: 'twitch_ban',
+    payload: { loginTemplate: '{login}', reasonTemplate: '' },
+  };
+  const safeStep: ActionStep = {
+    id: 's2',
+    position: 0,
+    enabled: true,
+    delayMs: 0,
+    type: 'show_text',
+    payload: { template: 'hi', durationMs: 5_000, style: 'banner' },
+  };
+
+  const boundActions: TriggerAction[] = [{ actionId: 'action-1', position: 0, enabled: true }];
+
+  test('warns when a bound action has a step outside the safe subset', () => {
+    const warning = redisUnsafeStepWarning(boundActions, [action({ steps: [banStep] })]);
+    expect(warning).not.toBeNull();
+    expect(warning).toContain(STEP_TYPE_LABELS.twitch_ban);
+  });
+
+  test('no warning when every bound step is in the safe subset', () => {
+    expect(redisUnsafeStepWarning(boundActions, [action({ steps: [safeStep] })])).toBeNull();
+  });
+
+  test('a mixed action warns only about the unsafe step type', () => {
+    const warning = redisUnsafeStepWarning(boundActions, [action({ steps: [safeStep, banStep] })]);
+    expect(warning).toContain(STEP_TYPE_LABELS.twitch_ban);
+    expect(warning).not.toContain(STEP_TYPE_LABELS.show_text);
+  });
+
+  test('a disabled trigger action is not counted — it never runs at all', () => {
+    const disabledBinding: TriggerAction[] = [{ actionId: 'action-1', position: 0, enabled: false }];
+    expect(redisUnsafeStepWarning(disabledBinding, [action({ steps: [banStep] })])).toBeNull();
+  });
+
+  test('an unbound action is ignored', () => {
+    expect(redisUnsafeStepWarning([], [action({ steps: [banStep] })])).toBeNull();
   });
 });

@@ -156,8 +156,47 @@ export function dropStaleTriggerActions(database: Database): boolean {
   return true;
 }
 
+/**
+ * app_events is Phase C1's inbound event-name declaration table: an operator
+ * declares the event names an app is allowed to publish, so the consumer can drop
+ * undeclared events and the trigger editor can bind (appId, eventName). Same
+ * self-healing rationale as trigger_overrides/automation_trigger_actions above: a
+ * mid-edit `bun --watch` save can persist a partial shape into the real database,
+ * and `create table if not exists` never heals it.
+ *
+ * Column names alone are not enough: declareAppEvent relies on `insert or ignore`
+ * to make declaring the same event twice a no-op, which only works if the
+ * composite primary key `(app_id, event_name)` is actually in place. So also
+ * require a unique index over exactly that column pair.
+ *
+ * No ledger clear on drop-and-recreate: app_events has no runOnce backfill
+ * deriving its rows from other rows, unlike automation_trigger_actions.
+ */
+const APP_EVENT_COLUMNS_SHIPPED = ['app_id', 'created_at', 'data_schema_json', 'event_name'];
+
+function hasAppEventPrimaryKey(database: Database): boolean {
+  const indexes = database.prepare("PRAGMA index_list('app_events')").all() as Array<{ name: string; unique: number }>;
+  return indexes.some(index => {
+    if (!index.unique) return false;
+    const columns = (database.prepare(`PRAGMA index_info('${index.name}')`).all() as Array<{ name: string }>)
+      .map(column => column.name).sort();
+    return columns.length === 2 && columns[0] === 'app_id' && columns[1] === 'event_name';
+  });
+}
+
+export function dropStaleAppEvents(database: Database): boolean {
+  const columns = database.prepare("PRAGMA table_info('app_events')").all() as Array<{ name: string }>;
+  if (columns.length === 0) return false;
+  const names = columns.map(column => column.name).sort();
+  const shipped = [...APP_EVENT_COLUMNS_SHIPPED].sort();
+  const columnsMatch = names.length === shipped.length && names.every((name, index) => name === shipped[index]);
+  if (columnsMatch && hasAppEventPrimaryKey(database)) return false;
+  database.exec('drop table app_events');
+  return true;
+}
+
 db.exec('pragma journal_mode = WAL');
-// The schema declares `on delete cascade` in four places, but SQLite ignores
+// The schema declares `on delete cascade` in five places, but SQLite ignores
 // every one of them unless foreign keys are enabled per-connection (the default
 // is off). Without this, deleting a parent silently orphans its children.
 db.exec('pragma foreign_keys = ON');
@@ -166,6 +205,7 @@ restrictDatabaseFiles();
 dropStaleLlmInteractions(db);
 dropStaleTriggerOverrides(db);
 dropStaleTriggerActions(db);
+dropStaleAppEvents(db);
 
 db.exec(`
   create table if not exists chat_messages (
@@ -619,6 +659,19 @@ db.exec(`
     name text not null unique,
     created_at text not null,
     disabled_at text
+  );
+
+  -- The inbound event NAMES an app is allowed to publish (Phase C1). The consumer
+  -- drops undeclared events and the trigger editor binds (appId, eventName) against
+  -- this table. data_schema_json defaults to '{}' and is unused here — it is
+  -- reserved for C2's data catalog.
+  create table if not exists app_events (
+    app_id text not null,
+    event_name text not null,
+    data_schema_json text not null default '{}',
+    created_at text not null,
+    primary key (app_id, event_name),
+    foreign key (app_id) references apps(id) on delete cascade
   );
 
   -- Maps a Twitch reward id to the source that created/owns it: 'narya', 'manual',

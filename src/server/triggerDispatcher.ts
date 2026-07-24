@@ -1,6 +1,7 @@
 import type {
   ActionRunResult,
   ActionRunStatus,
+  ActionStepType,
   AlertEventKind,
   AutomationTrigger,
   ChatMessage,
@@ -27,8 +28,23 @@ import { db, isUniqueConstraintError } from './db';
 import { HttpRouteError } from './http';
 import { getViewerTags } from './viewerIdentity';
 
+/**
+ * The safe subset an inbound external event (a Redis trigger) is allowed to run:
+ * only steps that produce local, non-destructive output. Moderation, OBS, whisper,
+ * wind-down, and quote-mutation steps are deliberately excluded, so an Action bound
+ * to an external trigger can never reach them even if the operator adds one later.
+ * This is an ALLOWLIST — any future step type is blocked until added here.
+ */
+export const REDIS_SAFE_STEP_TYPES: ReadonlySet<ActionStepType> = new Set([
+  'show_text',
+  'play_media',
+  'tts_speak',
+  'adjust_counter',
+  'send_chat',
+]);
+
 export type TriggerDispatcherDeps = {
-  runAction: (actionId: string, context: TemplateContext) => Promise<ActionRunResult>;
+  runAction: (actionId: string, context: TemplateContext, options?: { allowedStepTypes?: ReadonlySet<ActionStepType> }) => Promise<ActionRunResult>;
   /** Id of the module matching the live Twitch category, or null when none matches. */
   getActiveModuleId: () => string | null;
   /** Login of Narya's own bot identity, for loop prevention. */
@@ -60,6 +76,20 @@ export type RewardRedemptionSignal = {
   userInput?: string;
 };
 
+/**
+ * One inbound event from an external app's Redis stream. `eventId` is the caller's
+ * dedupe key (typically `${appId}:${appSuppliedId}`) — combined with the existing
+ * per-trigger claim key `${trigger.id}:${eventId}`, a redelivery cannot fire twice.
+ */
+export type RedisEventSignal = {
+  appId: string;
+  eventName: string;
+  eventId: string | null;
+  actor?: string;
+  login?: string | null;
+  data: Record<string, unknown>;
+};
+
 export type ModuleLifecyclePhase = 'activate' | 'deactivate';
 
 export type TriggerRunSummary = {
@@ -72,6 +102,7 @@ export type TriggerDispatcher = {
   handleChatMessage(message: ChatMessage): Promise<TriggerRunSummary[]>;
   handleTwitchEvent(signal: TwitchEventSignal): Promise<TriggerRunSummary[]>;
   handleRewardRedemption(signal: RewardRedemptionSignal): Promise<TriggerRunSummary[]>;
+  handleRedisEvent(signal: RedisEventSignal): Promise<TriggerRunSummary[]>;
   handleSlashCommand(input: string): Promise<SlashCommandResponse>;
   handleModuleLifecycle(
     phase: ModuleLifecyclePhase,
@@ -254,6 +285,12 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     actorLogin?: string | null;
     /** Manual runs are an explicit operator action: they bypass cooldowns and arming. */
     enforceGates?: boolean;
+    /**
+     * The run-time safe subset for an external source (a Redis event). Forwarded to
+     * the executor, which skips any step whose type is not in it. Undefined (every
+     * internal source) is unrestricted.
+     */
+    allowedStepTypes?: ReadonlySet<ActionStepType>;
   };
 
   async function invoke(
@@ -261,7 +298,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     context: TemplateContext,
     options: InvokeOptions = {},
   ): Promise<TriggerRunSummary | null> {
-    const { eventId = null, actorLogin = null, enforceGates = true } = options;
+    const { eventId = null, actorLogin = null, enforceGates = true, allowedStepTypes } = options;
     const at = now();
 
     if (enforceGates && !isArmed(trigger)) return null;
@@ -298,7 +335,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     try {
       // Concurrent, mirroring the executor's own Promise.all over an Action's steps:
       // the trigger's actions all start together rather than queueing behind each other.
-      results = await Promise.all(list.map(id => runAction(id, context)));
+      results = await Promise.all(list.map(id => runAction(id, context, { allowedStepTypes })));
       status = rollUpActions(results);
 
       if (overrideActionId && status === 'skipped') {
@@ -309,7 +346,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
         // silently degraded to the generic one.
         const skipReason = detailOf(results[0]!);
         detailPrefix = `Override for ${actorLogin} skipped${skipReason ? ` (${skipReason})` : ''}; ran the base actions. `;
-        results = await Promise.all(enabled.map(action => runAction(action.actionId, context)));
+        results = await Promise.all(enabled.map(action => runAction(action.actionId, context, { allowedStepTypes })));
         status = rollUpActions(results);
       }
     } catch (error) {
@@ -397,6 +434,21 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       .map(trigger => ({ trigger, context }));
 
     return invokeAll(candidates, { eventId: signal.eventId, actorLogin: login || null });
+  }
+
+  async function handleRedisEvent(signal: RedisEventSignal): Promise<TriggerRunSummary[]> {
+    const login = signal.login?.trim().toLowerCase() ?? '';
+    const context: TemplateContext = {
+      ...(signal.actor === undefined ? {} : { actor: signal.actor }),
+      ...(login ? { login } : {}),
+      data: signal.data,
+    };
+
+    const candidates = listEnabledTriggersOfKind('redis_event')
+      .filter(trigger => trigger.kind === 'redis_event' && trigger.config.appId === signal.appId && trigger.config.eventName === signal.eventName)
+      .map(trigger => ({ trigger, context }));
+
+    return invokeAll(candidates, { eventId: signal.eventId, actorLogin: login || null, allowedStepTypes: REDIS_SAFE_STEP_TYPES });
   }
 
   async function handleRewardRedemption(signal: RewardRedemptionSignal): Promise<TriggerRunSummary[]> {
@@ -597,6 +649,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     handleChatMessage,
     handleTwitchEvent,
     handleRewardRedemption,
+    handleRedisEvent,
     handleSlashCommand,
     handleModuleLifecycle,
     runTriggerManually,

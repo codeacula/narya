@@ -162,6 +162,26 @@ describe('the widened token pattern does not change existing behavior', () => {
   });
 });
 
+describe('{data.*}', () => {
+  test('{data.*} renders scalars, coerces non-scalars, empties missing, single-pass', () => {
+    const ctx = { data: { boss: 'Dragon', hp: 100, evil: true, obj: { a: 1 }, arr: [1, 2], inject: '{actor}' } };
+    expect(renderActionTemplate('Killed {data.boss} ({data.hp} hp)', ctx)).toBe('Killed Dragon (100 hp)');
+    expect(renderActionTemplate('{data.evil}', ctx)).toBe('true');
+    expect(renderActionTemplate('{data.obj}', ctx)).toBe('{"a":1}');          // JSON, not [object Object]
+    expect(renderActionTemplate('{data.missing}', ctx)).toBe('');             // known family → empty, not literal
+    expect(renderActionTemplate('{data.inject}', { actor: 'ADMIN', data: { inject: '{actor}' } })).toBe('{actor}'); // single-pass: not re-expanded
+  });
+
+  test('an underscore key renders, empties when missing, and stays single-pass', () => {
+    // snake_case is the dominant key convention for external app payloads; the outer
+    // tokenizer must admit '_' or {data.gift_count} emits as its own literal.
+    const ctx = { actor: 'ADMIN', data: { gift_count: 5, foo_bar: '{actor}' } };
+    expect(renderActionTemplate('{data.gift_count}', ctx)).toBe('5');
+    expect(renderActionTemplate('{data.other_key}', ctx)).toBe('');            // known family → empty, not literal
+    expect(renderActionTemplate('{data.foo_bar}', ctx)).toBe('{actor}');       // single-pass: not re-expanded
+  });
+});
+
 describe('renderCounterTokens', () => {
   const counters = (values: Record<string, number>) =>
     (key: string) => (key in values ? values[key] : undefined);

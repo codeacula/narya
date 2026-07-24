@@ -10,6 +10,7 @@ import type {
   ConditionOp,
   DashboardSlashTriggerConfig,
   ManualTriggerConfig,
+  RedisEventTriggerConfig,
   RewardTriggerConfig,
   SlashCommandRequest,
   TemplateContext,
@@ -21,6 +22,7 @@ import type {
 } from '../shared/api';
 import { DEFAULT_GLOBAL_COOLDOWN_MS, DEFAULT_USER_COOLDOWN_MS } from '../shared/api';
 import { normalizeProfileTag } from '../shared/viewerTags';
+import { appExistsById, isDeclaredEvent } from './apps';
 import { db, runOnce } from './db';
 import { handle, HttpRouteError } from './http';
 import { CONDITIONS_UNREADABLE } from './triggerConditions';
@@ -45,6 +47,7 @@ const TRIGGER_KINDS = new Set<AutomationTriggerKind>([
   'manual',
   'module_activate',
   'module_deactivate',
+  'redis_event',
 ]);
 const PHRASE_MATCHES = new Set<ChatPhraseMatch>(['exact', 'contains', 'starts_with']);
 const TRIGGER_ROLES = new Set<TriggerRole>(['broadcaster', 'mod', 'vip', 'sub', 'viewer']);
@@ -230,6 +233,16 @@ function normalizeConfig(kind: AutomationTriggerKind, value: unknown): Automatio
     case 'module_activate':
     case 'module_deactivate':
       return {};
+
+    case 'redis_event': {
+      const appId = requireText(config.appId, 64, 'A Redis-event trigger needs an app.');
+      if (!appExistsById(appId)) throw new HttpRouteError(400, 'App not found.');
+      const eventName = requireText(config.eventName, 64, 'A Redis-event trigger needs an event name.');
+      if (!isDeclaredEvent(appId, eventName)) {
+        throw new HttpRouteError(400, `"${eventName}" is not a declared event for that app.`);
+      }
+      return { appId, eventName } satisfies RedisEventTriggerConfig;
+    }
   }
 }
 
@@ -244,6 +257,8 @@ const CONDITION_FIELDS: Record<AutomationTriggerKind, Set<string>> = {
   manual: new Set(['actor', 'login']),
   module_activate: new Set(['actor', 'login']),
   module_deactivate: new Set(['actor', 'login']),
+  // Conditions over {data.*} are C2 — actor/login only for now.
+  redis_event: new Set(['actor', 'login']),
 };
 const COMPARISON_OPS = new Set(['eq', 'neq', 'contains', 'starts_with', 'gte', 'lte', 'in']);
 
