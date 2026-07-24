@@ -97,6 +97,10 @@ export const TRIGGER_KIND_LABELS: Record<AutomationTriggerKind, string> = {
   manual: 'Manual button',
   module_activate: 'Module activated',
   module_deactivate: 'Module deactivated',
+  // Not yet offered in the "add trigger" picker (TRIGGER_KINDS) — the app/event
+  // editor UI lands in a later task. The label/hint/field entries exist only to
+  // satisfy the exhaustive Record over AutomationTriggerKind.
+  redis_event: 'External app event',
 };
 
 export const TRIGGER_KIND_HINTS: Record<AutomationTriggerKind, string> = {
@@ -108,6 +112,7 @@ export const TRIGGER_KIND_HINTS: Record<AutomationTriggerKind, string> = {
   manual: 'A button on the dashboard and tablet Quick actions panel.',
   module_activate: 'Fires when its module becomes the active one (you switched to one of its categories).',
   module_deactivate: 'Fires when its module stops being active.',
+  redis_event: 'Fires when a declared event arrives from a connected external app.',
 };
 
 export const TRIGGER_ROLES: TriggerRole[] = ['broadcaster', 'mod', 'vip', 'sub', 'viewer'];
@@ -161,6 +166,8 @@ export const CONDITION_FIELDS_BY_KIND: Record<AutomationTriggerKind, string[]> =
   manual: ['actor', 'login'],
   module_activate: ['actor', 'login'],
   module_deactivate: ['actor', 'login'],
+  // Conditions over {data.*} land in a later task — actor/login only for now.
+  redis_event: ['actor', 'login'],
 };
 
 /** Fields whose values are numbers, so the editor offers gte/lte alongside eq/neq/in
@@ -500,6 +507,8 @@ export function describeTriggerConfig(trigger: AutomationTrigger, rewardTitles: 
       return 'on activate';
     case 'module_deactivate':
       return 'on deactivate';
+    case 'redis_event':
+      return `${trigger.config.appId} · ${trigger.config.eventName}`;
   }
 }
 
@@ -748,6 +757,10 @@ export function validateTrigger(trigger: AutomationTriggerInput): string | null 
       return null;
     case 'module_activate':
     case 'module_deactivate':
+      return null;
+    case 'redis_event':
+      if (!trigger.config.appId) return 'Pick the app that fires this.';
+      if (!trigger.config.eventName) return 'Pick the declared event that fires this.';
       return null;
   }
 }

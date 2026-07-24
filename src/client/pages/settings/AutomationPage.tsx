@@ -99,6 +99,8 @@ function newTrigger(kind: AutomationTriggerKind): AutomationTriggerInput {
       return { ...base, kind, config: {} };
     case 'module_deactivate':
       return { ...base, kind, config: {} };
+    case 'redis_event':
+      return { ...base, kind, config: { appId: '', eventName: '' } };
   }
 }
 

@@ -1083,6 +1083,8 @@ export type TemplateContext = {
   quoteSubmitter?: string;
   quoteShownCount?: number;
   quoteDate?: string;
+  /** External inbound payload for {data.*} — set on a redis_event invocation. */
+  data?: Record<string, unknown>;
 };
 
 // --- Quotes ------------------------------------------------------------------
@@ -1141,7 +1143,8 @@ export type AutomationTriggerKind =
   | 'dashboard_slash'
   | 'manual'
   | 'module_activate'
-  | 'module_deactivate';
+  | 'module_deactivate'
+  | 'redis_event';
 
 export type ChatPhraseMatch = 'exact' | 'contains' | 'starts_with';
 
@@ -1162,6 +1165,8 @@ export type ViewerCommandTriggerConfig = { command: string; aliases: string[]; r
 export type DashboardSlashTriggerConfig = { command: string; aliases: string[] };
 export type ManualTriggerConfig = { label: string };
 export type ModuleLifecycleTriggerConfig = Record<string, never>;
+/** Bound to an app's declared event — see appExistsById/isDeclaredEvent (src/server/apps.ts). */
+export type RedisEventTriggerConfig = { appId: string; eventName: string };
 
 /**
  * Phase B2: an optional AND-only filter on a trigger, evaluated against the invocation's
@@ -1200,7 +1205,8 @@ export type AutomationTrigger =
   | { id: string; kind: 'dashboard_slash'; name: string; actions: TriggerAction[]; conditions: TriggerCondition[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: DashboardSlashTriggerConfig; createdAt: string; updatedAt: string }
   | { id: string; kind: 'manual'; name: string; actions: TriggerAction[]; conditions: TriggerCondition[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ManualTriggerConfig; createdAt: string; updatedAt: string }
   | { id: string; kind: 'module_activate'; name: string; actions: TriggerAction[]; conditions: TriggerCondition[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ModuleLifecycleTriggerConfig; createdAt: string; updatedAt: string }
-  | { id: string; kind: 'module_deactivate'; name: string; actions: TriggerAction[]; conditions: TriggerCondition[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ModuleLifecycleTriggerConfig; createdAt: string; updatedAt: string };
+  | { id: string; kind: 'module_deactivate'; name: string; actions: TriggerAction[]; conditions: TriggerCondition[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: ModuleLifecycleTriggerConfig; createdAt: string; updatedAt: string }
+  | { id: string; kind: 'redis_event'; name: string; actions: TriggerAction[]; conditions: TriggerCondition[]; moduleId: string | null; enabled: boolean; globalCooldownMs: number; userCooldownMs: number; config: RedisEventTriggerConfig; createdAt: string; updatedAt: string };
 
 export type AutomationTriggerInput = DistributiveOmit<AutomationTrigger, 'id' | 'createdAt' | 'updatedAt'>;
 

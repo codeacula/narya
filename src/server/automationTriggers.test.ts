@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { DEFAULT_GLOBAL_COOLDOWN_MS, DEFAULT_USER_COOLDOWN_MS } from '../shared/api';
 import { createAction } from './actions';
+import { createApp, declareAppEvent } from './apps';
 import {
   createAutomationTrigger,
   deleteAutomationTrigger,
@@ -165,6 +166,42 @@ describe('normalizeAutomationTriggerInput', () => {
       expect(() => normalizeAutomationTriggerInput(input({ kind: 'manual', config: { label: '' } }))).toThrow('label');
     });
   });
+
+  describe('redis_event', () => {
+    beforeEach(() => {
+      db.exec('delete from app_events');
+      db.exec('delete from apps');
+    });
+
+    test('accepts a declared (appId, eventName) pair', () => {
+      const app = createApp('pztmi');
+      declareAppEvent(app.id, 'boss_killed');
+
+      const result = normalizeAutomationTriggerInput(input({
+        kind: 'redis_event',
+        config: { appId: app.id, eventName: 'boss_killed' },
+      }));
+      expect(result.kind).toBe('redis_event');
+      if (result.kind !== 'redis_event') throw new Error('unreachable');
+      expect(result.config).toEqual({ appId: app.id, eventName: 'boss_killed' });
+    });
+
+    test('rejects an unknown appId', () => {
+      expect(() => normalizeAutomationTriggerInput(input({
+        kind: 'redis_event',
+        config: { appId: 'nope', eventName: 'boss_killed' },
+      }))).toThrow('App not found.');
+    });
+
+    test('rejects an undeclared eventName', () => {
+      const app = createApp('pztmi');
+
+      expect(() => normalizeAutomationTriggerInput(input({
+        kind: 'redis_event',
+        config: { appId: app.id, eventName: 'never_declared' },
+      }))).toThrow('is not a declared event for that app');
+    });
+  });
 });
 
 describe('crud', () => {
@@ -206,6 +243,25 @@ describe('crud', () => {
 
   test('rejects deleting an unknown trigger', () => {
     expect(() => deleteAutomationTrigger('nope')).toThrow('Trigger not found.');
+  });
+
+  test('a redis_event trigger persists {appId, eventName} and reads it back', () => {
+    db.exec('delete from app_events');
+    db.exec('delete from apps');
+    const app = createApp('pztmi');
+    declareAppEvent(app.id, 'boss_killed');
+
+    const created = createAutomationTrigger(input({
+      kind: 'redis_event',
+      config: { appId: app.id, eventName: 'boss_killed' },
+    }));
+    expect(created.kind).toBe('redis_event');
+    if (created.kind !== 'redis_event') throw new Error('unreachable');
+    expect(created.config).toEqual({ appId: app.id, eventName: 'boss_killed' });
+
+    const loaded = getAutomationTrigger(created.id);
+    if (loaded?.kind !== 'redis_event') throw new Error('unreachable');
+    expect(loaded.config).toEqual({ appId: app.id, eventName: 'boss_killed' });
   });
 
   test('deleting an action cascades to its triggers', () => {
