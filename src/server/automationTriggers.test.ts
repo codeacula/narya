@@ -500,6 +500,47 @@ describe('conditions[]', () => {
     db.prepare('update automation_triggers set conditions_json = ? where id = ?').run('{bad json', created.id);
     expect(getAutomationTrigger(created.id)!.conditions).toBe(CONDITIONS_UNREADABLE);
   });
+
+  describe('data.* fields on redis_event', () => {
+    beforeEach(() => {
+      db.exec('delete from app_events');
+      db.exec('delete from apps');
+    });
+
+    test('a redis_event trigger with a data.wave gte 5 condition round-trips', () => {
+      const app = createApp('pztmi');
+      declareAppEvent(app.id, 'boss_killed');
+
+      const created = createAutomationTrigger(input({
+        kind: 'redis_event',
+        config: { appId: app.id, eventName: 'boss_killed' },
+        conditions: [{ field: 'data.wave', op: 'gte', value: 5 }],
+      }));
+      expect(created.conditions).toEqual([{ field: 'data.wave', op: 'gte', value: 5 }]);
+
+      const reloaded = getAutomationTrigger(created.id);
+      expect(reloaded?.conditions).toEqual([{ field: 'data.wave', op: 'gte', value: 5 }]);
+    });
+
+    test('a malformed data. field is rejected', () => {
+      const app = createApp('pztmi');
+      declareAppEvent(app.id, 'boss_killed');
+
+      expect(() => createAutomationTrigger(input({
+        kind: 'redis_event',
+        config: { appId: app.id, eventName: 'boss_killed' },
+        conditions: [{ field: 'data.a b', op: 'eq', value: 'x' }],
+      }))).toThrow(HttpRouteError);
+    });
+
+    test('a data.* field on a non-redis kind is still rejected', () => {
+      expect(() => createAutomationTrigger(input({
+        kind: 'reward',
+        config: { rewardId: 'reward-1' },
+        conditions: [{ field: 'data.wave', op: 'gte', value: 5 }],
+      }))).toThrow(HttpRouteError);
+    });
+  });
 });
 
 describe('seedBuiltInSlashCommands', () => {

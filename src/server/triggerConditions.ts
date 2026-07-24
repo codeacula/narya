@@ -7,7 +7,25 @@ export const CONDITIONS_UNREADABLE: TriggerCondition[] = Object.freeze([]) as un
 
 const lc = (v: unknown): string => String(v ?? '').toLowerCase();
 
+/** Inbound {data.*} keys live in a nested `data` object on the context, so a
+ *  `data.<key>` condition field cannot be read by the flat property lookup every
+ *  other field uses. A non-scalar coerces to the same JSON form {data.*} renders,
+ *  so a condition and a template agree and `contains` never sees [object Object].
+ *  A missing key stays `undefined`, preserving the fail-closed rule for every op. */
+const DATA_FIELD_PATTERN = /^data\.(.+)$/;
+
 function fieldValue(context: TemplateContext, field: string): unknown {
+  const dataMatch = DATA_FIELD_PATTERN.exec(field);
+  if (dataMatch) {
+    const raw = context.data?.[dataMatch[1]!];
+    if (raw === null || raw === undefined) return undefined;
+    if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') return raw;
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return undefined;
+    }
+  }
   return (context as Record<string, unknown>)[field];
 }
 
