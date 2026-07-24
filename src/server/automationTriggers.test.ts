@@ -13,6 +13,7 @@ import {
 } from './automationTriggers';
 import { db } from './db';
 import { HttpRouteError } from './http';
+import { CONDITIONS_UNREADABLE } from './triggerConditions';
 
 let actionId = '';
 
@@ -26,6 +27,7 @@ function input(overrides: Record<string, unknown> = {}) {
     userCooldownMs: 2000,
     config: { phrase: 'hype', match: 'contains', roles: [] },
     actions: [{ actionId, position: 0, enabled: true }],
+    conditions: [],
     ...overrides,
   };
 }
@@ -337,6 +339,68 @@ describe('actions[]', () => {
       config: { label: 'x' },
       actions: manyActionIds.map((id, position) => ({ actionId: id, position, enabled: true })),
     })).toThrow(/at most 20 actions/i);
+  });
+});
+
+describe('conditions[]', () => {
+  test('conditions persist and read back; invalid ones are rejected', () => {
+    const created = createAutomationTrigger(input({
+      kind: 'twitch_event',
+      config: { eventKind: 'cheer' },
+      conditions: [{ field: 'amount', op: 'gte', value: 100 }],
+    }));
+    expect(created.conditions).toEqual([{ field: 'amount', op: 'gte', value: 100 }]);
+
+    const reloaded = getAutomationTrigger(created.id);
+    expect(reloaded?.conditions).toEqual([{ field: 'amount', op: 'gte', value: 100 }]);
+
+    // unknown field is rejected
+    expect(() => createAutomationTrigger(input({
+      kind: 'twitch_event',
+      config: { eventKind: 'cheer' },
+      conditions: [{ field: 'nope', op: 'eq', value: 'x' }],
+    }))).toThrow(HttpRouteError);
+
+    // unknown op is rejected
+    expect(() => createAutomationTrigger(input({
+      conditions: [{ field: 'message', op: 'matches', value: 'x' }],
+    }))).toThrow(HttpRouteError);
+  });
+
+  test('role_is and tag_has are only valid on chat kinds', () => {
+    // 'reward' is not a chat kind — rejected even though the op itself is well-formed.
+    expect(() => createAutomationTrigger(input({
+      kind: 'reward',
+      config: { rewardId: 'reward-1' },
+      conditions: [{ field: 'role', op: 'role_is', value: 'sub' }],
+    }))).toThrow(HttpRouteError);
+
+    // chat_phrase (the input() default kind) is a chat kind — accepted.
+    const created = createAutomationTrigger(input({
+      conditions: [{ field: 'role', op: 'role_is', value: 'sub' }],
+    }));
+    expect(created.conditions).toEqual([{ field: 'role', op: 'role_is', value: 'sub' }]);
+  });
+
+  test('rejects a comparison op whose value has the wrong shape', () => {
+    expect(() => createAutomationTrigger(input({
+      conditions: [{ field: 'message', op: 'gte', value: 'not-a-number' }],
+    }))).toThrow(HttpRouteError);
+
+    expect(() => createAutomationTrigger(input({
+      conditions: [{ field: 'message', op: 'in', value: [] }],
+    }))).toThrow(HttpRouteError);
+  });
+
+  test('rejects more than the per-trigger condition cap', () => {
+    const conditions = Array.from({ length: 11 }, () => ({ field: 'message', op: 'contains', value: 'x' }));
+    expect(() => createAutomationTrigger(input({ conditions }))).toThrow(/at most 10 conditions/i);
+  });
+
+  test('a trigger with unreadable conditions_json reads back the fail-closed sentinel', () => {
+    const created = createAutomationTrigger(input());
+    db.prepare('update automation_triggers set conditions_json = ? where id = ?').run('{bad json', created.id);
+    expect(getAutomationTrigger(created.id)!.conditions).toBe(CONDITIONS_UNREADABLE);
   });
 });
 

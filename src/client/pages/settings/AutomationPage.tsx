@@ -7,6 +7,7 @@ import type {
   AutomationTriggerKind,
   CategoryModule,
   ChatPhraseMatch,
+  TriggerCondition,
   TriggerOverride,
   TriggerOverrideInput,
   TriggerRole,
@@ -67,6 +68,7 @@ function newTrigger(kind: AutomationTriggerKind): AutomationTriggerInput {
     // least one entry is added to actions[].
     actionId: '',
     actions: [] as TriggerAction[],
+    conditions: [] as TriggerCondition[],
     moduleId: null,
     enabled: true,
     globalCooldownMs: supportsCooldowns(kind) ? DEFAULT_GLOBAL_COOLDOWN_MS : 0,
