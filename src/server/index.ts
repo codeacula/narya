@@ -33,6 +33,7 @@ import { restartMusicPolling, startMusicPolling } from './music';
 import { broadcastObsStatus, connectObs, reconnectObs } from './obs';
 import { app, broadcast, server } from './realtime';
 import { reconcileRedis, startRedis } from './redis';
+import { startRedisInbound, stopRedisInbound } from './redisInbound';
 import { registerQuoteRoutes } from './quotes';
 import { registerCoreRoutes } from './routes';
 import { RuntimeState } from './runtime';
@@ -95,6 +96,11 @@ function reconcileServices(changes: Set<AppConfigChange>) {
   }
   if (changes.has('redis')) {
     reconcileRedis();
+    // The inbound consumer binds to the same redisUrl, so a URL change (or a clear)
+    // must re-point it too. stop-then-start is idempotent and gate-aware: it becomes a
+    // no-op when consumeInbound is off or the URL was cleared.
+    stopRedisInbound();
+    startRedisInbound();
   }
 }
 
@@ -170,6 +176,10 @@ server.listen(config.port, config.host, () => {
   connectTwitchChat(runtimeState);
   void connectObs();
   startRedis();
+  // Inbound consumer: gated on config.consumeInbound && appConfig.redisUrl, so this is a
+  // true no-op on a box that is not the designated consumer. Never throws (see the boot
+  // note in redisInbound.ts) — it runs ahead of music/heartbeat/ads/wind-down/EventSub.
+  startRedisInbound();
   startMusicPolling();
   startDashboardHeartbeat(runtimeState);
   startAutomaticAds(runtimeState);

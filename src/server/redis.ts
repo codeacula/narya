@@ -1,15 +1,48 @@
 import Redis from 'ioredis';
 import { appConfig } from './appConfig';
 
-type RedisClientLike = {
+export type RedisClientLike = {
   on(event: string, cb: (arg?: unknown) => void): void;
   xadd(...args: unknown[]): Promise<string | null>;
+  xreadgroup(...args: unknown[]): Promise<unknown>;
+  xack(...args: unknown[]): Promise<number>;
+  xautoclaim(...args: unknown[]): Promise<unknown>;
+  xgroup(...args: unknown[]): Promise<unknown>;
   quit(): Promise<unknown>;
   disconnect(): void;
 };
 
+// Single source of truth for the dev/prod stream prefix. The isolation hazard is
+// documented on eventBus.streamKey(): a dev box and production that share one redisUrl
+// must NOT collide on a stream key, or a dev redeem reaches a prod consumer. Both the
+// OUTBOUND events stream (`narya:<prefix>:events`) and the INBOUND per-app streams
+// (`narya:<prefix>:inbound:<appId>`) derive their prefix here so the two can never
+// drift. Resolution order: explicit STREAMER_TOOLS_REDIS_PREFIX, then NODE_ENV (so
+// `bun test` gets `test`), then `prod` (never `dev`, so an unset prod box does not
+// silently share the dev stream).
+export function streamPrefix(): string {
+  return process.env['STREAMER_TOOLS_REDIS_PREFIX'] ?? process.env['NODE_ENV'] ?? 'prod';
+}
+
+/** The per-app inbound stream an external app XADDs its events to. */
+export function inboundKey(appId: string): string {
+  return `narya:${streamPrefix()}:inbound:${appId}`;
+}
+
 let createClient: (url: string) => RedisClientLike = (url) =>
   new Redis(url, { lazyConnect: false, enableOfflineQueue: false, maxRetriesPerRequest: 1 }) as unknown as RedisClientLike;
+
+// The inbound consumer's blocking XREADGROUP connection MUST NOT share the publish
+// client — a BLOCK ties up the whole connection, which would stall every publish. It
+// gets its own factory (and its own test seam). maxRetriesPerRequest is null because a
+// blocking read is not a normal request-reply and must not be aborted by the retry cap.
+let createInboundClient: (url: string) => RedisClientLike = (url) =>
+  new Redis(url, { lazyConnect: false, enableOfflineQueue: false, maxRetriesPerRequest: null }) as unknown as RedisClientLike;
+
+/** Constructs the dedicated consumer connection through the (swappable) factory. */
+export function newRedisInboundClient(url: string): RedisClientLike {
+  return createInboundClient(url);
+}
 
 let client: RedisClientLike | null = null;
 const status = { connected: false, lastError: null as string | null, lastPublishError: null as string | null };
@@ -78,6 +111,7 @@ export function reconcileRedis(): void {
 
 // --- test seams ---
 export function __setRedisClientFactory(factory: (url: string) => RedisClientLike): void { createClient = factory; }
+export function __setRedisInboundClientFactory(factory: (url: string) => RedisClientLike): void { createInboundClient = factory; }
 export function __resetRedisForTest(): void {
   stopRedis();
   status.lastError = null;
