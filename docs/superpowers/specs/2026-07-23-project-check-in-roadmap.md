@@ -1,7 +1,12 @@
 # Project Check-In & Roadmap — 2026-07-23
 
-Status: Active roadmap
+Status: Superseded by `2026-07-25-project-check-in-roadmap.md` — all three workstreams shipped
 Author: Codeacula (with Claude)
+
+> **Historical.** Workstream 1 (`panels.tsx` split), workstream 2 (Twitch-layer tests), and
+> workstream 3 (the Redis automation arc, A→D) are all merged. The `/settings` routing gap is fixed
+> and regression-tested. CI on Forgejo remains the one enabling side-task still outstanding.
+> Do not plan from this document.
 
 ## Context
 
