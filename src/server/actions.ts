@@ -154,6 +154,22 @@ const updateActionRow = db.prepare(`
 const deleteActionRow = db.prepare('delete from actions where id = ?');
 const deleteStepsForAction = db.prepare('delete from action_steps where action_id = ?');
 
+/**
+ * Every way a trigger can point at an Action: the join table (the source of truth
+ * for its ordered list), the legacy action_id column that still tracks actions[0],
+ * and a per-viewer override that substitutes this Action for one login. All three
+ * columns cascade on delete, so any one of them left unchecked silently destroys
+ * the trigger row when the Action goes.
+ */
+const selectTriggersReferencingAction = db.prepare(`
+  select distinct name
+  from automation_triggers
+  where action_id = ?1
+     or id in (select trigger_id from automation_trigger_actions where action_id = ?1)
+     or id in (select trigger_id from trigger_overrides where action_id = ?1)
+  order by name collate nocase
+`);
+
 const insertStepRow = db.prepare(`
   insert into action_steps
     (id, action_id, step_type, payload_json, delay_ms, enabled, position, created_at, updated_at)
@@ -511,8 +527,20 @@ export function updateAction(id: string, body: unknown): Action {
   return saved;
 }
 
+/**
+ * Deleting an Action a trigger still runs would cascade the trigger away with it,
+ * and cascade again into that trigger's per-viewer overrides. The operator picked an
+ * Action out of a list; nothing on screen said a trigger would go too. So a referenced
+ * Action is refused, the same way a referenced media asset is (mediaAssets.ts).
+ */
 export function deleteAction(id: string) {
   if (!getActionRow.get(id)) throw new HttpRouteError(404, 'Action not found.');
+  const names = (selectTriggersReferencingAction.all(id) as Array<{ name: string }>).map(row => row.name);
+  if (names.length > 0) {
+    const listed = names.slice(0, 3).map(name => `"${name}"`).join(', ');
+    const rest = names.length > 3 ? ` and ${names.length - 3} more` : '';
+    throw new HttpRouteError(409, `This Action is used by a trigger (${listed}${rest}). Remove it from the trigger before deleting it.`);
+  }
   deleteActionRow.run(id);
 }
 

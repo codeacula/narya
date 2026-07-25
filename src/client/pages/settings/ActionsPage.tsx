@@ -797,7 +797,9 @@ export function ActionsSettingsPage() {
   };
 
   const handleDelete = (action: Action) => {
-    if (!window.confirm(`Delete "${action.name}"? Triggers that reference it will stop firing.`)) return;
+    // The server refuses to delete an Action a trigger still runs and names the trigger,
+    // so this only has to cover the unreferenced case.
+    if (!window.confirm(`Delete "${action.name}"? This cannot be undone.`)) return;
     setSaving(true);
     setMessage(null);
     setError(null);

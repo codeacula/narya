@@ -241,11 +241,16 @@ export function QuotesPage() {
               `Quote ${quote.number} saved.`,
               'Could not save the quote',
             )}
-            onDelete={() => act(
-              () => deleteQuote(quote.id),
-              `Quote ${quote.number} removed.`,
-              'Could not remove the quote',
-            )}
+            onDelete={() => {
+              // quote_sequence never reuses a number, so removing quote 12 retires 12
+              // for good while it is still circulating in Discord and screenshots.
+              if (!window.confirm(`Remove quote ${quote.number}? The number is retired for good and cannot be reissued.`)) return;
+              act(
+                () => deleteQuote(quote.id),
+                `Quote ${quote.number} removed.`,
+                'Could not remove the quote',
+              );
+            }}
           />
         ))}
       </div>

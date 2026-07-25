@@ -141,6 +141,12 @@ function AppTokenControls({
   const disabledOverall = disabled || busy;
 
   const handleMint = () => {
+    // Rotate occupies the same coordinates as the harmless first Mint, and the server
+    // rotates the hash before returning — one stray click kills a running app's
+    // credential with no way back. Minting the first token destroys nothing, so it asks
+    // for nothing.
+    if (app.tokenConfigured
+      && !window.confirm(`Rotate the token for "${app.name}"? The current one stops working immediately and cannot be recovered.`)) return;
     setBusy(true);
     setError(null);
     setCopied(false);
@@ -162,6 +168,7 @@ function AppTokenControls({
   };
 
   const handleRevoke = () => {
+    if (!window.confirm(`Revoke the token for "${app.name}"? Every call it makes will 401 until a new token is minted and deployed.`)) return;
     setBusy(true);
     setError(null);
     // Revoking must drop any plaintext still on screen — a revoked token showing as

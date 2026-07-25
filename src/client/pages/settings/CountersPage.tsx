@@ -178,6 +178,9 @@ export function CountersPage() {
   };
 
   const remove = (counter: Counter) => {
+    // The tally is the whole value of a counter — "deaths: 47" is not re-derivable.
+    // A referenced counter is refused server-side (409), so this covers the rest.
+    if (!window.confirm(`Delete "${counter.label}"? Its current count of ${counter.value} is lost.`)) return;
     setBusyId(counter.id);
     setMessage(null);
     setError(null);

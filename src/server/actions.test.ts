@@ -8,8 +8,10 @@ import {
   normalizeActionUpsert,
   updateAction,
 } from './actions';
+import { createAutomationTrigger, listAutomationTriggers } from './automationTriggers';
 import { db } from './db';
 import { HttpRouteError } from './http';
+import { listTriggerOverrides, upsertTriggerOverride } from './triggerOverrides';
 
 function step(overrides: Partial<ActionStepInput> = {}): ActionStepInput {
   return {
@@ -26,9 +28,26 @@ function upsert(steps: ActionStepInput[] = [step()], overrides: Record<string, u
 }
 
 beforeEach(() => {
+  db.exec('delete from trigger_overrides');
+  db.exec('delete from automation_triggers');
   db.exec('delete from action_steps');
   db.exec('delete from actions');
 });
+
+function trigger(actionId: string, overrides: Record<string, unknown> = {}) {
+  return createAutomationTrigger({
+    kind: 'chat_phrase',
+    name: 'Hype',
+    moduleId: null,
+    enabled: true,
+    globalCooldownMs: 1000,
+    userCooldownMs: 2000,
+    config: { phrase: 'hype', match: 'contains', roles: [] },
+    actions: [{ actionId, position: 0, enabled: true }],
+    conditions: [],
+    ...overrides,
+  });
+}
 
 describe('normalizeActionUpsert', () => {
   test('accepts a valid action and trims the name', () => {
@@ -319,5 +338,66 @@ describe('quickDisable persistence', () => {
     const updated = updateAction(created.id, upsert([step()], { name: 'Fart', quickDisable: false }));
     expect(updated.quickDisable).toBe(false);
     expect(getActionById(created.id)!.quickDisable).toBe(false);
+  });
+});
+
+/**
+ * automation_triggers.action_id and trigger_overrides.action_id both reference
+ * actions(id) ON DELETE CASCADE, so a bare delete of a referenced Action silently
+ * destroys the trigger and every per-viewer override on it. The operator picked an
+ * Action from a list; nothing on screen said a trigger would go with it.
+ */
+describe('deleteAction reference guard', () => {
+  test('refuses to delete an Action a trigger runs', () => {
+    const action = createAction(upsert());
+    trigger(action.id);
+
+    expect(() => deleteAction(action.id)).toThrow(HttpRouteError);
+    expect(() => deleteAction(action.id)).toThrow('used by a trigger');
+  });
+
+  test('a refused delete leaves the trigger and the Action intact', () => {
+    const action = createAction(upsert());
+    const created = trigger(action.id);
+
+    expect(() => deleteAction(action.id)).toThrow();
+
+    expect(listAutomationTriggers().map(t => t.id)).toEqual([created.id]);
+    expect(getActionById(action.id)).not.toBeNull();
+  });
+
+  test('refuses when the Action is only referenced by a per-viewer override', () => {
+    const base = createAction(upsert([step()], { name: 'Base' }));
+    const alternate = createAction(upsert([step()], { name: 'Alternate' }));
+    const created = trigger(base.id);
+    upsertTriggerOverride(created.id, { login: 'someviewer', actionId: alternate.id, enabled: true, note: '' });
+
+    expect(() => deleteAction(alternate.id)).toThrow('used by a trigger');
+    expect(listTriggerOverrides()).toHaveLength(1);
+  });
+
+  test('refuses even when the referencing trigger is disabled', () => {
+    const action = createAction(upsert());
+    trigger(action.id, { enabled: false });
+
+    expect(() => deleteAction(action.id)).toThrow('used by a trigger');
+  });
+
+  test('still deletes an Action nothing references', () => {
+    const action = createAction(upsert());
+
+    deleteAction(action.id);
+
+    expect(getActionById(action.id)).toBeNull();
+  });
+
+  test('deleting the trigger first releases the Action', () => {
+    const action = createAction(upsert());
+    trigger(action.id);
+    db.exec('delete from automation_triggers');
+
+    deleteAction(action.id);
+
+    expect(getActionById(action.id)).toBeNull();
   });
 });
