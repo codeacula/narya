@@ -21,16 +21,22 @@ config change, so install Bun and use it for everything below.
 
 - `http://localhost:5173/` or `/dashboard` - side-monitor dashboard
 - `http://localhost:5173/tablet` - touch-first controls
-- `http://localhost:5173/overlay` - transparent OBS browser source overlay
+- `http://localhost:5173/overlay` - combined transparent OBS browser source overlay (chat + now-playing)
+- `http://localhost:5173/overlay/chat` - chat-only overlay
+- `http://localhost:5173/overlay/nowplaying` - now-playing-only overlay
 - `http://localhost:5173/overlay/clips` - centered portrait/landscape clip playback overlay
 - `http://localhost:5173/overlay/sounds` - dedicated OBS browser source for TTS and sound effects
+- `http://localhost:5173/overlay/shoutouts` - session shoutout ticker
+- `http://localhost:5173/overlay/status` - live counters and status readout
+- `http://localhost:5173/overlay/text` - Action-driven text banners (also serves `/overlay/alerts`, kept as an alias for existing OBS sources)
+- `http://localhost:5173/overlay/winddown` - stream wind-down countdown
 
 The overlay is designed for a `1920x1080` browser source, with Twitch chat in the top right and now-playing music in the bottom left.
 Use `/overlay/clips` as its own `1920x1080` browser source. Clips stay centered, preserve their full frame, and scale automatically for portrait or landscape video while the rest of the source remains transparent.
 Keep the sound overlay loaded as a separate OBS browser source. Broadcast TTS and sound effects play only through that source, independently of the dashboard and visual overlays.
 
 Music display uses `playerctl` from the backend process. Install `playerctl` on the host and run the app in the same desktop session as Strawberry.
-By default it reads from the `strawberry` playerctl player. Set `MUSIC_PLAYERCTL_PLAYER` if your playerctl name differs.
+It reads from the `strawberry` playerctl player; this is a code default (`src/server/music.ts`), not an environment variable.
 
 Text-to-Speech uses the separate Tengwar service, `http://127.0.0.1:8008` by
 default. Configure it in **Settings → Speech** as one full base URL with the port
@@ -118,6 +124,33 @@ There is no `.env` seeding. `TWITCH_CLIENT_ID`, `OBS_SCENES`, `QUACK_VOLUME` and
 Twitch setup: put the client ID and secret into Settings, register the redirect URI in your Twitch app, then use Settings to log in the broadcaster account and the separate bot account. OAuth is the only way in — the old `TWITCH_USER_TOKEN` / `TWITCH_BOT_USER_TOKEN` environment fallbacks are gone, as a pasted token carried no refresh token and no expiry, so it silently rotted while still reporting itself as authenticated. Broadcaster credentials are used for EventSub, stream info, ads, moderation, shoutouts, and whispers; bot credentials for dashboard chat sends and chat command replies.
 
 Set the Tengwar URL in Settings to `http://127.0.0.1:8008` for local development.
+
+## Redis integration (optional)
+
+Narya can publish stream events to Redis and accept events back from registered external
+apps, driving automation triggers either direction. The connection URL is a normal
+credential, set in Settings like everything else; two topology switches are env-only
+because they can't be derived:
+
+- `STREAMER_TOOLS_CONSUME_INBOUND=1` — starts the inbound consumer. Without it, apps can
+  still be registered and can still publish, but nothing reads their events. Silent
+  no-op when unset.
+- `STREAMER_TOOLS_REDIS_PREFIX` — namespaces stream keys (`narya:<prefix>:*`) so a dev
+  box and a production box sharing one Redis instance never cross-deliver. `bun run dev`
+  already sets this to `dev`; a deployed instance defaults to `prod` when unset.
+
+## Build, test, and deploy
+
+```sh
+bun run typecheck   # tsc --noEmit
+bun test            # bun:test suite, *.test.ts colocated with source
+bun run build       # typecheck + Vite production build -> dist/
+bun run start       # serve the production build (bun src/server/index.ts)
+```
+
+`bun run build` type-checks first, so a failing `typecheck` also fails the build. The
+production server serves the built client from `dist/` (`src/server/static.ts`) — there
+is no separate static host to configure.
 
 ## License
 

@@ -1,6 +1,8 @@
 # Redis event bus + trigger/reward rework — architecture & phasing
 
-**Status:** Design approved (arc-level). Each phase gets its own implementation spec + plan before code.
+**Status:** Shipped. Phases A, B1, B2, C1, C2, and D are all merged. Kept for the
+architecture rationale behind those phases — see
+`docs/superpowers/specs/2026-07-25-project-check-in-roadmap.md` for current open work.
 **Date:** 2026-07-20
 **Scope:** Architecture and phasing for four sub-projects. This is the altitude a whole-arc doc holds — per-phase implementation detail lives in the phase specs that follow.
 

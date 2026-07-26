@@ -125,14 +125,17 @@ src/
     auth.ts             # dashboard token capture/storage, withToken(), rejection signalling
     automod.tsx         # useAutomodQueue hook + AutomodPanel + AutomodQuickActions
     chat.tsx            # useChat hook + ChatPanel component
+    chatFeed.ts         # useChatFeed hook: chat tail, viewer/chatter presence, older-page loading
     chatText.ts         # isMentionOf + URL link tokenizing for chat text
     clips.tsx           # useMediaQueue hook + ClipStage (redeem clip/sound playback)
     errors.ts           # errorMessage(caught, fallback) — shared catch-to-string helper
     eventKinds.ts       # event-kind verb/chip/tone presentation + attention kind set
+    liveValue.ts        # useLiveValue: REST-seeded value replaced by a single WebSocket event
     mediaMute.ts        # useMediaMute hook (master sound/video mute switch)
     music.tsx           # useMusic hook + MusicPanel + MusicControls
     overlayPlaceholders.tsx # useOverlayPlaceholders hook + OverlayPlaceholder outline
     overlayText.tsx     # overlay text queue helpers + useOverlayTextQueue + OverlayTextStage
+    queue.ts            # enqueueUnique / advanceHead: dedup-append/pop primitives for overlay queues
     quickActions.tsx    # useQuickActions hook + QuickActionsPanel + TabletQuickActions
     scenes.ts           # switchableScenes / sceneLabel (OBS scene prefix filtering + ordering)
     shoutouts.tsx       # useSessionShoutouts hook + ShoutoutTicker (overlay)
@@ -141,7 +144,10 @@ src/
     streamStatus.ts     # useStreamStatus hook (REST seed + status:updated)
     suggestions.ts      # useDebouncedSuggestions type-ahead + formatBoxArtUrl
     tabletChat.tsx      # TabletChatPanel (tablet-chrome chat surface)
+    timeoutDuration.ts  # timeout preset minutes, label/seconds conversion for moderation UI
     tts.ts              # useTtsEvents hook (plays TTS audio from WebSocket)
+    viewerPopout.ts      # openViewerPopout(login): opens a viewer's Spotlight in its own window
+    viewerRoster.ts      # Person type + mergeRoster: stored roster merged with live Twitch VIP/mod/presence
     windDown.ts         # useWindDown (operator) / useWindDownOverlay (browser source)
     windDownCountdown.ts # relative countdown formatting for the overlay
     realtime.ts         # shared WebSocket singleton + useSocket hook
@@ -153,10 +159,24 @@ src/
       authGate.tsx      # AuthGate: token-rejection screen in front of operator pages
       icons.tsx         # Icon component
       shell.tsx         # NavBar, StatBar, Panel, PopWindow, useDrag
-      panels.tsx        # Chat, Spotlight, EventFeed, MODULES registry
       tweaks.tsx        # useTweaks (localStorage) + TweakSection/Radio/Toggle/Color controls
       notifications.tsx # ToastProvider + toast system
       serviceStatus.tsx # ServiceStatusToasts (settings:updated WebSocket events)
+      panels/           # former single-file panels.tsx, split by component; index.ts re-exports
+                         # the same surface so existing `from '../ui/panels'` imports are unchanged
+        AttentionPanel.tsx  # thank-worthy-event feed, per-item ack, settings popover
+        badges.ts           # ROLE_BADGE glyphs + badgesFor(viewer) role-badge lookup
+        ChattersPanel.tsx   # Twitch presence list merged with just-chatted senders
+        Chat.tsx            # ChatMessageRow/Chat/ChatInput + inline per-row timeout/ban actions
+        context.ts          # PanelCtx/ModuleEntry types + session-boundary math
+        ControlsPanel.tsx   # OBS scene-switch button grid
+        EventFeed.tsx       # stream-event list with kind filter popover and session divider
+        eventPresentation.ts # event icon/label/tone maps + hidden-kind filter persistence
+        modules.tsx         # MODULES registry: module id -> {title, dot, count, render}
+        ShoutoutsPanel.tsx  # session shoutout list + copy-names-to-clipboard
+        Spotlight.tsx       # one viewer's profile/roles/actions pane, backs the viewer modals
+        viewerModals.tsx    # ViewerProfileModal + ViewerActionModal (profile-edit, whisper/timeout/ban)
+        index.ts            # barrel re-exporting the directory's public surface
     pages/
       Dashboard.tsx         # cockpit dashboard (3 layouts, popout windows)
       SettingsPage.tsx      # ConnectionsSettingsPage — Twitch sign-in + the Connections section
@@ -177,9 +197,13 @@ src/
         ConnectionsSection.tsx # credentials + channel form (Twitch/OBS/Discord)
         ContentSection.tsx    # media asset catalog + sound/clip button management
         GoLiveSection.tsx     # go-live settings (Discord guild/channel, OBS)
+        WindDownSection.tsx   # lead-time/title-suffix/overlay wind-down settings form
         LlmSection.tsx        # LLM provider settings + connection test
+        LlmStepFields.tsx     # llm_response Action-step editor (prompt mode, examples, tag gates)
         TtsSection.tsx        # Tengwar TTS settings, voices, and test speak
         QuotesPage.tsx        # quote book editor (add/edit/remove, keyword + counter)
+        CountersPage.tsx      # operator-defined counter CRUD editor
+        AppsPage.tsx          # registered external-app CRUD, token mint/revoke, declared events
         ActionsPage.tsx       # Action editor (ordered steps)
         AutomationPage.tsx    # automation trigger editor
         ModulesPage.tsx       # category module editor
@@ -208,6 +232,8 @@ src/
     mediaAssets.ts      # configured media catalog (media_assets)
     mediaMute.ts        # persisted master sound/video mute switch + routes
     triggerDispatcher.ts # matching, cooldowns, dedup, bot-loop prevention
+    triggerConditions.ts # evaluateConditions: TriggerCondition predicate evaluation, fail-closed
+    triggerOverrides.ts # per-(trigger, login) Action substitution repo + routes
     chatters.ts         # Helix presence poll + lazy identity backfill
     viewerIdentity.ts   # chatters presence/profile writes, ignore list, flush
     config.ts           # boot/infra-only env config (PORT, OAuth URIs)
@@ -218,15 +244,25 @@ src/
     goLive.ts           # go-live stream info updates
     http.ts             # HTTP route errors, helpers, and the handle() route wrapper
     llm.ts              # LLM (AI) routes
+    llmContext.ts       # llm_response step context: per-viewer interaction history + recent chat
+    llmPrompt.ts        # llm_response prompt/reply plumbing: request build, reply parse/format
     media.ts            # scans public/clips + public/sounds; validates binding srcs
     music.ts            # playerctl/manual now-playing state
     numeric.ts          # clamp / clampFinite arithmetic helpers
     obs.ts              # OBS WebSocket integration and dashboard stats
     overlayPlaceholders.ts # in-memory overlay bounds flag + routes
+    redis.ts            # ioredis connection lifecycle, stream-key prefix resolution, client factories
+    redisInbound.ts     # inbound consumer: per-app XREADGROUP loop -> redis_event trigger dispatch
+    eventBus.ts         # outbound Redis event publisher (redeem/twitch_event/module_switch)
+    apps.ts             # registered external-app repo + routes: CRUD, declared events, token mint/revoke
+    appRewards.ts       # /api/ext/ app-facing reward surface, source-scoped by reward_provenance
+    appEventCatalog.ts  # auto-learned advisory key->type map per declared app event
     realtime.ts         # Express app, HTTP server, WebSocket broadcasts
     quotes.ts           # quote book: repo, number allocation, lookup, routes
+    counters.ts         # operator-defined counters: repo, validation, {counter:*} template scan
     routes.ts           # core REST route registrations
     runtime.ts          # RuntimeState (Twitch auth token cache)
+    rewardProvenance.ts # reward_id -> owning source; the per-app/operator reward isolation primitive
     sounds.ts           # sound buttons + playback events (labeled-button repo)
     static.ts           # serves dist/ for production
     streamCategories.ts # saved stream categories, their tags, and routes
@@ -248,6 +284,7 @@ src/
       tmi.d.ts          # local declarations for tmi.js
     dashboard/
       status.ts         # dashboard heartbeat and status aggregation
+    testSetup.ts        # bun test preload: forces in-memory DB path + fixture media root
   shared/
     api.ts              # client/server API and WebSocket payload contracts
     constants.ts        # shared timing constants
@@ -268,6 +305,8 @@ src/
 - `trigger_overrides` (`triggerOverrides.ts`) — per-viewer Action substitution: `(trigger, login) → alternate Action`, resolved inside the dispatcher's `invoke()` after the gates and before the run. The base trigger still matches once, claims one dedupe key, and owns the cooldowns, so a double alert is structurally impossible. A `skipped` override run falls back to the base Action under the same run row (safe because a skipped run broadcasts nothing); `partial`/`failed` do not fall back. Anonymous events (no login) and flushed viewers never match; `flushViewer` deletes a viewer's overrides and reports the count.
 
 `automation.ts` is the composition root — `eventsub.ts` and `chat.ts` both need the executor and dispatcher, and neither can import `index.ts` (where `RuntimeState` is built) without a cycle.
+
+**Redis / external-apps subsystem** — registered third-party apps (`apps.ts`) exchange events with Narya over Redis Streams, outbound and inbound, entirely optional: every publish and the inbound consumer are true no-ops when `app_config.redisUrl` is unset (`eventBus.ts`, `redisInbound.ts`). Outbound, `eventBus.ts` fire-and-forgets `redeem`/`twitch_event`/`module_switch` envelopes onto `narya:<prefix>:events`; inbound, each app XADDs to its own `narya:<prefix>:inbound:<appId>`, and `redisInbound.ts` consumes those streams as a `narya-inbound` consumer group, turning each entry into a `redis_event` trigger fire through the dispatcher. **Stream keys are dev/prod-isolated by a single prefix resolver** — `streamPrefix()` in `redis.ts` picks `STREAMER_TOOLS_REDIS_PREFIX`, else `NODE_ENV`, else `'prod'` — so the outbound `:events` stream and every inbound `:inbound:<appId>` stream derive from the same function and can never drift apart, and a dev box sharing a `redisUrl` with production cannot cross-deliver. **The inbound consumer is additionally gated by `STREAMER_TOOLS_CONSUME_INBOUND=1`** (`config.ts`), so a dev box never joins the operator's live consumer group by accident even with a shared `redisUrl`. Delivery is **at-least-once with per-entry dedup and poison-message isolation**: `handleEntry` always XACKs after dispatch (or after a caught error) so one malformed entry never stalls the stream, `XAUTOCLAIM` reclaims entries orphaned by a crash between dispatch and XACK, and the dispatcher's `automation_runs` dedup key — namespaced per-app as `${appId}:${envelope.id ?? streamEntryId}` — makes the inevitable XAUTOCLAIM replay a no-op rather than a double-fire. Inbound payloads cross a trust boundary and are bounded (serialized `data` size, field count) and only dispatched through the dispatcher's `REDIS_SAFE_STEP_TYPES` subset, never the full step surface. **Twitch's own reward `canManage` is true for every Narya-minted reward regardless of which app asked** — `reward_provenance.source` (enforced via `rewardProvenance.ts`'s `ownsReward`) is the *only* boundary that keeps one registered app from reading or managing another app's (or the operator's) rewards through `/api/ext/*`. `appEventCatalog.ts`'s per-event data-key catalog is purely advisory (autocomplete/condition-picker hints only) and is capped separately from the per-payload bounds so an app whose keys embed ids or timestamps can't grow the catalog forever.
 
 **Slash commands are server-owned.** Anything the operator types starting with `/` goes to `POST /api/automation/slash` and is executed or **rejected there**. It is never forwarded to Twitch. The client must not parse them: the parser this replaced fell through to `sendChatMessage` on an unknown command, so a typo was published to chat.
 

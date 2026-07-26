@@ -1,6 +1,8 @@
 # Phase C1 — inbound Redis triggers (the security-critical path)
 
-**Status:** Approved (design). Implementation plan to follow.
+**Status:** Shipped and merged. Kept for the security-model rationale — see
+`docs/superpowers/specs/2026-07-25-project-check-in-roadmap.md` §3/§5 for open
+follow-up work that still cites this design.
 **Date:** 2026-07-24
 **Parent arc:** `2026-07-20-redis-automation-arc-design.md` §9 (Phase C). Depends on A (Redis layer, app registry, event bus — merged) and B (multi-action + conditions — merged). Phase C is split into **C1 (inbound path, this doc)** and **C2 (data-key catalog + lifecycle coupling)**.
 
