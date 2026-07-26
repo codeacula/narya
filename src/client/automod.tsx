@@ -12,6 +12,18 @@ const PENDING_LIMIT = 200;
 const RESOLVED_LIMIT = 20;
 
 /**
+ * Append a newly-held message, evicting the OLDEST entry once `limit` is exceeded.
+ * `current` is oldest-first (mirrors the server's `listPendingAutomodHolds` order),
+ * so the oldest entry is at the front — evicting from the front via a trailing
+ * `slice(-limit)` keeps the array oldest-first while always preserving the newest
+ * arrival, the one a moderator needs most during a spam wave.
+ */
+export function appendPendingHold(current: AutomodHold[], hold: AutomodHold, limit: number): AutomodHold[] {
+  if (current.some(h => h.id === hold.id)) return current;
+  return [...current, hold].slice(-limit);
+}
+
+/**
  * Render a held message's URLs as link-*styled* text, deliberately not as anchors.
  *
  * A held message is one AutoMod already found suspect, and phishing is a large share
@@ -88,7 +100,7 @@ export function useAutomodQueue(): AutomodQueueController {
     'automod:held',
     React.useCallback((hold) => {
       if (resolvedIds.current.has(hold.id)) return;
-      setPending(current => (current.some(h => h.id === hold.id) ? current : [...current, hold].slice(0, PENDING_LIMIT)));
+      setPending(current => appendPendingHold(current, hold, PENDING_LIMIT));
       // Audible cue so a held message isn't missed while the operator is looking
       // elsewhere. Fires only on live holds (the initial REST snapshot doesn't
       // route through here), and is throttled so a burst doesn't overlap.
