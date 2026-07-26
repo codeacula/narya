@@ -1,6 +1,7 @@
 import type { SoundButton, SoundButtonUpdate, SoundPlayback } from '../shared/api';
 import { appConfig } from './appConfig';
 import { db } from './db';
+import { findMediaFile } from './media';
 import { HttpRouteError } from './http';
 import { createLabeledButtonRepo } from './labeledButtons';
 import { broadcast } from './realtime';
@@ -8,6 +9,12 @@ import { broadcast } from './realtime';
 /**
  * The sounds a fresh install starts with, so the tablet soundboard is not an empty
  * grid on first run. Seeded once (see below); deleting a button keeps it deleted.
+ *
+ * public/sounds is gitignored operator media (see .gitignore), so these files are
+ * NOT shipped with the repo — a bare clone has none of them until the operator
+ * restores their own library. `defaultSoundButtonsToSeed` only seeds the ones whose
+ * file is actually present, so a fresh install gets an honestly-empty soundboard
+ * instead of buttons that play nothing.
  */
 export const DEFAULT_QUACK_SOUNDS = [
   '/sounds/quacks/075176_duck-quack-40345.mp3',
@@ -21,6 +28,13 @@ const defaultSoundButtons = DEFAULT_QUACK_SOUNDS.map((filename, index) => ({
   filename,
 }));
 
+/** Pulled out so the "skip a default whose file isn't there" decision is testable
+ *  without touching the database or the real filesystem. IDs are assigned before
+ *  filtering, so which quacks are missing never shifts the surviving ones' ids. */
+export function defaultSoundButtonsToSeed(fileExists: (src: string) => boolean): SoundButton[] {
+  return defaultSoundButtons.filter(sound => fileExists(sound.filename));
+}
+
 const countSoundButtons = db.prepare('select count(*) as count from sound_buttons');
 const insertSoundButton = db.prepare(`
   insert or ignore into sound_buttons (id, label, filename)
@@ -30,7 +44,7 @@ const insertSoundButton = db.prepare(`
 function seedSoundButtonsIfEmpty() {
   const row = countSoundButtons.get() as { count: number };
   if (row.count > 0) return;
-  for (const sound of defaultSoundButtons) {
+  for (const sound of defaultSoundButtonsToSeed(src => findMediaFile(src) !== null)) {
     insertSoundButton.run(sound.id, sound.label, sound.filename);
   }
 }
