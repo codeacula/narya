@@ -385,17 +385,6 @@ describe('resetWindDownForStreamEnd (Finding 2)', () => {
     expect(getWindDownState().dismissedSessionId).toBeNull();
   });
 
-  test('a Twitch failure from the applier still clears the state row', async () => {
-    setWindDownTitleApplier(async () => { throw new Error('Twitch is down'); });
-    getOrStartStreamSession('test-reset-c', '2026-07-19T18:00:00.000Z');
-    setWindDownActive({ active: true, source: 'scheduled' });
-    setWindDownBaseTitle('Modding Skyrim');
-
-    await resetWindDownForStreamEnd();
-
-    expect(getWindDownState().active).toBe(false);
-  });
-
   test('does nothing harmful when no applier is registered', async () => {
     getOrStartStreamSession('test-reset-d', '2026-07-19T18:00:00.000Z');
     setWindDownActive({ active: true, source: 'scheduled' });

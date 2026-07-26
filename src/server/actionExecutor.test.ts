@@ -268,6 +268,9 @@ describe('play_media', () => {
     expect(h.calls.broadcasts).toEqual([]);
     expect(result.steps[0]!.status).toBe('skipped');
     expect(result.steps[0]!.detail).toContain('available');
+    // A single unavailable-asset step is also the invocation's only step, so the
+    // whole action rolls up to skipped.
+    expect(result.status).toBe('skipped');
   });
 
   test('an unavailable asset among several falls through to one that resolves', async () => {
@@ -278,15 +281,6 @@ describe('play_media', () => {
     await run(h);
 
     expect(h.calls.played).toEqual([{ kind: 'audio', src: '/sounds/b.mp3', volume: 0.8 }]);
-  });
-
-  test('an invocation whose only media asset is unavailable rolls up to skipped and broadcasts nothing', async () => {
-    const h = harness(action([mediaStep(['gone'], 'first')]), { resolveMedia: () => null });
-    const result = await run(h);
-
-    expect(result.status).toBe('skipped');
-    expect(h.calls.broadcasts).toEqual([]);
-    expect(h.calls.played).toEqual([]);
   });
 });
 

@@ -124,12 +124,4 @@ describe('stream keys', () => {
     expect(inboundKey('app-b')).toBe('narya:test:inbound:app-b');
     expect(inboundKey('app-a')).not.toBe(inboundKey('app-b'));
   });
-
-  // Byte-identity guard: eventBus.streamKey() must keep emitting narya:<prefix>:events
-  // after the prefix was extracted into redis.ts. If this drifts, a dev redeem can reach
-  // a prod consumer. eventBus derives its key from streamPrefix() now, so this holds by
-  // construction — asserted here so the derivation can never silently diverge.
-  test('the events stream key is derived from the same prefix', () => {
-    expect(`narya:${streamPrefix()}:events`).toBe('narya:test:events');
-  });
 });

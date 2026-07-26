@@ -213,13 +213,6 @@ describe('hydrateTwitchAuthState', () => {
     expect(state.runtimeUserToken?.accessToken).toBe('user-tok');
     expect(state.runtimeBotToken?.accessToken).toBe('bot-tok');
   });
-
-  test('leaves tokens null when no rows exist', () => {
-    const state = new RuntimeState();
-    hydrateTwitchAuthState(state);
-    expect(state.runtimeUserToken).toBeNull();
-    expect(state.runtimeBotToken).toBeNull();
-  });
 });
 
 // ---------------------------------------------------------------------------

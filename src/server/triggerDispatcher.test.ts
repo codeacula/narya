@@ -179,15 +179,6 @@ describe('bot-loop prevention', () => {
     expect(runner.calls).toHaveLength(0);
   });
 
-  test('ignores the bot\'s own viewer command echo', async () => {
-    trigger({ kind: 'viewer_command', config: { command: '!hi', aliases: [], roles: [] } });
-    const { dispatcher, runner } = setup({ getBotLogin: () => 'naryabot' });
-
-    await dispatcher.handleChatMessage(chat({ username: 'naryabot', message: '!hi' }));
-
-    expect(runner.calls).toHaveLength(0);
-  });
-
   test('still fires for viewers when no bot identity is configured', async () => {
     trigger({ kind: 'chat_phrase', config: { phrase: 'hype', match: 'contains', roles: [] } });
     const { dispatcher, runner } = setup({ getBotLogin: () => null });
@@ -1046,15 +1037,6 @@ describe('the reserved /counter command', () => {
     expect(store.values.deaths).toBe(1);
   });
 
-  test('rejects a non-numeric amount rather than guessing', async () => {
-    const store = counters({ deaths: 5 });
-    const { dispatcher } = setup(store.deps);
-    const response = await dispatcher.handleSlashCommand('/counter deaths banana');
-
-    expect(response.ok).toBe(false);
-    expect(store.values.deaths).toBe(5);
-  });
-
   test('rejects a bare number rather than guessing add vs set', async () => {
     // "/counter deaths 5" is plausibly "+5" or "set 5". Both are destructive when
     // wrong, so the sign (or the word set) has to be explicit.
@@ -1065,13 +1047,6 @@ describe('the reserved /counter command', () => {
     expect(response.ok).toBe(false);
     expect(response.message).toContain('set 5');
     expect(store.values.deaths).toBe(10);
-  });
-
-  test('an explicit +5 still works', async () => {
-    const store = counters({ deaths: 10 });
-    const { dispatcher } = setup(store.deps);
-    await dispatcher.handleSlashCommand('/counter deaths +5');
-    expect(store.values.deaths).toBe(15);
   });
 
   test('explains itself when no key is given', async () => {

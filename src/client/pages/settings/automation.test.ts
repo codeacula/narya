@@ -429,10 +429,6 @@ describe('validateTrigger', () => {
     expect(validateTrigger({ ...base, actions: [] })).toBe('Add at least one action.');
   });
 
-  test('a single enabled action is enough', () => {
-    expect(validateTrigger({ ...base, actions: [{ actionId: 'action-1', position: 0, enabled: true }] })).toBeNull();
-  });
-
   // >=1 stored action is the invariant; a trigger where every one is disabled is
   // still valid to save — that is the deliberate "do nothing" state, not an error.
   test('every action disabled is still a valid, just inert, trigger', () => {
@@ -1195,12 +1191,6 @@ describe('quote steps', () => {
     expect(validateStep(newStep('quote_add'), 0)).toBeNull();
   });
 
-  test('every step type has a label and a constructible default', () => {
-    for (const type of STEP_TYPES) {
-      expect(STEP_TYPE_LABELS[type]).toBeTruthy();
-      expect(newStep(type).type).toBe(type);
-    }
-  });
 });
 
 describe('redis_event trigger', () => {

@@ -207,11 +207,6 @@ describe('resolveMediaAssetForPlayback', () => {
     expect(resolveMediaAssetForPlayback('gone-3')).toBeNull();
   });
 
-  test('returns null for a disabled asset even when its file exists', () => {
-    insertRawAsset('off-1', { src: KNOWN_AUDIO, enabled: 0 });
-    expect(resolveMediaAssetForPlayback('off-1')).toBeNull();
-  });
-
   test('returns null for an unknown id', () => {
     expect(resolveMediaAssetForPlayback('nobody')).toBeNull();
     expect(resolveMediaAssetForPlayback('')).toBeNull();

@@ -66,17 +66,15 @@ describe('enqueue', () => {
 });
 
 describe('advance', () => {
+  // Called on both onEnded and onError — a clip that errors or is blocked by
+  // autoplay policy must not wedge the queue behind it any more than one that
+  // played cleanly.
   test('drops the head so the next clip plays', () => {
     expect(advance([item('a'), item('b')], 'a').map(q => q.id)).toEqual(['b']);
   });
 
   test('advancing an empty queue stays empty', () => {
     expect(advance([], 'a')).toEqual([]);
-  });
-
-  // A clip that errors or is blocked by autoplay policy must not wedge the queue.
-  test('advancing past a failed head still reaches the tail', () => {
-    expect(advance([item('bad'), item('good')], 'bad')[0]?.id).toBe('good');
   });
 
   // A bad file can both reject play() and fire the element's error event. Both

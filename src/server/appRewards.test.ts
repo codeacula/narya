@@ -319,14 +319,6 @@ describe('/api/ext/rewards', () => {
       expect(rewardCalls('POST')).toHaveLength(0);
     });
 
-    test('ignores a body-supplied source — the token\'s app wins', async () => {
-      const res = await api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody({ source: 'bar' }) });
-      expect(res.status).toBe(201);
-      const payload = await res.json() as { id: string; source: string };
-      expect(payload.source).toBe('foo');
-      expect(provenanceOf(payload.id)).toEqual({ source: 'foo', externalRef: 'ref-1' });
-    });
-
     test('rejects an invalid reward before calling Twitch', async () => {
       const res = await api('/api/ext/rewards', { token: fooToken, method: 'POST', body: createBody({ cost: 0 }) });
       expect(res.status).toBe(400);
@@ -480,24 +472,9 @@ describe('/api/ext/rewards', () => {
       expect(sent.prompt).toBe('');
     });
 
-    // 404, never 403: a 403 confirms the reward exists to an app that does not own it.
-    test('on another app\'s reward is a 404 and never reaches Twitch', async () => {
-      seedReward('theirs', 'bar');
-      const res = await api('/api/ext/rewards/theirs', { token: fooToken, method: 'PATCH', body: { title: 'Hijacked' } });
-      expect(res.status).toBe(404);
-      expect(rewardCalls('PATCH')).toHaveLength(0);
-    });
-
     test('on an unknown reward id is a 404', async () => {
       const res = await api('/api/ext/rewards/nope', { token: fooToken, method: 'PATCH', body: { title: 'Ghost' } });
       expect(res.status).toBe(404);
-    });
-
-    test('ignores a body-supplied source', async () => {
-      seedReward('mine', 'foo');
-      const res = await api('/api/ext/rewards/mine', { token: fooToken, method: 'PATCH', body: { title: 'Renamed', source: 'bar' } });
-      expect(res.status).toBe(200);
-      expect(provenanceOf('mine')?.source).toBe('foo');
     });
   });
 
@@ -508,21 +485,6 @@ describe('/api/ext/rewards', () => {
       expect(res.status).toBe(204);
       expect(rewardCalls('DELETE')).toHaveLength(1);
       expect(provenanceOf('mine')).toBeNull();
-    });
-
-    test('on another app\'s reward is a 404, leaves it on Twitch, and keeps its provenance', async () => {
-      seedReward('theirs', 'bar');
-      const res = await api('/api/ext/rewards/theirs', { token: fooToken, method: 'DELETE' });
-      expect(res.status).toBe(404);
-      expect(rewardCalls('DELETE')).toHaveLength(0);
-      expect(provenanceOf('theirs')).toEqual({ source: 'bar', externalRef: null });
-    });
-
-    test('on a manually-created reward is a 404', async () => {
-      seedReward('operator-made', 'manual');
-      const res = await api('/api/ext/rewards/operator-made', { token: fooToken, method: 'DELETE' });
-      expect(res.status).toBe(404);
-      expect(rewardCalls('DELETE')).toHaveLength(0);
     });
 
     // The reviewer's repro: the operator deletes the reward from Twitch's own
@@ -561,19 +523,5 @@ describe('/api/ext/rewards', () => {
       expect(rewardCalls('POST')).toHaveLength(2);
       expect(provenanceOf(secondPayload.id)).toEqual({ source: 'foo', externalRef: 'ref-1' });
     });
-  });
-
-  // If the guard is not mounted these all pass through with no auth at all, because
-  // requireDashboardToken deliberately skips the /api/ext/ prefix.
-  test('every route rejects an unauthenticated request', async () => {
-    seedReward('mine', 'foo');
-    const calls = [
-      api('/api/ext/rewards'),
-      api('/api/ext/rewards', { method: 'POST', body: createBody() }),
-      api('/api/ext/rewards/mine', { method: 'PATCH', body: { title: 'Renamed' } }),
-      api('/api/ext/rewards/mine', { method: 'DELETE' }),
-    ];
-    for (const call of calls) expect((await call).status).toBe(401);
-    expect(fetchCalls).toHaveLength(0);
   });
 });

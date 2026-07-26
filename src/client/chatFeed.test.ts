@@ -118,10 +118,6 @@ describe('registerChatterLogin', () => {
     expect(registerChatterLogin(known, 'alice')).toBe(false);
   });
 
-  test('an already-known login never triggers a refetch', () => {
-    expect(registerChatterLogin(new Set(['alice']), 'alice')).toBe(false);
-  });
-
   test('tracks each login independently', () => {
     const known = new Set<string>();
     expect(registerChatterLogin(known, 'alice')).toBe(true);

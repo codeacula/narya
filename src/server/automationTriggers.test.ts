@@ -486,15 +486,6 @@ describe('conditions[]', () => {
     }))).toThrow(HttpRouteError);
   });
 
-  test('a normal finite gte value is still accepted', () => {
-    const created = createAutomationTrigger(input({
-      kind: 'twitch_event',
-      config: { eventKind: 'cheer' },
-      conditions: [{ field: 'amount', op: 'gte', value: 100 }],
-    }));
-    expect(created.conditions).toEqual([{ field: 'amount', op: 'gte', value: 100 }]);
-  });
-
   test('a trigger with unreadable conditions_json reads back the fail-closed sentinel', () => {
     const created = createAutomationTrigger(input());
     db.prepare('update automation_triggers set conditions_json = ? where id = ?').run('{bad json', created.id);

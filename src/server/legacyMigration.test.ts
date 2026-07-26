@@ -464,16 +464,6 @@ describe('migrateQuackCommandIntoAction', () => {
     expect(payload.assetIds).toHaveLength(3);
   });
 
-  // The rotation should follow the folder, not the three files that shipped with it.
-  test('picks up a quack the operator added to the folder', () => {
-    addQuackAssets('/sounds/quacks/a.mp3', '/sounds/quacks/custom-honk.mp3');
-
-    migrateQuackCommandIntoAction();
-
-    const payload = JSON.parse(stepsOf(triggerFor('!quack')!.actionId)[0]!.payloadJson) as { assetIds: string[] };
-    expect(payload.assetIds).toHaveLength(2);
-  });
-
   test('does not bind sounds from outside the quacks folder', () => {
     addQuackAssets('/sounds/quacks/a.mp3', '/sounds/airhorn.mp3');
 

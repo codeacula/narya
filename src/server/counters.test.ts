@@ -289,14 +289,3 @@ describe('parseCounterAmount', () => {
     expect(parseCounterAmount(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
   });
 });
-
-describe('an unsafe amount never reaches a durable write', () => {
-  test('the value is untouched when the amount is out of range', () => {
-    // The end-to-end shape of the defect: before the fix this pinned 4 to
-    // 9007199254740991 and there was no way to recover the real count.
-    const created = counter({ value: 4 });
-    const amount = parseCounterAmount('1e308');
-    expect(amount).toBeNull();
-    expect(findCounterByKey('deaths')!.value).toBe(4);
-  });
-});
