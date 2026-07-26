@@ -136,7 +136,7 @@ const updateEventSchema = db.prepare('update app_events set data_schema_json = ?
 //  - NO json_extract: the codebase uses SQLite's JSON1 nowhere else; parsing in JS
 //    keeps this query portable and matches how rowToTrigger already reads config.
 //  - NO import from automationTriggers.ts: that module imports THIS one
-//    (appExistsById/isDeclaredEvent, C1), so reaching back would close an import
+//    (appExistsById/isDeclaredEvent), so reaching back would close an import
 //    cycle between two modules that both prepare statements at load time.
 // The redis_event trigger count is tiny, so scanning them is free.
 const selectRedisTriggerConfigs = db.prepare(`select config_json as configJson from automation_triggers where kind = 'redis_event'`);
@@ -230,8 +230,8 @@ export function registerAppsRoutes(app: express.Express) {
     removeAppEvent(request.params.id, request.params.name);
     response.status(204).end();
   }));
-  // Operator-only (this is /api/apps/, not /api/ext/ — the token-authenticated
-  // surface Task 2/4 add). Mint returns the plaintext once; it is never shown again.
+  // Operator-only (this is /api/apps/, not /api/ext/, the token-authenticated
+  // surface). Mint returns the plaintext once; it is never shown again.
   app.post('/api/apps/:id/token', handle(async (request, response) => {
     response.status(201).json({ token: mintAppToken(request.params.id) });
   }));

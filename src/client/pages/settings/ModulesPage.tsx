@@ -201,7 +201,8 @@ export function ModulesSettingsPage() {
     return owners;
   }, [state.modules, editingId]);
 
-  /** A group owned by another module cannot be claimed twice either. */
+  /** Groups already claimed by another module — flagged with a warning badge, but
+   *  the checkbox stays enabled: unlike games, the server does not reject a shared group. */
   const groupOwners = useMemo(() => {
     const owners = new Map<string, string>();
     for (const module of state.modules) {

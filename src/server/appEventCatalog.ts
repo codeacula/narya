@@ -11,19 +11,19 @@ export type DataCatalog = Record<string, AppEventDataKeyType>;
 const VALID_TYPES = new Set<string>(['string', 'number', 'boolean']);
 
 /**
- * How many keys one event's catalog may accumulate across ALL payloads. C1 bounds a
- * single payload (16 KB of `data`, 100 fields); without this nothing bounds the
- * accumulation, so an app whose keys embed an id or timestamp (`run_1_score`,
- * `player_8f2a_hp`) makes `changed` true for every entry forever — a JSON parse +
- * stringify + row rewrite of an ever-growing blob on the inbound consumer thread
- * (O(n²) overall), and an editor picker that renders every key ever observed.
- * Mirrors C1's per-payload field cap.
+ * How many keys one event's catalog may accumulate across ALL payloads. The inbound
+ * consumer already bounds a single payload (16 KB of `data`, 100 fields); without this
+ * nothing bounds the accumulation, so an app whose keys embed an id or timestamp
+ * (`run_1_score`, `player_8f2a_hp`) makes `changed` true for every entry forever — a
+ * JSON parse + stringify + row rewrite of an ever-growing blob on the inbound consumer
+ * thread (O(n²) overall), and an editor picker that renders every key ever observed.
+ * Mirrors the inbound consumer's per-payload field cap.
  */
 export const MAX_CATALOG_KEYS = 100;
 
 /** Longest key NAME that may be recorded, mirroring the 1-64 char event-name limit in
- *  apps.ts. Without it a single key name could be ~16 KB and still sit inside C1's
- *  per-payload byte cap. */
+ *  apps.ts. Without it a single key name could be ~16 KB and still sit inside the
+ *  inbound consumer's per-payload byte cap. */
 export const MAX_KEY_NAME_LENGTH = 64;
 
 /**

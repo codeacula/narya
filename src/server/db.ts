@@ -196,7 +196,7 @@ export function dropStaleAppEvents(database: Database): boolean {
 }
 
 db.exec('pragma journal_mode = WAL');
-// The schema declares `on delete cascade` in five places, but SQLite ignores
+// The schema declares `on delete cascade` in many places, but SQLite ignores
 // every one of them unless foreign keys are enabled per-connection (the default
 // is off). Without this, deleting a parent silently orphans its children.
 db.exec('pragma foreign_keys = ON');
@@ -798,7 +798,6 @@ export function runOnce(id: string, migrate: () => void): void {
   })();
 }
 
-/** Whether a one-shot migration has already been applied. */
 export function hasRunMigration(id: string): boolean {
   return hasMigrationRun.get(id) !== null;
 }
@@ -991,8 +990,7 @@ addColumnIfMissing('app_config', 'tengwar_api_key', "text not null default ''");
 // the live scene list that went stale the moment a scene was renamed in OBS.
 addColumnIfMissing('app_config', 'obs_scene_prefix', "text not null default 'Scene - '");
 addColumnIfMissing('app_config', 'sound_button_volume', 'real not null default 0.2');
-// Redis stream target for Phase A of the automation arc (see redis.ts, added in a
-// later task). No connection is made yet — this is config plumbing only.
+// Redis stream target for the automation event bus (see redis.ts).
 addColumnIfMissing('app_config', 'redis_url', "text not null default ''");
 addColumnIfMissing('actions', 'quick_disable', 'integer not null default 0');
 addColumnIfMissing('stream_sessions', 'discord_announce_error', 'text');

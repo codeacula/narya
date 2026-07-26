@@ -1,6 +1,7 @@
 // Manual automation triggers, rendered as buttons for the dashboard and the tablet.
-// Both surfaces share useQuickActions; only the chrome differs (the dashboard uses
-// kebab-case panel.css classes, the tablet the camelCase classes in styles.css).
+// Both surfaces share useQuickActions; only the chrome differs (the dashboard's
+// panel.css uses BEM-style `quick-action--tone` modifiers, the tablet's styles.css
+// uses `quick-action-tone-x` classes).
 import React from 'react';
 import type { AutomationTrigger, CategoryModulesResponse, TriggerRunResult } from '../shared/api';
 import { getAutomationTriggers, getCategoryModules, runAutomationTrigger } from './services/dashboard';

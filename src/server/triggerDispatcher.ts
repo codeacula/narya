@@ -30,10 +30,10 @@ import { getViewerTags } from './viewerIdentity';
 
 /**
  * The safe subset an inbound external event (a Redis trigger) is allowed to run:
- * only steps that produce local, non-destructive output. Moderation, OBS, whisper,
- * wind-down, and quote-mutation steps are deliberately excluded, so an Action bound
- * to an external trigger can never reach them even if the operator adds one later.
- * This is an ALLOWLIST — any future step type is blocked until added here.
+ * only steps that produce local, non-destructive output. Moderation, shoutouts,
+ * whispers, OBS, wind-down, quote mutation, and LLM calls are deliberately excluded,
+ * so an Action bound to an external trigger can never reach them even if the operator
+ * adds one later. This is an ALLOWLIST — any future step type is blocked until added here.
  */
 export const REDIS_SAFE_STEP_TYPES: ReadonlySet<ActionStepType> = new Set([
   'show_text',
@@ -487,16 +487,6 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
   }
 
   /**
-   * A dashboard slash command never leaves the machine: it resolves to a local trigger
-   * or it is rejected here. An unknown `/command` is answered with ok:false so an
-   * operator's typo can never be forwarded to Twitch chat as a public message.
-   *
-   * Context convention (deliberate, and different from a viewer `!command`): a private
-   * operator command is always `/command <target> <free text>`, so `{login}`/`{actor}`
-   * are the TARGET and `{args}` is the free text after it. `{input}` still holds
-   * everything after the command word, which is what a targetless command should use.
-   */
-  /**
    * `/counter` is a reserved built-in rather than a seeded Action, because the
    * Action path cannot express it:
    *
@@ -570,6 +560,16 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
     };
   }
 
+  /**
+   * A dashboard slash command never leaves the machine: it resolves to a local trigger
+   * or it is rejected here. An unknown `/command` is answered with ok:false so an
+   * operator's typo can never be forwarded to Twitch chat as a public message.
+   *
+   * Context convention (deliberate, and different from a viewer `!command`): a private
+   * operator command is always `/command <target> <free text>`, so `{login}`/`{actor}`
+   * are the TARGET and `{rest}` is the free text after it. `{input}` still holds
+   * everything after the command word, which is what a targetless command should use.
+   */
   async function handleSlashCommand(raw: string): Promise<SlashCommandResponse> {
     const text = (raw ?? '').trim();
     if (!text.startsWith('/')) {

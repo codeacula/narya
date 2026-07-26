@@ -81,7 +81,8 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
         <div className="command-row-actions" key={event.eventName}>
           <code>{event.eventName}</code>
           {/* Non-blocking warning, not a gate: removal stays allowed even with bound
-              triggers referencing this event (Task 6 badges them inert once it's gone). */}
+              triggers referencing this event — the Automation page badges them inert
+              once it's gone. */}
           {event.boundTriggerCount > 0 && (
             <small className="action-hint">
               {event.boundTriggerCount} trigger(s) reference this

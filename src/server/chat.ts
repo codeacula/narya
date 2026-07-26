@@ -278,8 +278,6 @@ export function connectTwitchChat(state: RuntimeState) {
   });
 }
 
-// Join the currently-configured channel, leaving the previous one. Used when the
-// channel is changed from Settings without restarting the process.
 export async function applyTwitchChannel() {
   const next = getTwitchChannel();
   if (next === joinedChannel) return;

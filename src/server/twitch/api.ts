@@ -611,7 +611,6 @@ export async function searchTwitchCategories(query: string, credentials: { clien
   }));
 }
 
-// Look up a single category by its numeric game id; returns null when Twitch no longer knows it.
 export async function getTwitchCategoryById(
   id: string,
   credentials: { clientId: string; authorization: string },
@@ -787,9 +786,9 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
     // bug) would record a base/suffix pair for a title that was never applied if the
     // PATCH then failed — a later restore would push a never-live base back to Twitch
     // and discard whatever was genuinely on the channel. `suffixUsed` is threaded
-    // through from the compute step above rather than re-read here (Finding 7) so a
-    // settings save racing this PATCH can't make the persisted suffix disagree with
-    // the one actually sent.
+    // through from the compute step above rather than re-read here so a settings save
+    // racing this PATCH can't make the persisted suffix disagree with the one actually
+    // sent.
     commitWindDownRebase(title, suffixUsed);
 
     // Remember these tags so the type-ahead can suggest them next time.

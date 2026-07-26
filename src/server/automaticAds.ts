@@ -10,7 +10,7 @@ export type AdScheduleTracker = {
   lastCompletedDeadline: string | null;
   trackedPrerollDeadlineMs: number | null;
   // Whether we've yet observed a usable schedule. A past deadline on the very
-  // first observation is stale from before boot and is skipped (see A13).
+  // first observation is stale from before boot and is skipped.
   firstObservation: boolean;
 };
 

@@ -59,7 +59,6 @@ export function sessionBoundaryIndex(
     if (!row || row.sessionless) continue;
     if (belongsToCurrentSession(row.sessionId, currentSessionId) !== wanted) continue;
 
-    // Walk back past sessionless rows to the nearest neighbour that has a session.
     let previous = index - 1;
     while (previous >= 0 && rows[previous]?.sessionless) previous--;
     if (previous < 0) return options.markListStart ? index : -1;

@@ -238,7 +238,6 @@ export function Chat({ ctx, canModerate = false }: { ctx: PanelCtx; canModerate?
     setAtBottom(nearBottom);
     if (nearBottom) setNewCount(0);
 
-    // Load older messages when scrolled near the top
     if (el.scrollTop < 120 && !loadingRef.current && !exhaustedRef.current) {
       loadingRef.current = true;
       setLoadingOlder(true);

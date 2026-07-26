@@ -1,5 +1,5 @@
 /**
- * Inbound Redis consumer (Phase C1).
+ * Inbound Redis consumer.
  *
  * A registered external app XADDs events to its own per-app stream
  * `narya:<prefix>:inbound:<appId>`. This module reads those streams as a consumer
@@ -17,7 +17,7 @@
  *
  * Boot safety: `startRedisInbound()` runs inside `server.listen` right after
  * `startRedis()`, ahead of music/heartbeat/ads/wind-down/EventSub. It must NEVER throw —
- * construction is wrapped, connection is lazy, errors are swallowed to a no-op, and the
+ * construction is wrapped, connection errors are swallowed to a no-op, and the
  * `redisUrl` is never logged.
  */
 import { listApps } from './apps';
@@ -68,7 +68,7 @@ function dedupId(raw: unknown): string | null {
  * The pure decision core. Given a raw `v` field value and `{ appId, isDeclared,
  * streamEntryId }`, returns either a drop or the signal to dispatch.
  *
- * Order (from the C1 spec):
+ * Order:
  *  1. parse JSON — bad JSON / non-object → drop
  *  2. bound — serialized `data` over the size cap OR field count over the cap → drop
  *  3. require a non-blank `type` that passes the declaration check → else drop
@@ -112,7 +112,7 @@ export function processInboundEntry(rawValue: unknown, ctx: InboundEntryContext)
     eventId,
     data,
   };
-  // Reserved keys (spec §3): lift `actor`/`login` out of the payload so the editor's
+  // Reserved keys: lift `actor`/`login` out of the payload so the editor's
   // actor/login conditions and {actor}/{login} tokens resolve inbound. LIFTED, not moved —
   // the keys stay in `data` so {data.actor} renders the same value. Only strings are
   // lifted; a non-string reserved key leaves the field ABSENT ("otherwise absent").

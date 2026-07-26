@@ -51,7 +51,6 @@ export function useAutomodQueue(): AutomodQueueController {
   // Ids we've already seen resolved — used so a slow initial snapshot can't
   // re-add a hold that a socket event (or our own action) already cleared.
   const resolvedIds = React.useRef<Set<string>>(new Set());
-  // When the audible alert last fired, to throttle a burst of holds.
   const lastAlertAt = React.useRef(0);
 
   const applyResolved = React.useCallback((hold: AutomodHold) => {

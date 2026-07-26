@@ -126,7 +126,7 @@ export function redisUnsafeStepWarning(triggerActions: TriggerAction[], actions:
 /**
  * Computed, never persisted: whether a redis_event trigger is currently inert,
  * given the FRESHLY loaded app roster and (when known) that app's declared events.
- * Phase C1's inbound consumer already drops an event whose name is no longer
+ * The inbound consumer already drops an event whose name is no longer
  * declared and skips a disabled app entirely, so a trigger failing one of these
  * checks is ALREADY doing nothing at runtime — this only surfaces that fact in the
  * editor. There is no stored flag: re-declaring the event or re-enabling the app
@@ -342,7 +342,7 @@ const COMPARISON_CONDITION_OPS = new Set<ConditionOp>(['eq', 'neq', 'contains', 
  * CONDITION_FIELDS_BY_KIND (which mirrors the server's comparison-only map).
  *
  * `dataKeys` is the auto-learned {data.*} catalog for the trigger's selected app +
- * event (Phase C2) — advisory only, so callers that don't have it yet (or kinds
+ * event — advisory only, so callers that don't have it yet (or kinds
  * other than redis_event) get the same field list as before.
  */
 export function conditionFieldsForKind(kind: AutomationTriggerKind, dataKeys?: AppEventDataKey[]): string[] {

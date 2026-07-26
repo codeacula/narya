@@ -1,4 +1,3 @@
-// Dashboard data service - calls backend API for all data.
 import type {
   Action,
   ActionRunResult,
@@ -97,8 +96,6 @@ import { getDashboardToken, isDashboardTokenRejection, isSendableToken, reportDa
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4317';
 
-// Attach the shared dashboard token header when one is stored, merged with any
-// caller-supplied headers.
 function authHeaders(base?: Record<string, string>): Record<string, string> | undefined {
   const token = getDashboardToken();
   if (!token) return base;
@@ -145,8 +142,6 @@ async function sendJson<T>(path: string, method: string, body?: unknown): Promis
   return response.json() as Promise<T>;
 }
 
-// For endpoints that return no body (e.g. 204 DELETEs). Attaches the auth header
-// and surfaces API errors like sendJson.
 async function sendVoid(path: string, method: string): Promise<void> {
   const response = await fetch(`${API_BASE}${path}`, { method, headers: authHeaders() });
   if (!response.ok) throw new Error(await readApiError(response));

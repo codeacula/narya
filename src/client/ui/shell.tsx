@@ -55,7 +55,7 @@ export function NavBar({
 }) {
   const channelName = channel.trim();
   // Every settings section lives behind this one link now — the rail inside the settings
-  // shell navigates between them, so the top nav stays four fixed destinations.
+  // shell navigates between them, so the top nav stays three fixed destinations.
   const settingsActive = isSettingsRoute(page);
 
   return (
@@ -192,7 +192,6 @@ export function StatBar({
   const [displaySeconds, setDisplaySeconds] = useState(uptimeSeconds ?? 0);
   const [adCountdown, setAdCountdown] = useState<{ seconds: number; mode: 'active' | 'next' | 'preroll' } | null>(null);
 
-  // Local clock
   useEffect(() => {
     const update = () => {
       const d = new Date();

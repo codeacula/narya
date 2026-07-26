@@ -78,7 +78,7 @@ const ALERT_EVENT_KINDS: AlertEventKind[] = ['sub', 'gift', 'cheer', 'raid', 'fo
 export function newTrigger(kind: AutomationTriggerKind): AutomationTriggerInput {
   const base = {
     name: '',
-    // Legacy single-Action pointer, additive alongside actions[] (Phase B1 Task 2).
+    // Legacy single-Action pointer, additive alongside actions[].
     // The server derives it from actions[0] and never reads it from the request body,
     // so an empty placeholder here is fine — validateTrigger blocks submit until at
     // least one entry is added to actions[].
@@ -207,8 +207,8 @@ function CooldownFields({
  * it still returns the PREVIOUS commit's `events`/`loadingEvents` (React flushes a
  * commit's passive effects before reacting to state scheduled during that flush).
  * A caller gating on `loadingEvents === false` alone would misread that stale
- * render as "B's events, loaded, and empty" — this is the false "won't fire" badge
- * the Task 6 review found. Comparing `eventsAppId` (still A, or '') against the
+ * render as "B's events, loaded, and empty" and show a false "won't fire" badge.
+ * Comparing `eventsAppId` (still A, or '') against the
  * caller's own `appId` (B) catches that mismatch even though both were read from
  * the same stale render, because they're set together. `eventsError` mirrors this
  * for a failed fetch, so a network blip is never conflated with "confirmed empty
@@ -295,7 +295,7 @@ function RedisEventConfigFields({
    *  below must not call a declared event "(undeclared)" on either. */
   eventsLoaded: boolean;
   loadingEvents: boolean;
-  /** Computed by listInertReason (Phase C2) — null while the trigger would
+  /** Computed by listInertReason — null while the trigger would
    *  actually fire. Advisory: rendered here so the operator sees it right next to
    *  the App/Event pickers they would fix, same placement idea as `warning` below. */
   inertReason: string | null;
@@ -368,7 +368,7 @@ function RedisEventConfigFields({
         )}
       </label>
 
-      {/* Advisory reference only (Phase C2, §6) — never validated against the bound
+      {/* Advisory reference only — never validated against the bound
           Actions' step templates. An Action is reusable across triggers and kinds
           (one bound to a `reward` trigger has no `data` at all), so checking one
           Action's template against one event's catalog would be wrong; this is
@@ -857,7 +857,7 @@ function ConditionsEditor({
 }: {
   kind: AutomationTriggerKind;
   conditions: TriggerCondition[];
-  /** The bound redis_event's auto-learned {data.*} catalog (Phase C2), when known.
+  /** The bound redis_event's auto-learned {data.*} catalog, when known.
    *  Undefined on every other kind, and on a redis_event trigger before an event is
    *  picked or before its dataKeys have loaded — the picker just shows fewer options. */
   dataKeys?: AppEventDataKey[];
@@ -1565,7 +1565,7 @@ export function AutomationSettingsPage() {
               <div className="split-list-head">
                 <div className="set-sub">Pick a trigger to edit, test, or delete it. Grouped by what fires it.</div>
                 {/* The kind is fixed at creation — it decides which config fields exist — so
-                    New is a kind picker rather than a button. One entry point for all seven. */}
+                    New is a kind picker rather than a button, one entry point for every kind. */}
                 <select
                   aria-label="New trigger"
                   className="split-new-select"

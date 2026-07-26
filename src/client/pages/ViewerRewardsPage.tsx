@@ -139,11 +139,6 @@ function RewardEditor({
     setCooldownUnit(unit);
     onChange(current => ({ ...current, globalCooldown: { ...current.globalCooldown, seconds: cooldownToSeconds(value, unit) } }));
   };
-  // The bound file was deleted from public/. Say so rather than letting the
-  // select silently display some other file as if it were the binding.
-
-  // Switching kind picks the first file of that kind, so the form never holds a
-  // binding whose src doesn't match its kind (the server would reject it).
 
   return (
     <form className="reward-editor" onSubmit={onSubmit}>
@@ -631,9 +626,6 @@ export function ViewerRewardsPage() {
   useSocket<{ at: string }>('rewards:updated', React.useCallback(() => {
     void getViewerRewards().then(setData).catch(() => undefined);
   }, []));
-
-
-  // Only offered while editing a saved reward — a reward being created has no id
 
   const handlePauseToggle = async (reward: ViewerReward) => {
     setBusyId(reward.id);

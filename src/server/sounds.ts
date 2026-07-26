@@ -8,7 +8,6 @@ import { broadcast } from './realtime';
 /**
  * The sounds a fresh install starts with, so the tablet soundboard is not an empty
  * grid on first run. Seeded once (see below); deleting a button keeps it deleted.
- * These files are committed under public/sounds/quacks.
  */
 export const DEFAULT_QUACK_SOUNDS = [
   '/sounds/quacks/075176_duck-quack-40345.mp3',

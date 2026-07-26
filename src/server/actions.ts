@@ -88,7 +88,7 @@ export function withLlmPayloadDefaults(payload: unknown): LlmResponsePayload {
     allowTags: strings(value.allowTags),
     denyTags: strings(value.denyTags),
     allowDecline: value.allowDecline === true,
-    // TRUE, not false: today's formatPonderReply always mentions.
+    // TRUE, not false: preserves the retired formatPonderReply's always-mention behavior.
     mention: value.mention !== false,
   };
 }

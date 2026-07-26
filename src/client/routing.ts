@@ -116,12 +116,10 @@ export function isSettingsRoute(route: DashboardRoute): route is SettingsRoute {
 
 export function dashboardRouteFromPath(pathname: string): DashboardRoute {
   const path = normalizePath(pathname);
-  // A single-viewer detail page: /viewers/<login>
   if (path.startsWith('/viewers/') && path.slice('/viewers/'.length).length > 0) return 'viewer';
   return ROUTE_BY_PATH.get(path) ?? 'dashboard';
 }
 
-// The viewer login embedded in a /viewers/<login> path, or null for any other route.
 export function viewerLoginFromPath(pathname: string): string | null {
   const path = normalizePath(pathname);
   if (!path.startsWith('/viewers/')) return null;

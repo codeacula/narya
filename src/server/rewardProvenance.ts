@@ -22,8 +22,8 @@ const findByExternalRef = db.prepare(
 // No on conflict(source, external_ref) clause here on purpose: only the primary-key
 // conflict (re-writing the same reward_id, e.g. an idempotent retry) is handled.
 // A second reward_id claiming an already-used (source, external_ref) pair hits the
-// partial unique index from Task 1 and SQLite throws — that failure must reach the
-// caller (Task 4 decides the HTTP response) rather than being swallowed here.
+// partial unique index and SQLite throws — that failure must reach the caller
+// (the route decides the HTTP response) rather than being swallowed here.
 const upsertWithRef = db.prepare(`
   insert into reward_provenance (reward_id, source, external_ref, created_at)
   values (?, ?, ?, ?)

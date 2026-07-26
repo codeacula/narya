@@ -50,7 +50,6 @@ export function withToken(url: string): string {
   return `${url}${separator}token=${encodeURIComponent(token)}`;
 }
 
-// Store a token the operator pasted into the recovery screen (see ui/authGate.tsx).
 export function setDashboardToken(token: string): void {
   try {
     localStorage.setItem(tokenKey(), token);

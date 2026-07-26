@@ -374,7 +374,7 @@ export type MediaFile = {
   sizeBytes: number;
 };
 
-/** What a channel-point reward plays when redeemed. */
+/** Kind, source, and volume of one asset to play. Despite the name, this is the payload for any play_media step now, not just reward redemptions. */
 export type RewardMedia = {
   kind: MediaKind;
   src: string;
@@ -511,8 +511,9 @@ export type ChattersResponse = {
   total: number;
 };
 
-// Everyone who has ever chatted, drawn from the persistent `chatters` table joined
-// to each person's most recent message (display name, color, badges) and profile note.
+// Every viewer in the roster, chatters and lurkers alike — drawn from the persistent
+// `chatters` table left-joined to each person's most recent message (display name,
+// color, badges) and profile note.
 export type ViewerRosterEntry = {
   login: string;
   display: string;
@@ -1169,7 +1170,7 @@ export type ModuleLifecycleTriggerConfig = Record<string, never>;
 export type RedisEventTriggerConfig = { appId: string; eventName: string };
 
 /**
- * Phase B2: an optional AND-only filter on a trigger, evaluated against the invocation's
+ * An optional AND-only filter on a trigger, evaluated against the invocation's
  * `TemplateContext` by the pure `evaluateConditions` (src/server/triggerConditions.ts).
  * A missing field fails EVERY op, including `neq` — you cannot assert inequality about
  * a field that isn't there. `role_is` reads `context.roles`; `tag_has` reads
@@ -1356,18 +1357,18 @@ export type PlannedStreamEnd = { plannedEndAt: string | null };
 export const NO_ACTIVE_SESSION_FOR_PLANNED_END = 'There is no active stream session to plan an end for.';
 
 // --- App registry --------------------------------------------------------------
-// Names-only registry of external apps allowed to publish onto the Redis bus
-// (Phase A). 'narya' and 'manual' are reserved source sentinels, not rows here.
+// Names-only registry of external apps allowed to publish onto the Redis bus.
+// 'narya' and 'manual' are reserved source sentinels, not rows here.
 
 /** GET /api/apps row; also the POST/PATCH /api/apps/:id response body.
  *  `tokenConfigured` mirrors the `*Configured` pattern used for every other secret
  *  in this codebase (e.g. the LLM `apiKeyConfigured`) — the hash and plaintext of
  *  the app's API token never reach the wire, only whether one is set. `rewardCount`
- *  mirrors AppEvent's `boundTriggerCount` hint (Phase C2): how many Twitch rewards
+ *  mirrors AppEvent's `boundTriggerCount` hint: how many Twitch rewards
  *  `reward_provenance` currently attributes to this app's NAME (its `source` value),
  *  from `rewardCountsBySource()` — drives the Apps page's per-app consumption
  *  display so an operator can see who is using the shared Twitch reward cap before
- *  it is hit (Phase D). Advisory only, like `boundTriggerCount`. */
+ *  it is hit. Advisory only, like `boundTriggerCount`. */
 export type App = {
   id: string;
   name: string;
@@ -1384,14 +1385,14 @@ export type AppInput = { name: string };
  *  and is never recoverable afterward — only its hash is persisted (`apps.token_hash`). */
 export type AppTokenMintResult = { token: string };
 
-/** The coarse type recorded for one auto-learned data-catalog key (Phase C2). */
+/** The coarse type recorded for one auto-learned data-catalog key. */
 export type AppEventDataKeyType = 'string' | 'number' | 'boolean';
 
 /** One entry of an event's data-key catalog, as sent to the client. */
 export type AppEventDataKey = { name: string; type: AppEventDataKeyType };
 
 /** GET /api/apps/:id/events row; also the POST /api/apps/:id/events response body.
- *  `dataKeys` is the auto-learned catalog (Phase C2) — advisory, not authoritative;
+ *  `dataKeys` is the auto-learned catalog — advisory, not authoritative;
  *  storage keeps the raw JSON column, but it never reaches the wire. `boundTriggerCount`
  *  is how many `redis_event` triggers currently reference this (appId, eventName) —
  *  it drives the AppsPage "N trigger(s) reference this" hint before a de-registration.
@@ -1402,7 +1403,7 @@ export type AppEvent = { appId: string; eventName: string; dataKeys: AppEventDat
 export type AppEventInput = { eventName: string };
 
 // --- Event bus -------------------------------------------------------------
-// The versioned envelope published onto the Redis stream (Phase A, outbound-only).
+// The versioned envelope published onto the Redis stream (outbound-only).
 // `data` carries only the fields the publishing function allowlists for that type.
 
 export type NaryaEventType = 'redeem' | 'twitch_event' | 'module_switch';

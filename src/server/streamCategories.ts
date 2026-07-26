@@ -86,7 +86,7 @@ export function deleteSavedStreamCategory(gameId: string): boolean {
   return deleteStreamCategoryTxn(gameId) > 0;
 }
 
-// Twitch game ids are numeric strings; return the trimmed id or null when it isn't a valid one.
+// Twitch game ids are numeric strings.
 export function parseTwitchGameId(value: unknown): string | null {
   const id = typeof value === 'string' ? value.trim() : '';
   return /^\d{1,20}$/.test(id) ? id : null;
