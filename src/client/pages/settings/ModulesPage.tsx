@@ -255,7 +255,9 @@ export function ModulesSettingsPage() {
   };
 
   const handleDelete = (module: CategoryModule) => {
-    if (!window.confirm(`Delete "${module.name}"? Its triggers stop being module-scoped.`)) return;
+    // The server refuses to delete a module a trigger still scopes to and names the
+    // trigger, so this only has to cover the unreferenced case.
+    if (!window.confirm(`Delete "${module.name}"? This cannot be undone.`)) return;
     setSaving(true);
     setMessage(null);
     setError(null);

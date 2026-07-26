@@ -49,6 +49,7 @@ const insertModuleRow = db.prepare(`
 const updateModuleRow = db.prepare(`update category_modules set name = ?, enabled = ?, updated_at = ? where id = ?`);
 const updateModuleStatusRow = db.prepare(`update category_modules set status = ?, status_detail = ?, updated_at = ? where id = ?`);
 const deleteModuleRow = db.prepare(`delete from category_modules where id = ?`);
+const selectTriggersReferencingModule = db.prepare(`select name from automation_triggers where module_id = ?`);
 
 const listModuleGameRows = db.prepare(`
   select module_id as moduleId, game_id as id, game_name as name
@@ -239,7 +240,20 @@ export function updateCategoryModule(id: string, input: CategoryModuleInput): Ca
   return updated;
 }
 
+/**
+ * `automation_triggers.module_id` cascades on delete, so removing a module a
+ * trigger still scopes to would silently erase that trigger (and anything
+ * cascading from it) rather than merely un-scoping it. Block it here and name
+ * the trigger, mirroring deleteAction's same guard against actions.ts.
+ */
 export function deleteCategoryModule(id: string): boolean {
+  if (!getModuleRow.get(id)) return false;
+  const names = (selectTriggersReferencingModule.all(id) as Array<{ name: string }>).map(row => row.name);
+  if (names.length > 0) {
+    const listed = names.slice(0, 3).map(name => `"${name}"`).join(', ');
+    const rest = names.length > 3 ? ` and ${names.length - 3} more` : '';
+    throw new HttpRouteError(409, `This module is used by a trigger (${listed}${rest}). Reassign or delete those triggers before deleting the module.`);
+  }
   const removed = deleteModuleRow.run(id).changes > 0;
   if (removed && coordinator.activeModuleId === id) {
     coordinator.activeModuleId = null;

@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { saveAppConfig } from './appConfig';
+import { createAction } from './actions';
+import { createAutomationTrigger } from './automationTriggers';
 import {
   createCategoryModule,
+  deleteCategoryModule,
   getCategoryModulesResponse,
   listCategoryModules,
   onCategorySignal,
@@ -604,5 +607,93 @@ describe('reconcileCategoryModules', () => {
     expect(disabledPatches()).toEqual(['e1']);
     expect(getCategoryModulesResponse().activeModuleId).toBeNull();
     expect(getCategoryModulesResponse().activeGameId).toBeNull();
+  });
+});
+
+describe('deleteCategoryModule', () => {
+  beforeEach(() => {
+    db.exec('delete from automation_triggers');
+    db.exec('delete from action_steps');
+    db.exec('delete from actions');
+  });
+  afterEach(() => {
+    db.exec('delete from automation_triggers');
+    db.exec('delete from action_steps');
+    db.exec('delete from actions');
+  });
+
+  function makeAction(): string {
+    return createAction({
+      name: 'Test action',
+      description: '',
+      enabled: true,
+      steps: [{ type: 'obs_transition', enabled: true, delayMs: 0, payload: {} }],
+    }).id;
+  }
+
+  test('returns false for a module that does not exist', () => {
+    expect(deleteCategoryModule('missing')).toBe(false);
+  });
+
+  test('deletes a module with no scoped triggers', () => {
+    const module = createCategoryModule({ name: 'Solo', enabled: true, games: [], rewardGroupIds: [] });
+    expect(deleteCategoryModule(module.id)).toBe(true);
+    expect(listCategoryModules().find(m => m.id === module.id)).toBeUndefined();
+  });
+
+  test('refuses to delete a module a trigger still scopes to, naming the trigger', () => {
+    const module = createCategoryModule({ name: 'Zomboid', enabled: true, games: [], rewardGroupIds: [] });
+    const actionId = makeAction();
+    createAutomationTrigger({
+      kind: 'chat_phrase',
+      name: 'Zomboid hype',
+      moduleId: module.id,
+      enabled: true,
+      globalCooldownMs: 1000,
+      userCooldownMs: 2000,
+      config: { phrase: 'hype', match: 'contains', roles: [] },
+      actions: [{ actionId, position: 0, enabled: true }],
+      conditions: [],
+    });
+
+    expect(() => deleteCategoryModule(module.id)).toThrow(HttpRouteError);
+    try {
+      deleteCategoryModule(module.id);
+      throw new Error('expected deleteCategoryModule to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(HttpRouteError);
+      expect((error as HttpRouteError).status).toBe(409);
+      expect((error as HttpRouteError).message).toContain('Zomboid hype');
+    }
+
+    // The module and its trigger both survive the refused delete.
+    expect(listCategoryModules().find(m => m.id === module.id)).not.toBeUndefined();
+    const row = db.prepare('select id from automation_triggers where module_id = ?').get(module.id);
+    expect(row).not.toBeNull();
+  });
+
+  test('lists up to 3 trigger names and summarizes the rest', () => {
+    const module = createCategoryModule({ name: 'Busy', enabled: true, games: [], rewardGroupIds: [] });
+    const actionId = makeAction();
+    for (let i = 1; i <= 5; i++) {
+      createAutomationTrigger({
+        kind: 'chat_phrase',
+        name: `Trigger ${i}`,
+        moduleId: module.id,
+        enabled: true,
+        globalCooldownMs: 1000,
+        userCooldownMs: 2000,
+        config: { phrase: `p${i}`, match: 'contains', roles: [] },
+        actions: [{ actionId, position: 0, enabled: true }],
+        conditions: [],
+      });
+    }
+
+    try {
+      deleteCategoryModule(module.id);
+      throw new Error('expected deleteCategoryModule to throw');
+    } catch (error) {
+      expect((error as HttpRouteError).message).toContain('and 2 more');
+    }
   });
 });
