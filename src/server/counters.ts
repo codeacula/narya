@@ -370,7 +370,7 @@ export function registerCounterRoutes(app: express.Express) {
     res.status(201).json(createCounter(req.body));
   }));
 
-  app.put('/api/counters/:id', handle((req, res) => {
+  app.put('/api/counters/:id', handle<{ id: string }>((req, res) => {
     res.json(updateCounter(req.params.id, req.body));
   }));
 
@@ -380,7 +380,7 @@ export function registerCounterRoutes(app: express.Express) {
    * `rendered value + 1` silently discards anything automation wrote between the
    * render and the click. The add is applied server-side against the stored row.
    */
-  app.post('/api/counters/:id/adjust', handle((req, res) => {
+  app.post('/api/counters/:id/adjust', handle<{ id: string }>((req, res) => {
     const body = (req.body ?? {}) as { mode?: unknown; amount?: unknown };
     const mode: CounterAdjustMode = body.mode === 'set' ? 'set' : 'add';
     const amount = parseCounterAmount(body.amount);
@@ -392,7 +392,7 @@ export function registerCounterRoutes(app: express.Express) {
     res.json(updated);
   }));
 
-  app.delete('/api/counters/:id', handle((req, res) => {
+  app.delete('/api/counters/:id', handle<{ id: string }>((req, res) => {
     deleteCounter(req.params.id);
     res.status(204).end();
   }));

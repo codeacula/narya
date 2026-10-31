@@ -7,7 +7,7 @@ import { getActionExecutor, getTriggerDispatcher, initAutomation } from './autom
 import { registerAutomationTriggerRoutes, seedBuiltInSlashCommands } from './automationTriggers';
 import { registerTriggerOverrideRoutes } from './triggerOverrides';
 import { startAutomaticAds } from './automaticAds';
-import { registerCategoryModuleRoutes, reconcileCategoryModules } from './categoryModules';
+import { registerCategoryModuleRoutes } from './categoryModules';
 import { registerChattersRoutes } from './chatters';
 import { registerCounterRoutes } from './counters';
 import {

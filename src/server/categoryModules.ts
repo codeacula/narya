@@ -648,20 +648,20 @@ export function registerCategoryModuleRoutes(app: express.Express, state: Runtim
     response.status(201).json(created);
   }));
 
-  app.get('/api/category-modules/:id', handle((request, response) => {
+  app.get('/api/category-modules/:id', handle<{ id: string }>((request, response) => {
     const module = getCategoryModule(request.params.id);
     if (!module) throw new HttpRouteError(404, 'Category module not found.');
     response.json(module);
   }));
 
-  app.put('/api/category-modules/:id', handle((request, response) => {
+  app.put('/api/category-modules/:id', handle<{ id: string }>((request, response) => {
     const input = normalizeCategoryModuleInput(request.body);
     const updated = updateCategoryModule(request.params.id, input);
     broadcastModules();
     response.json(updated);
   }));
 
-  app.delete('/api/category-modules/:id', handle((request, response) => {
+  app.delete('/api/category-modules/:id', handle<{ id: string }>((request, response) => {
     if (!deleteCategoryModule(request.params.id)) throw new HttpRouteError(404, 'Category module not found.');
     broadcastModules();
     response.status(204).send();

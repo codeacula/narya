@@ -178,10 +178,10 @@ describe('twitchFetch', () => {
     const { twitchFetch } = await import('./api');
     installFetch(() => jsonResponse({}));
     await twitchFetch('https://api.twitch.tv/helix/test', { credentials: CREDS, errorMessage: 'x', method: 'POST' });
-    expect(fetchCalls[0].method).toBe('POST');
-    expect(fetchCalls[0].headers['Client-Id']).toBe('cid');
-    expect(fetchCalls[0].headers.Authorization).toBe('Bearer tok');
-    expect(fetchCalls[0].headers['Content-Type']).toBeUndefined();
+    expect(fetchCalls[0]?.method).toBe('POST');
+    expect(fetchCalls[0]?.headers['Client-Id']).toBe('cid');
+    expect(fetchCalls[0]?.headers.Authorization).toBe('Bearer tok');
+    expect(fetchCalls[0]?.headers['Content-Type']).toBeUndefined();
   });
 
   test('serializes a body as JSON with a Content-Type and merges extra headers', async () => {
@@ -194,9 +194,9 @@ describe('twitchFetch', () => {
       body: { hello: 'world' },
       headers: { 'X-Test': '1' },
     });
-    expect(fetchCalls[0].headers['Content-Type']).toBe('application/json');
-    expect(fetchCalls[0].headers['X-Test']).toBe('1');
-    expect(fetchCalls[0].body).toBe(JSON.stringify({ hello: 'world' }));
+    expect(fetchCalls[0]?.headers['Content-Type']).toBe('application/json');
+    expect(fetchCalls[0]?.headers['X-Test']).toBe('1');
+    expect(fetchCalls[0]?.body).toBe(JSON.stringify({ hello: 'world' }));
   });
 });
 
@@ -246,9 +246,9 @@ describe('getTwitchApiHeaders', () => {
     const before = Date.now();
     const headers = await getTwitchApiHeaders(state);
     expect(headers).toEqual({ 'Client-Id': 'cid', Authorization: 'Bearer new-app' });
-    expect(fetchCalls[0].url.href).toBe('https://id.twitch.tv/oauth2/token');
-    expect(fetchCalls[0].body).toContain('grant_type=client_credentials');
-    expect(fetchCalls[0].body).toContain('client_id=cid');
+    expect(fetchCalls[0]?.url.href).toBe('https://id.twitch.tv/oauth2/token');
+    expect(fetchCalls[0]?.body).toContain('grant_type=client_credentials');
+    expect(fetchCalls[0]?.body).toContain('client_id=cid');
     expect(state.twitchAppToken?.accessToken).toBe('new-app');
     expect(state.twitchAppToken!.expiresAtMs).toBeGreaterThanOrEqual(before + 3600 * 1000);
   });
@@ -326,8 +326,8 @@ describe('fetchBroadcasterId', () => {
   test('returns the first id and queries by the configured channel', async () => {
     installFetch(() => jsonResponse({ data: [{ id: '999' }] }));
     expect(await fetchBroadcasterId('cid', 'tok')).toBe('999');
-    expect(fetchCalls[0].url.pathname).toBe('/helix/users');
-    expect(fetchCalls[0].url.searchParams.get('login')).toBe('tester');
+    expect(fetchCalls[0]?.url.pathname).toBe('/helix/users');
+    expect(fetchCalls[0]?.url.searchParams.get('login')).toBe('tester');
   });
 
   test('null when the data array is empty', async () => {
@@ -354,8 +354,8 @@ describe('fetchCurrentTwitchStream', () => {
   test('maps id, started_at, title and game_name', async () => {
     installFetch(() => jsonResponse({ data: [{ id: 's1', started_at: '2026-01-01T00:00:00Z', title: 'T', game_name: 'G' }] }));
     expect(await fetchCurrentTwitchStream('cid', 'tok')).toEqual({ id: 's1', startedAt: '2026-01-01T00:00:00Z', title: 'T', category: 'G' });
-    expect(fetchCalls[0].url.pathname).toBe('/helix/streams');
-    expect(fetchCalls[0].url.searchParams.get('user_login')).toBe('tester');
+    expect(fetchCalls[0]?.url.pathname).toBe('/helix/streams');
+    expect(fetchCalls[0]?.url.searchParams.get('user_login')).toBe('tester');
   });
 
   test('defaults title and category to empty strings when absent', async () => {
@@ -392,7 +392,7 @@ describe('fetchAuthenticatedTwitchUser', () => {
   test('returns id and login on success', async () => {
     installFetch(() => jsonResponse({ data: [{ id: 'u1', login: 'name' }] }));
     expect(await fetchAuthenticatedTwitchUser('cid', 'tok')).toEqual({ id: 'u1', login: 'name' });
-    expect(fetchCalls[0].url.href).toBe('https://api.twitch.tv/helix/users');
+    expect(fetchCalls[0]?.url.href).toBe('https://api.twitch.tv/helix/users');
   });
 
   test('defaults login to an empty string', async () => {
@@ -424,7 +424,7 @@ describe('resolveTwitchUserId', () => {
   test('strips a leading @, trims and lowercases before looking up', async () => {
     installFetch(() => jsonResponse({ data: [{ id: '42' }] }));
     expect(await resolveTwitchUserId('  @FooBar  ', CREDS)).toBe('42');
-    expect(fetchCalls[0].url.searchParams.get('login')).toBe('foobar');
+    expect(fetchCalls[0]?.url.searchParams.get('login')).toBe('foobar');
   });
 
   test('throws 400 when the normalized login is empty', async () => {
@@ -1104,8 +1104,8 @@ describe('searchTwitchCategories / getTwitchCategoryById', () => {
       { id: 'g1', name: 'Game', boxArtUrl: 'url' },
       { id: 'g2', name: 'G2', boxArtUrl: null },
     ]);
-    expect(fetchCalls[0].url.searchParams.get('query')).toBe('game');
-    expect(fetchCalls[0].url.searchParams.get('first')).toBe('20');
+    expect(fetchCalls[0]?.url.searchParams.get('query')).toBe('game');
+    expect(fetchCalls[0]?.url.searchParams.get('first')).toBe('20');
   });
 
   test('search passes 401 through', async () => {
@@ -1117,7 +1117,7 @@ describe('searchTwitchCategories / getTwitchCategoryById', () => {
   test('getTwitchCategoryById maps a game and returns null when unknown', async () => {
     installFetch(({ url }) => (url.pathname === '/helix/games' ? jsonResponse({ data: [{ id: 'g1', name: 'Game' }] }) : null));
     expect(await getTwitchCategoryById('g1', CREDS)).toEqual({ id: 'g1', name: 'Game', boxArtUrl: null });
-    expect(fetchCalls[0].url.searchParams.get('id')).toBe('g1');
+    expect(fetchCalls[0]?.url.searchParams.get('id')).toBe('g1');
 
     installFetch(() => jsonResponse({ data: [] }));
     expect(await getTwitchCategoryById('nope', CREDS)).toBeNull();

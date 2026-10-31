@@ -61,7 +61,7 @@ function cssDefinitions(css: string): Set<string> {
     if (depth > 0) inBlock += char;
     if (char === ';') {
       const match = inBlock.match(/(--[a-z0-9-]+)\s*:/i);
-      if (match) out.add(match[1]);
+      if (match?.[1]) out.add(match[1]);
       inBlock = '';
     }
   }
@@ -71,7 +71,7 @@ function cssDefinitions(css: string): Set<string> {
 /** `var(--x` occurrences — the reference side. Fallbacks don't define anything. */
 function varReferences(text: string): Set<string> {
   const out = new Set<string>();
-  for (const match of text.matchAll(/var\(\s*(--[a-z0-9-]+)/g)) out.add(match[1]);
+  for (const match of text.matchAll(/var\(\s*(--[a-z0-9-]+)/g)) if (match[1]) out.add(match[1]);
   return out;
 }
 
@@ -82,8 +82,8 @@ function varReferences(text: string): Set<string> {
  */
 function jsDefinitions(source: string): Set<string> {
   const out = new Set<string>();
-  for (const match of source.matchAll(/['"`]\s*(--[a-z0-9-]+)\s*['"`]/g)) out.add(match[1]);
-  for (const match of source.matchAll(/setProperty\(\s*['"`]\s*(--[a-z0-9-]+)/g)) out.add(match[1]);
+  for (const match of source.matchAll(/['"`]\s*(--[a-z0-9-]+)\s*['"`]/g)) if (match[1]) out.add(match[1]);
+  for (const match of source.matchAll(/setProperty\(\s*['"`]\s*(--[a-z0-9-]+)/g)) if (match[1]) out.add(match[1]);
   return out;
 }
 

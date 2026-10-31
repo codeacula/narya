@@ -39,7 +39,7 @@ export function relTime(iso: string): string {
 
 function initial(name: string): string {
   const trimmed = name.trim();
-  return trimmed ? trimmed[0].toUpperCase() : '?';
+  return trimmed ? trimmed.charAt(0).toUpperCase() : '?';
 }
 
 function topRole(roles: Set<string>): 'mod' | 'vip' | 'sub' | null {

@@ -1,4 +1,3 @@
-import React from 'react';
 import type { DashboardStatus } from '../../shared/api';
 import { withToken } from '../auth';
 import { SettingsHeader, SettingsRow } from './settings/shared';

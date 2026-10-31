@@ -179,7 +179,7 @@ export function Chat({ ctx, canModerate = false }: { ctx: PanelCtx; canModerate?
   const exhaustedRef = React.useRef(false);
   // Tears down an in-flight "stick to bottom" hold (see scrollToBottom).
   const stickReleaseRef = React.useRef<null | (() => void)>(null);
-  const [atBottom, setAtBottom] = React.useState(true);
+  const [, setAtBottom] = React.useState(true);
   const [newCount, setNewCount] = React.useState(0);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
   const [chatSearch, setChatSearch] = React.useState('');

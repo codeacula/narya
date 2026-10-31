@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Quote } from '../../../shared/api';
 import { MAX_QUOTE_LENGTH, MAX_QUOTE_SLUG_LENGTH } from '../../../shared/api';
 import { createQuote, deleteQuote, getQuotes, updateQuote } from '../../services/dashboard';

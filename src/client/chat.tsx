@@ -74,7 +74,7 @@ export function renderContent(
     for (const [emoteId, positions] of Object.entries(twitchEmotes)) {
       const url = `https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/1.0`;
       for (const pos of positions) {
-        const [start, end] = pos.split('-').map(Number);
+        const [start = NaN, end = NaN] = pos.split('-').map(Number);
         ranges.push({ start, end, url, name: chars.slice(start, end + 1).join('') });
       }
     }

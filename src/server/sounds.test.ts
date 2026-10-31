@@ -12,8 +12,10 @@ describe('defaultSoundButtonsToSeed', () => {
   });
 
   test('seeds only the defaults whose file exists, keeping their original ids', () => {
-    const present = new Set([DEFAULT_QUACK_SOUNDS[1]]);
+    const second = DEFAULT_QUACK_SOUNDS[1];
+    if (!second) throw new Error('expected at least two default quack sounds');
+    const present = new Set([second]);
     const seeded = defaultSoundButtonsToSeed(src => present.has(src));
-    expect(seeded).toEqual([{ id: 'quack-2', label: 'Quack 2', filename: DEFAULT_QUACK_SOUNDS[1] }]);
+    expect(seeded).toEqual([{ id: 'quack-2', label: 'Quack 2', filename: second }]);
   });
 });

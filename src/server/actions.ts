@@ -563,16 +563,16 @@ export function registerActionRoutes(app: express.Express, executor: ActionExecu
     response.status(201).json(createAction(request.body));
   }));
 
-  app.put('/api/actions/:id', handle((request, response) => {
+  app.put('/api/actions/:id', handle<{ id: string }>((request, response) => {
     response.json(updateAction(request.params.id, request.body));
   }));
 
-  app.delete('/api/actions/:id', handle((request, response) => {
+  app.delete('/api/actions/:id', handle<{ id: string }>((request, response) => {
     deleteAction(request.params.id);
     response.status(204).end();
   }));
 
-  app.post('/api/actions/:id/run', handle(async (request, response) => {
+  app.post('/api/actions/:id/run', handle<{ id: string }>(async (request, response) => {
     const id = request.params.id;
     if (!getActionRow.get(id)) throw new HttpRouteError(404, 'Action not found.');
     response.json(await executor.runAction(id, normalizeRunContext(request.body)));

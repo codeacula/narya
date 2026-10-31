@@ -199,7 +199,7 @@ export function registerDiscordRoutes(app: express.Express) {
     response.json(await listDiscordGuilds());
   }));
 
-  app.get('/api/discord/guilds/:guildId/channels', handle(async (request, response) => {
+  app.get('/api/discord/guilds/:guildId/channels', handle<{ guildId: string }>(async (request, response) => {
     response.json(await listDiscordChannels(request.params.guildId));
   }));
 }

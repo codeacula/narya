@@ -144,11 +144,11 @@ export function registerTriggerOverrideRoutes(app: express.Express) {
     response.json(listTriggerOverrides());
   });
 
-  app.put('/api/automation/triggers/:id/overrides', handle((request, response) => {
+  app.put('/api/automation/triggers/:id/overrides', handle<{ id: string }>((request, response) => {
     response.json(upsertTriggerOverride(request.params.id, request.body));
   }));
 
-  app.delete('/api/automation/overrides/:id', handle((request, response) => {
+  app.delete('/api/automation/overrides/:id', handle<{ id: string }>((request, response) => {
     deleteTriggerOverride(request.params.id);
     response.status(204).end();
   }));

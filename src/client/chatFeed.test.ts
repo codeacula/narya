@@ -33,8 +33,8 @@ describe('appendLiveChatEntry', () => {
     let chat: ChatEntry[] = [];
     for (let i = 0; i < LIVE_CHAT_CAP + 25; i += 1) chat = appendLiveChatEntry(chat, entry(`m${i}`));
     expect(chat).toHaveLength(LIVE_CHAT_CAP);
-    expect(chat[0].id).toBe('m25');
-    expect(chat[chat.length - 1].id).toBe(`m${LIVE_CHAT_CAP + 24}`);
+    expect(chat[0]?.id).toBe('m25');
+    expect(chat.at(-1)?.id).toBe(`m${LIVE_CHAT_CAP + 24}`);
     expect(chat.some(e => e.id === 'm24')).toBe(false);
   });
 
@@ -42,10 +42,10 @@ describe('appendLiveChatEntry', () => {
     let chat: ChatEntry[] = [];
     for (let i = 0; i < LIVE_CHAT_CAP; i += 1) chat = appendLiveChatEntry(chat, entry(`m${i}`));
     expect(chat).toHaveLength(LIVE_CHAT_CAP);
-    expect(chat[0].id).toBe('m0');
+    expect(chat[0]?.id).toBe('m0');
     chat = appendLiveChatEntry(chat, entry('next'));
     expect(chat).toHaveLength(LIVE_CHAT_CAP);
-    expect(chat[0].id).toBe('m1');
+    expect(chat[0]?.id).toBe('m1');
   });
 
   // tmi replays messages after a reconnect.
@@ -67,7 +67,7 @@ describe('appendLiveChatEntry', () => {
     let chat: ChatEntry[] = [];
     for (let i = 0; i < LIVE_CHAT_CAP + 5; i += 1) chat = appendLiveChatEntry(chat, entry(`m${i}`));
     const evicted = appendLiveChatEntry(chat, entry('m0'));
-    expect(evicted[evicted.length - 1].id).toBe('m0');
+    expect(evicted.at(-1)?.id).toBe('m0');
     expect(evicted).toHaveLength(LIVE_CHAT_CAP);
   });
 });
@@ -99,14 +99,14 @@ describe('mergeChatterPresence', () => {
     const current = [recent('alice', now - 1000), recent('bob', now - 500)];
     const result = mergeChatterPresence(current, chatter('alice'), now);
     expect(result.map(e => e.chatter.userLogin)).toEqual(['bob', 'alice']);
-    expect(result[result.length - 1].at).toBe(now);
+    expect(result.at(-1)?.at).toBe(now);
   });
 
   test('de-duplication ignores login case', () => {
     const current = [recent('Alice', now - 1000)];
     const result = mergeChatterPresence(current, chatter('aLiCe'), now);
     expect(result).toHaveLength(1);
-    expect(result[0].chatter.userLogin).toBe('aLiCe');
+    expect(result[0]?.chatter.userLogin).toBe('aLiCe');
   });
 });
 

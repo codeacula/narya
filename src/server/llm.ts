@@ -1,5 +1,5 @@
 import type express from 'express';
-import type { ChatMessage, LlmSettings, LlmSettingsUpdate } from '../shared/api';
+import type { LlmSettings, LlmSettingsUpdate } from '../shared/api';
 import { db } from './db';
 import { handle, HttpRouteError } from './http';
 import { clampFinite } from './numeric';

@@ -1,4 +1,3 @@
-import React from 'react';
 import type { DashboardStatus } from '../../../shared/api';
 import type { SettingsRoute } from '../../routing';
 import { SETTINGS_GROUPS, sectionsInGroup } from './sections';

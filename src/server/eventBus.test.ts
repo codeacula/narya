@@ -26,8 +26,8 @@ function fakeClient() {
 }
 
 // xadd args are [key, 'MINID', '~', minId, '*', 'v', value].
-function lastKey(): string { return String(xaddCalls[xaddCalls.length - 1][0]); }
-function lastEnvelope() { return JSON.parse(String(xaddCalls[xaddCalls.length - 1][6])); }
+function lastKey(): string { return String(xaddCalls.at(-1)?.[0]); }
+function lastEnvelope() { return JSON.parse(String(xaddCalls.at(-1)?.[6])); }
 
 describe('event bus', () => {
   let client: ReturnType<typeof fakeClient>;

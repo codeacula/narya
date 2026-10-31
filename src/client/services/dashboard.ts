@@ -2,7 +2,6 @@ import type {
   Action,
   ActionRunResult,
   ActionUpsert,
-  AlertEventKind,
   App,
   AppEvent,
   AppTokenMintResult,

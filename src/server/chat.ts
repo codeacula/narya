@@ -184,7 +184,7 @@ twitchClient.on('message', (channel, tags, message, self) => {
   if (runtimeState?.twitchBotLogin && username === runtimeState.twitchBotLogin) return;
 
   const ttsMatch = /^!tts\s+(.+)/i.exec(message.trim());
-  if (ttsMatch) {
+  if (ttsMatch?.[1]) {
     const role = getRoleFromBadges(badges);
     if (role === 'broadcaster' || role === 'moderator' || role === 'vip') {
       void speakText(ttsMatch[1]).catch((err: unknown) => {

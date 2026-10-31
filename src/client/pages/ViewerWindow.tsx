@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { getViewers, updateViewerProfile } from '../services/dashboard';
 import { Spotlight } from '../ui/panels';
 import type { PanelCtx } from '../ui/panels';

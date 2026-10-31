@@ -287,10 +287,10 @@ export async function getObsDashboardStats() {
       withTimeout(obs.call('GetStats') as Promise<ObsStats>, 1200),
     ]);
     const parseTimecode = (tc: string): number | null => {
-      const [hms] = tc.split('.');
+      const [hms = ''] = tc.split('.');
       const parts = hms.split(':').map(Number);
       if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
-      const [h, m, s] = parts;
+      const [h = 0, m = 0, s = 0] = parts;
       return (h * 3600) + (m * 60) + s;
     };
     const uptimeSeconds = streamStatus.outputActive && streamStatus.outputTimecode

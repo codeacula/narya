@@ -1,4 +1,4 @@
-import express, { type Express } from 'express';
+import type { Express } from 'express';
 import { getTwitchRoomId } from './chat';
 import { getAutomodHold, getAutomodQueue, resolveAutomodHold } from './automod';
 import { db } from './db';
@@ -182,11 +182,11 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
       response.status(201).json(route.create(request.body));
     }));
 
-    app.put(`/api/${route.path}/:id`, handle((request, response) => {
+    app.put(`/api/${route.path}/:id`, handle<{ id: string }>((request, response) => {
       response.json(route.update(request.params.id, request.body));
     }));
 
-    app.delete(`/api/${route.path}/:id`, handle((request, response) => {
+    app.delete(`/api/${route.path}/:id`, handle<{ id: string }>((request, response) => {
       route.remove(request.params.id);
       response.status(204).end();
     }));
@@ -210,7 +210,7 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     { path: 'deny', action: 'DENY', resolution: 'denied' },
   ] as const;
   for (const { path, action, resolution } of automodActions) {
-    app.post(`/api/automod/:id/${path}`, handle(async (request, response) => {
+    app.post(`/api/automod/:id/${path}`, handle<{ id: string }>(async (request, response) => {
       const id = request.params.id;
       // Check locally first so an unknown id 404s without any Twitch side
       // effect, and an already-resolved hold (EventSub won the race) returns

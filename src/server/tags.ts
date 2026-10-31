@@ -46,7 +46,10 @@ export function recordTagHistory(tags: string[]): void {
   const normalized = tags.map(normalizeTag).filter(tag => tag.length > 0);
   if (normalized.length === 0) return;
   const stamps = nextStamps(normalized.length);
-  normalized.forEach((tag, index) => upsertTagHistory.run(tag.toLowerCase(), tag, stamps[index]));
+  normalized.forEach((tag, index) => {
+    const stamp = stamps[index];
+    if (stamp) upsertTagHistory.run(tag.toLowerCase(), tag, stamp);
+  });
 }
 
 const suggestAllTags = db.prepare(`

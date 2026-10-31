@@ -81,22 +81,22 @@ export function registerViewerRoleRoutes(app: express.Express, state: RuntimeSta
     response.json(await listRoleUsers(`${HELIX}/moderation/moderators?${params.toString()}`, credentials));
   }));
 
-  app.post('/api/twitch/users/:login/vip', handle(async (request, response) => {
+  app.post('/api/twitch/users/:login/vip', handle<{ login: string }>(async (request, response) => {
     await writeRole(state, VIP_SCOPE, '/channels/vips', 'POST', request.params.login);
     response.json({ ok: true, message: `@${request.params.login} is now a VIP.` });
   }));
 
-  app.delete('/api/twitch/users/:login/vip', handle(async (request, response) => {
+  app.delete('/api/twitch/users/:login/vip', handle<{ login: string }>(async (request, response) => {
     await writeRole(state, VIP_SCOPE, '/channels/vips', 'DELETE', request.params.login);
     response.json({ ok: true, message: `@${request.params.login} is no longer a VIP.` });
   }));
 
-  app.post('/api/twitch/users/:login/moderator', handle(async (request, response) => {
+  app.post('/api/twitch/users/:login/moderator', handle<{ login: string }>(async (request, response) => {
     await writeRole(state, MOD_SCOPE, '/moderation/moderators', 'POST', request.params.login);
     response.json({ ok: true, message: `@${request.params.login} is now a moderator.` });
   }));
 
-  app.delete('/api/twitch/users/:login/moderator', handle(async (request, response) => {
+  app.delete('/api/twitch/users/:login/moderator', handle<{ login: string }>(async (request, response) => {
     await writeRole(state, MOD_SCOPE, '/moderation/moderators', 'DELETE', request.params.login);
     response.json({ ok: true, message: `@${request.params.login} is no longer a moderator.` });
   }));
@@ -109,7 +109,7 @@ export function registerViewerRoleRoutes(app: express.Express, state: RuntimeSta
    * longer returns is marked `missing` rather than deleted: it is still part of the
    * channel's history, and dropping it would silently rewrite past chat.
    */
-  app.post('/api/viewers/:login/refresh', handle(async (request, response) => {
+  app.post('/api/viewers/:login/refresh', handle<{ login: string }>(async (request, response) => {
     const login = request.params.login.trim().replace(/^@/, '').toLowerCase();
     if (!login) throw new HttpRouteError(400, 'Viewer login is required.');
 
@@ -151,7 +151,7 @@ export function registerViewerRoleRoutes(app: express.Express, state: RuntimeSta
    * Remove a viewer from the roster and keep them out. See flushViewer — the ignore
    * entry is what stops the next chat message or presence poll recreating the row.
    */
-  app.post('/api/viewers/:login/flush', handle((request, response) => {
+  app.post('/api/viewers/:login/flush', handle<{ login: string }>((request, response) => {
     const login = request.params.login.trim().replace(/^@/, '').toLowerCase();
     if (!login) throw new HttpRouteError(400, 'Viewer login is required.');
 
@@ -170,7 +170,7 @@ export function registerViewerRoleRoutes(app: express.Express, state: RuntimeSta
     response.json(ignoredLogins() satisfies IgnoredLogin[]);
   }));
 
-  app.delete('/api/viewers/ignored/:login', handle((request, response) => {
+  app.delete('/api/viewers/ignored/:login', handle<{ login: string }>((request, response) => {
     unflushViewer(request.params.login);
     response.json({ ok: true });
   }));

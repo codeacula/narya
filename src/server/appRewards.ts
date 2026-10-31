@@ -197,7 +197,7 @@ export function registerAppRewardRoutes(app: express.Express, state: RuntimeStat
     response.status(201).json({ id: created.id, source, externalRef, created: true } satisfies AppRewardCreateResult);
   }));
 
-  app.patch('/api/ext/rewards/:id', handle(async (request, response) => {
+  app.patch('/api/ext/rewards/:id', handle<{ id: string }>(async (request, response) => {
     const source = sourceFor(request);
     const rewardId = requireOwnedReward(request.params.id, source);
     const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
@@ -210,7 +210,7 @@ export function registerAppRewardRoutes(app: express.Express, state: RuntimeStat
     response.json({ id: rewardId, source } satisfies AppRewardRef);
   }));
 
-  app.delete('/api/ext/rewards/:id', handle(async (request, response) => {
+  app.delete('/api/ext/rewards/:id', handle<{ id: string }>(async (request, response) => {
     const source = sourceFor(request);
     const rewardId = requireOwnedReward(request.params.id, source);
     const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);

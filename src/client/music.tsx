@@ -1,4 +1,3 @@
-import React from 'react';
 import type { MusicInfo } from '../shared/api';
 import { useLiveValue } from './liveValue';
 import { getCurrentMusic } from './services/dashboard';

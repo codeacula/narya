@@ -86,7 +86,7 @@ describe('mergeRecentChatters', () => {
       TTL,
     );
     expect(merged).toHaveLength(1);
-    expect(merged[0].userId).toBe('12345');
+    expect(merged[0]?.userId).toBe('12345');
   });
 
   test('login match is case-insensitive so a cased display login does not double a row', () => {
@@ -97,7 +97,7 @@ describe('mergeRecentChatters', () => {
       TTL,
     );
     expect(merged).toHaveLength(1);
-    expect(merged[0].userId).toBe('12345');
+    expect(merged[0]?.userId).toBe('12345');
   });
 
   test('a chat sender older than the TTL has aged out and is dropped', () => {

@@ -631,16 +631,16 @@ export function registerAutomationTriggerRoutes(app: express.Express, dispatcher
     response.status(201).json(createAutomationTrigger(request.body));
   }));
 
-  app.put('/api/automation/triggers/:id', handle((request, response) => {
+  app.put('/api/automation/triggers/:id', handle<{ id: string }>((request, response) => {
     response.json(updateAutomationTrigger(request.params.id, request.body));
   }));
 
-  app.delete('/api/automation/triggers/:id', handle((request, response) => {
+  app.delete('/api/automation/triggers/:id', handle<{ id: string }>((request, response) => {
     deleteAutomationTrigger(request.params.id);
     response.status(204).end();
   }));
 
-  app.post('/api/automation/triggers/:id/run', handle(async (request, response) => {
+  app.post('/api/automation/triggers/:id/run', handle<{ id: string }>(async (request, response) => {
     response.json(await dispatcher.runTriggerManually(request.params.id, runContext(request.body)));
   }));
 

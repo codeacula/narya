@@ -94,7 +94,7 @@ export function Spotlight({
         {!hideIdentity && (
           <div className="spot-head">
             <div className="spot-avatar" style={{ background: viewer.color }}>
-              {viewer.display[0].toUpperCase()}
+              {viewer.display.charAt(0).toUpperCase()}
             </div>
             <div className="spot-id">
               <div className="spot-name" style={{ color: viewer.color }}>{viewer.display}</div>

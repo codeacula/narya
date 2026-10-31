@@ -100,7 +100,7 @@ export function NavBar({
       >
         <Icon name="grid" size={15} />
       </button>
-      <div className="nav-avatar">{channelName ? channelName[0].toUpperCase() : '?'}</div>
+      <div className="nav-avatar">{channelName ? channelName.charAt(0).toUpperCase() : '?'}</div>
     </div>
   );
 }

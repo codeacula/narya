@@ -223,6 +223,8 @@ export async function announceTwitchStreamOnline(streamId: string, startedAt: st
         }
 
         const delay = ANNOUNCE_RETRY_DELAYS_MS[retry];
+        // Unreachable: `exhausted` above already stops at the end of the schedule.
+        if (delay === undefined) throw error;
         console.warn(`Discord: announcement attempt ${attemptsUsed} failed (${reason}); retrying in ${delay / 1000}s.`);
         await sleep(delay);
       }

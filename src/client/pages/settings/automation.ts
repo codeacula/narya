@@ -447,8 +447,8 @@ export function moveStep<T>(steps: T[], from: number, to: number): T[] {
   if (from < 0 || from >= steps.length) return steps;
   if (to < 0 || to >= steps.length) return steps;
   const next = [...steps];
-  const [moved] = next.splice(from, 1);
-  next.splice(to, 0, moved);
+  const moved = next.splice(from, 1);
+  next.splice(to, 0, ...moved);
   return next;
 }
 
@@ -578,7 +578,7 @@ export function describeStep(step: ActionStepInput, assets: MediaAsset[] = [], c
     case 'play_media': {
       const labels = step.payload.assetIds.map(id => assets.find(asset => asset.id === id)?.label ?? 'unknown asset');
       if (labels.length === 0) return '(no assets)';
-      if (labels.length === 1) return labels[0];
+      if (labels.length === 1) return labels[0] ?? '(no assets)';
       return `${labels.length} assets, ${step.payload.selection}: ${labels.join(', ')}`;
     }
     case 'tts_speak':
@@ -867,8 +867,8 @@ export function validateAction(action: ActionUpsert): string | null {
   if (action.steps.length === 0) return 'Add at least one step.';
   if (action.steps.length > MAX_STEPS) return `An action can have at most ${MAX_STEPS} steps.`;
 
-  for (let index = 0; index < action.steps.length; index += 1) {
-    const problem = validateStep(action.steps[index], index);
+  for (const [index, step] of action.steps.entries()) {
+    const problem = validateStep(step, index);
     if (problem) return problem;
   }
   return null;

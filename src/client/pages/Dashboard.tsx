@@ -527,6 +527,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
   function slot(id: string, className = '') {
     const m = MODULES[id];
+    if (!m) return null;
     const footer = m.footer ? <ChatInput channel={status.channel} /> : undefined;
     return (
       <Panel
@@ -549,7 +550,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     if (tab === 'chatters') {
       return <ChattersPanel chatters={feed.liveChatters} viewers={viewers} error={feed.chattersError} onOpenViewer={ctx.openViewerPopout} />;
     }
-    if (tab === 'activity') return MODULES.events.render(ctx);
+    if (tab === 'activity') return MODULES.events?.render(ctx);
     if (tab === 'shoutouts') {
       return <ShoutoutsPanel shoutouts={shoutouts} streamActive={status.streamSessionId !== null} onOpenViewer={ctx.openViewerPopout} />;
     }
@@ -731,13 +732,14 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       <div className="popout-layer">
         {Object.keys(popped).map(id => {
           const pop = popoutContent(id);
-          if (!pop) return null;
+          const state = popped[id];
+          if (!pop || !state) return null;
           return (
             <PopWindow
               key={id}
               id={id}
               title={pop.title}
-              initial={popped[id]}
+              initial={state}
               onClose={x => handlePop(x, false)}
               footer={pop.footer}
             >

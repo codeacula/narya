@@ -4,7 +4,6 @@ import type {
   DiscordGuild,
   DiscordStatus,
   GoLiveSettings,
-  ObsStatus,
 } from '../../../shared/api';
 import { Icon } from '../../ui/icons';
 import { withToken } from '../../auth';

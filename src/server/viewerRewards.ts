@@ -9,7 +9,6 @@ import type {
 } from '../shared/api';
 import { db, isUniqueConstraintError } from './db';
 import { handle, HttpRouteError } from './http';
-import { broadcast } from './realtime';
 import {
   clearRewardSource,
   ensureManualProvenance,
@@ -493,7 +492,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     response.status(201).json({ id, name, enabled: true, rewardCount: 0, defaultBackgroundColor: null, games: [] } satisfies ViewerRewardCategory);
   }));
 
-  app.patch('/api/twitch/reward-categories/:id', handle(async (request, response) => {
+  app.patch('/api/twitch/reward-categories/:id', handle<{ id: string }>(async (request, response) => {
     const current = getCategory.get(request.params.id) as CategoryRow | null;
     if (!current) throw new HttpRouteError(404, 'Reward category not found.');
     const name = request.body?.name === undefined ? current.name : normalizeCategoryName(request.body.name);
@@ -535,7 +534,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     response.json(payload);
   }));
 
-  app.delete('/api/twitch/reward-categories/:id', handle((request, response) => {
+  app.delete('/api/twitch/reward-categories/:id', handle<{ id: string }>((request, response) => {
     if (!getCategory.get(request.params.id)) throw new HttpRouteError(404, 'Reward category not found.');
     // Members and game mappings both cascade (see db.ts). Deleting members by
     // hand here used to leave the game mappings orphaned, because the cascade
@@ -544,7 +543,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
     response.status(204).send();
   }));
 
-  app.post('/api/twitch/reward-categories/:id/apply-color', handle(async (request, response) => {
+  app.post('/api/twitch/reward-categories/:id/apply-color', handle<{ id: string }>(async (request, response) => {
     const category = getCategory.get(request.params.id) as CategoryRow | null;
     if (!category) throw new HttpRouteError(404, 'Reward category not found.');
     if (!category.default_background_color) throw new HttpRouteError(400, 'This category has no default color set.');
@@ -618,7 +617,7 @@ export function registerViewerRewardRoutes(app: express.Express, state: RuntimeS
   }));
 
 
-  app.delete('/api/twitch/rewards/:id', handle(async (request, response) => {
+  app.delete('/api/twitch/rewards/:id', handle<{ id: string }>(async (request, response) => {
     const credentials = await getTwitchActionCredentials(state, REWARD_SCOPE);
     await deleteTwitchReward(credentials, request.params.id);
     forgetRewardLocalState(request.params.id);

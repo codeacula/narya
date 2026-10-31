@@ -186,7 +186,7 @@ describe('backfillProfiles', () => {
     const fetcher = fakeFetcher([{ data: [] }]);
     await backfillProfiles(credentials, fetcher);
 
-    const asked = new URL(fetcher.urls[0]).searchParams.getAll('login');
+    const asked = new URL(fetcher.urls[0] ?? '').searchParams.getAll('login');
     expect(asked).toHaveLength(100);
   });
 

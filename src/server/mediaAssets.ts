@@ -230,11 +230,11 @@ export function registerMediaAssetRoutes(app: express.Express) {
     res.status(201).json(createMediaAsset(req.body));
   }));
 
-  app.put('/api/media-assets/:id', handle((req, res) => {
+  app.put('/api/media-assets/:id', handle<{ id: string }>((req, res) => {
     res.json(updateMediaAsset(req.params.id, req.body));
   }));
 
-  app.delete('/api/media-assets/:id', handle((req, res) => {
+  app.delete('/api/media-assets/:id', handle<{ id: string }>((req, res) => {
     deleteMediaAsset(req.params.id);
     res.status(204).end();
   }));

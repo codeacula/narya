@@ -818,19 +818,19 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
     });
   }));
 
-  app.post('/api/twitch/users/:login/shoutout', handle(async (request, response) => {
+  app.post('/api/twitch/users/:login/shoutout', handle<{ login: string }>(async (request, response) => {
     await sendTwitchShoutout(state, request.params.login);
     response.json({ ok: true, message: `Shoutout sent to @${request.params.login}.` });
   }));
 
-  app.post('/api/twitch/users/:login/whisper', handle(async (request, response) => {
+  app.post('/api/twitch/users/:login/whisper', handle<{ login: string }>(async (request, response) => {
     const body = request.body as { message?: unknown };
     const message = typeof body.message === 'string' ? body.message : '';
     await sendTwitchWhisper(state, request.params.login, message);
     response.json({ ok: true, message: `Whisper sent to @${request.params.login}.` });
   }));
 
-  app.post('/api/twitch/users/:login/timeout', handle(async (request, response) => {
+  app.post('/api/twitch/users/:login/timeout', handle<{ login: string }>(async (request, response) => {
     const body = request.body as { durationSeconds?: unknown; reason?: unknown };
     await moderateTwitchUser(state, request.params.login, 'timeout', {
       durationSeconds: body.durationSeconds,
@@ -839,7 +839,7 @@ export function registerTwitchApiRoutes(app: express.Express, state: RuntimeStat
     response.json({ ok: true, message: `@${request.params.login} timed out.` });
   }));
 
-  app.post('/api/twitch/users/:login/ban', handle(async (request, response) => {
+  app.post('/api/twitch/users/:login/ban', handle<{ login: string }>(async (request, response) => {
     const body = request.body as { reason?: unknown };
     await moderateTwitchUser(state, request.params.login, 'ban', { reason: body.reason });
     response.json({ ok: true, message: `@${request.params.login} banned.` });

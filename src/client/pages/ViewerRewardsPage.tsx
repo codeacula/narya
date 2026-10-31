@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { MediaFile, MediaKind, RewardStreamCategory, SavedStreamCategory, SavedStreamCategoryInput, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
+import type { RewardStreamCategory, SavedStreamCategory, SavedStreamCategoryInput, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
 import {
   addSavedStreamCategory,
   applyViewerRewardCategoryColor,
@@ -35,8 +35,6 @@ const EMPTY_REWARD: ViewerRewardUpsert = {
   maxPerStream: { enabled: false, max: 1 },
   maxPerUserPerStream: { enabled: false, max: 1 },
 };
-
-const DEFAULT_MEDIA_VOLUME = 0.8;
 
 const COOLDOWN_UNITS = [
   { id: 'seconds', label: 'seconds', mult: 1 },

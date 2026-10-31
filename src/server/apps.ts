@@ -212,30 +212,30 @@ export function registerAppsRoutes(app: express.Express) {
     const body = request.body as { name?: unknown };
     response.status(201).json(createApp(typeof body.name === 'string' ? body.name : ''));
   }));
-  app.patch('/api/apps/:id', handle(async (request, response) => {
+  app.patch('/api/apps/:id', handle<{ id: string }>(async (request, response) => {
     const body = request.body as { disabled?: unknown };
     const updated = setAppDisabled(request.params.id, body.disabled === true);
     if (!updated) throw new HttpRouteError(404, 'App not found.');
     response.json(updated);
   }));
-  app.get('/api/apps/:id/events', handle(async (request, response) => {
+  app.get('/api/apps/:id/events', handle<{ id: string }>(async (request, response) => {
     if (!appExistsById(request.params.id)) throw new HttpRouteError(404, 'App not found.');
     response.json(listAppEvents(request.params.id));
   }));
-  app.post('/api/apps/:id/events', handle(async (request, response) => {
+  app.post('/api/apps/:id/events', handle<{ id: string }>(async (request, response) => {
     const body = request.body as { eventName?: unknown };
     response.status(201).json(declareAppEvent(request.params.id, typeof body.eventName === 'string' ? body.eventName : ''));
   }));
-  app.delete('/api/apps/:id/events/:name', handle(async (request, response) => {
+  app.delete('/api/apps/:id/events/:name', handle<{ id: string; name: string }>(async (request, response) => {
     removeAppEvent(request.params.id, request.params.name);
     response.status(204).end();
   }));
   // Operator-only (this is /api/apps/, not /api/ext/, the token-authenticated
   // surface). Mint returns the plaintext once; it is never shown again.
-  app.post('/api/apps/:id/token', handle(async (request, response) => {
+  app.post('/api/apps/:id/token', handle<{ id: string }>(async (request, response) => {
     response.status(201).json({ token: mintAppToken(request.params.id) });
   }));
-  app.delete('/api/apps/:id/token', handle(async (request, response) => {
+  app.delete('/api/apps/:id/token', handle<{ id: string }>(async (request, response) => {
     revokeAppToken(request.params.id);
     response.status(204).end();
   }));

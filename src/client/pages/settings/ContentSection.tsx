@@ -532,7 +532,7 @@ function MediaButtonManager({
     return () => { cancelled = true; };
   }, [api, copy.noun]);
 
-  const noun = `${copy.noun[0].toUpperCase()}${copy.noun.slice(1)}`;
+  const noun = `${copy.noun.charAt(0).toUpperCase()}${copy.noun.slice(1)}`;
 
   const loadForm = (next: Form | null) => {
     setForm(next);

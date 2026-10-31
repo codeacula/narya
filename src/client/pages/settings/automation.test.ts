@@ -10,7 +10,6 @@ import type {
   AppEvent,
   AutomationTrigger,
   AutomationTriggerInput,
-  AutomationTriggerKind,
   CategoryModule,
   MediaAsset,
   TriggerAction,

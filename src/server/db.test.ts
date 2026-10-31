@@ -18,7 +18,7 @@ afterEach(() => {
 describe('foreign keys', () => {
   test('are enabled on the connection, so the declared cascades actually run', () => {
     const [row] = db.prepare('pragma foreign_keys').all() as Array<{ foreign_keys: number }>;
-    expect(row.foreign_keys).toBe(1);
+    expect(row?.foreign_keys).toBe(1);
   });
 
   test('deleting a reward category cascades to its members and game mappings', () => {

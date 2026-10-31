@@ -184,7 +184,7 @@ export function StreamInfoModal({
                   onKeyDown={event => {
                     if (event.key === 'Enter') {
                       event.preventDefault();
-                      if (categorySuggestions.length > 0) addSearchedCategory(categorySuggestions[0]);
+                      if (categorySuggestions[0]) addSearchedCategory(categorySuggestions[0]);
                     } else if (event.key === 'Escape') {
                       event.preventDefault();
                       setCategoryMode('select');

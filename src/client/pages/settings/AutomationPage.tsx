@@ -725,7 +725,7 @@ function defaultConditionValue(op: ConditionOp): TriggerCondition['value'] {
     case 'in': return [];
     case 'gte':
     case 'lte': return 0;
-    case 'role_is': return CONDITION_ROLE_VALUES[0];
+    case 'role_is': return CONDITION_ROLE_VALUES[0] ?? 'broadcaster';
     default: return '';
   }
 }

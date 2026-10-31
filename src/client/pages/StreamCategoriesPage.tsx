@@ -186,7 +186,7 @@ function AddCategoryControl({
             onKeyDown={event => {
               if (event.key === 'Enter') {
                 event.preventDefault();
-                if (suggestions.length > 0) pick(suggestions[0]);
+                if (suggestions[0]) pick(suggestions[0]);
               } else if (event.key === 'Escape') {
                 event.preventDefault();
                 setSearch('');

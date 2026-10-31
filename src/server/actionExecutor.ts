@@ -5,7 +5,6 @@ import type {
   ActionStep,
   ActionStepResult,
   ActionStepType,
-  ChatMessage,
   ChatSender,
   Counter,
   CounterAdjustMode,

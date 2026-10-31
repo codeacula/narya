@@ -177,7 +177,8 @@ function fallbackColor(login: string): string {
   const palette = ['#ffc488', '#d7dce2', '#a8e0c4', '#9ccae8', '#bca6f0', '#f0a99d', '#f5f2e0'];
   let hash = 0;
   for (const char of login) hash = (hash + char.charCodeAt(0)) % palette.length;
-  return palette[hash];
+  // hash is always below palette.length, so this fallback is unreachable.
+  return palette[hash] ?? '#ffc488';
 }
 
 function getKnownChatterCount(): number {
@@ -505,7 +506,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
     response.json(buildViewerRoster());
   });
 
-  app.patch('/api/dashboard/viewers/:login/profile', handle((request, response) => {
+  app.patch('/api/dashboard/viewers/:login/profile', handle<{ login: string }>((request, response) => {
     const login = request.params.login.trim().toLowerCase();
     if (!login) throw new HttpRouteError(400, 'Viewer login is required.');
 

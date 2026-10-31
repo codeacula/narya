@@ -104,10 +104,10 @@ export type LinkToken = {
  * for why this is an allowlist and not a pattern.
  */
 function isLinkableHost(label: string): boolean {
-  const match = SCHEMELESS_HOST.exec(label);
-  if (!match) return false;
-  const labels = match[1].split('.');
-  return LINKABLE_TLDS.has(labels[labels.length - 1].toLowerCase());
+  const host = SCHEMELESS_HOST.exec(label)?.[1];
+  if (!host) return false;
+  const labels = host.split('.');
+  return LINKABLE_TLDS.has(labels.at(-1)?.toLowerCase() ?? '');
 }
 
 /**
@@ -131,8 +131,8 @@ export function parseLinkToken(token: string): LinkToken | null {
   // quote or paren made the token fail to match at all — `(https://x.com` was not a
   // link, even though the trailing `)` had always been handled.
   let leading = '';
-  while (label && OPENERS.has(label[0])) {
-    leading += label[0];
+  while (label && OPENERS.has(label.charAt(0))) {
+    leading += label.charAt(0);
     label = label.slice(1);
   }
 
