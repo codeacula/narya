@@ -75,11 +75,25 @@ const markChannelMessagesDeleted = db.prepare(`
 // via Helix arrive here as ordinary chat and never as a flagged self-message —
 // the twitchBotLogin loop guard below is what keeps replies from re-entering
 // their own commands.
+//
+// `channels` must be a resolver, not an array: Twurple captures the array once
+// and re-joins it on every reconnect, so a live channel switch (applyTwitchChannel)
+// followed by a network blip would re-join the OLD channel and drop the new one.
 export const twitchClient = new ChatClient({
-  channels: getTwitchChannel() ? [getTwitchChannel()] : [],
+  channels: () => {
+    const channel = getTwitchChannel();
+    return channel ? [channel] : [];
+  },
 });
 
 let joinedChannel = getTwitchChannel();
+
+/** Twurple re-joins from the resolver, but events from a parted channel can
+ *  still trickle in; ignore anything outside the operator's current channel. */
+function isCurrentChannel(channel: string): boolean {
+  const channelName = channel.replace(/^#/, '').toLowerCase();
+  return channelName === joinedChannel.toLowerCase();
+}
 
 export function getTwitchRoomId(): string | null {
   return twitchRoomId;
@@ -131,23 +145,31 @@ export interface TaggedMessage {
 }
 
 twitchClient.onMessage((channel, user, message, msg) => {
-  handleChatMessage(channel, user, message, msg);
+  if (isCurrentChannel(channel)) handleChatMessage(channel, user, message, msg);
 });
 
 twitchClient.onMessageRemove((channel, messageId, msg) => {
-  handleMessageDeleted(channel, messageId, msg.userName, msg);
+  if (isCurrentChannel(channel)) handleMessageDeleted(channel, messageId, msg.userName, msg.text, msg);
 });
 
 twitchClient.onTimeout((channel, username, duration, msg) => {
-  handleTimeout(channel, username, duration, msg);
+  if (isCurrentChannel(channel)) handleTimeout(channel, username, duration, msg);
 });
 
 twitchClient.onBan((channel, username, msg) => {
-  handleBan(channel, username, msg);
+  if (isCurrentChannel(channel)) handleBan(channel, username, msg);
 });
 
 twitchClient.onChatClear((channel) => {
-  handleChatClear(channel);
+  if (isCurrentChannel(channel)) handleChatClear(channel);
+});
+
+// Registered at module level: Twurple fires onDisconnect for every failed
+// reconnect attempt, and re-registering per connect would stack listeners.
+twitchClient.onDisconnect((manually, reason) => {
+  if (!manually && reason) {
+    console.error('Twitch chat: disconnected:', reason);
+  }
 });
 
 export function handleChatMessage(
@@ -256,17 +278,19 @@ export function handleChatMessage(
   }
 }
 
-function handleMessageDeleted(
+/** ClearMsg (a removed message) also carries the message's text. */
+export function handleMessageDeleted(
   channel: string,
   messageId: string,
   username: string,
+  deletedMessage: string | undefined,
   msg: TaggedMessage,
 ) {
   const normalizedChannel = channel.replace(/^#/, '');
   const event = appendChatEvent(
     'message.deleted',
     normalizedChannel,
-    { username, deletedMessage: null, tags: Object.fromEntries(msg.tags) },
+    { username, deletedMessage: deletedMessage ?? null, tags: Object.fromEntries(msg.tags) },
     { messageId, username },
   );
 
@@ -285,11 +309,11 @@ function handleMessageDeleted(
 }
 
 function timeoutReasonOf(msg: TaggedMessage): string | null {
-  const reason = msg.tags.get('ban-reason');
-  return reason ? reason.split('\\s').join(' ') : null;
+  // ircv3 already unescapes tag values; an empty/missing reason stays null.
+  return msg.tags.get('ban-reason') || null;
 }
 
-function handleTimeout(channel: string, username: string, duration: number, msg: TaggedMessage) {
+export function handleTimeout(channel: string, username: string, duration: number, msg: TaggedMessage) {
   const normalizedChannel = channel.replace(/^#/, '');
   const reason = timeoutReasonOf(msg);
   const event = appendChatEvent('user.timeout', normalizedChannel, { username, reason, duration, tags: Object.fromEntries(msg.tags) }, { username });
@@ -305,7 +329,7 @@ function handleTimeout(channel: string, username: string, duration: number, msg:
   });
 }
 
-function handleBan(channel: string, username: string, msg: TaggedMessage) {
+export function handleBan(channel: string, username: string, msg: TaggedMessage) {
   const normalizedChannel = channel.replace(/^#/, '');
   const reason = timeoutReasonOf(msg);
   const event = appendChatEvent('user.ban', normalizedChannel, { username, reason, tags: Object.fromEntries(msg.tags) }, { username });
@@ -321,7 +345,7 @@ function handleBan(channel: string, username: string, msg: TaggedMessage) {
   });
 }
 
-function handleChatClear(channel: string) {
+export function handleChatClear(channel: string) {
   const normalizedChannel = channel.replace(/^#/, '');
   const event = appendChatEvent('chat.clear', normalizedChannel, {});
 
@@ -338,13 +362,8 @@ export function connectTwitchChat(state: RuntimeState) {
   runtimeState = state;
   joinedChannel = getTwitchChannel();
   // connect() is fire-and-forget: Twurple reconnects on its own and reports
-  // failures through onDisconnect instead of a rejected promise.
+  // failures through onDisconnect (registered once at module level above).
   twitchClient.connect();
-  twitchClient.onDisconnect((manually, reason) => {
-    if (!manually && reason) {
-      console.error('Twitch chat: disconnected:', reason);
-    }
-  });
 }
 
 export async function applyTwitchChannel() {

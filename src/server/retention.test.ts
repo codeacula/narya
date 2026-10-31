@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from 'bun:test';
 import { db } from './db';
-import { chatRetentionCutoff, pruneChatHistory, searchChatHistory } from './retention';
+import { chatRetentionCutoff, deleteArchivedChatForLogin, pruneChatHistory, searchChatHistory } from './retention';
 
 const insertMessage = db.prepare(`insert into chat_messages (id, channel, username, display_name, message, received_at)
   values (?, ?, ?, ?, ?, ?)`);
@@ -77,7 +77,69 @@ test('a window-relative cutoff is stable', () => {
   expect(chatRetentionCutoff(now)).toBe('2026-08-02T12:00:00.000Z');
 });
 
+test('archived moderation state travels with the hit', () => {
+  seedMessage('mod-1', 'a timed-out message', 100);
+  // Simulate the moderation state chat.ts writes before archiving.
+  db.prepare('update chat_messages set deleted_at = ?, deleted_reason = ?, moderation_event_id = ? where id = ?')
+    .run(new Date().toISOString(), 'timeout: be nice', 'event-x', 'mod-1');
+  pruneChatHistory();
+
+  const hits = searchChatHistory('timed-out');
+  const hit = hits.find(row => row.id === 'mod-1');
+  expect(hit?.source).toBe('archive');
+  expect(hit?.deletedAt).not.toBeNull();
+  expect(hit?.deletedReason).toBe('timeout: be nice');
+});
+
 test('a database with no old rows archives nothing', () => {
   seedMessage('fresh-only', 'recent', 10);
   expect(pruneChatHistory()).toBe(0);
+});
+
+test('% and _ in the query are escaped, not wildcards', () => {
+  seedMessage('pct-1', 'grow 50% stronger', 100);
+  seedMessage('pct-2', 'grow ten times stronger', 100);
+  pruneChatHistory();
+
+  const hits = searchChatHistory('50%');
+  expect(hits.map(row => row.id)).toContain('pct-1');
+  expect(hits.map(row => row.id)).not.toContain('pct-2');
+});
+
+test('flushing a viewer removes their archived messages from the projection and FTS', () => {
+  seedMessage('flush-1', 'an archived waffle about pancakes', 100);
+  pruneChatHistory();
+  expect(searchChatHistory('waffle').map(row => row.id)).toContain('flush-1');
+
+  deleteArchivedChatForLogin('viewer');
+  expect(searchChatHistory('waffle').map(row => row.id)).not.toContain('flush-1');
+  const leftover = db.prepare('select count(*) as c from archive.chat_messages_archive').get() as { c: number };
+  expect(leftover.c).toBe(0);
+});
+
+test('crash-between-phases recovery: rows already archived are merged, not lost', () => {
+  seedMessage('replay-1', 'copied progression', 100);
+  // Simulate a phase-two crash: the copy landed, the live delete did not.
+  db.exec(`delete from archive.chat_messages_fts where id = 'replay-1'`);
+  // The row still lives in the main database, so search surfaces it as live.
+  const midState = searchChatHistory('progression');
+  expect(midState.map(row => row.id)).toContain('replay-1');
+  expect(midState.find(row => row.id === 'replay-1')?.source).toBe('live');
+
+  // The next run re-archives the still-live rows: or-ignore skips the copy,
+  // so the FTS insert must also be gated (nothing doubles up), then the live
+  // delete finally clears them while the archive copy remains.
+  pruneChatHistory();
+
+  const live = db.prepare("select count(*) as c from chat_messages where id = 'replay-1'").get() as { c: number };
+  expect(live.c).toBe(0);
+  const copies = db.prepare("select count(*) as c from archive.chat_messages_archive where id = 'replay-1'").get() as { c: number };
+  expect(copies.c).toBe(1);
+  // The FTS index was restored by the re-run (rows are still live pre-delete),
+  // keeping search coverage without duplicates.
+  const ftsRows = db.prepare("select count(*) as c from archive.chat_messages_fts where id = 'replay-1'").get() as { c: number };
+  expect(ftsRows.c).toBe(1);
+  const final = searchChatHistory('progression');
+  expect(final.map(row => row.id)).toContain('replay-1');
+  expect(final.find(row => row.id === 'replay-1')?.source).toBe('archive');
 });

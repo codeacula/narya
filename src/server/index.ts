@@ -204,18 +204,25 @@ server.listen(config.port, config.host, () => {
   // automation_runs is both the invocation log and the dedupe table, so it grows
   // with every trigger that fires. Prune on boot and daily thereafter; the window
   // is well clear of the longest cooldown and any EventSub redelivery gap.
-  const pruned = pruneAutomationRuns();
-  if (pruned > 0) console.log(`Automation: pruned ${pruned} expired run record(s).`);
-  // chat_messages / chat_events grow with every line of chat and their consumers
-  // only ever read small recent windows (retention.ts). Same cadence as the runs.
-  const chatPruned = pruneChatHistory();
-  if (chatPruned > 0) console.log(`Chat: archived ${chatPruned} row(s) past the cutoff.`);
+  // Guarded: the deletes are boot diagnostics, and an I/O failure on the archive
+  // sidecar must not take down a server that is otherwise ready to listen.
+  try {
+    const pruned = pruneAutomationRuns();
+    if (pruned > 0) console.log(`Automation: pruned ${pruned} expired run record(s).`);
+    // chat_messages / chat_events older than the cutoff move into the archive
+    // database (retention.ts). Beyond the cutoff the dashboard's recent-window
+    // consumers stop; full history lives in the archive and /api/chat/search.
+    const chatPruned = pruneChatHistory();
+    if (chatPruned > 0) console.log(`Chat: archived ${chatPruned} row(s) past the cutoff.`);
+  } catch (error) {
+    console.error('Startup: could not prune/archived chat records (will retry in 24h):', error);
+  }
   setInterval(() => {
     try {
       pruneAutomationRuns();
       pruneChatHistory();
     } catch (error) {
-      console.error('Automation: could not prune run records:', error);
+      console.error('Retention: daily prune pass failed:', error);
     }
   }, 24 * 60 * 60 * 1000).unref();
 });

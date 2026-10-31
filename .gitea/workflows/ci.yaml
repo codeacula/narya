@@ -10,7 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: setup-bun@v2
+      # Bare names resolve against the Gitea DEFAULT_ACTIONS_URL, which has no
+      # "setup-bun" clone — the canonical repo lives under the oven-sh org.
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile

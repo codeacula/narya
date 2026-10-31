@@ -15,6 +15,7 @@
  * row existence now also means "was merely present". See streamSession.ts.
  */
 import { db } from './db';
+import { deleteArchivedChatForLogin } from './retention';
 import { deleteInteractionsForLogin } from './llmContext';
 import { anonymizeQuotesByLogin } from './quotes';
 import { deleteOverridesForLogin } from './triggerOverrides';
@@ -202,6 +203,9 @@ export function flushViewer(login: string, reason = ''): { messages: number; quo
     deleteChatter.run(key);
     deleteProfile.run(key);
     messages = (deleteMessages.run(key) as { changes: number }).changes;
+    // The 90-day archive would otherwise keep this viewer's pre-cutoff messages
+    // reachable through /api/chat/search after a flush.
+    deleteArchivedChatForLogin(key);
     quotes = anonymizeQuotesByLogin(key);
     interactions = deleteInteractionsForLogin(key);
     // Trigger overrides go too, or a flushed viewer keeps a personalized alert armed

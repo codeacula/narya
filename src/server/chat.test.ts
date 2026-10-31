@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { handleChatMessage, type ChatMessageInfo } from './chat';
+import {
+  handleBan,
+  handleChatClear,
+  handleChatMessage,
+  handleMessageDeleted,
+  handleTimeout,
+  type ChatMessageInfo,
+} from './chat';
 import { db } from './db';
 import { endActiveStreamSession, getOrStartStreamSession } from './streamSession';
 import { getTwitchChannel } from './twitchIdentity';
@@ -75,5 +82,108 @@ describe('chat session stamping', () => {
     const id = `msg-${crypto.randomUUID()}`;
     sendMessage(id, `viewer${Date.now()}`, null);
     expect(chatRow(id)?.stream_session_id).toBeNull();
+  });
+});
+
+describe('chat moderation events', () => {
+  beforeEach(() => {
+    db.exec('delete from chat_messages');
+    db.exec('delete from chat_events');
+  });
+
+  function seedMessage(id: string, username: string): void {
+    handleChatMessage(
+      `#${CHANNEL}`,
+      username,
+      'roast me',
+      chatMessageInfo(id, username, null),
+    );
+  }
+
+  test('a deleted message marks its moderation state and keeps the removed text in the raw event', () => {
+    const id = `msg-${crypto.randomUUID()}`;
+    seedMessage(id, `viewer${Date.now()}`);
+    const tags = new Map<string, string>();
+    tags.set('target-msg-id', id);
+
+    handleMessageDeleted(`#${CHANNEL}`, id, 'viewer-a', 'roast me', { tags });
+
+    const row = db.prepare('select deleted_at as deletedAt, deleted_reason as deletedReason, moderation_event_id as eventId from chat_messages where id = ?')
+      .get(id) as { deletedAt: string | null; deletedReason: string | null; eventId: string | null };
+    expect(row.deletedAt).not.toBeNull();
+    expect(row.deletedReason).toBe('message deleted by moderator');
+    expect(row.eventId).not.toBeNull();
+
+    const event = db
+      .prepare("select payload_json as payloadJson from chat_events where type = 'message.deleted' and message_id = ?")
+      .get(id) as { payloadJson: string } | null;
+    const payload = JSON.parse(event?.payloadJson ?? '{}') as { deletedMessage?: string };
+    expect(payload.deletedMessage).toBe('roast me');
+  });
+
+  test('a timeout marks all of the user\'s messages with its reason', () => {
+    const username = `viewer${Date.now()}`;
+    const first = `msg-${crypto.randomUUID()}`;
+    const second = `msg-${crypto.randomUUID()}`;
+    seedMessage(first, username);
+    seedMessage(second, username);
+    const tags = new Map<string, string>();
+    tags.set('ban-reason', 'be nice');
+
+    handleTimeout(`#${CHANNEL}`, username, 600, { tags });
+
+    const rows = db.prepare('select deleted_reason as deletedReason from chat_messages where username = ?')
+      .all(username) as Array<{ deletedReason: string }>;
+    expect(rows.length).toBe(2);
+    for (const row of rows) {
+      expect(row.deletedReason).toBe('timeout: be nice');
+    }
+    const event = db
+      .prepare("select payload_json as payloadJson from chat_events where type = 'user.timeout'")
+      .get() as { payloadJson: string };
+    const payload = JSON.parse(event.payloadJson) as { duration?: number; reason?: string };
+    expect(payload.duration).toBe(600);
+    expect(payload.reason).toBe('be nice');
+  });
+
+  test('a ban reads its reason from the raw tags', () => {
+    const username = `viewer${Date.now()}`;
+    const id = `msg-${crypto.randomUUID()}`;
+    seedMessage(id, username);
+    const tags = new Map<string, string>();
+    tags.set('ban-reason', 'spam');
+
+    handleBan(`#${CHANNEL}`, username, { tags });
+
+    const row = db.prepare('select deleted_reason as deletedReason from chat_messages where id = ?')
+      .get(id) as { deletedReason: string };
+    expect(row.deletedReason).toBe('ban: spam');
+  });
+
+  test('a chat clear marks the channel', () => {
+    const first = `msg-${crypto.randomUUID()}`;
+    const second = `msg-${crypto.randomUUID()}`;
+    seedMessage(first, `viewer-a${Date.now()}`);
+    seedMessage(second, `viewer-b${Date.now()}`);
+
+    handleChatClear(`#${CHANNEL}`);
+
+    const rows = db.prepare('select id, deleted_reason as deletedReason from chat_messages').all() as Array<{ id: string; deletedReason: string }>;
+    expect(rows.length).toBe(2);
+    for (const row of rows) {
+      expect(row.deletedReason).toBe('chat cleared');
+    }
+  });
+
+  test('an empty ban-reason falls back to the no-reason wording', () => {
+    const username = `viewer${Date.now()}`;
+    const id = `msg-${crypto.randomUUID()}`;
+    seedMessage(id, username);
+
+    handleBan(`#${CHANNEL}`, username, { tags: new Map() });
+
+    const row = db.prepare('select deleted_reason as deletedReason from chat_messages where id = ?')
+      .get(id) as { deletedReason: string };
+    expect(row.deletedReason).toBe('ban: no reason provided');
   });
 });

@@ -105,10 +105,13 @@ The dashboard can show moderated originals. The overlay hides moderated messages
 
 ## Chat archive
 
-Chat history is kept forever. Once a message is 90 days old it is moved out of
-`data/streamer-tools.sqlite` into `data/chat-archive.sqlite` (`chat_messages_archive`,
-`chat_events_archive`, plus an FTS5 index for search), so the live database stays small
-and the archive only ever grows. Search across both stores with:
+Chat history is kept forever. Once a message is 90 days old it is moved out of the live
+database into a sidecar file named after it (`streamer-tools.sqlite` ->
+`streamer-tools.archive.sqlite`; a scratch `STREAMER_TOOLS_DB` gets its own archive),
+holding `chat_messages_archive`, `chat_events_archive`, and an FTS5 index for search —
+so the live database stays small and the archive only ever grows. Flushing a viewer
+removes their archive too, mirroring the live flush rules. Search across both stores
+with:
 
 ```sh
 curl -s -H 'x-dashboard-token: $DASHBOARD_TOKEN' 'http://localhost:4317/api/chat/search?q=walrus'
