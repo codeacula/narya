@@ -37,6 +37,7 @@ import { reconcileRedis, startRedis } from './redis';
 import { startRedisInbound, stopRedisInbound } from './redisInbound';
 import { registerQuoteRoutes } from './quotes';
 import { registerCoreRoutes } from './routes';
+import { pruneChatHistory } from './retention';
 import { RuntimeState } from './runtime';
 import { registerStaticRoutes } from './static';
 import { registerStreamCategoryRoutes } from './streamCategories';
@@ -205,9 +206,14 @@ server.listen(config.port, config.host, () => {
   // is well clear of the longest cooldown and any EventSub redelivery gap.
   const pruned = pruneAutomationRuns();
   if (pruned > 0) console.log(`Automation: pruned ${pruned} expired run record(s).`);
+  // chat_messages / chat_events grow with every line of chat and their consumers
+  // only ever read small recent windows (retention.ts). Same cadence as the runs.
+  const chatPruned = pruneChatHistory();
+  if (chatPruned > 0) console.log(`Chat: pruned ${chatPruned} row(s) past the retention window.`);
   setInterval(() => {
     try {
       pruneAutomationRuns();
+      pruneChatHistory();
     } catch (error) {
       console.error('Automation: could not prune run records:', error);
     }
