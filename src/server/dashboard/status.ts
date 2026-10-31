@@ -390,7 +390,9 @@ export async function getDashboardStatusSnapshot(state: RuntimeState) {
 
   return {
     channel: getTwitchChannel(),
-    chatConnection: twitchClient.readyState?.() ?? 'UNKNOWN',
+    // Twurple exposes booleans rather than tmi's readyState(); the dashboard
+    // only renders this string lowercased, so the surface stays the same.
+    chatConnection: twitchClient.isConnected ? 'OPEN' : twitchClient.isConnecting ? 'CONNECTING' : 'CLOSED',
     obsConnected: isObsConnected(),
     eventSubConnected: state.eventSubConnected,
     eventSubError: state.eventSubError,

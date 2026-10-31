@@ -32,7 +32,7 @@ export const LIVE_CHAT_CAP = 400;
 
 /**
  * Appends a live entry to the tail, dropping the oldest past {@link LIVE_CHAT_CAP}.
- * tmi reconnects replay messages, so a repeated id returns the list untouched.
+ * Twurple reconnects replay messages, so a repeated id returns the list untouched.
  */
 export function appendLiveChatEntry(current: ChatEntry[], entry: ChatEntry): ChatEntry[] {
   return current.some(existing => existing.id === entry.id) ? current : [...current, entry].slice(-LIVE_CHAT_CAP);
@@ -165,7 +165,7 @@ export function useChatFeed(
       highlight: chatHighlight(message.badges, Boolean(message.isFirstEver), Boolean(message.isFirstThisSession)),
       emotes: message.emotes,
     };
-    // tmi reconnects can replay a message; dedupe before appending.
+    // Twurple reconnects can replay a message; dedupe before appending.
     setChat(current => appendLiveChatEntry(current, nextEntry));
 
     // A message proves the sender is here before Twitch's presence poll lists them;

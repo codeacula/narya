@@ -218,7 +218,7 @@ src/
     auth.ts             # dashboard/overlay token roles, OVERLAY_EVENTS allowlist, route guards
     automaticAds.ts     # ad-schedule loop + the pure evaluateAdSchedule decision
     automod.ts          # AutoMod held-message queue (record/resolve/sweep)
-    chat.ts             # Twitch chat via tmi.js, persistence, moderation events
+    chat.ts             # Twitch chat via @twurple/chat (anonymous), persistence, moderation events
     actions.ts          # Action repository + routes (reusable multi-step actions)
     actionExecutor.ts   # runs an Action's steps; media resolution is an injected port
     actionTemplates.ts  # {actor} {input} {arg1} {rest} … template renderer
@@ -281,7 +281,6 @@ src/
       auth.ts           # Twitch OAuth flow
       api.ts            # Twitch API calls (stream info, ads, automod, etc.) + twitchFetch
     types/
-      tmi.d.ts          # local declarations for tmi.js
     dashboard/
       status.ts         # dashboard heartbeat and status aggregation
     testSetup.ts        # bun test preload: forces in-memory DB path + fixture media root

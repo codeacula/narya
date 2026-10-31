@@ -17,6 +17,8 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@twurple/auth": "^8.2.0",
+    "@twurple/chat": "^8.2.0",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.0",
     "express": "^5.3.0",
@@ -24,7 +26,6 @@
     "obs-websocket-js": "^5.0.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "tmi.js": "^1.8.5",
     "vite": "^7.1.2",
     "ws": "^8.22.1"
   },

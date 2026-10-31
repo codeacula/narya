@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { twitchClient } from './chat';
+import { handleChatMessage, type ChatMessageInfo } from './chat';
 import { db } from './db';
 import { endActiveStreamSession, getOrStartStreamSession } from './streamSession';
 import { getTwitchChannel } from './twitchIdentity';
@@ -8,11 +8,22 @@ type ChatRow = { stream_session_id: string | null; is_first_in_session: number }
 
 const CHANNEL = getTwitchChannel() || 'codeacula';
 
-// tmi's local type declarations omit EventEmitter's emit; the client is one.
-const emitter = twitchClient as unknown as { emit: (event: string, ...args: unknown[]) => void };
+/** A minimal stand-in for Twurple's ChatMessage; structurally assignable. */
+function chatMessageInfo(id: string, username: string, badges: Map<string, string> | null): ChatMessageInfo {
+  return {
+    id,
+    channelId: null,
+    userInfo: {
+      userName: username,
+      displayName: username,
+      badges: badges ?? new Map(),
+      isBroadcaster: badges?.get('broadcaster') !== undefined,
+    },
+  };
+}
 
 function sendMessage(id: string, username: string, badges: Record<string, string> | null) {
-  emitter.emit('message', `#${CHANNEL}`, { username, id, badges, 'display-name': username }, 'hello', false);
+  handleChatMessage(`#${CHANNEL}`, username, 'hello', chatMessageInfo(id, username, badges ? new Map(Object.entries(badges)) : null));
 }
 
 function chatRow(id: string): ChatRow | null {
