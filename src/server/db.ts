@@ -706,6 +706,8 @@ db.exec(`
   create index if not exists idx_chat_messages_channel on chat_messages(channel);
   create index if not exists idx_chat_messages_received_at on chat_messages(received_at);
   create index if not exists idx_chat_messages_username on chat_messages(username);
+  -- retention.ts selects, copies and deletes chat_events past the 90-day cutoff daily.
+  create index if not exists idx_chat_events_occurred_at on chat_events(occurred_at);
   create index if not exists idx_chatbot_commands_trigger on chatbot_commands(trigger);
   create index if not exists idx_chatbot_command_actions_command on chatbot_command_actions(command_id, position);
   create index if not exists idx_stream_sessions_active on stream_sessions(ended_at, started_at);
