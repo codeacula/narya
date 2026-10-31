@@ -34,6 +34,9 @@ import {
 } from './tts';
 import { getTwitchChannel } from './twitchIdentity';
 
+/** Twitch's limit on one chat message, in characters. */
+const MAX_CHAT_MESSAGE_LENGTH = 500;
+
 export function registerCoreRoutes(app: Express, state: RuntimeState) {
   app.get('/api/health', (_request, response) => {
     response.json({
@@ -132,14 +135,20 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
     response.json(rows);
   });
 
-  // Full-history chat search: the live window via LIKE, everything older via
-  // the FTS index in the archive database (retention.ts). Operator surface —
-  // it rides the standing /api/* guard.
+  // Full-history chat search across the live database and the archive, with the
+  // same substring rule on both (retention.ts searchChatHistory). Operator
+  // surface — it rides the standing /api/* guard.
   app.get('/api/chat/search', (request, response) => {
     const raw = request.query.q;
     const query = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? String(raw[0] ?? '').trim() : '';
     if (query === '') {
       response.status(400).json({ error: 'q is required (search across live and archived chat)' });
+      return;
+    }
+    // Twitch caps a chat message at 500 characters, so a longer query can match
+    // nothing — but would still cost a trigram lookup per character.
+    if ([...query].length > MAX_CHAT_MESSAGE_LENGTH) {
+      response.status(400).json({ error: `q can be at most ${MAX_CHAT_MESSAGE_LENGTH} characters, the length of a chat message` });
       return;
     }
     const limit = clampFinite(Number.parseInt(String(request.query.limit ?? ''), 10), 1, 100, 50);
