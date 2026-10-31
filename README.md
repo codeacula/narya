@@ -114,7 +114,7 @@ removes their archive too, mirroring the live flush rules. Search across both st
 with:
 
 ```sh
-curl -s -H 'x-dashboard-token: $DASHBOARD_TOKEN' 'http://localhost:4317/api/chat/search?q=walrus'
+curl -s -H "x-dashboard-token: $DASHBOARD_TOKEN" 'http://localhost:4317/api/chat/search?q=walrus'
 ```
 
 Responses merge live and archived hits (`source: "live" | "archive"`), newest first.

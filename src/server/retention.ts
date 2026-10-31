@@ -40,10 +40,19 @@ function mainIsMemory(): boolean {
 }
 
 /** Archive path for the main database: a sibling file, or memory for tests. */
+/**
+ * streamer-tools.sqlite -> streamer-tools.archive.sqlite. Only a `.sqlite`
+ * extension is replaced; any other name keeps its full basename, so two scratch
+ * databases differing only by extension cannot share one archive.
+ */
+export function archivePathFor(mainFile: string): string {
+  const base = path.basename(mainFile).replace(/\.sqlite$/, '');
+  return path.join(path.dirname(mainFile), base + ARCHIVE_SUFFIX);
+}
+
 function archivePath(): string {
   if (mainIsMemory()) return ':memory:';
-  const mainFile = mainDatabaseFile();
-  return path.join(path.dirname(mainFile), path.basename(mainFile) + ARCHIVE_SUFFIX);
+  return archivePathFor(mainDatabaseFile());
 }
 
 let attached = false;

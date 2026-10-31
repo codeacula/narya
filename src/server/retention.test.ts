@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from 'bun:test';
 import { db } from './db';
-import { chatRetentionCutoff, deleteArchivedChatForLogin, pruneChatHistory, searchChatHistory } from './retention';
+import { archivePathFor, chatRetentionCutoff, deleteArchivedChatForLogin, pruneChatHistory, searchChatHistory } from './retention';
 
 const insertMessage = db.prepare(`insert into chat_messages (id, channel, username, display_name, message, received_at)
   values (?, ?, ?, ?, ?, ?)`);
@@ -140,4 +140,12 @@ test('crash-between-phases recovery: rows already archived are merged, not lost 
   const final = searchChatHistory('progression');
   expect(final.map(row => row.id).sort()).toEqual(['replay-1', 'replay-2']);
   expect(final.every(row => row.source === 'archive')).toBe(true);
+});
+
+test('the archive is a sibling named after the main database, one per database', () => {
+  expect(archivePathFor('/srv/data/streamer-tools.sqlite')).toBe('/srv/data/streamer-tools.archive.sqlite');
+  // A non-.sqlite name keeps its full basename, so scratch.sqlite and scratch.db
+  // can never resolve to the same archive.
+  expect(archivePathFor('/tmp/scratch.db')).toBe('/tmp/scratch.db.archive.sqlite');
+  expect(archivePathFor('/tmp/scratch.sqlite')).not.toBe(archivePathFor('/tmp/scratch.db'));
 });
