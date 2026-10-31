@@ -1,9 +1,11 @@
 import type { Express } from 'express';
+import { clampFinite } from './numeric';
 import { getTwitchRoomId } from './chat';
 import { getAutomodHold, getAutomodQueue, resolveAutomodHold } from './automod';
 import { db } from './db';
 import { getEmoteMap } from './emotes';
 import { handle, HttpRouteError, parseJsonColumn } from './http';
+import { searchChatHistory } from './retention';
 import {
   createClipButton,
   deleteClipButton,
@@ -128,6 +130,20 @@ export function registerCoreRoutes(app: Express, state: RuntimeState) {
       });
 
     response.json(rows);
+  });
+
+  // Full-history chat search: the live window via LIKE, everything older via
+  // the FTS index in the archive database (retention.ts). Operator surface —
+  // it rides the standing /api/* guard.
+  app.get('/api/chat/search', (request, response) => {
+    const raw = request.query.q;
+    const query = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? String(raw[0] ?? '').trim() : '';
+    if (query === '') {
+      response.status(400).json({ error: 'q is required (search across live and archived chat)' });
+      return;
+    }
+    const limit = clampFinite(Number.parseInt(String(request.query.limit ?? ''), 10), 1, 100, 50);
+    response.json(searchChatHistory(query, limit));
   });
 
   app.post('/api/obs/scenes/:sceneName', async (request, response) => {

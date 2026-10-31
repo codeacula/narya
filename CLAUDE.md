@@ -261,6 +261,7 @@ src/
     quotes.ts           # quote book: repo, number allocation, lookup, routes
     counters.ts         # operator-defined counters: repo, validation, {counter:*} template scan
     routes.ts           # core REST route registrations
+    retention.ts        # 90-day move of chat_messages/chat_events into data/chat-archive.sqlite + FTS search
     runtime.ts          # RuntimeState (Twitch auth token cache)
     rewardProvenance.ts # reward_id -> owning source; the per-app/operator reward isolation primitive
     sounds.ts           # sound buttons + playback events (labeled-button repo)

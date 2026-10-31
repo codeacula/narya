@@ -103,6 +103,19 @@ Chat is stored in two layers:
 
 The dashboard can show moderated originals. The overlay hides moderated messages so deleted content does not stay visible on stream.
 
+## Chat archive
+
+Chat history is kept forever. Once a message is 90 days old it is moved out of
+`data/streamer-tools.sqlite` into `data/chat-archive.sqlite` (`chat_messages_archive`,
+`chat_events_archive`, plus an FTS5 index for search), so the live database stays small
+and the archive only ever grows. Search across both stores with:
+
+```sh
+curl -s -H 'x-dashboard-token: $DASHBOARD_TOKEN' 'http://localhost:4317/api/chat/search?q=walrus'
+```
+
+Responses merge live and archived hits (`source: "live" | "archive"`), newest first.
+
 ## Configuration
 
 Almost everything is configured from **Settings → "Connections & credentials"** and stored in the database (`data/streamer-tools.sqlite`): the Twitch channel and client credentials, OBS WebSocket URL and password, the OBS scene prefix, Discord, the Tengwar URL and API key, music polling, and sound volume. The app boots fine with none of it set, and saving reconnects only the affected services — no restart.

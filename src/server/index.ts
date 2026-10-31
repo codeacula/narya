@@ -209,7 +209,7 @@ server.listen(config.port, config.host, () => {
   // chat_messages / chat_events grow with every line of chat and their consumers
   // only ever read small recent windows (retention.ts). Same cadence as the runs.
   const chatPruned = pruneChatHistory();
-  if (chatPruned > 0) console.log(`Chat: pruned ${chatPruned} row(s) past the retention window.`);
+  if (chatPruned > 0) console.log(`Chat: archived ${chatPruned} row(s) past the cutoff.`);
   setInterval(() => {
     try {
       pruneAutomationRuns();
