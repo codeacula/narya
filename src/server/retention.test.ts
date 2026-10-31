@@ -117,29 +117,27 @@ test('flushing a viewer removes their archived messages from the projection and 
   expect(leftover.c).toBe(0);
 });
 
-test('crash-between-phases recovery: rows already archived are merged, not lost', () => {
+test('crash-between-phases recovery: rows already archived are merged, not lost or re-indexed', () => {
   seedMessage('replay-1', 'copied progression', 100);
-  // Simulate a phase-two crash: the copy landed, the live delete did not.
-  db.exec(`delete from archive.chat_messages_fts where id = 'replay-1'`);
-  // The row still lives in the main database, so search surfaces it as live.
-  const midState = searchChatHistory('progression');
-  expect(midState.map(row => row.id)).toContain('replay-1');
-  expect(midState.find(row => row.id === 'replay-1')?.source).toBe('live');
+  // Simulate a phase-two crash: phase one (copy + index) committed against the
+  // archive, but the live delete never ran.
+  db.exec(`insert into archive.chat_messages_archive (id, channel, username, display_name, message, received_at)
+    select id, channel, username, display_name, message, received_at from chat_messages`);
+  db.exec(`insert into archive.chat_messages_fts (id, username, display_name, message, received_at)
+    select id, username, display_name, message, received_at from chat_messages`);
+  // By the next run another row has crossed the cutoff, so this run does copy
+  // something — which must not re-index the row that was already indexed.
+  seedMessage('replay-2', 'newly old progression', 95);
 
-  // The next run re-archives the still-live rows: or-ignore skips the copy,
-  // so the FTS insert must also be gated (nothing doubles up), then the live
-  // delete finally clears them while the archive copy remains.
   pruneChatHistory();
 
-  const live = db.prepare("select count(*) as c from chat_messages where id = 'replay-1'").get() as { c: number };
+  const live = db.prepare("select count(*) as c from chat_messages where id like 'replay-%'").get() as { c: number };
   expect(live.c).toBe(0);
-  const copies = db.prepare("select count(*) as c from archive.chat_messages_archive where id = 'replay-1'").get() as { c: number };
-  expect(copies.c).toBe(1);
-  // The FTS index was restored by the re-run (rows are still live pre-delete),
-  // keeping search coverage without duplicates.
-  const ftsRows = db.prepare("select count(*) as c from archive.chat_messages_fts where id = 'replay-1'").get() as { c: number };
-  expect(ftsRows.c).toBe(1);
+  const copies = db.prepare("select id, count(*) as c from archive.chat_messages_archive group by id order by id").all();
+  expect(copies).toEqual([{ id: 'replay-1', c: 1 }, { id: 'replay-2', c: 1 }]);
+  const ftsRows = db.prepare('select id, count(*) as c from archive.chat_messages_fts group by id order by id').all();
+  expect(ftsRows).toEqual([{ id: 'replay-1', c: 1 }, { id: 'replay-2', c: 1 }]);
   const final = searchChatHistory('progression');
-  expect(final.map(row => row.id)).toContain('replay-1');
-  expect(final.find(row => row.id === 'replay-1')?.source).toBe('archive');
+  expect(final.map(row => row.id).sort()).toEqual(['replay-1', 'replay-2']);
+  expect(final.every(row => row.source === 'archive')).toBe(true);
 });

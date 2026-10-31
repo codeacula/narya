@@ -126,10 +126,17 @@ const archiveEvents = db.prepare(`
   select ${eventColumns} from main.chat_events where occurred_at < ?
 `);
 
+// Indexes only archive rows inserted after `rowid > ?`, i.e. the rows this run
+// actually copied. Selecting from main.chat_messages instead would re-index rows
+// a crashed earlier run already archived and indexed but never deleted.
+const archiveMaxRowid = db.prepare(`
+  select coalesce(max(rowid), 0) as maxRowid from archive.chat_messages_archive
+`);
+
 const indexArchivedMessages = db.prepare(`
   insert into archive.chat_messages_fts (id, username, display_name, message, received_at)
   select id, username, coalesce(display_name, ''), message, received_at
-  from main.chat_messages where received_at < ?
+  from archive.chat_messages_archive where rowid > ?
 `);
 
 const selectMessagesOlderThan = db.prepare(`
@@ -168,10 +175,11 @@ export function pruneChatHistory(now: Date = new Date()): number {
     const pendingEvents = (selectEventsOlderThan.get(cutoff) as { count: number }).count;
     if (pendingMessages === 0 && pendingEvents === 0) return;
 
+    const rowidBefore = (archiveMaxRowid.get() as { maxRowid: number }).maxRowid;
     moved = (archiveMessages.run(cutoff) as { changes: number }).changes;
-    // Index exactly the rows copied this run; re-copying is suppressed by
-    // `or ignore`, so a re-run cannot produce duplicate FTS entries.
-    if (moved > 0) indexArchivedMessages.run(cutoff);
+    // Index exactly the rows copied this run: `or ignore` skips rows already
+    // archived, and new rows get rowids above the pre-copy maximum.
+    if (moved > 0) indexArchivedMessages.run(rowidBefore);
     archiveEvents.run(cutoff);
   })();
 
