@@ -16,10 +16,16 @@ type ChatRow = { stream_session_id: string | null; is_first_in_session: number }
 const CHANNEL = getTwitchChannel() || 'codeacula';
 
 /** A minimal stand-in for Twurple's ChatMessage; structurally assignable. */
-function chatMessageInfo(id: string, username: string, badges: Map<string, string> | null): ChatMessageInfo {
+function chatMessageInfo(
+  id: string,
+  username: string,
+  badges: Map<string, string> | null,
+  tags: Map<string, string> = new Map(),
+): ChatMessageInfo {
   return {
     id,
     channelId: null,
+    tags,
     userInfo: {
       userName: username,
       displayName: username,
@@ -99,6 +105,24 @@ describe('chat moderation events', () => {
       chatMessageInfo(id, username, null),
     );
   }
+
+  test('a new message keeps every raw IRC tag in its chat_events payload, not just badges', () => {
+    const id = `msg-${crypto.randomUUID()}`;
+    const tags = new Map([
+      ['user-id', '12345'],
+      ['display-name', 'Viewer_A'],
+      ['color', '#FF0000'],
+      ['badges', 'vip/1'],
+      ['first-msg', '0'],
+    ]);
+    handleChatMessage(`#${CHANNEL}`, 'viewer-a', 'hello', chatMessageInfo(id, 'viewer-a', new Map([['vip', '1']]), tags));
+
+    const row = db.prepare("select payload_json from chat_events where type = 'message.created' and message_id = ?")
+      .get(id) as { payload_json: string } | null;
+    const payload = JSON.parse(row?.payload_json ?? '{}') as { tags?: Record<string, string>; message?: string };
+    expect(payload.message).toBe('hello');
+    expect(payload.tags).toEqual(Object.fromEntries(tags));
+  });
 
   test('a deleted message marks its moderation state and keeps the removed text in the raw event', () => {
     const id = `msg-${crypto.randomUUID()}`;

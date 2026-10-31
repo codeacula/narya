@@ -129,6 +129,8 @@ export function appendChatEvent(
 export interface ChatMessageInfo {
   id: string;
   channelId?: string | null;
+  /** Every raw IRC tag on the PRIVMSG; persisted verbatim in the raw event layer. */
+  tags: Map<string, string>;
   userInfo: {
     userName: string;
     displayName?: string;
@@ -218,7 +220,7 @@ export function handleChatMessage(
     sessionId,
   };
 
-  appendChatEvent('message.created', chatMessage.channel, { tags: badgesRecord, message }, {
+  appendChatEvent('message.created', chatMessage.channel, { tags: Object.fromEntries(msg.tags), message }, {
     messageId: chatMessage.id,
     username: chatMessage.username,
     occurredAt,
