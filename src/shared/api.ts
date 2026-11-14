@@ -516,6 +516,12 @@ export type LlmSettingsUpdate = {
 /** GET /api/llm/providers/:id/models — an unreachable provider is ok:false, not a 5xx. */
 export type LlmModelList = { ok: true; models: string[] } | { ok: false; error: string };
 
+/** POST /api/llm/test. With `settings`, the unsaved form is tested and nothing is stored. */
+export type LlmTestRequest = {
+  question: string;
+  settings?: LlmSettingsUpdate;
+};
+
 export type LlmTestResult = {
   ok: boolean;
   reply: string;
