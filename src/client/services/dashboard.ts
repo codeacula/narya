@@ -54,6 +54,7 @@ import type {
   LlmProviderId,
   LlmSettings,
   LlmSettingsUpdate,
+  LlmTestRequest,
   LlmTestResult,
   ViewerProfileUpdate,
   TwitchUserActionResult,
@@ -419,8 +420,8 @@ export async function getLlmProviderModels(id: LlmProviderId): Promise<LlmModelL
   return fetchJson<LlmModelList>(`/api/llm/providers/${encodeURIComponent(id)}/models`);
 }
 
-export async function testLlm(question: string): Promise<LlmTestResult> {
-  return sendJson<LlmTestResult>('/api/llm/test', 'POST', { question });
+export async function testLlm(request: LlmTestRequest): Promise<LlmTestResult> {
+  return sendJson<LlmTestResult>('/api/llm/test', 'POST', request);
 }
 
 export async function disconnectTwitch(account: 'user' | 'bot' = 'user'): Promise<void> {

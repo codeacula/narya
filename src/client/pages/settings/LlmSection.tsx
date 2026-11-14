@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import type { LlmApiFormat, LlmProviderId, LlmProviderProfile, LlmSettings } from '../../../shared/api';
+import type { LlmApiFormat, LlmProviderId, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../../../shared/api';
 import { getLlmProviderModels, getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
 import { SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
@@ -61,6 +61,27 @@ function findDraft(form: LlmSettingsForm, id: LlmProviderId): ProviderDraft | un
   return form.providers.find(provider => provider.id === id);
 }
 
+/** The request a Save or a Test sends: the selected provider's draft plus the shared fields. */
+function toSettingsUpdate(form: LlmSettingsForm): LlmSettingsUpdate | null {
+  const draft = findDraft(form, form.selectedProvider);
+  if (!draft) return null;
+  return {
+    enabled: form.enabled,
+    activeProvider: form.selectedProvider,
+    provider: {
+      baseUrl: draft.baseUrl,
+      model: draft.model,
+      apiFormat: draft.apiFormat,
+      apiKey: draft.apiKey,
+      clearApiKey: draft.clearApiKey,
+    },
+    personalityPrompt: form.personalityPrompt,
+    temperature: form.temperature,
+    maxOutputTokens: form.maxOutputTokens,
+    timeoutMs: form.timeoutMs,
+  };
+}
+
 function apiKeyPlaceholder(draft: ProviderDraft): string {
   if (draft.apiKeyConfigured) return 'Configured - leave blank to keep';
   return draft.requiresApiKey ? 'Required' : 'Optional';
@@ -82,23 +103,9 @@ export function LlmSection() {
     load: () => getLlmSettings().then(toLlmForm),
     loadError: 'Could not load LLM settings',
     save: form => {
-      const draft = findDraft(form, form.selectedProvider);
-      if (!draft) return Promise.reject(new Error('Choose a provider first.'));
-      return updateLlmSettings({
-        enabled: form.enabled,
-        activeProvider: form.selectedProvider,
-        provider: {
-          baseUrl: draft.baseUrl,
-          model: draft.model,
-          apiFormat: draft.apiFormat,
-          apiKey: draft.apiKey,
-          clearApiKey: draft.clearApiKey,
-        },
-        personalityPrompt: form.personalityPrompt,
-        temperature: form.temperature,
-        maxOutputTokens: form.maxOutputTokens,
-        timeoutMs: form.timeoutMs,
-      }).then(toLlmForm);
+      const update = toSettingsUpdate(form);
+      if (!update) return Promise.reject(new Error('Choose a provider first.'));
+      return updateLlmSettings(update).then(toLlmForm);
     },
     saveError: 'Could not save LLM settings',
   });
@@ -106,6 +113,9 @@ export function LlmSection() {
   const setLlmSettings = llmForm.setValue;
   const { loading: llmLoading, saving: llmSaving, message: llmMessage, error: llmError } = llmForm;
   const busy = llmLoading || llmSaving;
+  // The form starts as a copy of the confirmed value and every edit replaces it, so a
+  // structural comparison is enough to know whether there is anything to reset.
+  const dirty = JSON.stringify(llmSettings) !== JSON.stringify(llmForm.confirmed);
 
   const draft = findDraft(llmSettings, llmSettings.selectedProvider);
   // Model loading follows what the server has stored, not unsaved typing: the server
@@ -153,12 +163,20 @@ export function LlmSection() {
     llmForm.submit(next, enabled ? 'LLM enabled.' : 'LLM disabled.');
   };
 
+  const handleLlmReset = () => {
+    setLlmSettings(llmForm.confirmed);
+    llmForm.setMessage(null);
+    llmForm.setError(null);
+    setLlmTestReply(null);
+  };
+
   const handleLlmTest = () => {
     setLlmTesting(true);
     llmForm.setMessage(null);
     llmForm.setError(null);
     setLlmTestReply(null);
-    void testLlm(llmTestQuestion)
+    const settings = toSettingsUpdate(llmSettings) ?? undefined;
+    void testLlm({ question: llmTestQuestion, settings })
       .then(result => {
         setLlmTestReply(result.reply);
       })
@@ -325,7 +343,7 @@ export function LlmSection() {
         </div>
 
         <div className="command-example">
-          Used by <code>llm_response</code> Action steps. Saving makes the selected provider active.
+          Used by <code>llm_response</code> Action steps. Test LLM tries the form as shown without saving; Save makes the selected provider active.
         </div>
 
         <div className="llm-test-panel">
@@ -354,6 +372,9 @@ export function LlmSection() {
         <SettingsStatus message={llmMessage} error={llmError} />
 
         <div className="command-settings-actions">
+          <button className="modbtn" type="button" disabled={busy || !dirty} onClick={handleLlmReset}>
+            Reset
+          </button>
           <button className="modbtn gold" type="submit" disabled={busy}>
             {llmSaving ? 'Saving...' : 'Save'}
           </button>

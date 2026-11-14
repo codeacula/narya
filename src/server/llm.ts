@@ -428,6 +428,54 @@ export async function runLlmRequest(instructions: string, input: string, convers
   return callLlm(settings, provider, instructions, input, conversationKey);
 }
 
+/**
+ * The Settings "Test LLM" call. With a draft (the form as it stands, unsaved), it
+ * tests exactly what is on screen — the selected provider, model, format, prompt, and
+ * temperature — and stores nothing. A blank key falls back to the one stored for
+ * that provider, so a provider can be tried before switching to it. The draft goes
+ * through the same validation as a save. Without a draft it tests the saved config.
+ *
+ * Validation and configuration problems throw HttpRouteError (400); a failed LLM call
+ * throws a plain Error, which the route reports as 502.
+ */
+export async function runLlmTest(question: string, draft?: unknown): Promise<string> {
+  const saved = getSettingsRowOrDefault();
+  if (!saved.enabled) throw new HttpRouteError(400, 'LLM is disabled in settings.');
+
+  let settings: LlmSettingsRow = saved;
+  let provider = getActiveProviderRow();
+  if (draft !== undefined) {
+    const next = normalizeSettingsUpdate(draft);
+    const stored = getProviderRow(next.activeProvider)!;
+    provider = {
+      preset: stored.preset,
+      baseUrl: next.provider.baseUrl,
+      model: next.provider.model,
+      apiFormat: next.provider.apiFormat,
+      apiKey: next.provider.clearApiKey ? '' : next.provider.apiKey || stored.apiKey,
+    };
+    settings = {
+      ...saved,
+      personalityPrompt: next.personalityPrompt,
+      temperature: next.temperature,
+      maxOutputTokens: next.maxOutputTokens,
+      timeoutMs: next.timeoutMs,
+    };
+  }
+  if (!provider.baseUrl || !provider.model) throw new HttpRouteError(400, 'LLM base URL and model are required.');
+
+  // The test keeps its own framing rather than borrowing an Action step's: it checks
+  // that the configured endpoint answers at all, so it must not depend on any step's
+  // prompt, context, or targeting.
+  return callLlm(
+    settings,
+    provider,
+    settings.personalityPrompt,
+    `A Twitch chatter asks: ${question}\nAnswer them in one concise chat message.`,
+    'settings-test',
+  );
+}
+
 export function registerLlmRoutes(app: express.Express) {
   migrateLegacyLlmSettings();
   ensureLlmSettings();
@@ -447,30 +495,17 @@ export function registerLlmRoutes(app: express.Express) {
   }));
 
   app.post('/api/llm/test', handle(async (request, response) => {
-    const body = request.body as { question?: unknown };
+    const body = (request.body ?? {}) as { question?: unknown; settings?: unknown };
     const question = typeof body.question === 'string' && body.question.trim()
       ? body.question.trim()
       : 'Give me one short stream-chat-safe test reply.';
     if (question.length > 500) throw new HttpRouteError(400, 'Test question must be 500 characters or fewer.');
 
-    const settings = getSettingsRowOrDefault();
-    const provider = getActiveProviderRow();
-    if (!settings.enabled) throw new HttpRouteError(400, 'LLM is disabled in settings.');
-    if (!provider.baseUrl || !provider.model) throw new HttpRouteError(400, 'LLM base URL and model are required.');
-
-    // The test route keeps its own framing rather than borrowing an Action step's:
-    // it is checking that the configured endpoint answers at all, so it must not
-    // depend on any step's prompt, context, or targeting.
     let answer: string;
     try {
-      answer = await callLlm(
-        settings,
-        provider,
-        settings.personalityPrompt,
-        `A Twitch chatter asks: ${question}\nAnswer them in one concise chat message.`,
-        'settings-test',
-      );
+      answer = await runLlmTest(question, body.settings === undefined ? undefined : body.settings);
     } catch (llmError) {
+      if (llmError instanceof HttpRouteError) throw llmError;
       const msg = llmError instanceof Error ? llmError.message : 'LLM request failed.';
       throw new HttpRouteError(502, msg);
     }
