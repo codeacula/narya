@@ -471,6 +471,9 @@ export type ChatbotCommandUpsert = {
   actions: ChatbotCommandActionInput[];
 };
 
+export type LlmProviderId = 'opencode-go' | 'openai' | 'local' | 'custom';
+export type LlmApiFormat = 'responses' | 'chat_completions';
+
 export type LlmSettings = {
   enabled: boolean;
   baseUrl: string;
