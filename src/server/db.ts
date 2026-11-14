@@ -355,6 +355,32 @@ db.exec(`
     updated_at text not null
   );
 
+  -- The full-screen holding scenes' operator state. Single row (id = 1), persisted so a
+  -- restart mid-intermission keeps the countdown the viewers are watching. The two
+  -- end times are absolute (server clock), never a remaining duration, so every source
+  -- ticks to the same moment and a restart cannot pause them.
+  create table if not exists holding_scenes (
+    id integer primary key check (id = 1),
+    starting_ends_at text,
+    brb_ends_at text,
+    next_stream text not null default '',
+    updated_at text not null default ''
+  );
+
+  -- The one pinned card on stream: a viewer's question or the operator's own topic.
+  -- Single row (id = 1); no row, or a null kind, means no card. message_id and
+  -- author_login exist only so moderation can find the card to clear — they are never
+  -- on the overlay payload (see getPinnedCard).
+  create table if not exists pinned_card (
+    id integer primary key check (id = 1),
+    kind text check (kind in ('question', 'topic')),
+    display_name text not null default '',
+    text text not null default '',
+    message_id text,
+    author_login text,
+    updated_at text not null default ''
+  );
+
   -- Durable named tallies. The value column is deliberately signed: a counter is
   -- not necessarily a tally, and clamping at zero would discard a deliberate
   -- negative. The key column is the counter template token, and is unique.
@@ -860,6 +886,7 @@ const allowedMigrationColumns = new Set([
   'discord_announce_terminal',
   'session_id',
   'actor_login',
+  'amount',
   'sound_src',
   'sound_volume',
   'clip_src',
@@ -904,6 +931,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   discord_announce_terminal: 'integer not null default 0',
   session_id: 'text',
   actor_login: 'text',
+  amount: 'integer',
   // Viewer identity, backfilled from Helix. `twitch_user_id` is the rename-proof
   // key; the login is not, which is why a refresh can find an account under a new
   // name. `missing_at` is stamped when Twitch stops returning the account at all.
@@ -1008,6 +1036,9 @@ db.exec('create index if not exists idx_stream_events_session on stream_events(s
 // `actor` is a display name, which for a localized name doesn't lowercase to the
 // login. Rows predating this column stay null and fall back to the old guess.
 addColumnIfMissing('stream_events', 'actor_login', 'text');
+// Bits, raid viewers, or gifted subs, so the top bar can show a number without parsing
+// `detail`. Rows predating the column stay null and render as just the name.
+addColumnIfMissing('stream_events', 'amount', 'integer');
 
 // Alerts gained independent sound + clip effects (replacing a single media slot).
 // Tables created under the earlier schema get the new columns; the old media_*

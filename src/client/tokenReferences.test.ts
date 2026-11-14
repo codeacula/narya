@@ -105,7 +105,7 @@ describe('token-reference detector self-check', () => {
     expect(defined.has('--accent-fg')).toBe(true);   // panel.css :root, once mis-reported missing
     expect(defined.has('--fg-3')).toBe(true);
     expect(defined.has('--warning-fg')).toBe(true);
-    expect(defined.has('--overlay-text-accent')).toBe(true); // defined only in scoped, non-:root blocks
+    expect(defined.has('--text-card-bg')).toBe(true); // defined only in scoped, non-:root blocks
   });
 
   test('counts JS-set tokens as defined', () => {

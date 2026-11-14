@@ -1,4 +1,9 @@
-import type { DashboardStatus } from '../../../shared/api';
+import React from 'react';
+import type { DashboardStatus, HoldingScene } from '../../../shared/api';
+import { useCountdown } from '../../countdown';
+import { endsAtFor, useHoldingSceneControls } from '../../holdingScenes';
+import { pinnedCardSummary, usePinnedCardControls } from '../../pinnedCard';
+import { useToast } from '../notifications';
 import { sceneLabel, switchableScenes } from '../../scenes';
 import { useMediaMute } from '../../mediaMute';
 import { useWindDown } from '../../windDown';
@@ -57,6 +62,8 @@ export function ControlsPanel({
           toggle stays — it is persisted operator state, not a positioning aid. */}
       <MediaMuteToggle />
       <WindDownToggle />
+      <HoldingScenesControls />
+      <PinnedCardControls />
     </div>
   );
 }
@@ -118,6 +125,170 @@ function WindDownToggle() {
           Title suffix and countdown overlay are live. Raids still land and still celebrate.
         </p>
       )}
+    </div>
+  );
+}
+
+const HOLDING_PRESETS = [5, 10, 15] as const;
+const HOLDING_NUDGE_MINUTES = 5;
+const HOLDING_SCENES: { scene: HoldingScene; label: string }[] = [
+  { scene: 'starting', label: 'starting' },
+  { scene: 'brb', label: 'brb' },
+];
+
+/** One scene's clock readout: ticking, negative once overdue, a dash when none is set. */
+function HoldingReadout({ endsAt }: { endsAt: string | null }) {
+  const reading = useCountdown(endsAt);
+  const overdue = reading !== null && reading.msRemaining < 0;
+  return (
+    <span className={'ctrl-holding-readout' + (overdue ? ' is-overdue' : '')} aria-live="off">
+      {reading ? reading.label : '—'}
+    </span>
+  );
+}
+
+/**
+ * Countdowns for the Starting soon and Be right back scenes, plus the Ending scene's
+ * "next stream" line. A countdown never stops on its own: past zero it runs negative
+ * on stream, so the operator sees the same "-02:15" the viewers do and can nudge it.
+ */
+function HoldingScenesControls() {
+  const { pushToast } = useToast();
+  const onError = React.useCallback(
+    (message: string) => pushToast({ kind: 'error', title: 'Holding scenes', message }),
+    [pushToast],
+  );
+  const controls = useHoldingSceneControls(onError);
+  const { state, busy } = controls;
+  const [nextDraft, setNextDraft] = React.useState<string | null>(null);
+  const nextValue = nextDraft ?? state.nextStream;
+
+  return (
+    <div className="ctrl-section ctrl-holding-section">
+      {HOLDING_SCENES.map(({ scene, label }) => {
+        const endsAt = endsAtFor(state, scene);
+        const isSet = endsAt !== null;
+        return (
+          <div className="ctrl-holding-row" key={scene} role="group" aria-label={`${label} countdown`}>
+            <span className="ctrl-label">{label}</span>
+            <HoldingReadout endsAt={endsAt} />
+            <div className="ctrl-holding-buttons">
+              {HOLDING_PRESETS.map(minutes => (
+                <button
+                  className="ctrl-scene-button"
+                  type="button"
+                  disabled={busy}
+                  key={minutes}
+                  onClick={() => { void controls.start(scene, minutes); }}
+                >
+                  {minutes}m
+                </button>
+              ))}
+              <button
+                className="ctrl-scene-button"
+                type="button"
+                disabled={busy || !isSet}
+                aria-label={`Subtract ${HOLDING_NUDGE_MINUTES} minutes from ${label}`}
+                onClick={() => { void controls.adjust(scene, -HOLDING_NUDGE_MINUTES); }}
+              >
+                −{HOLDING_NUDGE_MINUTES}
+              </button>
+              <button
+                className="ctrl-scene-button"
+                type="button"
+                disabled={busy || !isSet}
+                aria-label={`Add ${HOLDING_NUDGE_MINUTES} minutes to ${label}`}
+                onClick={() => { void controls.adjust(scene, HOLDING_NUDGE_MINUTES); }}
+              >
+                +{HOLDING_NUDGE_MINUTES}
+              </button>
+              <button
+                className="ctrl-scene-button"
+                type="button"
+                disabled={busy || !isSet}
+                onClick={() => { void controls.clear(scene); }}
+              >
+                clear
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      <form
+        className="ctrl-holding-row"
+        onSubmit={event => {
+          event.preventDefault();
+          void controls.saveNext(nextValue).then(saved => { if (saved) setNextDraft(null); });
+        }}
+      >
+        <label className="ctrl-label" htmlFor="holding-next-stream">next</label>
+        <input
+          id="holding-next-stream"
+          className="ctrl-holding-input"
+          type="text"
+          maxLength={140}
+          placeholder="Next stream: day and time"
+          value={nextValue}
+          onChange={event => setNextDraft(event.target.value)}
+        />
+        <button
+          className="ctrl-scene-button"
+          type="submit"
+          disabled={busy || nextValue.trim() === state.nextStream}
+        >
+          save
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/** Matches the server's cap, so the field stops where the card would truncate. */
+const PINNED_TOPIC_MAX = 200;
+
+/**
+ * The card on stream: what it shows now, a field for the operator's own topic, and
+ * clear. Pinning a viewer's question is a button on the chat row, not here — the
+ * server reads the message itself, so there is nothing to type for that.
+ */
+function PinnedCardControls() {
+  const { pushToast } = useToast();
+  const onError = React.useCallback(
+    (message: string) => pushToast({ kind: 'error', title: 'Pinned card', message }),
+    [pushToast],
+  );
+  const { card, busy, pinTopic, clear } = usePinnedCardControls(onError);
+  const [draft, setDraft] = React.useState('');
+
+  return (
+    <div className="ctrl-section ctrl-pinned-section">
+      <p className={'ctrl-pinned-readout' + (card ? '' : ' is-empty')} title={pinnedCardSummary(card)} aria-live="polite">
+        {pinnedCardSummary(card)}
+      </p>
+      <form
+        className="ctrl-holding-row"
+        onSubmit={event => {
+          event.preventDefault();
+          void pinTopic(draft).then(pinned => { if (pinned) setDraft(''); });
+        }}
+      >
+        <label className="ctrl-label" htmlFor="pinned-topic">pinned</label>
+        <input
+          id="pinned-topic"
+          className="ctrl-holding-input"
+          type="text"
+          maxLength={PINNED_TOPIC_MAX}
+          placeholder="A topic to put on stream"
+          value={draft}
+          onChange={event => setDraft(event.target.value)}
+        />
+        <button className="ctrl-scene-button" type="submit" disabled={busy || draft.trim() === ''}>
+          pin topic
+        </button>
+        <button className="ctrl-scene-button" type="button" disabled={busy || card === null} onClick={() => { void clear(); }}>
+          clear
+        </button>
+      </form>
     </div>
   );
 }

@@ -39,6 +39,7 @@ import { playMedia } from './rewardMedia';
 import type { RuntimeState } from './runtime';
 import { speakText } from './tts';
 import { moderateTwitchUser, sendTwitchChatMessage, sendTwitchShoutout, sendTwitchWhisper } from './twitch/api';
+import { clearPinnedCard as clearPinnedCardImpl, normalizeTopic, setPinnedTopic as setPinnedTopicImpl } from './pinnedCard';
 import { setWindDownActive } from './windDown';
 import {
   applyWindDownTitle as applyWindDownTitleImpl,
@@ -92,6 +93,9 @@ export type ActionExecutorDeps = {
   isMuted?: () => boolean;
   /** Seam for tests: applies (or removes) the wind-down title suffix. */
   applyWindDownTitle?: (port: WindDownTitlePort, active: boolean) => Promise<void>;
+  /** `sourceLogin` is the invoking viewer, so moderation can take a viewer-derived topic down. */
+  setPinnedTopic?: (text: string, sourceLogin: string | null, messageId: string | null) => void;
+  clearPinnedCard?: () => void;
   /**
    * Applies an adjust_counter step. Returns null when the counter is gone, which
    * the step reports as a skip.
@@ -163,6 +167,8 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     now = () => new Date(),
     isMuted = () => false,
     applyWindDownTitle = applyWindDownTitleImpl,
+    setPinnedTopic = (text, sourceLogin, messageId) => { setPinnedTopicImpl(text, Date.now(), sourceLogin, messageId); },
+    clearPinnedCard = clearPinnedCardImpl,
     adjustCounter = adjustCounterRow,
     resolveCounter = getCounterValue,
   } = deps;
@@ -347,6 +353,22 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         }
         return SUCCEEDED;
       }
+
+      case 'set_pinned_topic': {
+        // The template can carry viewer text ({input}, {arg1}), so it goes through the
+        // same trim and cap as the operator's own entry. Empty skips instead of
+        // clearing: an unfilled template must not silently take a card down.
+        const text = normalizeTopic(render(step.payload.template));
+        if (!text) return skipped('The pinned topic template rendered empty.');
+        // The invoking viewer rides along so their timeout, ban or flush clears it.
+        // And the chat line that triggered it, so deleting that one message does too.
+        setPinnedTopic(text, context.login ?? null, context.messageId ?? null);
+        return SUCCEEDED;
+      }
+
+      case 'clear_pinned_card':
+        clearPinnedCard();
+        return SUCCEEDED;
 
       case 'adjust_counter': {
         const rendered = render(step.payload.amountTemplate).trim();

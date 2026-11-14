@@ -52,6 +52,8 @@ const STEP_TYPES = new Set<ActionStepType>([
   'twitch_timeout',
   'twitch_ban',
   'set_wind_down',
+  'set_pinned_topic',
+  'clear_pinned_card',
   'adjust_counter',
   'quote_add',
   'quote_show',
@@ -329,6 +331,12 @@ function normalizeStepPayload(type: ActionStepType, payload: unknown): ActionSte
 
     case 'set_wind_down':
       return { active: value.active === true };
+
+    case 'set_pinned_topic':
+      return { template: requireTemplate(value.template, 'Pinned topic steps need a template.') };
+
+    case 'clear_pinned_card':
+      return {};
 
     case 'adjust_counter': {
       const counterId = typeof value.counterId === 'string' ? value.counterId.trim() : '';

@@ -1,7 +1,13 @@
 import React from 'react';
+import { useAdBreak } from '../adBreak';
 import { ChatPanel } from '../chat';
 import { ClipStage, useMediaQueue } from '../clips';
+import { useCountdown } from '../countdown';
+import { CrystalOrb } from '../crystalOrb';
+import { HoldingScene } from '../holdingScene';
+import { PinnedCardView, usePinnedCard } from '../pinnedCard';
 import { MusicPanel } from '../music';
+import { BottomBar, TopBar } from '../overlayBars';
 import { OverlayTextStage, useOverlayTextQueue } from '../overlayText';
 import { ShoutoutTicker, useSessionShoutouts } from '../shoutouts';
 import { quackSoundSources, useSoundEvents } from '../sounds';
@@ -40,6 +46,23 @@ export function OverlayNowPlayingPage() {
   return (
     <main className="overlay-widget overlay-now-playing-widget">
       <MusicPanel />
+    </main>
+  );
+}
+
+/** Each bar is its own source: a full-width 48px strip pinned to its edge of a 1920x1080 source. */
+export function OverlayTopBarPage() {
+  return (
+    <main className="overlay-widget overlay-bar-widget overlay-bar-widget-top" aria-label="Top bar overlay">
+      <TopBar />
+    </main>
+  );
+}
+
+export function OverlayBottomBarPage() {
+  return (
+    <main className="overlay-widget overlay-bar-widget overlay-bar-widget-bottom" aria-label="Bottom bar overlay">
+      <BottomBar />
     </main>
   );
 }
@@ -101,6 +124,58 @@ export function OverlayWindDownPage() {
   );
 }
 
+export function OverlayAdsPage() {
+  const endsAt = useAdBreak();
+  const countdown = useCountdown(endsAt);
+  // Hide at zero even if the server never sends the clearing event: the clear is lazy
+  // on the server, and ads do not run over (unlike the holding scenes, which go negative).
+  const visible = countdown !== null && countdown.msRemaining > 0;
+
+  // Keep the last label while fading out so the number does not flash to 00:00.
+  const lastLabel = React.useRef('');
+  if (visible) lastLabel.current = countdown.label;
+
+  return (
+    <main className="overlay-widget overlay-ads-widget" aria-label="Ad break overlay">
+      <div className={`ad-banner${visible ? ' is-visible' : ''}`} aria-hidden={!visible}>
+        <CrystalOrb variant="arcane" size={56} />
+        <div className="ad-banner-copy">
+          <span className="ad-banner-eyebrow">ad break</span>
+          <span className="ad-banner-line">
+            Ads are running <em>· you are not missing anything</em>
+          </span>
+        </div>
+        <div className="ad-banner-back">
+          <span className="ad-banner-eyebrow">back in</span>
+          <span className="ad-banner-countdown">{lastLabel.current}</span>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export function OverlayPinnedPage() {
+  const [card] = usePinnedCard();
+  return (
+    <main className="overlay-widget overlay-pinned-widget" aria-label="Pinned card overlay">
+      <PinnedCardView card={card} />
+    </main>
+  );
+}
+
+/** The full-screen holding scenes: opaque, 1920x1080, one browser source each. */
+export function OverlayStartingPage() {
+  return <HoldingScene scene="starting" />;
+}
+
+export function OverlayBrbPage() {
+  return <HoldingScene scene="brb" />;
+}
+
+export function OverlayEndingPage() {
+  return <HoldingScene scene="ending" />;
+}
+
 export function OverlayTextPage() {
   const { current, onFinished } = useOverlayTextQueue();
   return (
@@ -135,21 +210,22 @@ export function OverlayUnknownPage({ path }: { path: string }) {
     <main className="overlay-widget overlay-unknown-widget" aria-label="Unknown overlay">
       <div className="overlay-unknown-notice">
         <strong>Narya: no overlay at {path}</strong>
-        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, or /winddown.</span>
+        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, /bottombar, /ads, /pinned, /starting, /brb, or /ending.</span>
       </div>
     </main>
   );
 }
 
 export function OverlayPage() {
+  const [pinned] = usePinnedCard();
   return (
     <main className="overlay-frame">
+      <TopBar />
       <div className="overlay-chat">
         <ChatPanel compact />
       </div>
-      <div className="overlay-goals">
-        <MusicPanel />
-      </div>
+      <PinnedCardView card={pinned} />
+      <BottomBar />
     </main>
   );
 }

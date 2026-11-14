@@ -46,6 +46,22 @@ const OVERLAY_PATHS = new Set([
   // browser source can read that the stream is winding down but never declare it.
   // /api/wind-down/settings is deliberately absent — it is operator configuration.
   '/api/wind-down',
+  // The top bar seeds itself from this. Built field by field to names and amounts only
+  // (see getLatestEvents), so no event ids, logins, or session ids ride along.
+  '/api/overlay/latest-events',
+  // The bottom bar's uptime seeds from this: just the session start time, or null.
+  '/api/overlay/stream-session',
+  // The ad banner seeds from this: the end time of a running ad break, or null. Nothing
+  // from the ad schedule (next ad, preroll, snooze) is on the payload.
+  '/api/overlay/ad-break',
+  // The Starting soon / Be right back / Ending scenes seed from this: two countdown end
+  // times and the "next stream" line. The PUT/POST routes that set them live under
+  // /api/holding-scenes and are deliberately absent, so the overlay token cannot write.
+  '/api/overlay/holding-scenes',
+  // The pinned card seeds from this: kind, display name and text, or null. The writes
+  // live under /api/pinned-card and are deliberately absent, so a browser source cannot
+  // put text on stream. No message id or author login is on the payload.
+  '/api/overlay/pinned-card',
 ]);
 
 // Events an overlay connection is allowed to receive. Everything else — whispers,
@@ -67,6 +83,20 @@ const OVERLAY_EVENTS = new Set([
   // An active flag, a source, and the planned end time — no operator configuration.
   // The stored base title is deliberately not on this payload.
   'winddown:updated',
+  // One nullable timestamp (when the live session began, null when it ended) — no
+  // session id, Discord message ids, or planned end.
+  'overlay:stream-session',
+  // One nullable timestamp (when the running ad break ends, null when none) — nothing
+  // from the ad schedule.
+  'overlay:ad-break',
+  // Two nullable end times and one line of display text — nothing else.
+  'overlay:holding-scenes',
+  // The card's kind, name and text, or null when cleared — never the source message id
+  // or author login.
+  'overlay:pinned-card',
+  // The top bar's four latest names (and cheer/raid amounts) — the same field-by-field
+  // payload as GET /api/overlay/latest-events, nothing else.
+  'overlay:latest-events',
 ]);
 
 // Derived rather than separately configured so the operator has exactly one

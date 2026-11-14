@@ -52,7 +52,11 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       host,
       proxy: {
-        '/api': env.VITE_BACKEND_ORIGIN ?? 'http://localhost:4317',
+        // Not the string shorthand: that implies changeOrigin: true, which rewrites
+        // Host to the backend's. The Twitch login needs the browser's real Host to
+        // notice a 127.0.0.1-vs-localhost mismatch with the OAuth redirect URI
+        // (loopbackAliasRedirect in src/server/twitch/auth.ts).
+        '/api': { target: env.VITE_BACKEND_ORIGIN ?? 'http://localhost:4317', changeOrigin: false },
         '/socket': {
           target: env.VITE_BACKEND_WS_ORIGIN ?? 'http://localhost:4317',
           ws: true,

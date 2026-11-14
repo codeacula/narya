@@ -683,6 +683,41 @@ describe('the set_wind_down step', () => {
   });
 });
 
+describe('the pinned card steps', () => {
+  test('set_pinned_topic renders its template, then trims and caps it', async () => {
+    const pinned: Array<[string, string | null, string | null]> = [];
+    const h = harness(action([step({ type: 'set_pinned_topic', payload: { template: '  Working on {input}  ' } } as never)]), {
+      setPinnedTopic: (text, login, messageId) => { pinned.push([text, login, messageId]); },
+    });
+    const result = await run(h, { input: 'the parser', login: 'quietorbit', messageId: 'msg-1' });
+    expect(result.status).toBe('succeeded');
+    // The invoking viewer rides along so moderation can take viewer-derived text down.
+    // ...and the chat line, so deleting that one message takes it down too.
+    expect(pinned).toEqual([['Working on the parser', 'quietorbit', 'msg-1']]);
+  });
+
+  // An unfilled template must not read as an instruction to take the card down or
+  // pin nothing-with-a-heading.
+  test('set_pinned_topic skips when the template renders empty', async () => {
+    const pinned: string[] = [];
+    const h = harness(action([step({ type: 'set_pinned_topic', payload: { template: '{input}' } } as never)]), {
+      setPinnedTopic: text => { pinned.push(text); },
+    });
+    const result = await run(h);
+    expect(result.status).toBe('skipped');
+    expect(pinned).toEqual([]);
+  });
+
+  test('clear_pinned_card clears', async () => {
+    let cleared = 0;
+    const h = harness(action([step({ type: 'clear_pinned_card', payload: {} } as never)]), {
+      clearPinnedCard: () => { cleared += 1; },
+    });
+    expect((await run(h)).status).toBe('succeeded');
+    expect(cleared).toBe(1);
+  });
+});
+
 // --- adjust_counter -----------------------------------------------------------
 
 /**

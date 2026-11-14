@@ -76,7 +76,13 @@ import type {
   TtsVoice,
   AppConfig,
   AppConfigUpdate,
+  LatestEvents,
+  HoldingScene,
+  HoldingScenesState,
+  PinnedCard,
+  OverlayAdBreak,
   OverlayPlaceholders,
+  OverlayStreamSession,
   MediaMuteState,
   StreamStatus,
   WindDownPublicState,
@@ -617,6 +623,52 @@ export async function updateStreamStatus(text: string): Promise<StreamStatus> {
 
 // Overlay bounds outlines. The GET is on the overlay token's read allowlist (a
 // browser source seeds from it); the PUT is operator-only.
+export async function getLatestEvents(): Promise<LatestEvents> {
+  return fetchJson<LatestEvents>('/api/overlay/latest-events');
+}
+
+export async function getHoldingScenes(): Promise<HoldingScenesState> {
+  return fetchJson<HoldingScenesState>('/api/overlay/holding-scenes');
+}
+
+/** Start a countdown of `minutes` from now on a holding scene, or clear it with null. */
+export async function setHoldingCountdown(scene: HoldingScene, minutes: number | null): Promise<HoldingScenesState> {
+  return sendJson<HoldingScenesState>('/api/holding-scenes/countdown', 'PUT', { scene, minutes });
+}
+
+export async function adjustHoldingCountdown(scene: HoldingScene, deltaMinutes: number): Promise<HoldingScenesState> {
+  return sendJson<HoldingScenesState>('/api/holding-scenes/countdown/adjust', 'POST', { scene, deltaMinutes });
+}
+
+export async function saveNextStream(text: string): Promise<HoldingScenesState> {
+  return sendJson<HoldingScenesState>('/api/holding-scenes/next-stream', 'PUT', { text });
+}
+
+export async function getPinnedCard(): Promise<PinnedCard | null> {
+  return (await fetchJson<{ card: PinnedCard | null }>('/api/overlay/pinned-card')).card;
+}
+
+/** Pin a chat message by id. The server reads the name and text itself. */
+export async function pinChatMessage(messageId: string): Promise<PinnedCard | null> {
+  return (await sendJson<{ card: PinnedCard | null }>('/api/pinned-card/message', 'POST', { messageId })).card;
+}
+
+export async function pinTopic(text: string): Promise<PinnedCard | null> {
+  return (await sendJson<{ card: PinnedCard | null }>('/api/pinned-card/topic', 'PUT', { text })).card;
+}
+
+export async function clearPinnedCard(): Promise<PinnedCard | null> {
+  return (await sendJson<{ card: PinnedCard | null }>('/api/pinned-card', 'DELETE')).card;
+}
+
+export async function getOverlayAdBreak(): Promise<OverlayAdBreak> {
+  return fetchJson<OverlayAdBreak>('/api/overlay/ad-break');
+}
+
+export async function getOverlayStreamSession(): Promise<OverlayStreamSession> {
+  return fetchJson<OverlayStreamSession>('/api/overlay/stream-session');
+}
+
 export async function getOverlayPlaceholders(): Promise<OverlayPlaceholders> {
   return fetchJson<OverlayPlaceholders>('/api/overlay/placeholders');
 }

@@ -1,9 +1,12 @@
 import React from 'react';
-import type { ObsStatus } from '../../shared/api';
+import type { HoldingScene, ObsStatus } from '../../shared/api';
 import { AutomodQuickActions } from '../automod';
 import { TabletChatPanel } from '../tabletChat';
 import { TabletQuickActions } from '../quickActions';
 import { useClipButtons } from '../clips';
+import { useCountdown } from '../countdown';
+import { endsAtFor, useHoldingSceneControls } from '../holdingScenes';
+import { pinnedCardSummary, usePinnedCardControls } from '../pinnedCard';
 import { useMediaMute } from '../mediaMute';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
@@ -61,6 +64,87 @@ function useObsStatus() {
   );
 
   return { obsStatus, setObsStatus, error };
+}
+
+const HOLDING_PRESETS = [5, 10, 15] as const;
+const HOLDING_SCENES: { scene: HoldingScene; label: string }[] = [
+  { scene: 'starting', label: 'Starting soon' },
+  { scene: 'brb', label: 'Be right back' },
+];
+
+function HoldingReadout({ endsAt }: { endsAt: string | null }) {
+  const reading = useCountdown(endsAt);
+  return <span className="holding-readout">{reading ? reading.label : 'no countdown'}</span>;
+}
+
+/**
+ * Set or clear the Starting soon and Be right back countdowns from the tablet. Fine
+ * adjustment and the Ending scene's "next stream" line stay on the dashboard.
+ */
+function TabletHoldingScenes({ onError }: { onError: (message: string) => void }) {
+  const { state, busy, start, clear } = useHoldingSceneControls(onError);
+  return (
+    <section className="tablet-panel holding-panel">
+      <div className="tablet-panel-header">
+        <div>
+          <p className="eyebrow">Scenes</p>
+          <h2>Countdowns</h2>
+        </div>
+      </div>
+      {HOLDING_SCENES.map(({ scene, label }) => {
+        const endsAt = endsAtFor(state, scene);
+        return (
+          <div className="media-group" key={scene}>
+            <p className="media-group-label">{label} <HoldingReadout endsAt={endsAt} /></p>
+            <div className="tablet-button-grid">
+              {HOLDING_PRESETS.map(minutes => (
+                <button
+                  key={minutes}
+                  disabled={busy}
+                  onClick={event => { blurIfPointer(event); void start(scene, minutes); }}
+                >
+                  {minutes} min
+                </button>
+              ))}
+              <button
+                disabled={busy || endsAt === null}
+                onClick={event => { blurIfPointer(event); void clear(scene); }}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/**
+ * What the pinned card shows and a clear button. Pinning a question is a button on a
+ * chat row (the chat panel is on this surface too); topic entry stays on the dashboard.
+ */
+function TabletPinnedCard({ onError }: { onError: (message: string) => void }) {
+  const { card, busy, clear } = usePinnedCardControls(onError);
+  return (
+    <section className="tablet-panel pinned-panel">
+      <div className="tablet-panel-header">
+        <div>
+          <p className="eyebrow">On stream</p>
+          <h2>Pinned card</h2>
+        </div>
+      </div>
+      <p className="media-group-label">{pinnedCardSummary(card)}</p>
+      <div className="tablet-button-grid">
+        <button
+          disabled={busy || card === null}
+          onClick={event => { blurIfPointer(event); void clear(); }}
+        >
+          Clear
+        </button>
+      </div>
+    </section>
+  );
 }
 
 export function TabletPage() {
@@ -196,6 +280,10 @@ export function TabletPage() {
           </section>
 
           <TabletQuickActions />
+
+          <TabletHoldingScenes onError={setCommandError} />
+
+          <TabletPinnedCard onError={setCommandError} />
 
           <section className="tablet-panel media-panel">
             <div className="tablet-panel-header">

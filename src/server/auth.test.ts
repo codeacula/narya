@@ -510,3 +510,63 @@ describe('isLoopbackHost', () => {
     expect(isLoopbackHost('192.168.1.20')).toBe(false);
   });
 });
+
+describe('overlay bar data', () => {
+  test('overlay connections receive the stream-session transition', () => {
+    expect(isOverlayEvent('overlay:stream-session')).toBe(true);
+  });
+
+  test('overlay connections receive the ad-break event', () => {
+    expect(isOverlayEvent('overlay:ad-break')).toBe(true);
+  });
+
+  test('overlay connections receive the holding-scenes event', () => {
+    expect(isOverlayEvent('overlay:holding-scenes')).toBe(true);
+  });
+
+  test('the overlay token reads holding scenes but cannot set them', () => {
+    setToken(OPERATOR);
+    const overlay = getOverlayToken()!;
+    expect(callMiddleware({ path: '/api/overlay/holding-scenes', token: overlay }).nextCalled).toBe(true);
+    expect(callMiddleware({ method: 'PUT', path: '/api/overlay/holding-scenes', token: overlay }).status).toBe(403);
+    for (const [method, path] of [
+      ['PUT', '/api/holding-scenes/countdown'],
+      ['POST', '/api/holding-scenes/countdown/adjust'],
+      ['PUT', '/api/holding-scenes/next-stream'],
+    ]) {
+      expect(callMiddleware({ method, path, token: overlay }).status).toBe(403);
+      expect(callMiddleware({ method, path, token: OPERATOR }).nextCalled).toBe(true);
+    }
+  });
+
+  test('overlay connections receive the pinned-card event', () => {
+    expect(isOverlayEvent('overlay:pinned-card')).toBe(true);
+  });
+
+  test('overlay connections receive the latest-events event', () => {
+    expect(isOverlayEvent('overlay:latest-events')).toBe(true);
+  });
+
+  test('the overlay token reads the pinned card but cannot change it', () => {
+    setToken(OPERATOR);
+    const overlay = getOverlayToken()!;
+    expect(callMiddleware({ path: '/api/overlay/pinned-card', token: overlay }).nextCalled).toBe(true);
+    expect(callMiddleware({ method: 'PUT', path: '/api/overlay/pinned-card', token: overlay }).status).toBe(403);
+    for (const [method, path] of [
+      ['POST', '/api/pinned-card/message'],
+      ['PUT', '/api/pinned-card/topic'],
+      ['DELETE', '/api/pinned-card'],
+    ]) {
+      expect(callMiddleware({ method, path, token: overlay }).status).toBe(403);
+      expect(callMiddleware({ method, path, token: OPERATOR }).nextCalled).toBe(true);
+    }
+  });
+
+  test('lets the overlay token read the bar seeds, GET only', () => {
+    setToken(OPERATOR);
+    for (const path of ['/api/overlay/latest-events', '/api/overlay/stream-session', '/api/overlay/ad-break']) {
+      expect(callMiddleware({ path, token: getOverlayToken()! }).nextCalled).toBe(true);
+      expect(callMiddleware({ method: 'PUT', path, token: getOverlayToken()! }).status).toBe(403);
+    }
+  });
+});

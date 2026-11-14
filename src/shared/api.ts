@@ -689,6 +689,58 @@ export type OverlayPlaceholders = {
   enabled: boolean;
 };
 
+/** One entry of the overlay top bar: who, and the number the event carried if any. */
+export type LatestEvent = {
+  name: string;
+  /** Bits, raid viewers; null for follows/subs and for rows recorded before amounts were stored. */
+  amount: number | null;
+};
+
+/** GET /api/overlay/latest-events — the latest event of each kind, ever, not just this session. */
+export type LatestEvents = {
+  follow: LatestEvent | null;
+  /** The most recent sub or gift. */
+  sub: LatestEvent | null;
+  cheer: LatestEvent | null;
+  raid: LatestEvent | null;
+};
+
+/** GET /api/overlay/stream-session and the `overlay:stream-session` event payload. */
+export type OverlayStreamSession = {
+  /** RFC3339 start of the active stream session, or null when off-stream. */
+  startedAt: string | null;
+};
+
+/** The two holding scenes that carry a countdown; Ending has none. */
+export type HoldingScene = 'starting' | 'brb';
+
+/**
+ * GET /api/overlay/holding-scenes and the `overlay:holding-scenes` event payload.
+ * Absolute end times (RFC3339, server clock) so every source ticks to the same moment;
+ * a past time is deliberate — the countdown runs into negatives rather than stopping.
+ */
+export type HoldingScenesState = {
+  startingEndsAt: string | null;
+  brbEndsAt: string | null;
+  /** The Ending scene's "next stream" line; empty when unset. */
+  nextStream: string;
+};
+
+/**
+ * GET /api/overlay/pinned-card (as `{ card }`) and the `overlay:pinned-card` event
+ * payload (null when the card is cleared). Only what is displayed: the source message
+ * id and author login that moderation matches on are deliberately not here.
+ */
+export type PinnedCard =
+  | { kind: 'question'; name: string; text: string }
+  | { kind: 'topic'; text: string };
+
+/** GET /api/overlay/ad-break and the `overlay:ad-break` event payload. */
+export type OverlayAdBreak = {
+  /** RFC3339 end of the running ad break, or null when none (or it already ended). Nothing else about ads. */
+  endsAt: string | null;
+};
+
 /** `media:mute` WebSocket payload and the GET/PUT /api/automation/media-mute body. */
 export type MediaMuteState = {
   muted: boolean;
@@ -845,6 +897,8 @@ export type ActionStepType =
   | 'twitch_timeout'
   | 'twitch_ban'
   | 'set_wind_down'
+  | 'set_pinned_topic'
+  | 'clear_pinned_card'
   | 'adjust_counter'
   | 'quote_add'
   | 'quote_show';
@@ -924,6 +978,15 @@ export type TwitchBanPayload = { loginTemplate: string; reasonTemplate: string }
 export type SetWindDownPayload = { active: boolean };
 
 /**
+ * Pins the operator's own topic on stream, replacing whatever card is up. The template
+ * renders like any other text step; an empty render skips rather than clearing.
+ */
+export type SetPinnedTopicPayload = { template: string };
+
+/** Clears the pinned card, whichever kind it is. Nothing to configure. */
+export type ClearPinnedCardPayload = Record<string, never>;
+
+/**
  * `add` moves the counter by `amountTemplate`; `set` assigns it. There is no
  * separate `reset` mode because resetting is `set` with `0` — one mode fewer to
  * validate, render, and explain.
@@ -987,6 +1050,8 @@ export type ActionStep =
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_timeout'; payload: TwitchTimeoutPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_ban'; payload: TwitchBanPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'set_wind_down'; payload: SetWindDownPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'set_pinned_topic'; payload: SetPinnedTopicPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'clear_pinned_card'; payload: ClearPinnedCardPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'adjust_counter'; payload: AdjustCounterPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'quote_add'; payload: QuoteAddPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'quote_show'; payload: QuoteShowPayload };
@@ -1084,6 +1149,12 @@ export type TemplateContext = {
   quoteSubmitter?: string;
   quoteShownCount?: number;
   quoteDate?: string;
+  /**
+   * The chat message that fired a chat_phrase / viewer_command trigger. Not a template
+   * token: it exists so a step that puts viewer-derived text on stream can be taken
+   * down when that one message is deleted by moderation.
+   */
+  messageId?: string;
   /** External inbound payload for {data.*} — set on a redis_event invocation. */
   data?: Record<string, unknown>;
 };

@@ -8,28 +8,39 @@ export function useMusic() {
   return music;
 }
 
-export function MusicPanel() {
-  const music = useMusic();
-  const hasTrack = (music?.status === 'playing' || music?.status === 'paused') && music.title;
-
+function NoteIcon() {
   return (
-    <div className="music-now">
-      <span className="music-now-label">Now playing</span>
-      <div className="music-now-content">
-        {hasTrack ? (
-          <div className="track-info">
-            <strong>{music!.title}</strong>
-            <small>
-              {music!.status === 'paused' ? 'Paused' : ''}
-              {music!.status === 'paused' && music!.artist ? ' — ' : ''}
-              {music!.artist ?? music!.playerName ?? 'Unknown artist'}
-            </small>
-          </div>
-        ) : (
-          <span className="music-now-idle">No music playing</span>
-        )}
-      </div>
-    </div>
+    <span className="music-now-icon">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M9 18V5l11-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="17" cy="16" r="3" />
+      </svg>
+    </span>
   );
 }
 
+/** `inBar` drops the chip surface so the line sits flat inside the bottom bar. */
+export function MusicPanel({ inBar = false }: { inBar?: boolean } = {}) {
+  const music = useMusic();
+  const hasTrack = (music?.status === 'playing' || music?.status === 'paused') && music.title;
+  const paused = hasTrack && music!.status === 'paused';
+  const artist = hasTrack ? (music!.artist ?? music!.playerName) : null;
+
+  return (
+    <div className={`music-now${inBar ? ' music-now--bar' : ''}${paused ? ' is-paused' : ''}`}>
+      <NoteIcon />
+      {hasTrack ? (
+        <>
+          <span className="music-now-text">
+            {music!.title}
+            {artist ? <span className="music-now-artist"> · {artist}</span> : null}
+          </span>
+          {paused ? <span className="music-now-paused">paused</span> : null}
+        </>
+      ) : (
+        <span className="music-now-idle">nothing playing</span>
+      )}
+    </div>
+  );
+}

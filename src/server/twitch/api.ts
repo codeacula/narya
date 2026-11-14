@@ -3,6 +3,7 @@ import type { ViewerDetails } from '../../shared/api';
 import { TOKEN_EXPIRY_REFRESH_BUFFER_MS } from '../../shared/constants';
 import { appConfig } from '../appConfig';
 import { handle, HttpRouteError, readResponseError } from '../http';
+import { broadcastOverlayAdBreak } from '../overlayAds';
 import type { RuntimeState } from '../runtime';
 import { parseTwitchGameId } from '../streamCategories';
 import { mergeTagSuggestions, normalizeTag, normalizeTags, recordTagHistory, suggestTagHistory } from '../tags';
@@ -565,6 +566,9 @@ async function executeTwitchCommercial(state: RuntimeState): Promise<TwitchComme
 
   state.adBreakEndsAt = new Date(Date.now() + durationSeconds * 1000).toISOString();
   state.twitchAdScheduleCache = null;
+  // The overlay banner only hears about a break through this broadcast, and the
+  // channel.ad_break.begin event does not fire for a commercial this app started.
+  broadcastOverlayAdBreak(state);
 
   try {
     await sendTwitchChatMessage(

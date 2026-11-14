@@ -37,6 +37,27 @@ test('the wind-down countdown resolves to its own source', () => {
   expect(overlayFromPath('/overlay/winddown/')).toBe('winddown');
 });
 
+test('the top and bottom bars resolve to their own sources', () => {
+  expect(overlayFromPath('/overlay/topbar')).toBe('topbar');
+  expect(overlayFromPath('/overlay/bottombar/')).toBe('bottombar');
+});
+
+test('the ad-break banner resolves to its own source', () => {
+  expect(overlayFromPath('/overlay/ads')).toBe('ads');
+  expect(overlayFromPath('/overlay/ads/')).toBe('ads');
+});
+
+test('the pinned card resolves to its own source', () => {
+  expect(overlayFromPath('/overlay/pinned')).toBe('pinned');
+  expect(overlayFromPath('/overlay/pinned/')).toBe('pinned');
+});
+
+test('the full-screen holding scenes resolve to their own sources', () => {
+  expect(overlayFromPath('/overlay/starting')).toBe('starting');
+  expect(overlayFromPath('/overlay/brb/')).toBe('brb');
+  expect(overlayFromPath('/overlay/ending')).toBe('ending');
+});
+
 test('trailing slashes and non-overlay paths are unaffected', () => {
   expect(overlayFromPath('/overlay/chat/')).toBe('chat');
   expect(overlayFromPath('/overlays')).toBeNull();

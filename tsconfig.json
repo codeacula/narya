@@ -18,7 +18,11 @@
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    // Since TypeScript 6, `types` defaults to [] instead of every @types package, so
+    // the ambient sets have to be named: Bun (bun:test, Bun globals), Node, and
+    // Vite's client types (import.meta.env and the side-effect CSS imports).
+    "types": ["bun", "node", "vite/client"]
   },
   "include": ["src", "vite.config.ts"],
   "references": []
