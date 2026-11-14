@@ -3,7 +3,7 @@ import { OVERLAY_CHAT_EXPIRE_MS, OVERLAY_CHAT_FADE_MS } from '../shared/constant
 import { getRoleFromBadges, type Role } from '../shared/roles';
 import type { ChatMessage, ChatModerationEvent } from '../shared/api';
 import { isMentionOf, parseLinkToken } from './chatText';
-import { useSocket } from './realtime';
+import { useSocket, useSocketReconnect } from './realtime';
 import { getEmotes, getHealth, getRecentChat } from './services/dashboard';
 
 export type { ChatMessage, ChatModerationEvent } from '../shared/api';
@@ -97,25 +97,69 @@ export function renderContent(
   return nodes;
 }
 
+function normalizeRecent(data: ChatMessage[]): ChatMessage[] {
+  return data.map(m => ({
+    ...m,
+    isFirstTimer: Boolean(m.isFirstEver),
+    isFirstThisSession: Boolean(m.isFirstThisSession),
+    isFirstEver: Boolean(m.isFirstEver),
+  }));
+}
+
+export function applyModeration(messages: ChatMessage[], event: ChatModerationEvent): ChatMessage[] {
+  return messages.map(message => {
+    const matchesMessage = event.messageId && message.id === event.messageId;
+    const matchesUser = event.username && message.username.toLowerCase() === event.username.toLowerCase();
+    const matchesClear = event.type === 'chat.clear';
+    if (!matchesMessage && !matchesUser && !matchesClear) return message;
+    return { ...message, deletedAt: event.deletedAt, deletedReason: event.deletedReason };
+  });
+}
+
 export function useChat(expireAfterMs = 0) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
+  // Messages and moderation that arrive over the socket while a (re)fetch is in flight,
+  // replayed on top of its result so the response cannot erase them.
+  const pendingRef = React.useRef<{ messages: ChatMessage[]; moderation: ChatModerationEvent[] } | null>(null);
+
+  const loadRecent = React.useCallback((resetOnError: boolean) => {
+    const pending = { messages: [] as ChatMessage[], moderation: [] as ChatModerationEvent[] };
+    pendingRef.current = pending;
+    getRecentChat()
+      .then((data: ChatMessage[]) => {
+        if (pendingRef.current !== pending) return;
+        const fetched = normalizeRecent(data);
+        const ids = new Set(fetched.map(m => m.id));
+        const merged = [...fetched, ...pending.messages.filter(m => !ids.has(m.id))].slice(-40);
+        setMessages(pending.moderation.reduce(applyModeration, merged));
+      })
+      .catch(() => {
+        // A failed reconnect refetch keeps what is showing; only the first load resets.
+        if (resetOnError) setMessages([]);
+      })
+      .finally(() => {
+        if (pendingRef.current === pending) pendingRef.current = null;
+      });
+  }, []);
 
   React.useEffect(() => {
     if (expireAfterMs > 0) return;
-    getRecentChat()
-      .then((data: ChatMessage[]) => setMessages(data.map(m => ({
-        ...m,
-        isFirstTimer: Boolean(m.isFirstEver),
-        isFirstThisSession: Boolean(m.isFirstThisSession),
-        isFirstEver: Boolean(m.isFirstEver),
-      }))))
-      .catch(() => setMessages([]));
-  }, [expireAfterMs]);
+    loadRecent(true);
+  }, [expireAfterMs, loadRecent]);
+
+  // Chat that never expires (the holding scenes) keeps a moderated row until told
+  // otherwise, and the shared socket does not replay what it missed, so a
+  // chat:moderated lost in a gap would leave removed chat on a live scene. Expiring
+  // overlay chat clears itself and needs no correction.
+  useSocketReconnect(React.useCallback(() => {
+    if (expireAfterMs === 0) loadRecent(false);
+  }, [expireAfterMs, loadRecent]));
 
   useSocket<ChatMessage>(
     'chat:message',
     React.useCallback(
       (message) => {
+        pendingRef.current?.messages.push(message);
         setMessages(current => {
           // tmi reconnects can replay a message we've already appended.
           if (current.some(m => m.id === message.id)) return current;
@@ -137,15 +181,8 @@ export function useChat(expireAfterMs = 0) {
   useSocket<ChatModerationEvent>(
     'chat:moderated',
     React.useCallback((event) => {
-      setMessages(current =>
-        current.map(message => {
-          const matchesMessage = event.messageId && message.id === event.messageId;
-          const matchesUser = event.username && message.username.toLowerCase() === event.username.toLowerCase();
-          const matchesClear = event.type === 'chat.clear';
-          if (!matchesMessage && !matchesUser && !matchesClear) return message;
-          return { ...message, deletedAt: event.deletedAt, deletedReason: event.deletedReason };
-        }),
-      );
+      pendingRef.current?.moderation.push(event);
+      setMessages(current => applyModeration(current, event));
     }, []),
   );
 
