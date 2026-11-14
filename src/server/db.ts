@@ -355,6 +355,18 @@ db.exec(`
     updated_at text not null
   );
 
+  -- The full-screen holding scenes' operator state. Single row (id = 1), persisted so a
+  -- restart mid-intermission keeps the countdown the viewers are watching. The two
+  -- end times are absolute (server clock), never a remaining duration, so every source
+  -- ticks to the same moment and a restart cannot pause them.
+  create table if not exists holding_scenes (
+    id integer primary key check (id = 1),
+    starting_ends_at text,
+    brb_ends_at text,
+    next_stream text not null default '',
+    updated_at text not null default ''
+  );
+
   -- Durable named tallies. The value column is deliberately signed: a counter is
   -- not necessarily a tally, and clamping at zero would discard a deliberate
   -- negative. The key column is the counter template token, and is unique.

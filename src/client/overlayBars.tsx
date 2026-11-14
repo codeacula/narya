@@ -28,11 +28,21 @@ function BarSlot({ label, event }: { label: string; event: LatestEvent | null })
   );
 }
 
+/**
+ * `bar` is the filled 48px strip of the live scenes. `rule` is the holding scenes'
+ * version of the same row: no fill, a hairline on the inner edge, content directly on
+ * the starfield. A modifier on the one component so the two can never drift apart.
+ */
+export type BarVariant = 'bar' | 'rule';
+
+const barClass = (position: 'top' | 'bottom', variant: BarVariant) =>
+  `overlay-bar overlay-bar-${position}${variant === 'rule' ? ' overlay-bar--rule' : ''}`;
+
 /** The community bar: latest follower, sub, bits and raid in four fixed slots. */
-export function TopBar() {
+export function TopBar({ variant = 'bar' }: { variant?: BarVariant } = {}) {
   const latest = useLatestEvents();
   return (
-    <div className="overlay-bar overlay-bar-top" role="region" aria-label="Latest community events">
+    <div className={barClass('top', variant)} role="region" aria-label="Latest community events">
       <BarSlot label="latest follower" event={latest.follow} />
       <BarSeparator />
       <BarSlot label="latest sub" event={latest.sub} />
@@ -55,16 +65,30 @@ function useNow(active: boolean): number {
   return now;
 }
 
-/** The Code bar: wordmark, the operator's "now" line, now-playing and uptime. */
-export function BottomBar() {
+/**
+ * The Code bar: wordmark, the operator's line, now-playing and uptime.
+ *
+ * `operator` swaps the line's eyebrow and, optionally, its text: the holding scenes call
+ * it "today" (still the stream status) or "next stream" (the Ending scene's own text).
+ * `uptimeTone="silver"` keeps gold free for a scene's countdown.
+ */
+export function BottomBar({
+  variant = 'bar',
+  operator,
+  uptimeTone = 'gold',
+}: {
+  variant?: BarVariant;
+  operator?: { eyebrow: string; text?: string };
+  uptimeTone?: 'gold' | 'silver';
+} = {}) {
   const status = useStreamStatus();
   const startedAt = useStreamSessionStart();
   const now = useNow(startedAt !== null);
-  const nowText = status?.text?.trim() ?? '';
+  const nowText = (operator?.text ?? status?.text)?.trim() ?? '';
   const uptime = uptimeSince(startedAt, now);
 
   return (
-    <div className="overlay-bar overlay-bar-bottom" role="region" aria-label="Stream info">
+    <div className={barClass('bottom', variant)} role="region" aria-label="Stream info">
       <div className="bar-brand">
         <CrystalOrb variant="arcane" size={22} />
         <span className="bar-wordmark">CODEACULA</span>
@@ -73,7 +97,7 @@ export function BottomBar() {
         <>
           <BarSeparator />
           <div className="bar-slot">
-            <span className="bar-eyebrow">now</span>
+            <span className="bar-eyebrow">{operator?.eyebrow ?? 'now'}</span>
             <span className="bar-value">{nowText}</span>
           </div>
         </>
@@ -83,7 +107,7 @@ export function BottomBar() {
       {uptime ? (
         <>
           <BarSeparator />
-          <span className="bar-uptime">{uptime}</span>
+          <span className={`bar-uptime${uptimeTone === 'silver' ? ' bar-uptime--silver' : ''}`}>{uptime}</span>
         </>
       ) : null}
     </div>

@@ -47,6 +47,12 @@ test('the ad-break banner resolves to its own source', () => {
   expect(overlayFromPath('/overlay/ads/')).toBe('ads');
 });
 
+test('the full-screen holding scenes resolve to their own sources', () => {
+  expect(overlayFromPath('/overlay/starting')).toBe('starting');
+  expect(overlayFromPath('/overlay/brb/')).toBe('brb');
+  expect(overlayFromPath('/overlay/ending')).toBe('ending');
+});
+
 test('trailing slashes and non-overlay paths are unaffected', () => {
   expect(overlayFromPath('/overlay/chat/')).toBe('chat');
   expect(overlayFromPath('/overlays')).toBeNull();

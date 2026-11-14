@@ -77,6 +77,8 @@ import type {
   AppConfig,
   AppConfigUpdate,
   LatestEvents,
+  HoldingScene,
+  HoldingScenesState,
   OverlayAdBreak,
   OverlayPlaceholders,
   OverlayStreamSession,
@@ -622,6 +624,23 @@ export async function updateStreamStatus(text: string): Promise<StreamStatus> {
 // browser source seeds from it); the PUT is operator-only.
 export async function getLatestEvents(): Promise<LatestEvents> {
   return fetchJson<LatestEvents>('/api/overlay/latest-events');
+}
+
+export async function getHoldingScenes(): Promise<HoldingScenesState> {
+  return fetchJson<HoldingScenesState>('/api/overlay/holding-scenes');
+}
+
+/** Start a countdown of `minutes` from now on a holding scene, or clear it with null. */
+export async function setHoldingCountdown(scene: HoldingScene, minutes: number | null): Promise<HoldingScenesState> {
+  return sendJson<HoldingScenesState>('/api/holding-scenes/countdown', 'PUT', { scene, minutes });
+}
+
+export async function adjustHoldingCountdown(scene: HoldingScene, deltaMinutes: number): Promise<HoldingScenesState> {
+  return sendJson<HoldingScenesState>('/api/holding-scenes/countdown/adjust', 'POST', { scene, deltaMinutes });
+}
+
+export async function saveNextStream(text: string): Promise<HoldingScenesState> {
+  return sendJson<HoldingScenesState>('/api/holding-scenes/next-stream', 'PUT', { text });
 }
 
 export async function getOverlayAdBreak(): Promise<OverlayAdBreak> {

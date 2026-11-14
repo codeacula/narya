@@ -54,6 +54,10 @@ const OVERLAY_PATHS = new Set([
   // The ad banner seeds from this: the end time of a running ad break, or null. Nothing
   // from the ad schedule (next ad, preroll, snooze) is on the payload.
   '/api/overlay/ad-break',
+  // The Starting soon / Be right back / Ending scenes seed from this: two countdown end
+  // times and the "next stream" line. The PUT/POST routes that set them live under
+  // /api/holding-scenes and are deliberately absent, so the overlay token cannot write.
+  '/api/overlay/holding-scenes',
 ]);
 
 // Events an overlay connection is allowed to receive. Everything else — whispers,
@@ -81,6 +85,8 @@ const OVERLAY_EVENTS = new Set([
   // One nullable timestamp (when the running ad break ends, null when none) — nothing
   // from the ad schedule.
   'overlay:ad-break',
+  // Two nullable end times and one line of display text — nothing else.
+  'overlay:holding-scenes',
 ]);
 
 // Derived rather than separately configured so the operator has exactly one

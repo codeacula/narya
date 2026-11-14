@@ -711,6 +711,21 @@ export type OverlayStreamSession = {
   startedAt: string | null;
 };
 
+/** The two holding scenes that carry a countdown; Ending has none. */
+export type HoldingScene = 'starting' | 'brb';
+
+/**
+ * GET /api/overlay/holding-scenes and the `overlay:holding-scenes` event payload.
+ * Absolute end times (RFC3339, server clock) so every source ticks to the same moment;
+ * a past time is deliberate — the countdown runs into negatives rather than stopping.
+ */
+export type HoldingScenesState = {
+  startingEndsAt: string | null;
+  brbEndsAt: string | null;
+  /** The Ending scene's "next stream" line; empty when unset. */
+  nextStream: string;
+};
+
 /** GET /api/overlay/ad-break and the `overlay:ad-break` event payload. */
 export type OverlayAdBreak = {
   /** RFC3339 end of the running ad break, or null when none (or it already ended). Nothing else about ads. */

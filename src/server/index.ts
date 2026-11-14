@@ -20,6 +20,7 @@ import {
 } from './legacyMigration';
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { registerMediaMuteRoutes } from './mediaMute';
+import { registerHoldingSceneRoutes } from './holdingScenes';
 import { registerOverlayBarRoutes } from './overlayBars';
 import { registerOverlayAdRoutes } from './overlayAds';
 import { registerOverlayPlaceholderRoutes } from './overlayPlaceholders';
@@ -171,6 +172,7 @@ registerStreamStatusRoutes(app);
 registerOverlayPlaceholderRoutes(app);
 registerOverlayBarRoutes(app);
 registerOverlayAdRoutes(app, runtimeState);
+registerHoldingSceneRoutes(app);
 registerMediaMuteRoutes(app);
 registerWindDownRoutes(app);
 registerLlmRoutes(app);

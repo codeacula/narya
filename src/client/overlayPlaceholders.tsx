@@ -91,6 +91,10 @@ const OVERLAY_LABELS: Record<string, string> = {
   winddown: 'Wind-down countdown',
   topbar: 'Top bar',
   bottombar: 'Bottom bar',
+  ads: 'Ad break banner',
+  starting: 'Starting soon scene',
+  brb: 'Be right back scene',
+  ending: 'Ending scene',
   unknown: 'Unknown overlay',
 };
 

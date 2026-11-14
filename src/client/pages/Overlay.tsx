@@ -4,6 +4,7 @@ import { ChatPanel } from '../chat';
 import { ClipStage, useMediaQueue } from '../clips';
 import { useCountdown } from '../countdown';
 import { CrystalOrb } from '../crystalOrb';
+import { HoldingScene } from '../holdingScene';
 import { MusicPanel } from '../music';
 import { BottomBar, TopBar } from '../overlayBars';
 import { OverlayTextStage, useOverlayTextQueue } from '../overlayText';
@@ -152,6 +153,19 @@ export function OverlayAdsPage() {
   );
 }
 
+/** The full-screen holding scenes: opaque, 1920x1080, one browser source each. */
+export function OverlayStartingPage() {
+  return <HoldingScene scene="starting" />;
+}
+
+export function OverlayBrbPage() {
+  return <HoldingScene scene="brb" />;
+}
+
+export function OverlayEndingPage() {
+  return <HoldingScene scene="ending" />;
+}
+
 export function OverlayTextPage() {
   const { current, onFinished } = useOverlayTextQueue();
   return (
@@ -186,7 +200,7 @@ export function OverlayUnknownPage({ path }: { path: string }) {
     <main className="overlay-widget overlay-unknown-widget" aria-label="Unknown overlay">
       <div className="overlay-unknown-notice">
         <strong>Narya: no overlay at {path}</strong>
-        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, /bottombar, or /ads.</span>
+        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, /bottombar, /ads, /starting, /brb, or /ending.</span>
       </div>
     </main>
   );
