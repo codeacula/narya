@@ -860,6 +860,7 @@ const allowedMigrationColumns = new Set([
   'discord_announce_terminal',
   'session_id',
   'actor_login',
+  'amount',
   'sound_src',
   'sound_volume',
   'clip_src',
@@ -904,6 +905,7 @@ const allowedMigrationDefinitions: Record<string, string> = {
   discord_announce_terminal: 'integer not null default 0',
   session_id: 'text',
   actor_login: 'text',
+  amount: 'integer',
   // Viewer identity, backfilled from Helix. `twitch_user_id` is the rename-proof
   // key; the login is not, which is why a refresh can find an account under a new
   // name. `missing_at` is stamped when Twitch stops returning the account at all.
@@ -1008,6 +1010,9 @@ db.exec('create index if not exists idx_stream_events_session on stream_events(s
 // `actor` is a display name, which for a localized name doesn't lowercase to the
 // login. Rows predating this column stay null and fall back to the old guess.
 addColumnIfMissing('stream_events', 'actor_login', 'text');
+// Bits, raid viewers, or gifted subs, so the top bar can show a number without parsing
+// `detail`. Rows predating the column stay null and render as just the name.
+addColumnIfMissing('stream_events', 'amount', 'integer');
 
 // Alerts gained independent sound + clip effects (replacing a single media slot).
 // Tables created under the earlier schema get the new columns; the old media_*

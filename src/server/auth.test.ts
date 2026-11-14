@@ -510,3 +510,17 @@ describe('isLoopbackHost', () => {
     expect(isLoopbackHost('192.168.1.20')).toBe(false);
   });
 });
+
+describe('overlay bar data', () => {
+  test('overlay connections receive the stream-session transition', () => {
+    expect(isOverlayEvent('overlay:stream-session')).toBe(true);
+  });
+
+  test('lets the overlay token read the bar seeds, GET only', () => {
+    setToken(OPERATOR);
+    for (const path of ['/api/overlay/latest-events', '/api/overlay/stream-session']) {
+      expect(callMiddleware({ path, token: getOverlayToken()! }).nextCalled).toBe(true);
+      expect(callMiddleware({ method: 'PUT', path, token: getOverlayToken()! }).status).toBe(403);
+    }
+  });
+});

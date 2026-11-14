@@ -35,7 +35,9 @@ export type OverlayName =
   | 'clips'
   | 'status'
   | 'text'
-  | 'winddown';
+  | 'winddown'
+  | 'topbar'
+  | 'bottombar';
 
 function normalizePath(pathname: string): string {
   return pathname.replace(/\/+$/, '') || '/';
@@ -51,6 +53,8 @@ const OVERLAY_BY_PATH: Record<string, OverlayName> = {
   '/overlay/status': 'status',
   '/overlay/text': 'text',
   '/overlay/winddown': 'winddown',
+  '/overlay/topbar': 'topbar',
+  '/overlay/bottombar': 'bottombar',
   // Retired, but deliberately still routed. Alerts became Actions, so a sub alert is
   // now a `show_text` step landing on /overlay/text. The URL, however, lives in the
   // operator's OBS scene collection, and retiring the route without redirecting it

@@ -20,6 +20,7 @@ import {
 } from './legacyMigration';
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { registerMediaMuteRoutes } from './mediaMute';
+import { registerOverlayBarRoutes } from './overlayBars';
 import { registerOverlayPlaceholderRoutes } from './overlayPlaceholders';
 import { registerWindDownRoutes, setWindDownTitleApplier } from './windDown';
 import { applyWindDownTitle, startWindDownLoop, windDownTitlePort } from './windDownLoop';
@@ -167,6 +168,7 @@ registerCounterRoutes(app);
 registerQuoteRoutes(app);
 registerStreamStatusRoutes(app);
 registerOverlayPlaceholderRoutes(app);
+registerOverlayBarRoutes(app);
 registerMediaMuteRoutes(app);
 registerWindDownRoutes(app);
 registerLlmRoutes(app);

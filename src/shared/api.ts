@@ -689,6 +689,28 @@ export type OverlayPlaceholders = {
   enabled: boolean;
 };
 
+/** One entry of the overlay top bar: who, and the number the event carried if any. */
+export type LatestEvent = {
+  name: string;
+  /** Bits, raid viewers; null for follows/subs and for rows recorded before amounts were stored. */
+  amount: number | null;
+};
+
+/** GET /api/overlay/latest-events — the latest event of each kind, ever, not just this session. */
+export type LatestEvents = {
+  follow: LatestEvent | null;
+  /** The most recent sub or gift. */
+  sub: LatestEvent | null;
+  cheer: LatestEvent | null;
+  raid: LatestEvent | null;
+};
+
+/** GET /api/overlay/stream-session and the `overlay:stream-session` event payload. */
+export type OverlayStreamSession = {
+  /** RFC3339 start of the active stream session, or null when off-stream. */
+  startedAt: string | null;
+};
+
 /** `media:mute` WebSocket payload and the GET/PUT /api/automation/media-mute body. */
 export type MediaMuteState = {
   muted: boolean;

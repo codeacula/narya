@@ -1,4 +1,5 @@
 import { db } from './db';
+import { broadcast } from './realtime';
 
 export type StreamSession = {
   id: string;
@@ -139,11 +140,23 @@ export function getOrStartStreamSession(source: string, startedAt: string): Stre
   });
   const session = createSession();
   if (!session) throw new Error('Could not create stream session.');
+  // Only a session this call actually created is a transition; the early returns above
+  // (and the transaction's duplicate guard) found an existing one and say nothing.
+  if (session.id === id) broadcastStreamSession(session.startedAt);
   return session;
 }
 
 export function endActiveStreamSession(endedAt = new Date().toISOString()) {
-  endActiveSessions.run(endedAt);
+  const result = endActiveSessions.run(endedAt) as { changes: number };
+  // Reconnect reconciles call this every time with nothing open; only a real end
+  // is news to the overlay.
+  if (result.changes > 0) broadcastStreamSession(null);
+}
+
+// The bottom bar's uptime ticks from this. The payload is the start time and nothing
+// else, because it reaches overlay (unauthenticated-ish) connections.
+function broadcastStreamSession(startedAt: string | null) {
+  broadcast('overlay:stream-session', { startedAt });
 }
 
 export function attachDiscordAnnouncementToSession(sessionId: string, channelId: string, messageId: string) {

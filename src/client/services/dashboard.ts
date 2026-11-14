@@ -76,7 +76,9 @@ import type {
   TtsVoice,
   AppConfig,
   AppConfigUpdate,
+  LatestEvents,
   OverlayPlaceholders,
+  OverlayStreamSession,
   MediaMuteState,
   StreamStatus,
   WindDownPublicState,
@@ -617,6 +619,14 @@ export async function updateStreamStatus(text: string): Promise<StreamStatus> {
 
 // Overlay bounds outlines. The GET is on the overlay token's read allowlist (a
 // browser source seeds from it); the PUT is operator-only.
+export async function getLatestEvents(): Promise<LatestEvents> {
+  return fetchJson<LatestEvents>('/api/overlay/latest-events');
+}
+
+export async function getOverlayStreamSession(): Promise<OverlayStreamSession> {
+  return fetchJson<OverlayStreamSession>('/api/overlay/stream-session');
+}
+
 export async function getOverlayPlaceholders(): Promise<OverlayPlaceholders> {
   return fetchJson<OverlayPlaceholders>('/api/overlay/placeholders');
 }

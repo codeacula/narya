@@ -89,6 +89,8 @@ const OVERLAY_LABELS: Record<string, string> = {
   status: 'Stream status',
   text: 'Alert & action text',
   winddown: 'Wind-down countdown',
+  topbar: 'Top bar',
+  bottombar: 'Bottom bar',
   unknown: 'Unknown overlay',
 };
 

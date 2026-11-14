@@ -46,6 +46,11 @@ const OVERLAY_PATHS = new Set([
   // browser source can read that the stream is winding down but never declare it.
   // /api/wind-down/settings is deliberately absent — it is operator configuration.
   '/api/wind-down',
+  // The top bar seeds itself from this. Built field by field to names and amounts only
+  // (see getLatestEvents), so no event ids, logins, or session ids ride along.
+  '/api/overlay/latest-events',
+  // The bottom bar's uptime seeds from this: just the session start time, or null.
+  '/api/overlay/stream-session',
 ]);
 
 // Events an overlay connection is allowed to receive. Everything else — whispers,
@@ -67,6 +72,9 @@ const OVERLAY_EVENTS = new Set([
   // An active flag, a source, and the planned end time — no operator configuration.
   // The stored base title is deliberately not on this payload.
   'winddown:updated',
+  // One nullable timestamp (when the live session began, null when it ended) — no
+  // session id, Discord message ids, or planned end.
+  'overlay:stream-session',
 ]);
 
 // Derived rather than separately configured so the operator has exactly one

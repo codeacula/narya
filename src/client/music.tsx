@@ -20,14 +20,15 @@ function NoteIcon() {
   );
 }
 
-export function MusicPanel() {
+/** `inBar` drops the chip surface so the line sits flat inside the bottom bar. */
+export function MusicPanel({ inBar = false }: { inBar?: boolean } = {}) {
   const music = useMusic();
   const hasTrack = (music?.status === 'playing' || music?.status === 'paused') && music.title;
   const paused = hasTrack && music!.status === 'paused';
   const artist = hasTrack ? (music!.artist ?? music!.playerName) : null;
 
   return (
-    <div className={`music-now${paused ? ' is-paused' : ''}`}>
+    <div className={`music-now${inBar ? ' music-now--bar' : ''}${paused ? ' is-paused' : ''}`}>
       <NoteIcon />
       {hasTrack ? (
         <>

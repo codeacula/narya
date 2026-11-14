@@ -4,7 +4,7 @@ import './styles.css';
 import './styles/tokens.css';
 import './styles/panel.css';
 import { DashboardPage } from './pages/Dashboard';
-import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage, OverlayShoutoutsPage, OverlayClipsPage, OverlayStatusPage, OverlayTextPage, OverlayWindDownPage, OverlayUnknownPage } from './pages/Overlay';
+import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage, OverlayShoutoutsPage, OverlayClipsPage, OverlayStatusPage, OverlayTextPage, OverlayWindDownPage, OverlayTopBarPage, OverlayBottomBarPage, OverlayUnknownPage } from './pages/Overlay';
 import { TabletPage } from './pages/Tablet';
 import { ViewerWindowPage } from './pages/ViewerWindow';
 import { OverlayPlaceholder } from './overlayPlaceholders';
@@ -29,6 +29,8 @@ const OVERLAY_PAGES: Record<OverlayName, React.ComponentType> = {
   status: OverlayStatusPage,
   text: OverlayTextPage,
   winddown: OverlayWindDownPage,
+  topbar: OverlayTopBarPage,
+  bottombar: OverlayBottomBarPage,
 };
 
 function App() {

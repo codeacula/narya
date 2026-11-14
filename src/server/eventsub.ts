@@ -18,21 +18,27 @@ import { getTwitchChannel } from './twitchIdentity';
 import { resetWindDownForStreamEnd } from './windDown';
 
 const insertStreamEvent = db.prepare(`
-  insert or ignore into stream_events (id, kind, actor, detail, tone, received_at, session_id, actor_login)
-  values (?, ?, ?, ?, ?, ?, ?, ?)
+  insert or ignore into stream_events (id, kind, actor, detail, tone, received_at, session_id, actor_login, amount)
+  values (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const updateStreamEventDetail = db.prepare(`
   update stream_events set detail = ?, tone = ? where id = ?
 `);
 
-/** `actor` is the display name shown on screen; `actorLogin` addresses the viewer. */
-function emitStreamEvent(kind: string, actor: string, detail: string, tone: string, actorLogin?: string): string {
+/**
+ * `actor` is the display name shown on screen; `actorLogin` addresses the viewer.
+ * `amount` is the number the event is about (bits, raid viewers, gifted subs) so the
+ * top bar can show it without parsing `detail`. It is stored only: the WebSocket
+ * payload is unchanged, and the overlay refetches /api/overlay/latest-events instead.
+ */
+function emitStreamEvent(kind: string, actor: string, detail: string, tone: string, actorLogin?: string, amount?: number): string {
   const id = crypto.randomUUID();
   const receivedAt = new Date().toISOString();
   const sessionId = getCurrentStreamSessionId();
   const login = actorLogin?.toLowerCase() || null;
-  insertStreamEvent.run(id, kind, actor, detail, tone, receivedAt, sessionId, login);
+  const storedAmount = typeof amount === 'number' && Number.isFinite(amount) ? Math.trunc(amount) : null;
+  insertStreamEvent.run(id, kind, actor, detail, tone, receivedAt, sessionId, login, storedAmount);
   broadcast('stream:event', { id, kind, actor, detail, tone, ago: 'just now', receivedAt, sessionId });
   return id;
 }
@@ -261,7 +267,7 @@ export async function handleEventSubNotification(
       const gifter = (event.user_name as string) || 'Anonymous';
       emitStreamEvent('gift', gifter,
         `gifted ${event.total} sub${(event.total as number) !== 1 ? 's' : ''} to the channel`, 'warning',
-        loginOf(event));
+        loginOf(event), event.total as number);
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'gift', eventId: messageId, actor: gifter, login: loginOf(event) ?? null, amount: event.total as number,
       }));
@@ -274,7 +280,7 @@ export async function handleEventSubNotification(
     }
     case 'channel.cheer': {
       const cheerer = (event.user_name as string) || 'Anonymous';
-      emitStreamEvent('cheer', cheerer, `cheered ${event.bits} bits`, 'info', loginOf(event));
+      emitStreamEvent('cheer', cheerer, `cheered ${event.bits} bits`, 'info', loginOf(event), event.bits as number);
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'cheer', eventId: messageId, actor: cheerer, login: loginOf(event) ?? null, amount: event.bits as number,
       }));
@@ -289,7 +295,7 @@ export async function handleEventSubNotification(
       emitStreamEvent('raid',
         event.from_broadcaster_user_name as string,
         `raided with ${event.viewers} viewer${(event.viewers as number) !== 1 ? 's' : ''}`, 'note',
-        loginOf(event, 'from_broadcaster_user_login'));
+        loginOf(event, 'from_broadcaster_user_login'), event.viewers as number);
       await dispatchAutomation(() => getTriggerDispatcher().handleTwitchEvent({
         kind: 'raid', eventId: messageId, actor: event.from_broadcaster_user_name as string,
         login: loginOf(event, 'from_broadcaster_user_login') ?? null, amount: event.viewers as number,

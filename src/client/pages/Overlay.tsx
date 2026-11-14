@@ -2,6 +2,7 @@ import React from 'react';
 import { ChatPanel } from '../chat';
 import { ClipStage, useMediaQueue } from '../clips';
 import { MusicPanel } from '../music';
+import { BottomBar, TopBar } from '../overlayBars';
 import { OverlayTextStage, useOverlayTextQueue } from '../overlayText';
 import { ShoutoutTicker, useSessionShoutouts } from '../shoutouts';
 import { quackSoundSources, useSoundEvents } from '../sounds';
@@ -40,6 +41,23 @@ export function OverlayNowPlayingPage() {
   return (
     <main className="overlay-widget overlay-now-playing-widget">
       <MusicPanel />
+    </main>
+  );
+}
+
+/** Each bar is its own source: a full-width 48px strip pinned to its edge of a 1920x1080 source. */
+export function OverlayTopBarPage() {
+  return (
+    <main className="overlay-widget overlay-bar-widget overlay-bar-widget-top" aria-label="Top bar overlay">
+      <TopBar />
+    </main>
+  );
+}
+
+export function OverlayBottomBarPage() {
+  return (
+    <main className="overlay-widget overlay-bar-widget overlay-bar-widget-bottom" aria-label="Bottom bar overlay">
+      <BottomBar />
     </main>
   );
 }
@@ -135,7 +153,7 @@ export function OverlayUnknownPage({ path }: { path: string }) {
     <main className="overlay-widget overlay-unknown-widget" aria-label="Unknown overlay">
       <div className="overlay-unknown-notice">
         <strong>Narya: no overlay at {path}</strong>
-        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, or /winddown.</span>
+        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, or /bottombar.</span>
       </div>
     </main>
   );
@@ -144,12 +162,11 @@ export function OverlayUnknownPage({ path }: { path: string }) {
 export function OverlayPage() {
   return (
     <main className="overlay-frame">
+      <TopBar />
       <div className="overlay-chat">
         <ChatPanel compact />
       </div>
-      <div className="overlay-goals">
-        <MusicPanel />
-      </div>
+      <BottomBar />
     </main>
   );
 }
