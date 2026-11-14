@@ -1,6 +1,6 @@
 import type express from 'express';
 import type { LlmApiFormat, LlmModelList, LlmProviderId, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../shared/api';
-import { db } from './db';
+import { db, runOnce } from './db';
 import { handle, HttpRouteError } from './http';
 import { buildHeaders, buildRequestBody, DEFAULT_LLM_PROVIDER, endpointUrl, getPreset, isLlmApiFormat, LLM_PROVIDER_PRESETS, type LlmProviderPreset } from './llmProviders';
 import { clampFinite } from './numeric';
@@ -150,6 +150,35 @@ export function getProviderRow(id: string): ResolvedLlmProvider | null {
 export function getActiveProviderRow(): ResolvedLlmProvider {
   const settings = getSettingsRowOrDefault();
   return getProviderRow(settings.activeProvider) ?? resolveProvider(getPreset(DEFAULT_LLM_PROVIDER)!);
+}
+
+const getLegacySettings = db.prepare(`
+  select base_url as baseUrl, model, api_key as apiKey from llm_settings where id = ?
+`);
+
+/**
+ * Carries the pre-profile single-endpoint config (llm_settings.base_url/model/api_key)
+ * into a provider profile, once. Before profiles every request went to
+ * `{base_url}/responses`, so the migrated profile keeps the Responses format: the
+ * endpoint a working install was hitting is exactly the endpoint it keeps hitting.
+ * An OpenCode Go URL lands on the opencode-go preset (same URL, plus Go's session
+ * headers); anything else lands on custom. A row with no model was never usable and
+ * leaves the default provider active.
+ */
+export function migrateLegacyLlmSettings() {
+  runOnce('2026-11-llm-provider-profiles-from-legacy', () => {
+    ensureLlmSettings();
+    const legacy = getLegacySettings.get(LLM_SETTINGS_ID) as { baseUrl: string; model: string; apiKey: string } | null;
+    if (!legacy || !legacy.baseUrl.trim() || !legacy.model.trim()) return;
+
+    const go = getPreset('opencode-go')!;
+    const isGo = normalizeUrl(legacy.baseUrl).startsWith(go.defaultBaseUrl);
+    const preset = isGo ? go : getPreset('custom')!;
+    const baseUrl = isGo ? go.defaultBaseUrl : normalizeUrl(legacy.baseUrl);
+    getProviderRowOrDefault(preset);
+    updateProvider.run(baseUrl, legacy.apiKey, legacy.model.trim(), 'responses', nowIso(), preset.id);
+    db.prepare('update llm_settings set active_provider = ? where id = ?').run(preset.id, LLM_SETTINGS_ID);
+  });
 }
 
 function toProfile(provider: ResolvedLlmProvider): LlmProviderProfile {
@@ -390,6 +419,7 @@ export async function runLlmRequest(instructions: string, input: string, convers
 
 export function registerLlmRoutes(app: express.Express) {
   ensureLlmSettings();
+  migrateLegacyLlmSettings();
 
   app.get('/api/llm/settings', (_request, response) => {
     response.json(getLlmSettings());
