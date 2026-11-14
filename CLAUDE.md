@@ -20,7 +20,7 @@ Superpowers skills write specs and plans under `docs/superpowers/`, and committi
 
 - **Haiku**: mechanical, well-specified work with easily checked output, such as file and symbol searches, inventorying call sites, summarizing logs or test output, and simple bulk edits that follow an exact pattern.
 - **Sonnet**: scoped implementation of a planned task, writing tests, focused reviews of a single module or diff, and research that needs some judgment.
-- **Inherit the main model**: architecture and design decisions, anything that touches authentication, authorization, secrets, or the overlay event allowlist, data migrations, multi-boundary debugging, and the final review before merge.
+- **Opus**: architecture and design decisions, anything that touches authentication, authorization, secrets, or the overlay event allowlist, data migrations, multi-boundary debugging, and the final review before merge. Use Opus for these even when the main session runs on a cheaper model.
 
 Verify a cheaper model's claims before you rely on them, especially "nothing found" results.
 
