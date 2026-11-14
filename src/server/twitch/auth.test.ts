@@ -542,6 +542,32 @@ describe('GET /api/auth/twitch (start login)', () => {
     expect(location.searchParams.get('force_verify')).toBe('true');
   });
 
+  // The state cookie is host-only, and the callback always lands on the redirect
+  // URI's host. Starting from 127.0.0.1:5173 (what Vite prints) while the redirect
+  // URI says localhost:5173 strands the cookie on the wrong host: "invalid state".
+  test('a loopback alias of the redirect host is bounced to that host before the cookie is set', async () => {
+    seedConfig({ clientId: 'my-client' });
+    const port = await startApp(new RuntimeState(), makeDeps());
+    const res = await fetch(`http://127.0.0.1:${port}/api/auth/twitch/bot?force=1`, {
+      redirect: 'manual',
+      headers: { Host: '127.0.0.1:5173' },
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('http://localhost:5173/api/auth/twitch/bot?force=1');
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  test('the redirect host itself is not bounced', async () => {
+    seedConfig({ clientId: 'my-client' });
+    const port = await startApp(new RuntimeState(), makeDeps());
+    const res = await fetch(`http://127.0.0.1:${port}/api/auth/twitch`, {
+      redirect: 'manual',
+      headers: { Host: 'localhost:5173' },
+    });
+    expect(new URL(res.headers.get('location')!).origin).toBe('https://id.twitch.tv');
+    expect(res.headers.get('set-cookie')).toContain('streamer_tools_twitch_oauth_state=');
+  });
+
   test('the bot login uses the bot scope set and a bot: state prefix', async () => {
     seedConfig({ clientId: 'my-client' });
     const port = await startApp(new RuntimeState(), makeDeps());

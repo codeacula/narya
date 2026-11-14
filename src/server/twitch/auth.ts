@@ -1,7 +1,7 @@
 import type express from 'express';
 import { TOKEN_EXPIRY_REFRESH_BUFFER_MS } from '../../shared/constants';
 import { appConfig } from '../appConfig';
-import { config } from '../config';
+import { config, isLoopbackHost } from '../config';
 import { db } from '../db';
 import { parseCookies } from '../http';
 import type { RuntimeState, TwitchTokenResponse, TwitchUserToken } from '../runtime';
@@ -68,6 +68,32 @@ const saveTwitchToken = db.prepare(`
 
 const deleteTwitchToken = db.prepare(`delete from twitch_oauth where provider = ?`);
 const twitchOAuthStateCookie = 'streamer_tools_twitch_oauth_state';
+
+/**
+ * The redirect URI's origin when `requestHost` is a different loopback name for the
+ * same port (127.0.0.1:5173 vs localhost:5173), else null. Deliberately narrow: a
+ * different port or a non-loopback host is a different server, and bouncing there
+ * could send the operator to something that is not running.
+ */
+export function loopbackAliasRedirect(requestHost: string | undefined, redirectUri: string): string | null {
+  if (!requestHost) return null;
+  let request: URL;
+  let redirect: URL;
+  try {
+    request = new URL(`http://${requestHost}`);
+    redirect = new URL(redirectUri);
+  } catch {
+    return null;
+  }
+  const bare = (hostname: string) => hostname.replace(/^\[|\]$/g, '');
+  const requestName = bare(request.hostname);
+  const redirectName = bare(redirect.hostname);
+  if (requestName === redirectName) return null;
+  if (!isLoopbackHost(requestName) || !isLoopbackHost(redirectName)) return null;
+  const effectivePort = (url: URL) => url.port || (url.protocol === 'https:' ? '443' : '80');
+  if (effectivePort(request) !== effectivePort(redirect)) return null;
+  return redirect.origin;
+}
 
 function parseJsonArray(value: string | null): string[] {
   if (!value) return [];
@@ -316,6 +342,16 @@ export function registerTwitchAuthRoutes({
     const clientId = appConfig.twitchClientId;
     if (!clientId) {
       response.status(500).send('TWITCH_CLIENT_ID not configured');
+      return;
+    }
+    // The state cookie is host-only and Twitch always returns to the redirect URI's
+    // host. A login started from a loopback alias of that host (127.0.0.1 vs
+    // localhost — Vite prints the former, the default redirect URI says the latter)
+    // would set the cookie where the callback can never read it, failing with
+    // "invalid state". Hop to the redirect host first so the cookie lands there.
+    const redirectTarget = loopbackAliasRedirect(request.headers.host, config.twitchRedirectUri);
+    if (redirectTarget) {
+      response.redirect(`${redirectTarget}${request.originalUrl}`);
       return;
     }
     const oauthState = crypto.randomUUID();
