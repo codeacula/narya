@@ -1,8 +1,8 @@
 import type express from 'express';
-import type { LlmApiFormat, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../shared/api';
+import type { LlmApiFormat, LlmModelList, LlmProviderId, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../shared/api';
 import { db } from './db';
 import { handle, HttpRouteError } from './http';
-import { DEFAULT_LLM_PROVIDER, endpointUrl, getPreset, isLlmApiFormat, LLM_PROVIDER_PRESETS, type LlmProviderPreset } from './llmProviders';
+import { buildHeaders, buildRequestBody, DEFAULT_LLM_PROVIDER, endpointUrl, getPreset, isLlmApiFormat, LLM_PROVIDER_PRESETS, type LlmProviderPreset } from './llmProviders';
 import { clampFinite } from './numeric';
 
 const LLM_SETTINGS_ID = 'default';
@@ -279,34 +279,41 @@ export function extractResponseText(data: ResponsesApiResponse): string {
   return '';
 }
 
-async function callLlm(settings: LlmSettingsRow, provider: ResolvedLlmProvider, instructions: string, userContent: string): Promise<string> {
+async function readErrorDetail(response: Response): Promise<string> {
+  const text = await response.text().catch(() => '');
+  let detail = text.slice(0, 300);
+  try {
+    const parsed = JSON.parse(text) as { error?: { message?: unknown } };
+    if (typeof parsed.error?.message === 'string') detail = parsed.error.message;
+  } catch { /* ignore */ }
+  return detail;
+}
+
+async function callLlm(
+  settings: LlmSettingsRow,
+  provider: ResolvedLlmProvider,
+  instructions: string,
+  userContent: string,
+  conversationKey: string,
+): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), settings.timeoutMs);
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (provider.apiKey) headers.Authorization = `Bearer ${provider.apiKey}`;
-
-    const response = await fetch(endpointUrl(provider.preset, provider.baseUrl, 'responses'), {
+    const response = await fetch(endpointUrl(provider.preset, provider.baseUrl, provider.apiFormat), {
       method: 'POST',
-      headers,
+      headers: buildHeaders(provider.preset, provider.apiKey, conversationKey),
       signal: controller.signal,
-      body: JSON.stringify({
+      body: JSON.stringify(buildRequestBody(provider.apiFormat, {
         model: provider.model,
         instructions,
         input: userContent,
         temperature: settings.temperature,
-        ...(settings.maxOutputTokens > 0 ? { max_output_tokens: settings.maxOutputTokens } : {}),
-      }),
+        maxOutputTokens: settings.maxOutputTokens,
+      })),
     });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      let detail = text.slice(0, 300);
-      try {
-        const parsed = JSON.parse(text) as { error?: { message?: unknown } };
-        if (typeof parsed.error?.message === 'string') detail = parsed.error.message;
-      } catch { /* ignore */ }
-      throw new Error(`LLM request failed (${response.status}): ${detail}`);
+      throw new Error(`LLM request failed (${response.status}): ${await readErrorDetail(response)}`);
     }
 
     const data = await response.json() as ResponsesApiResponse;
@@ -316,6 +323,39 @@ async function callLlm(settings: LlmSettingsRow, provider: ResolvedLlmProvider, 
       throw new Error('LLM response included no text content.');
     }
     return answer;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * The provider's model list, fetched server-side so the stored key never reaches the
+ * browser. Every failure is a value, not a throw: Settings calls this automatically,
+ * and an unreachable provider is an ordinary state there, not an error page.
+ */
+export async function listProviderModels(id: LlmProviderId): Promise<LlmModelList> {
+  const provider = getProviderRow(id);
+  if (!provider) return { ok: false, error: 'Unknown LLM provider.' };
+  if (!provider.baseUrl) return { ok: false, error: 'No base URL configured.' };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), getSettingsRowOrDefault().timeoutMs);
+  try {
+    const response = await fetch(endpointUrl(provider.preset, provider.baseUrl, 'models'), {
+      headers: buildHeaders(provider.preset, provider.apiKey, 'models'),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return { ok: false, error: `Model list request failed (${response.status}): ${await readErrorDetail(response)}` };
+    }
+    const data = await response.json().catch(() => null) as { data?: unknown } | null;
+    if (!data || !Array.isArray(data.data)) return { ok: false, error: 'The provider returned no model list.' };
+    const ids = data.data
+      .map(entry => (entry as { id?: unknown } | null)?.id)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0);
+    return { ok: true, models: [...new Set(ids)].sort() };
+  } catch (caught) {
+    return { ok: false, error: caught instanceof Error ? caught.message : 'Model list request failed.' };
   } finally {
     clearTimeout(timeout);
   }
@@ -340,12 +380,12 @@ export function getPersonalityPrompt(): string {
  * rather than publishing an apology to chat as though it were the model's answer —
  * which is what the `!ponder` helper this replaced used to do.
  */
-export async function runLlmRequest(instructions: string, input: string): Promise<string> {
+export async function runLlmRequest(instructions: string, input: string, conversationKey = 'anonymous'): Promise<string> {
   const settings = getSettingsRowOrDefault();
   const provider = getActiveProviderRow();
   if (settings.enabled !== 1) throw new Error('The LLM is disabled in Settings.');
   if (!provider.baseUrl || !provider.model) throw new Error('The LLM needs a base URL and model in Settings.');
-  return callLlm(settings, provider, instructions, input);
+  return callLlm(settings, provider, instructions, input, conversationKey);
 }
 
 export function registerLlmRoutes(app: express.Express) {
@@ -357,6 +397,12 @@ export function registerLlmRoutes(app: express.Express) {
 
   app.put('/api/llm/settings', handle((request, response) => {
     response.json(saveLlmSettings(request.body));
+  }));
+
+  app.get('/api/llm/providers/:id/models', handle(async (request, response) => {
+    const id = String(request.params.id);
+    if (!getPreset(id)) throw new HttpRouteError(404, 'Unknown LLM provider.');
+    response.json(await listProviderModels(id as LlmProviderId));
   }));
 
   app.post('/api/llm/test', handle(async (request, response) => {
@@ -381,6 +427,7 @@ export function registerLlmRoutes(app: express.Express) {
         provider,
         settings.personalityPrompt,
         `A Twitch chatter asks: ${question}\nAnswer them in one concise chat message.`,
+        'settings-test',
       );
     } catch (llmError) {
       const msg = llmError instanceof Error ? llmError.message : 'LLM request failed.';

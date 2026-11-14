@@ -65,7 +65,7 @@ export type ActionExecutorDeps = {
   speakText?: (text: string) => Promise<void>;
   sendChat?: (state: RuntimeState, message: string, sender: ChatSender) => Promise<unknown>;
   /** Runs an assembled request. Prompt construction lives in llmPrompt.ts. */
-  askLlm?: (instructions: string, input: string) => Promise<string>;
+  askLlm?: (instructions: string, input: string, conversationKey?: string) => Promise<string>;
   /** The global personality prompt an llm_response step enhances or overrides. */
   personalityPrompt?: () => string;
   /** The operator's own tags for a viewer, for the llm_response targeting gate. */
@@ -289,7 +289,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
             : [],
         });
 
-        const reply = parseLlmReply(await askLlm(request.instructions, request.input), step.payload.allowDecline);
+        const reply = parseLlmReply(await askLlm(request.instructions, request.input, login || 'anonymous'), step.payload.allowDecline);
         if (!reply.respond) return skipped('The LLM chose not to respond.');
         if (!reply.message.trim()) return skipped('The LLM returned no text.');
 
