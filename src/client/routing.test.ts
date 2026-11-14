@@ -47,6 +47,11 @@ test('the ad-break banner resolves to its own source', () => {
   expect(overlayFromPath('/overlay/ads/')).toBe('ads');
 });
 
+test('the pinned card resolves to its own source', () => {
+  expect(overlayFromPath('/overlay/pinned')).toBe('pinned');
+  expect(overlayFromPath('/overlay/pinned/')).toBe('pinned');
+});
+
 test('the full-screen holding scenes resolve to their own sources', () => {
   expect(overlayFromPath('/overlay/starting')).toBe('starting');
   expect(overlayFromPath('/overlay/brb/')).toBe('brb');

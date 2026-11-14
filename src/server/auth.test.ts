@@ -539,6 +539,25 @@ describe('overlay bar data', () => {
     }
   });
 
+  test('overlay connections receive the pinned-card event', () => {
+    expect(isOverlayEvent('overlay:pinned-card')).toBe(true);
+  });
+
+  test('the overlay token reads the pinned card but cannot change it', () => {
+    setToken(OPERATOR);
+    const overlay = getOverlayToken()!;
+    expect(callMiddleware({ path: '/api/overlay/pinned-card', token: overlay }).nextCalled).toBe(true);
+    expect(callMiddleware({ method: 'PUT', path: '/api/overlay/pinned-card', token: overlay }).status).toBe(403);
+    for (const [method, path] of [
+      ['POST', '/api/pinned-card/message'],
+      ['PUT', '/api/pinned-card/topic'],
+      ['DELETE', '/api/pinned-card'],
+    ]) {
+      expect(callMiddleware({ method, path, token: overlay }).status).toBe(403);
+      expect(callMiddleware({ method, path, token: OPERATOR }).nextCalled).toBe(true);
+    }
+  });
+
   test('lets the overlay token read the bar seeds, GET only', () => {
     setToken(OPERATOR);
     for (const path of ['/api/overlay/latest-events', '/api/overlay/stream-session', '/api/overlay/ad-break']) {

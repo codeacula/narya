@@ -2,6 +2,7 @@ import React from 'react';
 import type { DashboardStatus, HoldingScene } from '../../../shared/api';
 import { useCountdown } from '../../countdown';
 import { endsAtFor, useHoldingSceneControls } from '../../holdingScenes';
+import { pinnedCardSummary, usePinnedCardControls } from '../../pinnedCard';
 import { useToast } from '../notifications';
 import { sceneLabel, switchableScenes } from '../../scenes';
 import { useMediaMute } from '../../mediaMute';
@@ -62,6 +63,7 @@ export function ControlsPanel({
       <MediaMuteToggle />
       <WindDownToggle />
       <HoldingScenesControls />
+      <PinnedCardControls />
     </div>
   );
 }
@@ -235,6 +237,56 @@ function HoldingScenesControls() {
           disabled={busy || nextValue.trim() === state.nextStream}
         >
           save
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/** Matches the server's cap, so the field stops where the card would truncate. */
+const PINNED_TOPIC_MAX = 200;
+
+/**
+ * The card on stream: what it shows now, a field for the operator's own topic, and
+ * clear. Pinning a viewer's question is a button on the chat row, not here — the
+ * server reads the message itself, so there is nothing to type for that.
+ */
+function PinnedCardControls() {
+  const { pushToast } = useToast();
+  const onError = React.useCallback(
+    (message: string) => pushToast({ kind: 'error', title: 'Pinned card', message }),
+    [pushToast],
+  );
+  const { card, busy, pinTopic, clear } = usePinnedCardControls(onError);
+  const [draft, setDraft] = React.useState('');
+
+  return (
+    <div className="ctrl-section ctrl-pinned-section">
+      <p className={'ctrl-pinned-readout' + (card ? '' : ' is-empty')} title={pinnedCardSummary(card)} aria-live="polite">
+        {pinnedCardSummary(card)}
+      </p>
+      <form
+        className="ctrl-holding-row"
+        onSubmit={event => {
+          event.preventDefault();
+          void pinTopic(draft).then(pinned => { if (pinned) setDraft(''); });
+        }}
+      >
+        <label className="ctrl-label" htmlFor="pinned-topic">pinned</label>
+        <input
+          id="pinned-topic"
+          className="ctrl-holding-input"
+          type="text"
+          maxLength={PINNED_TOPIC_MAX}
+          placeholder="A topic to put on stream"
+          value={draft}
+          onChange={event => setDraft(event.target.value)}
+        />
+        <button className="ctrl-scene-button" type="submit" disabled={busy || draft.trim() === ''}>
+          pin topic
+        </button>
+        <button className="ctrl-scene-button" type="button" disabled={busy || card === null} onClick={() => { void clear(); }}>
+          clear
         </button>
       </form>
     </div>

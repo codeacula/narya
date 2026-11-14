@@ -1607,6 +1607,71 @@ nav {
   }
 }
 
+/* ── Pinned card ────────────────────────────────────────── */
+
+/* Bottom-left, directly above the 48px bottom bar with a 24px gap (48 + 24 = 72). It is
+   positioned against the nearest positioned ancestor, so the standalone source (a
+   viewport-sized widget) and the combined frame place it identically. */
+.overlay-pinned-widget {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pinned-card {
+  position: absolute;
+  left: 32px;
+  bottom: 72px;
+  width: 720px;
+  box-sizing: border-box;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(19, 27, 45, 0.94);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 500ms ease;
+}
+
+.pinned-card.is-visible {
+  opacity: 1;
+}
+
+.pinned-card-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  color: var(--gold-400);
+}
+
+.pinned-card-eyebrow.is-topic {
+  color: var(--silver-400);
+}
+
+.pinned-card-text {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 34px;
+  line-height: 1.25;
+  color: var(--ivory-50);
+  /* A 500-character question must not grow the card up into the chat and top bar. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pinned-card {
+    transition: none;
+  }
+}
+
 /* ── Holding scenes: Starting soon, Be right back, Ending ───────────────────────── */
 
 /* The one opaque overlay: a whole OBS scene, not a layer over one. It paints its own

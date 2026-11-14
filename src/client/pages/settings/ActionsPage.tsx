@@ -439,6 +439,27 @@ function StepPayloadFields({
         </label>
       );
 
+    case 'set_pinned_topic':
+      return (
+        <label className="field settings-wide-field">
+          <span>Topic</span>
+          <input
+            value={step.payload.template}
+            disabled={disabled}
+            maxLength={500}
+            placeholder="Working through {input}"
+            onChange={event => onChange({ ...step, payload: { template: event.target.value } })}
+          />
+          <small className="action-hint">
+            Replaces whatever is pinned. Capped at 200 characters after rendering; a template
+            that renders empty does nothing. {TEMPLATE_HINT}
+          </small>
+        </label>
+      );
+
+    case 'clear_pinned_card':
+      return <p className="action-hint">Takes down the pinned card, whether it is a question or a topic.</p>;
+
     case 'adjust_counter':
       return (
         <>

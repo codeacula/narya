@@ -726,6 +726,15 @@ export type HoldingScenesState = {
   nextStream: string;
 };
 
+/**
+ * GET /api/overlay/pinned-card (as `{ card }`) and the `overlay:pinned-card` event
+ * payload (null when the card is cleared). Only what is displayed: the source message
+ * id and author login that moderation matches on are deliberately not here.
+ */
+export type PinnedCard =
+  | { kind: 'question'; name: string; text: string }
+  | { kind: 'topic'; text: string };
+
 /** GET /api/overlay/ad-break and the `overlay:ad-break` event payload. */
 export type OverlayAdBreak = {
   /** RFC3339 end of the running ad break, or null when none (or it already ended). Nothing else about ads. */
@@ -888,6 +897,8 @@ export type ActionStepType =
   | 'twitch_timeout'
   | 'twitch_ban'
   | 'set_wind_down'
+  | 'set_pinned_topic'
+  | 'clear_pinned_card'
   | 'adjust_counter'
   | 'quote_add'
   | 'quote_show';
@@ -967,6 +978,15 @@ export type TwitchBanPayload = { loginTemplate: string; reasonTemplate: string }
 export type SetWindDownPayload = { active: boolean };
 
 /**
+ * Pins the operator's own topic on stream, replacing whatever card is up. The template
+ * renders like any other text step; an empty render skips rather than clearing.
+ */
+export type SetPinnedTopicPayload = { template: string };
+
+/** Clears the pinned card, whichever kind it is. Nothing to configure. */
+export type ClearPinnedCardPayload = Record<string, never>;
+
+/**
  * `add` moves the counter by `amountTemplate`; `set` assigns it. There is no
  * separate `reset` mode because resetting is `set` with `0` — one mode fewer to
  * validate, render, and explain.
@@ -1030,6 +1050,8 @@ export type ActionStep =
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_timeout'; payload: TwitchTimeoutPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'twitch_ban'; payload: TwitchBanPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'set_wind_down'; payload: SetWindDownPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'set_pinned_topic'; payload: SetPinnedTopicPayload }
+  | { id: string; position: number; enabled: boolean; delayMs: number; type: 'clear_pinned_card'; payload: ClearPinnedCardPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'adjust_counter'; payload: AdjustCounterPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'quote_add'; payload: QuoteAddPayload }
   | { id: string; position: number; enabled: boolean; delayMs: number; type: 'quote_show'; payload: QuoteShowPayload };

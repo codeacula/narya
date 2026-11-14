@@ -60,6 +60,8 @@ export const STEP_TYPES: ActionStepType[] = [
   'twitch_timeout',
   'twitch_ban',
   'set_wind_down',
+  'set_pinned_topic',
+  'clear_pinned_card',
   'adjust_counter',
   'quote_add',
   'quote_show',
@@ -78,6 +80,8 @@ export const STEP_TYPE_LABELS: Record<ActionStepType, string> = {
   twitch_timeout: 'Twitch timeout',
   twitch_ban: 'Twitch ban',
   set_wind_down: 'Set wind-down mode',
+  set_pinned_topic: 'Pin a topic',
+  clear_pinned_card: 'Clear the pinned card',
   adjust_counter: 'Adjust counter',
   quote_add: 'Save a quote',
   quote_show: 'Announce a quote',
@@ -501,6 +505,10 @@ export function newStep(type: ActionStepType): ActionStepInput {
       return { type, enabled: true, delayMs: 0, payload: { loginTemplate: '{login}', reasonTemplate: '' } };
     case 'set_wind_down':
       return { type, enabled: true, delayMs: 0, payload: { active: true } };
+    case 'set_pinned_topic':
+      return { type, enabled: true, delayMs: 0, payload: { template: '' } };
+    case 'clear_pinned_card':
+      return { type, enabled: true, delayMs: 0, payload: {} };
     // Defaults to the common case: bump the chosen counter by one.
     case 'adjust_counter':
       return { type, enabled: true, delayMs: 0, payload: { counterId: '', mode: 'add', amountTemplate: '1' } };
@@ -609,6 +617,10 @@ export function describeStep(step: ActionStepInput, assets: MediaAsset[] = [], c
       return step.payload.loginTemplate;
     case 'set_wind_down':
       return step.payload.active ? 'turn wind-down on' : 'turn wind-down off';
+    case 'set_pinned_topic':
+      return step.payload.template || '(empty)';
+    case 'clear_pinned_card':
+      return 'clear the pinned card';
     case 'adjust_counter': {
       const counter = counters.find(entry => entry.id === step.payload.counterId);
       const name = counter?.label ?? 'unknown counter';
@@ -832,7 +844,10 @@ export function validateStep(step: ActionStepInput, index: number): string | nul
       if (templateMissing(step.payload.loginTemplate)) return `${where}: needs a target login.`;
       return null;
     case 'set_wind_down':
+    case 'clear_pinned_card':
       return null;
+    case 'set_pinned_topic':
+      return templateMissing(step.payload.template) ? `${where}: needs a topic.` : null;
     case 'adjust_counter': {
       if (templateMissing(step.payload.counterId)) return `${where}: pick a counter.`;
       const amount = step.payload.amountTemplate.trim();

@@ -6,6 +6,7 @@ import { TabletQuickActions } from '../quickActions';
 import { useClipButtons } from '../clips';
 import { useCountdown } from '../countdown';
 import { endsAtFor, useHoldingSceneControls } from '../holdingScenes';
+import { pinnedCardSummary, usePinnedCardControls } from '../pinnedCard';
 import { useMediaMute } from '../mediaMute';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
@@ -115,6 +116,33 @@ function TabletHoldingScenes({ onError }: { onError: (message: string) => void }
           </div>
         );
       })}
+    </section>
+  );
+}
+
+/**
+ * What the pinned card shows and a clear button. Pinning a question is a button on a
+ * chat row (the chat panel is on this surface too); topic entry stays on the dashboard.
+ */
+function TabletPinnedCard({ onError }: { onError: (message: string) => void }) {
+  const { card, busy, clear } = usePinnedCardControls(onError);
+  return (
+    <section className="tablet-panel pinned-panel">
+      <div className="tablet-panel-header">
+        <div>
+          <p className="eyebrow">On stream</p>
+          <h2>Pinned card</h2>
+        </div>
+      </div>
+      <p className="media-group-label">{pinnedCardSummary(card)}</p>
+      <div className="tablet-button-grid">
+        <button
+          disabled={busy || card === null}
+          onClick={event => { blurIfPointer(event); void clear(); }}
+        >
+          Clear
+        </button>
+      </div>
     </section>
   );
 }
@@ -254,6 +282,8 @@ export function TabletPage() {
           <TabletQuickActions />
 
           <TabletHoldingScenes onError={setCommandError} />
+
+          <TabletPinnedCard onError={setCommandError} />
 
           <section className="tablet-panel media-panel">
             <div className="tablet-panel-header">

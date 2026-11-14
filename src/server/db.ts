@@ -367,6 +367,20 @@ db.exec(`
     updated_at text not null default ''
   );
 
+  -- The one pinned card on stream: a viewer's question or the operator's own topic.
+  -- Single row (id = 1); no row, or a null kind, means no card. message_id and
+  -- author_login exist only so moderation can find the card to clear — they are never
+  -- on the overlay payload (see getPinnedCard).
+  create table if not exists pinned_card (
+    id integer primary key check (id = 1),
+    kind text check (kind in ('question', 'topic')),
+    display_name text not null default '',
+    text text not null default '',
+    message_id text,
+    author_login text,
+    updated_at text not null default ''
+  );
+
   -- Durable named tallies. The value column is deliberately signed: a counter is
   -- not necessarily a tally, and clamping at zero would discard a deliberate
   -- negative. The key column is the counter template token, and is unique.

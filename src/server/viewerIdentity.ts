@@ -17,6 +17,7 @@
 import { db } from './db';
 import { deleteArchivedChatForLogin } from './retention';
 import { deleteInteractionsForLogin } from './llmContext';
+import { clearPinnedCardForAuthor } from './pinnedCard';
 import { anonymizeQuotesByLogin } from './quotes';
 import { deleteOverridesForLogin } from './triggerOverrides';
 
@@ -212,6 +213,9 @@ export function flushViewer(login: string, reason = ''): { messages: number; quo
     // in operator config that nothing on the dashboard would surface.
     overrides = deleteOverridesForLogin(key);
   })();
+  // After the transaction: it broadcasts, and a pinned question from a flushed viewer
+  // must not stay on stream.
+  clearPinnedCardForAuthor(key);
 
   return { messages, quotes, interactions, overrides };
 }

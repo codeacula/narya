@@ -21,6 +21,7 @@ import {
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { registerMediaMuteRoutes } from './mediaMute';
 import { registerHoldingSceneRoutes } from './holdingScenes';
+import { registerPinnedCardRoutes } from './pinnedCard';
 import { registerOverlayBarRoutes } from './overlayBars';
 import { registerOverlayAdRoutes } from './overlayAds';
 import { registerOverlayPlaceholderRoutes } from './overlayPlaceholders';
@@ -173,6 +174,7 @@ registerOverlayPlaceholderRoutes(app);
 registerOverlayBarRoutes(app);
 registerOverlayAdRoutes(app, runtimeState);
 registerHoldingSceneRoutes(app);
+registerPinnedCardRoutes(app);
 registerMediaMuteRoutes(app);
 registerWindDownRoutes(app);
 registerLlmRoutes(app);

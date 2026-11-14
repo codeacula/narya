@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '../icons';
 import {
   banViewer,
+  pinChatMessage,
   runSlashCommand,
   sendChatMessage,
   timeoutViewer,
@@ -29,6 +30,8 @@ export type ChatRowModeration = {
   busy?: boolean;
   onTimeout: (login: string) => void;
   onBan: (login: string) => void;
+  /** Put this row's message on the pinned card. Offered even for mods, who cannot be timed out. */
+  onPin?: (messageId: string) => void;
 };
 
 /**
@@ -43,7 +46,13 @@ export type ChatRowModeration = {
  * is no unban route here and Twitch purges the messages the moment it lands, so
  * a misfire is not something this app can walk back.
  */
-function ChatRowActions({ login, moderation }: { login: string; moderation: ChatRowModeration }) {
+function ChatRowActions({ login, messageId, moderation, canModerate }: {
+  login: string;
+  messageId: string;
+  moderation: ChatRowModeration;
+  /** False for a broadcaster or mod: Twitch would refuse the timeout and ban. */
+  canModerate: boolean;
+}) {
   const [armed, setArmed] = React.useState(false);
 
   // Disarm on a timer as well as on blur. Blur alone is enough with a mouse, but the
@@ -64,29 +73,44 @@ function ChatRowActions({ login, moderation }: { login: string; moderation: Chat
 
   return (
     <span className="msg-mod">
-      <button
-        type="button"
-        className="msg-mod-btn"
-        disabled={moderation.busy}
-        title={`Time @${login} out for ${timeoutLabel(DEFAULT_TIMEOUT_MINUTES)}`}
-        onClick={() => moderation.onTimeout(login)}
-      >
-        {timeoutLabel(DEFAULT_TIMEOUT_MINUTES)}
-      </button>
-      <button
-        type="button"
-        className={'msg-mod-btn danger' + (armed ? ' armed' : '')}
-        disabled={moderation.busy}
-        title={armed ? `Confirm ban for @${login}` : `Ban @${login}`}
-        onClick={() => {
-          if (!armed) { setArmed(true); return; }
-          setArmed(false);
-          moderation.onBan(login);
-        }}
-        onBlur={() => setArmed(false)}
-      >
-        {armed ? 'sure?' : 'ban'}
-      </button>
+      {moderation.onPin && (
+        <button
+          type="button"
+          className="msg-mod-btn"
+          disabled={moderation.busy}
+          title={`Pin this message on stream as a question from @${login}`}
+          onClick={() => moderation.onPin?.(messageId)}
+        >
+          pin
+        </button>
+      )}
+      {canModerate && (
+        <>
+          <button
+            type="button"
+            className="msg-mod-btn"
+            disabled={moderation.busy}
+            title={`Time @${login} out for ${timeoutLabel(DEFAULT_TIMEOUT_MINUTES)}`}
+            onClick={() => moderation.onTimeout(login)}
+          >
+            {timeoutLabel(DEFAULT_TIMEOUT_MINUTES)}
+          </button>
+          <button
+            type="button"
+            className={'msg-mod-btn danger' + (armed ? ' armed' : '')}
+            disabled={moderation.busy}
+            title={armed ? `Confirm ban for @${login}` : `Ban @${login}`}
+            onClick={() => {
+              if (!armed) { setArmed(true); return; }
+              setArmed(false);
+              moderation.onBan(login);
+            }}
+            onBlur={() => setArmed(false)}
+          >
+            {armed ? 'sure?' : 'ban'}
+          </button>
+        </>
+      )}
     </span>
   );
 }
@@ -146,6 +170,9 @@ export function ChatMessageRow({
     && !viewer?.roles.includes('mod')
     && m.user.toLowerCase() !== channel.toLowerCase();
   const status = moderatable ? moderation.status : null;
+  // A row that was just timed out or banned is going to be removed from the overlay;
+  // pinning it would only fail (or be cleared again), so it gets no pin either.
+  const showActions = moderation && !status && (moderatable || moderation.onPin);
   return (
     <div
       className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past') + (isMention ? ' msg--mention' : '')
@@ -157,7 +184,9 @@ export function ChatMessageRow({
       {/* Last in the row: the dashboard positions this absolutely, so DOM order does
           not affect where it lands there, while the tablet renders it in flow on its
           own line below the message — which only reads correctly from here. */}
-      {moderatable && <ChatRowActions login={m.user} moderation={moderation} />}
+      {moderation && (status || showActions) && (
+        <ChatRowActions login={m.user} messageId={m.id} moderation={moderation} canModerate={Boolean(moderatable)} />
+      )}
     </div>
   );
 }
@@ -212,6 +241,17 @@ export function Chat({ ctx, canModerate = false }: { ctx: PanelCtx; canModerate?
       })))
       .catch(caught => setModError(errorMessage(caught, kind === 'ban' ? 'Ban failed' : 'Timeout failed')))
       .finally(() => setModBusy(current => (current === key ? null : current)));
+  }, []);
+
+  const [pinBusy, setPinBusy] = React.useState(false);
+  // Pinning is an operator action on the server's own copy of the message, so this only
+  // sends the id. The result reaches the Controls panel and the overlay over the socket.
+  const onRowPin = React.useCallback((messageId: string) => {
+    setPinBusy(true);
+    setModError(null);
+    void pinChatMessage(messageId)
+      .catch(caught => setModError(errorMessage(caught, 'Could not pin the message')))
+      .finally(() => setPinBusy(false));
   }, []);
 
   const onRowTimeout = React.useCallback((login: string) => moderate(login, 'timeout'), [moderate]);
@@ -376,9 +416,10 @@ export function Chat({ ctx, canModerate = false }: { ctx: PanelCtx; canModerate?
                 channel={ctx.channel}
                 moderation={canModerate ? {
                   status: modStatus[login] ?? null,
-                  busy: modBusy === login,
+                  busy: modBusy === login || pinBusy,
                   onTimeout: onRowTimeout,
                   onBan: onRowBan,
+                  onPin: onRowPin,
                 } : undefined}
               />
             </React.Fragment>

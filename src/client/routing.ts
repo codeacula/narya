@@ -39,6 +39,7 @@ export type OverlayName =
   | 'topbar'
   | 'bottombar'
   | 'ads'
+  | 'pinned'
   | 'starting'
   | 'brb'
   | 'ending';
@@ -60,6 +61,7 @@ const OVERLAY_BY_PATH: Record<string, OverlayName> = {
   '/overlay/topbar': 'topbar',
   '/overlay/bottombar': 'bottombar',
   '/overlay/ads': 'ads',
+  '/overlay/pinned': 'pinned',
   '/overlay/starting': 'starting',
   '/overlay/brb': 'brb',
   '/overlay/ending': 'ending',

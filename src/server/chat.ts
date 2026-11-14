@@ -3,6 +3,7 @@ import type { ChatMessage } from '../shared/api';
 import { getRoleFromBadges } from '../shared/roles';
 import { getTriggerDispatcher } from './automation';
 import { db } from './db';
+import { clearPinnedCardForAuthor, clearPinnedCardForMessage, clearPinnedQuestion } from './pinnedCard';
 import { broadcast } from './realtime';
 import type { RuntimeState } from './runtime';
 import {
@@ -298,6 +299,8 @@ export function handleMessageDeleted(
 
   if (messageId) {
     markMessageDeleted.run(event.occurredAt, 'message deleted by moderator', event.id, messageId);
+    // Moderation must not be a way around itself: a removed message cannot stay on stream.
+    clearPinnedCardForMessage(messageId);
   }
 
   broadcast('chat:moderated', {
@@ -322,6 +325,7 @@ export function handleTimeout(channel: string, username: string, duration: numbe
   const deletedReason = `timeout: ${reason || 'no reason provided'}`;
 
   markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username.toLowerCase());
+  clearPinnedCardForAuthor(username);
   broadcast('chat:moderated', {
     type: 'user.timeout',
     channel: normalizedChannel,
@@ -338,6 +342,7 @@ export function handleBan(channel: string, username: string, msg: TaggedMessage)
   const deletedReason = `ban: ${reason || 'no reason provided'}`;
 
   markUserMessagesDeleted.run(event.occurredAt, deletedReason, event.id, normalizedChannel, username.toLowerCase());
+  clearPinnedCardForAuthor(username);
   broadcast('chat:moderated', {
     type: 'user.ban',
     channel: normalizedChannel,
@@ -352,6 +357,7 @@ export function handleChatClear(channel: string) {
   const event = appendChatEvent('chat.clear', normalizedChannel, {});
 
   markChannelMessagesDeleted.run(event.occurredAt, 'chat cleared', event.id, normalizedChannel);
+  clearPinnedQuestion();
   broadcast('chat:moderated', {
     type: 'chat.clear',
     channel: normalizedChannel,

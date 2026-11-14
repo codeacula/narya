@@ -58,6 +58,10 @@ const OVERLAY_PATHS = new Set([
   // times and the "next stream" line. The PUT/POST routes that set them live under
   // /api/holding-scenes and are deliberately absent, so the overlay token cannot write.
   '/api/overlay/holding-scenes',
+  // The pinned card seeds from this: kind, display name and text, or null. The writes
+  // live under /api/pinned-card and are deliberately absent, so a browser source cannot
+  // put text on stream. No message id or author login is on the payload.
+  '/api/overlay/pinned-card',
 ]);
 
 // Events an overlay connection is allowed to receive. Everything else — whispers,
@@ -87,6 +91,9 @@ const OVERLAY_EVENTS = new Set([
   'overlay:ad-break',
   // Two nullable end times and one line of display text — nothing else.
   'overlay:holding-scenes',
+  // The card's kind, name and text, or null when cleared — never the source message id
+  // or author login.
+  'overlay:pinned-card',
 ]);
 
 // Derived rather than separately configured so the operator has exactly one

@@ -5,6 +5,7 @@ import { ClipStage, useMediaQueue } from '../clips';
 import { useCountdown } from '../countdown';
 import { CrystalOrb } from '../crystalOrb';
 import { HoldingScene } from '../holdingScene';
+import { PinnedCardView, usePinnedCard } from '../pinnedCard';
 import { MusicPanel } from '../music';
 import { BottomBar, TopBar } from '../overlayBars';
 import { OverlayTextStage, useOverlayTextQueue } from '../overlayText';
@@ -153,6 +154,15 @@ export function OverlayAdsPage() {
   );
 }
 
+export function OverlayPinnedPage() {
+  const [card] = usePinnedCard();
+  return (
+    <main className="overlay-widget overlay-pinned-widget" aria-label="Pinned card overlay">
+      <PinnedCardView card={card} />
+    </main>
+  );
+}
+
 /** The full-screen holding scenes: opaque, 1920x1080, one browser source each. */
 export function OverlayStartingPage() {
   return <HoldingScene scene="starting" />;
@@ -200,19 +210,21 @@ export function OverlayUnknownPage({ path }: { path: string }) {
     <main className="overlay-widget overlay-unknown-widget" aria-label="Unknown overlay">
       <div className="overlay-unknown-notice">
         <strong>Narya: no overlay at {path}</strong>
-        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, /bottombar, /ads, /starting, /brb, or /ending.</span>
+        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, /bottombar, /ads, /pinned, /starting, /brb, or /ending.</span>
       </div>
     </main>
   );
 }
 
 export function OverlayPage() {
+  const [pinned] = usePinnedCard();
   return (
     <main className="overlay-frame">
       <TopBar />
       <div className="overlay-chat">
         <ChatPanel compact />
       </div>
+      <PinnedCardView card={pinned} />
       <BottomBar />
     </main>
   );

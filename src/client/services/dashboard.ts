@@ -79,6 +79,7 @@ import type {
   LatestEvents,
   HoldingScene,
   HoldingScenesState,
+  PinnedCard,
   OverlayAdBreak,
   OverlayPlaceholders,
   OverlayStreamSession,
@@ -641,6 +642,23 @@ export async function adjustHoldingCountdown(scene: HoldingScene, deltaMinutes: 
 
 export async function saveNextStream(text: string): Promise<HoldingScenesState> {
   return sendJson<HoldingScenesState>('/api/holding-scenes/next-stream', 'PUT', { text });
+}
+
+export async function getPinnedCard(): Promise<PinnedCard | null> {
+  return (await fetchJson<{ card: PinnedCard | null }>('/api/overlay/pinned-card')).card;
+}
+
+/** Pin a chat message by id. The server reads the name and text itself. */
+export async function pinChatMessage(messageId: string): Promise<PinnedCard | null> {
+  return (await sendJson<{ card: PinnedCard | null }>('/api/pinned-card/message', 'POST', { messageId })).card;
+}
+
+export async function pinTopic(text: string): Promise<PinnedCard | null> {
+  return (await sendJson<{ card: PinnedCard | null }>('/api/pinned-card/topic', 'PUT', { text })).card;
+}
+
+export async function clearPinnedCard(): Promise<PinnedCard | null> {
+  return (await sendJson<{ card: PinnedCard | null }>('/api/pinned-card', 'DELETE')).card;
 }
 
 export async function getOverlayAdBreak(): Promise<OverlayAdBreak> {

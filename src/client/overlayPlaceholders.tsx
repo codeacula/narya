@@ -92,6 +92,7 @@ const OVERLAY_LABELS: Record<string, string> = {
   topbar: 'Top bar',
   bottombar: 'Bottom bar',
   ads: 'Ad break banner',
+  pinned: 'Pinned card',
   starting: 'Starting soon scene',
   brb: 'Be right back scene',
   ending: 'Ending scene',
