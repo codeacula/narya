@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { LlmApiFormat, LlmProviderId, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../../../shared/api';
 import { getLlmProviderModels, getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
@@ -82,6 +82,15 @@ function toSettingsUpdate(form: LlmSettingsForm): LlmSettingsUpdate | null {
   };
 }
 
+/** The select's value for "the box holds a name the provider didn't list". */
+const CUSTOM_MODEL = '__custom__';
+
+/** Which select option matches the identifier box, so the two always agree. */
+function modelSelectValue(model: string, models: string[]): string {
+  if (!model) return '';
+  return models.includes(model) ? model : CUSTOM_MODEL;
+}
+
 function apiKeyPlaceholder(draft: ProviderDraft): string {
   if (draft.apiKeyConfigured) return 'Configured - leave blank to keep';
   return draft.requiresApiKey ? 'Required' : 'Optional';
@@ -97,6 +106,7 @@ export function LlmSection() {
   const [llmTestQuestion, setLlmTestQuestion] = useState('why is CSS like this?');
   const [llmTestReply, setLlmTestReply] = useState<string | null>(null);
   const [modelList, setModelList] = useState<ModelListState>({ status: 'idle' });
+  const modelInputRef = useRef<HTMLInputElement>(null);
 
   const llmForm = useSettingsForm<LlmSettingsForm>({
     initial: EMPTY_LLM_SETTINGS,
@@ -266,25 +276,45 @@ export function LlmSection() {
               </select>
             </label>
 
-            <label className="field">
-              <span>Model</span>
+            {/* A div, not a label: it holds two controls, and a label would only focus the first. */}
+            <div className="field">
+              <span id="llm-model-label">Model</span>
+              {modelList.status === 'loaded' && modelList.models.length > 0 && (
+                <select
+                  aria-labelledby="llm-model-label"
+                  value={modelSelectValue(draft.model, modelList.models)}
+                  disabled={busy}
+                  onChange={event => {
+                    if (event.target.value === CUSTOM_MODEL) {
+                      // The select mirrors the box, so a listed name in the box would snap
+                      // it straight back: clear that one. An already-custom name is kept.
+                      if (modelList.models.includes(draft.model)) updateDraft({ model: '' });
+                      modelInputRef.current?.focus();
+                      return;
+                    }
+                    updateDraft({ model: event.target.value });
+                  }}
+                >
+                  <option value="" disabled>Choose a model…</option>
+                  {modelList.models.map(model => <option key={model} value={model}>{model}</option>)}
+                  <option value={CUSTOM_MODEL}>Custom model…</option>
+                </select>
+              )}
               <input
+                ref={modelInputRef}
+                aria-label="Model identifier"
                 value={draft.model}
                 disabled={busy}
-                list="llm-models"
                 placeholder="Model identifier"
                 onChange={event => updateDraft({ model: event.target.value })}
               />
-              <datalist id="llm-models">
-                {modelList.status === 'loaded' && modelList.models.map(model => <option key={model} value={model} />)}
-              </datalist>
               <small>
                 {modelList.status === 'loading' && 'Loading models…'}
                 {modelList.status === 'loaded' && `${modelList.models.length} models loaded`}
                 {modelList.status === 'failed' && `Couldn't load models: ${modelList.error}`}
                 {modelList.status === 'idle' && saved && !canLoadModels && idleModelHint(saved)}
               </small>
-            </label>
+            </div>
           </>
         )}
 
