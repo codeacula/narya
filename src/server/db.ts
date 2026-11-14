@@ -320,6 +320,17 @@ db.exec(`
     updated_at text not null
   );
 
+  -- One saved profile per LLM provider preset (llmProviders.ts). The old base_url,
+  -- model, and api_key columns on llm_settings are left in place and no longer read.
+  create table if not exists llm_providers (
+    id text primary key,
+    base_url text not null,
+    api_key text not null default '',
+    model text not null default '',
+    api_format text not null,
+    updated_at text not null
+  );
+
   create table if not exists stream_sessions (
     id text primary key,
     started_at text not null,
@@ -901,6 +912,7 @@ const allowedMigrationColumns = new Set([
   'name',
   'conditions_json',
   'token_hash',
+  'active_provider',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -972,6 +984,9 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // Phase D: sha256 of an app's API token. Null means the app has no token and
   // cannot call /api/ext/*. See apps.ts's mintAppToken/revokeAppToken.
   token_hash: 'text',
+  // Which llm_providers row the LLM uses. Per-provider URL/key/model live there;
+  // llm_settings keeps only the bot-behaviour fields shared by every provider.
+  active_provider: "text not null default 'local'",
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -1167,6 +1182,7 @@ for (const [childTable, childKey, parentTable] of [
 // stored — the plaintext is shown once at mint and is never recoverable. Null means
 // the app has no token and cannot call the API.
 addColumnIfMissing('apps', 'token_hash', 'text');
+addColumnIfMissing('llm_settings', 'active_provider', "text not null default 'local'");
 
 // Phase D idempotency: an app's external_ref is its own key, so a retried provision
 // returns the existing reward instead of minting a second one and burning the

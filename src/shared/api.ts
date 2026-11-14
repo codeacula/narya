@@ -474,11 +474,21 @@ export type ChatbotCommandUpsert = {
 export type LlmProviderId = 'opencode-go' | 'openai' | 'local' | 'custom';
 export type LlmApiFormat = 'responses' | 'chat_completions';
 
-export type LlmSettings = {
-  enabled: boolean;
+/** One provider's saved profile. The key itself never leaves the server. */
+export type LlmProviderProfile = {
+  id: LlmProviderId;
+  label: string;
   baseUrl: string;
   model: string;
+  apiFormat: LlmApiFormat;
   apiKeyConfigured: boolean;
+  requiresApiKey: boolean;
+};
+
+export type LlmSettings = {
+  enabled: boolean;
+  activeProvider: LlmProviderId;
+  providers: LlmProviderProfile[];
   personalityPrompt: string;
   temperature: number;
   maxOutputTokens: number;
@@ -486,17 +496,25 @@ export type LlmSettings = {
   updatedAt: string | null;
 };
 
+/** `provider` is the edited profile for `activeProvider`; saving makes it active. */
 export type LlmSettingsUpdate = {
   enabled: boolean;
-  baseUrl: string;
-  model: string;
-  apiKey?: string;
-  clearApiKey?: boolean;
+  activeProvider: LlmProviderId;
+  provider: {
+    baseUrl: string;
+    model: string;
+    apiFormat: LlmApiFormat;
+    apiKey?: string;
+    clearApiKey?: boolean;
+  };
   personalityPrompt: string;
   temperature: number;
   maxOutputTokens: number;
   timeoutMs: number;
 };
+
+/** GET /api/llm/providers/:id/models — an unreachable provider is ok:false, not a 5xx. */
+export type LlmModelList = { ok: true; models: string[] } | { ok: false; error: string };
 
 export type LlmTestResult = {
   ok: boolean;
