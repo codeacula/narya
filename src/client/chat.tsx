@@ -221,7 +221,8 @@ export function ChatPanel({ compact = false }: { compact?: boolean }) {
 
         return (
           <article className={classes} data-role={role} key={message.id}>
-            <strong style={{ color: message.color ?? 'var(--gold-500)' }}>{message.displayName}</strong>
+            {/* Overlay rows colour the name by role (CSS), not by the viewer's Twitch colour. */}
+            <strong style={compact ? undefined : { color: message.color ?? 'var(--gold-500)' }}>{message.displayName}</strong>
             <span>{renderContent(message.message, message.emotes, emoteMap)}</span>
             {message.deletedAt ? <em>{message.deletedReason ?? 'moderated'}</em> : null}
           </article>
