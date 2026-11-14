@@ -16,6 +16,7 @@ beforeEach(() => {
   db.run('delete from llm_providers');
   db.run('delete from llm_settings');
   db.run('delete from schema_migrations where id = ?', [MIGRATION_ID]);
+  db.run("delete from schema_migrations where id = '2026-11-llm-legacy-api-key-cleared'");
 });
 
 describe('migrateLegacyLlmSettings', () => {
@@ -28,6 +29,21 @@ describe('migrateLegacyLlmSettings', () => {
     expect(active.apiFormat).toBe('responses');
     expect(active.model).toBe('glm-5.3-flash');
     expect(active.apiKey).toBe('sk-go');
+  });
+
+  test('the legacy plaintext key is blanked once it lives in a profile', () => {
+    seedLegacy('https://opencode.ai/inference/go/openai/v1', 'glm-5.3-flash', 'sk-go');
+    migrateLegacyLlmSettings();
+    const legacy = db.prepare("select api_key as apiKey from llm_settings where id = 'default'").get() as { apiKey: string };
+    expect(legacy.apiKey).toBe('');
+  });
+
+  test('a non-OpenAI Go path or a lookalike host prefix is kept verbatim under custom', () => {
+    seedLegacy('https://opencode.ai/inference/gofoo/v1', 'm', '');
+    migrateLegacyLlmSettings();
+    const active = getActiveProviderRow();
+    expect(active.preset.id).toBe('custom');
+    expect(active.baseUrl).toBe('https://opencode.ai/inference/gofoo/v1');
   });
 
   test('any other URL becomes the custom profile with the Responses format it used', () => {

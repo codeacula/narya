@@ -2,7 +2,7 @@ import type express from 'express';
 import type { LlmApiFormat, LlmModelList, LlmProviderId, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../shared/api';
 import { db, runOnce } from './db';
 import { handle, HttpRouteError } from './http';
-import { buildHeaders, buildRequestBody, DEFAULT_LLM_PROVIDER, endpointUrl, getPreset, isLlmApiFormat, LLM_PROVIDER_PRESETS, type LlmProviderPreset } from './llmProviders';
+import { buildHeaders, buildRequestBody, DEFAULT_LLM_PROVIDER, endpointUrl, normalizeBaseUrl, getPreset, isLlmApiFormat, LLM_PROVIDER_PRESETS, type LlmProviderPreset } from './llmProviders';
 import { clampFinite } from './numeric';
 
 const LLM_SETTINGS_ID = 'default';
@@ -172,12 +172,21 @@ export function migrateLegacyLlmSettings() {
     if (!legacy || !legacy.baseUrl.trim() || !legacy.model.trim()) return;
 
     const go = getPreset('opencode-go')!;
-    const isGo = normalizeUrl(legacy.baseUrl).startsWith(go.defaultBaseUrl);
+    const isGo = normalizeBaseUrl(go, legacy.baseUrl) === go.defaultBaseUrl;
     const preset = isGo ? go : getPreset('custom')!;
     const baseUrl = isGo ? go.defaultBaseUrl : normalizeUrl(legacy.baseUrl);
     getProviderRowOrDefault(preset);
     updateProvider.run(baseUrl, legacy.apiKey, legacy.model.trim(), 'responses', nowIso(), preset.id);
     db.prepare('update llm_settings set active_provider = ? where id = ?').run(preset.id, LLM_SETTINGS_ID);
+  });
+  // Separate ledger id because the migration above already ran on live installs.
+  // Once the key lives in a profile, the unread legacy copy would survive a
+  // "Clear stored API key" there — so blank it, but only when a profile holds it.
+  runOnce('2026-11-llm-legacy-api-key-cleared', () => {
+    db.prepare(`
+      update llm_settings set api_key = ''
+      where id = ? and api_key != '' and api_key in (select api_key from llm_providers)
+    `).run(LLM_SETTINGS_ID);
   });
 }
 
@@ -223,7 +232,7 @@ function normalizeSettingsUpdate(body: unknown): LlmSettingsUpdate {
   if (!preset) throw new HttpRouteError(400, 'Unknown LLM provider.');
   if (!isLlmApiFormat(provider.apiFormat)) throw new HttpRouteError(400, 'Unknown LLM API format.');
 
-  const baseUrl = typeof provider.baseUrl === 'string' ? normalizeUrl(provider.baseUrl) : '';
+  const baseUrl = typeof provider.baseUrl === 'string' ? normalizeBaseUrl(preset, provider.baseUrl) : '';
   const model = typeof provider.model === 'string' ? provider.model.trim() : '';
   const personalityPrompt = typeof value.personalityPrompt === 'string' ? value.personalityPrompt.trim() : '';
 

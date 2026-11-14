@@ -74,6 +74,17 @@ export function isLlmApiFormat(value: unknown): value is LlmApiFormat {
   return value === 'responses' || value === 'chat_completions';
 }
 
+/**
+ * The base URL as stored. For OpenCode Go the paths already carry `/openai/v1` and
+ * `/v1`, but those are what Go's docs (and the pre-profile config) show as "the URL",
+ * so a pasted suffix is stripped rather than doubled into `.../openai/v1/openai/v1/...`.
+ */
+export function normalizeBaseUrl(preset: LlmProviderPreset, baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '');
+  if (preset.id !== 'opencode-go') return trimmed;
+  return trimmed.replace(/\/openai\/v1$/, '').replace(/\/v1$/, '');
+}
+
 export function endpointUrl(preset: LlmProviderPreset, baseUrl: string, kind: LlmApiFormat | 'models'): string {
   return `${baseUrl.trim().replace(/\/+$/, '')}${preset.paths[kind]}`;
 }

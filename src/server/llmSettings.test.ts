@@ -85,3 +85,17 @@ describe('LLM provider profiles', () => {
     expect(count.n).toBe(0);
   });
 });
+
+describe('OpenCode Go base URL normalization', () => {
+  test('a pasted /openai/v1 or /v1 suffix is stripped so paths are not doubled', () => {
+    for (const pasted of [`${GO_BASE}/openai/v1`, `${GO_BASE}/openai/v1/`, `${GO_BASE}/v1`]) {
+      const settings = saveLlmSettings(update({ provider: { baseUrl: pasted } }));
+      expect(settings.providers.find(provider => provider.id === 'opencode-go')!.baseUrl).toBe(GO_BASE);
+    }
+  });
+
+  test('other providers keep their base URL verbatim', () => {
+    const settings = saveLlmSettings(update({ activeProvider: 'custom', provider: { baseUrl: 'http://10.0.0.5/openai/v1', apiFormat: 'responses' } }));
+    expect(settings.providers.find(provider => provider.id === 'custom')!.baseUrl).toBe('http://10.0.0.5/openai/v1');
+  });
+});
