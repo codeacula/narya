@@ -310,9 +310,6 @@ db.exec(`
   create table if not exists llm_settings (
     id text primary key,
     enabled integer not null default 1,
-    base_url text not null,
-    model text not null,
-    api_key text not null,
     personality_prompt text not null,
     temperature real not null default 0.7,
     max_output_tokens integer not null default 2048,
@@ -320,8 +317,9 @@ db.exec(`
     updated_at text not null
   );
 
-  -- One saved profile per LLM provider preset (llmProviders.ts). The old base_url,
-  -- model, and api_key columns on llm_settings are left in place and no longer read.
+  -- One saved profile per LLM provider preset (llmProviders.ts). llm_settings used to
+  -- hold a single base_url/model/api_key; migrateLegacyLlmSettings (llm.ts) copies
+  -- them into a profile and drops those columns on older databases.
   create table if not exists llm_providers (
     id text primary key,
     base_url text not null,

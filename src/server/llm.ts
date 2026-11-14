@@ -72,13 +72,11 @@ const getSettingsRow = db.prepare(`
   where id = ?
 `);
 
-// base_url/model/api_key on llm_settings are legacy and unread; they are still
-// NOT NULL, so the default row fills them with empty values.
 const insertDefaultSettings = db.prepare(`
   insert or ignore into llm_settings
-    (id, enabled, base_url, model, api_key, personality_prompt, temperature, max_output_tokens, timeout_ms, updated_at, active_provider)
+    (id, enabled, personality_prompt, temperature, max_output_tokens, timeout_ms, updated_at, active_provider)
   values
-    (?, 1, '', '', '', ?, 0.7, 2048, 15000, ?, ?)
+    (?, 1, ?, 0.7, 2048, 15000, ?, ?)
 `);
 
 const updateSettings = db.prepare(`
@@ -152,23 +150,33 @@ export function getActiveProviderRow(): ResolvedLlmProvider {
   return getProviderRow(settings.activeProvider) ?? resolveProvider(getPreset(DEFAULT_LLM_PROVIDER)!);
 }
 
-const getLegacySettings = db.prepare(`
-  select base_url as baseUrl, model, api_key as apiKey from llm_settings where id = ?
-`);
+const LEGACY_LLM_COLUMNS = ['base_url', 'model', 'api_key'] as const;
+
+function hasLegacyLlmColumns(): boolean {
+  const columns = db.prepare("pragma table_info('llm_settings')").all() as Array<{ name: string }>;
+  return columns.some(column => column.name === 'base_url');
+}
 
 /**
  * Carries the pre-profile single-endpoint config (llm_settings.base_url/model/api_key)
- * into a provider profile, once. Before profiles every request went to
- * `{base_url}/responses`, so the migrated profile keeps the Responses format: the
- * endpoint a working install was hitting is exactly the endpoint it keeps hitting.
+ * into a provider profile, then drops those columns. Before profiles every request
+ * went to `{base_url}/responses`, so the migrated profile keeps the Responses format:
+ * the endpoint a working install was hitting is exactly the endpoint it keeps hitting.
  * An OpenCode Go URL lands on the opencode-go preset (same URL, plus Go's session
  * headers); anything else lands on custom. A row with no model was never usable and
  * leaves the default provider active.
+ *
+ * Must run before ensureLlmSettings: the legacy columns are NOT NULL with no default,
+ * so the default-row insert (which no longer names them) is skipped until they are
+ * gone. Keyed on the columns' presence rather than a ledger id alone, so a database
+ * that ran the copy before the drop existed still gets the drop. A fresh install never
+ * has the columns, and this is a no-op.
  */
 export function migrateLegacyLlmSettings() {
+  if (!hasLegacyLlmColumns()) return;
   runOnce('2026-11-llm-provider-profiles-from-legacy', () => {
-    ensureLlmSettings();
-    const legacy = getLegacySettings.get(LLM_SETTINGS_ID) as { baseUrl: string; model: string; apiKey: string } | null;
+    const legacy = db.prepare('select base_url as baseUrl, model, api_key as apiKey from llm_settings where id = ?')
+      .get(LLM_SETTINGS_ID) as { baseUrl: string; model: string; apiKey: string } | null;
     if (!legacy || !legacy.baseUrl.trim() || !legacy.model.trim()) return;
 
     const go = getPreset('opencode-go')!;
@@ -179,15 +187,9 @@ export function migrateLegacyLlmSettings() {
     updateProvider.run(baseUrl, legacy.apiKey, legacy.model.trim(), 'responses', nowIso(), preset.id);
     db.prepare('update llm_settings set active_provider = ? where id = ?').run(preset.id, LLM_SETTINGS_ID);
   });
-  // Separate ledger id because the migration above already ran on live installs.
-  // Once the key lives in a profile, the unread legacy copy would survive a
-  // "Clear stored API key" there — so blank it, but only when a profile holds it.
-  runOnce('2026-11-llm-legacy-api-key-cleared', () => {
-    db.prepare(`
-      update llm_settings set api_key = ''
-      where id = ? and api_key != '' and api_key in (select api_key from llm_providers)
-    `).run(LLM_SETTINGS_ID);
-  });
+  db.transaction(() => {
+    for (const column of LEGACY_LLM_COLUMNS) db.run(`alter table llm_settings drop column ${column}`);
+  })();
 }
 
 function toProfile(provider: ResolvedLlmProvider): LlmProviderProfile {
@@ -427,8 +429,8 @@ export async function runLlmRequest(instructions: string, input: string, convers
 }
 
 export function registerLlmRoutes(app: express.Express) {
-  ensureLlmSettings();
   migrateLegacyLlmSettings();
+  ensureLlmSettings();
 
   app.get('/api/llm/settings', (_request, response) => {
     response.json(getLlmSettings());

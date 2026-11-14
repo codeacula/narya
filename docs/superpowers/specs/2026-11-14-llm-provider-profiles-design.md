@@ -67,7 +67,7 @@ api_format, updated_at)`, one row per preset id, created lazily with the preset'
 defaults. `llm_settings` gains `active_provider text` (default `'local'`) via
 `addColumnIfMissing`. Shared bot-behaviour fields — enabled, personality prompt,
 temperature, max output tokens, timeout — stay on `llm_settings`. The old
-`base_url`/`model`/`api_key` columns on `llm_settings` are left in place and unread.
+`base_url`/`model`/`api_key` columns on `llm_settings` are copied into a profile and then dropped (`migrateLegacyLlmSettings`).
 
 **Presets** (server-side code literal, one object each; adding OpenRouter etc. later
 is a new entry):
