@@ -516,9 +516,13 @@ describe('overlay bar data', () => {
     expect(isOverlayEvent('overlay:stream-session')).toBe(true);
   });
 
+  test('overlay connections receive the ad-break event', () => {
+    expect(isOverlayEvent('overlay:ad-break')).toBe(true);
+  });
+
   test('lets the overlay token read the bar seeds, GET only', () => {
     setToken(OPERATOR);
-    for (const path of ['/api/overlay/latest-events', '/api/overlay/stream-session']) {
+    for (const path of ['/api/overlay/latest-events', '/api/overlay/stream-session', '/api/overlay/ad-break']) {
       expect(callMiddleware({ path, token: getOverlayToken()! }).nextCalled).toBe(true);
       expect(callMiddleware({ method: 'PUT', path, token: getOverlayToken()! }).status).toBe(403);
     }

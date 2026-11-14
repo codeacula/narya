@@ -11,6 +11,7 @@ import { publishRedeem, publishTwitchEvent } from './eventBus';
 import { announceTwitchStreamOnline } from './goLive';
 import { getRewardSource } from './rewardProvenance';
 import { broadcast } from './realtime';
+import { broadcastOverlayAdBreak } from './overlayAds';
 import type { RuntimeState } from './runtime';
 import { endActiveStreamSession, getCurrentStreamSessionId } from './streamSession';
 import { fetchBroadcasterId, fetchCurrentTwitchStream, getEventSubCredentials, runTwitchCommercial } from './twitch/api';
@@ -335,6 +336,7 @@ export async function handleEventSubNotification(
       const startedAt = new Date(event.started_at as string);
       state.adBreakEndsAt = new Date(startedAt.getTime() + durationSecs * 1000).toISOString();
       state.twitchAdScheduleCache = null;
+      broadcastOverlayAdBreak(state);
       emitStreamEvent('ad_break', 'Twitch', `ad break · ${durationSecs}s`, 'info');
       break;
     }

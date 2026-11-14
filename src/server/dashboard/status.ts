@@ -13,6 +13,7 @@ import { twitchClient } from '../chat';
 import { db } from '../db';
 import { handle, HttpRouteError, sendRouteError } from '../http';
 import { getObsDashboardStats, isObsConnected } from '../obs';
+import { broadcastOverlayAdBreak } from '../overlayAds';
 import { broadcast, getSocketCount } from '../realtime';
 import { getRedisStatus, isRedisConnected } from '../redis';
 import type { AdSchedule, AdScheduleStatus, RuntimeState, StreamActivityStatus } from '../runtime';
@@ -226,6 +227,8 @@ export function clearExpiredAdBreak(state: RuntimeState, nowMs = Date.now()) {
 
   state.adBreakEndsAt = null;
   state.twitchAdScheduleCache = null;
+  // Only when something was actually cleared, so the status poll does not spam sources.
+  broadcastOverlayAdBreak(state);
 }
 
 export async function getTwitchStreamStatus(state: RuntimeState): Promise<StreamActivityStatus> {

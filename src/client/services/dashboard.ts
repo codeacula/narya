@@ -77,6 +77,7 @@ import type {
   AppConfig,
   AppConfigUpdate,
   LatestEvents,
+  OverlayAdBreak,
   OverlayPlaceholders,
   OverlayStreamSession,
   MediaMuteState,
@@ -621,6 +622,10 @@ export async function updateStreamStatus(text: string): Promise<StreamStatus> {
 // browser source seeds from it); the PUT is operator-only.
 export async function getLatestEvents(): Promise<LatestEvents> {
   return fetchJson<LatestEvents>('/api/overlay/latest-events');
+}
+
+export async function getOverlayAdBreak(): Promise<OverlayAdBreak> {
+  return fetchJson<OverlayAdBreak>('/api/overlay/ad-break');
 }
 
 export async function getOverlayStreamSession(): Promise<OverlayStreamSession> {

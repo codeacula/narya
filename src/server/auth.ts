@@ -51,6 +51,9 @@ const OVERLAY_PATHS = new Set([
   '/api/overlay/latest-events',
   // The bottom bar's uptime seeds from this: just the session start time, or null.
   '/api/overlay/stream-session',
+  // The ad banner seeds from this: the end time of a running ad break, or null. Nothing
+  // from the ad schedule (next ad, preroll, snooze) is on the payload.
+  '/api/overlay/ad-break',
 ]);
 
 // Events an overlay connection is allowed to receive. Everything else — whispers,
@@ -75,6 +78,9 @@ const OVERLAY_EVENTS = new Set([
   // One nullable timestamp (when the live session began, null when it ended) — no
   // session id, Discord message ids, or planned end.
   'overlay:stream-session',
+  // One nullable timestamp (when the running ad break ends, null when none) — nothing
+  // from the ad schedule.
+  'overlay:ad-break',
 ]);
 
 // Derived rather than separately configured so the operator has exactly one

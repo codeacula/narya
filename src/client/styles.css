@@ -1517,3 +1517,92 @@ nav {
   font-variant-numeric: tabular-nums;
   color: var(--gold-500);
 }
+
+/* ── Ad-break banner ────────────────────────────────────── */
+
+/* A 120px band over the top of a 1920x1080 source, covering the 48px top bar while an ad
+   runs. Gold is spent on the countdown alone; the gilded hairline under the band is the
+   only other warm line. The text is large on purpose so it survives the stream being
+   shrunk during the break. */
+.overlay-ads-widget {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ad-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 120px;
+  box-sizing: border-box;
+  padding: 0 48px;
+  display: flex;
+  align-items: center;
+  gap: 36px;
+  background: rgba(19, 27, 45, 0.96);
+  border-bottom: 1px solid var(--border-3);
+  color: var(--ivory-50);
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+
+.ad-banner.is-visible {
+  opacity: 1;
+}
+
+.ad-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ad-banner-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--silver-400);
+}
+
+.ad-banner-line {
+  font-family: var(--font-display);
+  font-size: 60px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ivory-50);
+}
+
+.ad-banner-line em {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--ivory-200);
+}
+
+.ad-banner-back {
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+  flex: none;
+}
+
+.ad-banner-countdown {
+  font-family: var(--font-mono);
+  font-size: 68px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold-500);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ad-banner {
+    transition: none;
+  }
+}

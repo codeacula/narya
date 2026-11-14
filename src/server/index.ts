@@ -21,6 +21,7 @@ import {
 import { registerMediaAssetRoutes } from './mediaAssets';
 import { registerMediaMuteRoutes } from './mediaMute';
 import { registerOverlayBarRoutes } from './overlayBars';
+import { registerOverlayAdRoutes } from './overlayAds';
 import { registerOverlayPlaceholderRoutes } from './overlayPlaceholders';
 import { registerWindDownRoutes, setWindDownTitleApplier } from './windDown';
 import { applyWindDownTitle, startWindDownLoop, windDownTitlePort } from './windDownLoop';
@@ -169,6 +170,7 @@ registerQuoteRoutes(app);
 registerStreamStatusRoutes(app);
 registerOverlayPlaceholderRoutes(app);
 registerOverlayBarRoutes(app);
+registerOverlayAdRoutes(app, runtimeState);
 registerMediaMuteRoutes(app);
 registerWindDownRoutes(app);
 registerLlmRoutes(app);

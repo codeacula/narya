@@ -42,6 +42,11 @@ test('the top and bottom bars resolve to their own sources', () => {
   expect(overlayFromPath('/overlay/bottombar/')).toBe('bottombar');
 });
 
+test('the ad-break banner resolves to its own source', () => {
+  expect(overlayFromPath('/overlay/ads')).toBe('ads');
+  expect(overlayFromPath('/overlay/ads/')).toBe('ads');
+});
+
 test('trailing slashes and non-overlay paths are unaffected', () => {
   expect(overlayFromPath('/overlay/chat/')).toBe('chat');
   expect(overlayFromPath('/overlays')).toBeNull();

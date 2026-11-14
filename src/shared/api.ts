@@ -711,6 +711,12 @@ export type OverlayStreamSession = {
   startedAt: string | null;
 };
 
+/** GET /api/overlay/ad-break and the `overlay:ad-break` event payload. */
+export type OverlayAdBreak = {
+  /** RFC3339 end of the running ad break, or null when none (or it already ended). Nothing else about ads. */
+  endsAt: string | null;
+};
+
 /** `media:mute` WebSocket payload and the GET/PUT /api/automation/media-mute body. */
 export type MediaMuteState = {
   muted: boolean;
