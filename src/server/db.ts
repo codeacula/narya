@@ -310,13 +310,22 @@ db.exec(`
   create table if not exists llm_settings (
     id text primary key,
     enabled integer not null default 1,
-    base_url text not null,
-    model text not null,
-    api_key text not null,
     personality_prompt text not null,
     temperature real not null default 0.7,
     max_output_tokens integer not null default 2048,
     timeout_ms integer not null default 15000,
+    updated_at text not null
+  );
+
+  -- One saved profile per LLM provider preset (llmProviders.ts). llm_settings used to
+  -- hold a single base_url/model/api_key; migrateLegacyLlmSettings (llm.ts) copies
+  -- them into a profile and drops those columns on older databases.
+  create table if not exists llm_providers (
+    id text primary key,
+    base_url text not null,
+    api_key text not null default '',
+    model text not null default '',
+    api_format text not null,
     updated_at text not null
   );
 
@@ -901,6 +910,7 @@ const allowedMigrationColumns = new Set([
   'name',
   'conditions_json',
   'token_hash',
+  'active_provider',
 ]);
 const allowedMigrationDefinitions: Record<string, string> = {
   account_user_id: 'text',
@@ -972,6 +982,9 @@ const allowedMigrationDefinitions: Record<string, string> = {
   // Phase D: sha256 of an app's API token. Null means the app has no token and
   // cannot call /api/ext/*. See apps.ts's mintAppToken/revokeAppToken.
   token_hash: 'text',
+  // Which llm_providers row the LLM uses. Per-provider URL/key/model live there;
+  // llm_settings keeps only the bot-behaviour fields shared by every provider.
+  active_provider: "text not null default 'local'",
 };
 
 function assertMigrationIdentifier(kind: 'table' | 'column', value: string) {
@@ -1167,6 +1180,7 @@ for (const [childTable, childKey, parentTable] of [
 // stored — the plaintext is shown once at mint and is never recoverable. Null means
 // the app has no token and cannot call the API.
 addColumnIfMissing('apps', 'token_hash', 'text');
+addColumnIfMissing('llm_settings', 'active_provider', "text not null default 'local'");
 
 // Phase D idempotency: an app's external_ref is its own key, so a retried provision
 // returns the existing reward instead of minting a second one and burning the

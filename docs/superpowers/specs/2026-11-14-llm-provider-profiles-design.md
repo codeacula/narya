@@ -26,8 +26,12 @@ and a local LM Studio never means re-pasting a key.
 - Several providers in use at once, or a per-Action-step provider choice.
 - Anthropic Messages / Google formats (OpenCode Go's Console translates formats;
   add one later only if a model needs it).
-- Migrating the current `llm_settings` base URL / model / key — the operator has
-  nothing worth keeping there. Profiles start from preset defaults.
+- ~~Migrating the current `llm_settings` base URL / model / key.~~ **Reversed during
+  implementation:** the live database turned out to hold a working OpenCode Go config
+  (enabled, model, key). A one-time `runOnce` migration
+  (`migrateLegacyLlmSettings`) carries it into the opencode-go profile (or `custom`
+  for any other URL) with the Responses format it was already using, so the endpoint
+  a working install hits does not change.
 
 ## Anti-goals
 
@@ -63,7 +67,7 @@ api_format, updated_at)`, one row per preset id, created lazily with the preset'
 defaults. `llm_settings` gains `active_provider text` (default `'local'`) via
 `addColumnIfMissing`. Shared bot-behaviour fields — enabled, personality prompt,
 temperature, max output tokens, timeout — stay on `llm_settings`. The old
-`base_url`/`model`/`api_key` columns on `llm_settings` are left in place and unread.
+`base_url`/`model`/`api_key` columns on `llm_settings` are copied into a profile and then dropped (`migrateLegacyLlmSettings`).
 
 **Presets** (server-side code literal, one object each; adding OpenRouter etc. later
 is a new entry):

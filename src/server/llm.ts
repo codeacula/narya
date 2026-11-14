@@ -1,11 +1,11 @@
 import type express from 'express';
-import type { LlmSettings, LlmSettingsUpdate } from '../shared/api';
-import { db } from './db';
+import type { LlmApiFormat, LlmModelList, LlmProviderId, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../shared/api';
+import { db, runOnce } from './db';
 import { handle, HttpRouteError } from './http';
+import { buildHeaders, buildRequestBody, DEFAULT_LLM_PROVIDER, endpointUrl, normalizeBaseUrl, getPreset, isLlmApiFormat, LLM_PROVIDER_PRESETS, type LlmProviderPreset } from './llmProviders';
 import { clampFinite } from './numeric';
 
 const LLM_SETTINGS_ID = 'default';
-const DEFAULT_BASE_URL = 'http://localhost:1234/v1';
 const DEFAULT_PERSONALITY_PROMPT = [
   'You are a tiny, theatrical stream-side know-it-all who answers Twitch chat questions.',
   'Be silly, lightly snarky, and concise, but never cruel.',
@@ -13,17 +13,34 @@ const DEFAULT_PERSONALITY_PROMPT = [
   'Do not include an @mention; the app adds that for you.',
 ].join(' ');
 
+/** The bot-behaviour fields every provider shares. */
 type LlmSettingsRow = {
   id: string;
   enabled: number;
-  baseUrl: string;
-  model: string;
-  apiKey: string;
+  activeProvider: string;
   personalityPrompt: string;
   temperature: number;
   maxOutputTokens: number;
   timeoutMs: number;
   updatedAt: string;
+};
+
+type LlmProviderRow = {
+  id: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  apiFormat: string;
+  updatedAt: string;
+};
+
+/** A provider profile resolved against its preset, with the key — server-side only. */
+export type ResolvedLlmProvider = {
+  preset: LlmProviderPreset;
+  baseUrl: string;
+  model: string;
+  apiFormat: LlmApiFormat;
+  apiKey: string;
 };
 
 export type ResponsesApiResponse = {
@@ -35,7 +52,7 @@ export type ResponsesApiResponse = {
       text?: unknown;
     }>;
   }>;
-  // Chat Completions fallback (some local servers return this even from /responses)
+  // Chat Completions shape (the chat_completions format, and some local servers' /responses)
   choices?: Array<{
     message?: { content?: unknown };
   }>;
@@ -45,9 +62,7 @@ const getSettingsRow = db.prepare(`
   select
     id,
     enabled,
-    base_url as baseUrl,
-    model,
-    api_key as apiKey,
+    active_provider as activeProvider,
     personality_prompt as personalityPrompt,
     temperature,
     max_output_tokens as maxOutputTokens,
@@ -59,18 +74,16 @@ const getSettingsRow = db.prepare(`
 
 const insertDefaultSettings = db.prepare(`
   insert or ignore into llm_settings
-    (id, enabled, base_url, model, api_key, personality_prompt, temperature, max_output_tokens, timeout_ms, updated_at)
+    (id, enabled, personality_prompt, temperature, max_output_tokens, timeout_ms, updated_at, active_provider)
   values
-    (?, 1, ?, '', '', ?, 0.7, 2048, 15000, ?)
+    (?, 1, ?, 0.7, 2048, 15000, ?, ?)
 `);
 
 const updateSettings = db.prepare(`
   update llm_settings
   set
     enabled = ?,
-    base_url = ?,
-    model = ?,
-    api_key = ?,
+    active_provider = ?,
     personality_prompt = ?,
     temperature = ?,
     max_output_tokens = ?,
@@ -79,26 +92,29 @@ const updateSettings = db.prepare(`
   where id = ?
 `);
 
+const getProviderRowStatement = db.prepare(`
+  select id, base_url as baseUrl, api_key as apiKey, model, api_format as apiFormat, updated_at as updatedAt
+  from llm_providers
+  where id = ?
+`);
+
+const insertDefaultProvider = db.prepare(`
+  insert or ignore into llm_providers (id, base_url, api_key, model, api_format, updated_at)
+  values (?, ?, '', '', ?, ?)
+`);
+
+const updateProvider = db.prepare(`
+  update llm_providers
+  set base_url = ?, api_key = ?, model = ?, api_format = ?, updated_at = ?
+  where id = ?
+`);
+
 function nowIso(): string {
   return new Date().toISOString();
 }
 
 export function ensureLlmSettings() {
-  insertDefaultSettings.run(LLM_SETTINGS_ID, DEFAULT_BASE_URL, DEFAULT_PERSONALITY_PROMPT, nowIso());
-}
-
-function rowToSettings(row: LlmSettingsRow): LlmSettings {
-  return {
-    enabled: row.enabled === 1,
-    baseUrl: row.baseUrl,
-    model: row.model,
-    apiKeyConfigured: Boolean(row.apiKey),
-    personalityPrompt: row.personalityPrompt,
-    temperature: row.temperature,
-    maxOutputTokens: row.maxOutputTokens,
-    timeoutMs: row.timeoutMs,
-    updatedAt: row.updatedAt,
-  };
+  insertDefaultSettings.run(LLM_SETTINGS_ID, DEFAULT_PERSONALITY_PROMPT, nowIso(), DEFAULT_LLM_PROVIDER);
 }
 
 function getSettingsRowOrDefault(): LlmSettingsRow {
@@ -106,8 +122,100 @@ function getSettingsRowOrDefault(): LlmSettingsRow {
   return getSettingsRow.get(LLM_SETTINGS_ID) as LlmSettingsRow;
 }
 
+function getProviderRowOrDefault(preset: LlmProviderPreset): LlmProviderRow {
+  insertDefaultProvider.run(preset.id, preset.defaultBaseUrl, preset.defaultFormat, nowIso());
+  return getProviderRowStatement.get(preset.id) as LlmProviderRow;
+}
+
+function resolveProvider(preset: LlmProviderPreset): ResolvedLlmProvider {
+  const row = getProviderRowOrDefault(preset);
+  return {
+    preset,
+    baseUrl: row.baseUrl,
+    model: row.model,
+    apiFormat: isLlmApiFormat(row.apiFormat) ? row.apiFormat : preset.defaultFormat,
+    apiKey: row.apiKey,
+  };
+}
+
+/** The stored profile for one provider; null for an id no preset defines. */
+export function getProviderRow(id: string): ResolvedLlmProvider | null {
+  const preset = getPreset(id);
+  return preset ? resolveProvider(preset) : null;
+}
+
+/** The active provider's profile. A stored id no preset knows falls back to the default. */
+export function getActiveProviderRow(): ResolvedLlmProvider {
+  const settings = getSettingsRowOrDefault();
+  return getProviderRow(settings.activeProvider) ?? resolveProvider(getPreset(DEFAULT_LLM_PROVIDER)!);
+}
+
+const LEGACY_LLM_COLUMNS = ['base_url', 'model', 'api_key'] as const;
+
+function hasLegacyLlmColumns(): boolean {
+  const columns = db.prepare("pragma table_info('llm_settings')").all() as Array<{ name: string }>;
+  return columns.some(column => column.name === 'base_url');
+}
+
+/**
+ * Carries the pre-profile single-endpoint config (llm_settings.base_url/model/api_key)
+ * into a provider profile, then drops those columns. Before profiles every request
+ * went to `{base_url}/responses`, so the migrated profile keeps the Responses format:
+ * the endpoint a working install was hitting is exactly the endpoint it keeps hitting.
+ * An OpenCode Go URL lands on the opencode-go preset (same URL, plus Go's session
+ * headers); anything else lands on custom. A row with no model was never usable and
+ * leaves the default provider active.
+ *
+ * Must run before ensureLlmSettings: the legacy columns are NOT NULL with no default,
+ * so the default-row insert (which no longer names them) is skipped until they are
+ * gone. Keyed on the columns' presence rather than a ledger id alone, so a database
+ * that ran the copy before the drop existed still gets the drop. A fresh install never
+ * has the columns, and this is a no-op.
+ */
+export function migrateLegacyLlmSettings() {
+  if (!hasLegacyLlmColumns()) return;
+  runOnce('2026-11-llm-provider-profiles-from-legacy', () => {
+    const legacy = db.prepare('select base_url as baseUrl, model, api_key as apiKey from llm_settings where id = ?')
+      .get(LLM_SETTINGS_ID) as { baseUrl: string; model: string; apiKey: string } | null;
+    if (!legacy || !legacy.baseUrl.trim() || !legacy.model.trim()) return;
+
+    const go = getPreset('opencode-go')!;
+    const isGo = normalizeBaseUrl(go, legacy.baseUrl) === go.defaultBaseUrl;
+    const preset = isGo ? go : getPreset('custom')!;
+    const baseUrl = isGo ? go.defaultBaseUrl : normalizeUrl(legacy.baseUrl);
+    getProviderRowOrDefault(preset);
+    updateProvider.run(baseUrl, legacy.apiKey, legacy.model.trim(), 'responses', nowIso(), preset.id);
+    db.prepare('update llm_settings set active_provider = ? where id = ?').run(preset.id, LLM_SETTINGS_ID);
+  });
+  db.transaction(() => {
+    for (const column of LEGACY_LLM_COLUMNS) db.run(`alter table llm_settings drop column ${column}`);
+  })();
+}
+
+function toProfile(provider: ResolvedLlmProvider): LlmProviderProfile {
+  return {
+    id: provider.preset.id,
+    label: provider.preset.label,
+    baseUrl: provider.baseUrl,
+    model: provider.model,
+    apiFormat: provider.apiFormat,
+    apiKeyConfigured: Boolean(provider.apiKey),
+    requiresApiKey: provider.preset.requiresApiKey,
+  };
+}
+
 export function getLlmSettings(): LlmSettings {
-  return rowToSettings(getSettingsRowOrDefault());
+  const row = getSettingsRowOrDefault();
+  return {
+    enabled: row.enabled === 1,
+    activeProvider: getActiveProviderRow().preset.id,
+    providers: LLM_PROVIDER_PRESETS.map(preset => toProfile(resolveProvider(preset))),
+    personalityPrompt: row.personalityPrompt,
+    temperature: row.temperature,
+    maxOutputTokens: row.maxOutputTokens,
+    timeoutMs: row.timeoutMs,
+    updatedAt: row.updatedAt,
+  };
 }
 
 function normalizeUrl(value: string): string {
@@ -120,9 +228,14 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 }
 
 function normalizeSettingsUpdate(body: unknown): LlmSettingsUpdate {
-  const value = body as Partial<LlmSettingsUpdate>;
-  const baseUrl = typeof value.baseUrl === 'string' ? normalizeUrl(value.baseUrl) : '';
-  const model = typeof value.model === 'string' ? value.model.trim() : '';
+  const value = (body ?? {}) as Partial<LlmSettingsUpdate>;
+  const provider = (value.provider ?? {}) as Partial<LlmSettingsUpdate['provider']>;
+  const preset = typeof value.activeProvider === 'string' ? getPreset(value.activeProvider) : null;
+  if (!preset) throw new HttpRouteError(400, 'Unknown LLM provider.');
+  if (!isLlmApiFormat(provider.apiFormat)) throw new HttpRouteError(400, 'Unknown LLM API format.');
+
+  const baseUrl = typeof provider.baseUrl === 'string' ? normalizeBaseUrl(preset, provider.baseUrl) : '';
+  const model = typeof provider.model === 'string' ? provider.model.trim() : '';
   const personalityPrompt = typeof value.personalityPrompt === 'string' ? value.personalityPrompt.trim() : '';
 
   if (baseUrl) {
@@ -139,10 +252,14 @@ function normalizeSettingsUpdate(body: unknown): LlmSettingsUpdate {
 
   return {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
-    baseUrl,
-    model,
-    apiKey: typeof value.apiKey === 'string' ? value.apiKey.trim() : undefined,
-    clearApiKey: value.clearApiKey === true,
+    activeProvider: preset.id,
+    provider: {
+      baseUrl,
+      model,
+      apiFormat: provider.apiFormat,
+      apiKey: typeof provider.apiKey === 'string' ? provider.apiKey.trim() : undefined,
+      clearApiKey: provider.clearApiKey === true,
+    },
     personalityPrompt,
     temperature: clampNumber(value.temperature, 0.7, 0, 2),
     maxOutputTokens: Math.round(clampNumber(value.maxOutputTokens, 2048, 0, 8192)),
@@ -151,28 +268,27 @@ function normalizeSettingsUpdate(body: unknown): LlmSettingsUpdate {
 }
 
 export function saveLlmSettings(body: unknown): LlmSettings {
-  const current = getSettingsRowOrDefault();
+  getSettingsRowOrDefault();
   const next = normalizeSettingsUpdate(body);
-  const apiKey = next.clearApiKey ? '' : next.apiKey ? next.apiKey : current.apiKey;
+  const current = getProviderRow(next.activeProvider)!;
+  const apiKey = next.provider.clearApiKey ? '' : next.provider.apiKey ? next.provider.apiKey : current.apiKey;
+  const now = nowIso();
 
-  updateSettings.run(
-    next.enabled ? 1 : 0,
-    next.baseUrl,
-    next.model,
-    apiKey,
-    next.personalityPrompt,
-    next.temperature,
-    next.maxOutputTokens,
-    next.timeoutMs,
-    nowIso(),
-    LLM_SETTINGS_ID,
-  );
+  db.transaction(() => {
+    updateProvider.run(next.provider.baseUrl, apiKey, next.provider.model, next.provider.apiFormat, now, next.activeProvider);
+    updateSettings.run(
+      next.enabled ? 1 : 0,
+      next.activeProvider,
+      next.personalityPrompt,
+      next.temperature,
+      next.maxOutputTokens,
+      next.timeoutMs,
+      now,
+      LLM_SETTINGS_ID,
+    );
+  })();
 
   return getLlmSettings();
-}
-
-function responsesUrl(baseUrl: string): string {
-  return `${normalizeUrl(baseUrl)}/responses`;
 }
 
 function stripThinkingTokens(text: string): string {
@@ -203,34 +319,41 @@ export function extractResponseText(data: ResponsesApiResponse): string {
   return '';
 }
 
-async function callLlm(settings: LlmSettingsRow, instructions: string, userContent: string): Promise<string> {
+async function readErrorDetail(response: Response): Promise<string> {
+  const text = await response.text().catch(() => '');
+  let detail = text.slice(0, 300);
+  try {
+    const parsed = JSON.parse(text) as { error?: { message?: unknown } };
+    if (typeof parsed.error?.message === 'string') detail = parsed.error.message;
+  } catch { /* ignore */ }
+  return detail;
+}
+
+async function callLlm(
+  settings: LlmSettingsRow,
+  provider: ResolvedLlmProvider,
+  instructions: string,
+  userContent: string,
+  conversationKey: string,
+): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), settings.timeoutMs);
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
-
-    const response = await fetch(responsesUrl(settings.baseUrl), {
+    const response = await fetch(endpointUrl(provider.preset, provider.baseUrl, provider.apiFormat), {
       method: 'POST',
-      headers,
+      headers: buildHeaders(provider.preset, provider.apiKey, conversationKey),
       signal: controller.signal,
-      body: JSON.stringify({
-        model: settings.model,
+      body: JSON.stringify(buildRequestBody(provider.apiFormat, {
+        model: provider.model,
         instructions,
         input: userContent,
         temperature: settings.temperature,
-        ...(settings.maxOutputTokens > 0 ? { max_output_tokens: settings.maxOutputTokens } : {}),
-      }),
+        maxOutputTokens: settings.maxOutputTokens,
+      })),
     });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      let detail = text.slice(0, 300);
-      try {
-        const parsed = JSON.parse(text) as { error?: { message?: unknown } };
-        if (typeof parsed.error?.message === 'string') detail = parsed.error.message;
-      } catch { /* ignore */ }
-      throw new Error(`LLM request failed (${response.status}): ${detail}`);
+      throw new Error(`LLM request failed (${response.status}): ${await readErrorDetail(response)}`);
     }
 
     const data = await response.json() as ResponsesApiResponse;
@@ -240,6 +363,39 @@ async function callLlm(settings: LlmSettingsRow, instructions: string, userConte
       throw new Error('LLM response included no text content.');
     }
     return answer;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * The provider's model list, fetched server-side so the stored key never reaches the
+ * browser. Every failure is a value, not a throw: Settings calls this automatically,
+ * and an unreachable provider is an ordinary state there, not an error page.
+ */
+export async function listProviderModels(id: LlmProviderId): Promise<LlmModelList> {
+  const provider = getProviderRow(id);
+  if (!provider) return { ok: false, error: 'Unknown LLM provider.' };
+  if (!provider.baseUrl) return { ok: false, error: 'No base URL configured.' };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), getSettingsRowOrDefault().timeoutMs);
+  try {
+    const response = await fetch(endpointUrl(provider.preset, provider.baseUrl, 'models'), {
+      headers: buildHeaders(provider.preset, provider.apiKey, 'models'),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return { ok: false, error: `Model list request failed (${response.status}): ${await readErrorDetail(response)}` };
+    }
+    const data = await response.json().catch(() => null) as { data?: unknown } | null;
+    if (!data || !Array.isArray(data.data)) return { ok: false, error: 'The provider returned no model list.' };
+    const ids = data.data
+      .map(entry => (entry as { id?: unknown } | null)?.id)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0);
+    return { ok: true, models: [...new Set(ids)].sort() };
+  } catch (caught) {
+    return { ok: false, error: caught instanceof Error ? caught.message : 'Model list request failed.' };
   } finally {
     clearTimeout(timeout);
   }
@@ -264,14 +420,16 @@ export function getPersonalityPrompt(): string {
  * rather than publishing an apology to chat as though it were the model's answer —
  * which is what the `!ponder` helper this replaced used to do.
  */
-export async function runLlmRequest(instructions: string, input: string): Promise<string> {
+export async function runLlmRequest(instructions: string, input: string, conversationKey = 'anonymous'): Promise<string> {
   const settings = getSettingsRowOrDefault();
+  const provider = getActiveProviderRow();
   if (settings.enabled !== 1) throw new Error('The LLM is disabled in Settings.');
-  if (!settings.baseUrl || !settings.model) throw new Error('The LLM needs a base URL and model in Settings.');
-  return callLlm(settings, instructions, input);
+  if (!provider.baseUrl || !provider.model) throw new Error('The LLM needs a base URL and model in Settings.');
+  return callLlm(settings, provider, instructions, input, conversationKey);
 }
 
 export function registerLlmRoutes(app: express.Express) {
+  migrateLegacyLlmSettings();
   ensureLlmSettings();
 
   app.get('/api/llm/settings', (_request, response) => {
@@ -282,6 +440,12 @@ export function registerLlmRoutes(app: express.Express) {
     response.json(saveLlmSettings(request.body));
   }));
 
+  app.get('/api/llm/providers/:id/models', handle(async (request, response) => {
+    const id = String(request.params.id);
+    if (!getPreset(id)) throw new HttpRouteError(404, 'Unknown LLM provider.');
+    response.json(await listProviderModels(id as LlmProviderId));
+  }));
+
   app.post('/api/llm/test', handle(async (request, response) => {
     const body = request.body as { question?: unknown };
     const question = typeof body.question === 'string' && body.question.trim()
@@ -290,8 +454,9 @@ export function registerLlmRoutes(app: express.Express) {
     if (question.length > 500) throw new HttpRouteError(400, 'Test question must be 500 characters or fewer.');
 
     const settings = getSettingsRowOrDefault();
+    const provider = getActiveProviderRow();
     if (!settings.enabled) throw new HttpRouteError(400, 'LLM is disabled in settings.');
-    if (!settings.baseUrl || !settings.model) throw new HttpRouteError(400, 'LLM base URL and model are required.');
+    if (!provider.baseUrl || !provider.model) throw new HttpRouteError(400, 'LLM base URL and model are required.');
 
     // The test route keeps its own framing rather than borrowing an Action step's:
     // it is checking that the configured endpoint answers at all, so it must not
@@ -300,8 +465,10 @@ export function registerLlmRoutes(app: express.Express) {
     try {
       answer = await callLlm(
         settings,
+        provider,
         settings.personalityPrompt,
         `A Twitch chatter asks: ${question}\nAnswer them in one concise chat message.`,
+        'settings-test',
       );
     } catch (llmError) {
       const msg = llmError instanceof Error ? llmError.message : 'LLM request failed.';
