@@ -685,13 +685,14 @@ describe('the set_wind_down step', () => {
 
 describe('the pinned card steps', () => {
   test('set_pinned_topic renders its template, then trims and caps it', async () => {
-    const pinned: string[] = [];
+    const pinned: Array<[string, string | null]> = [];
     const h = harness(action([step({ type: 'set_pinned_topic', payload: { template: '  Working on {input}  ' } } as never)]), {
-      setPinnedTopic: text => { pinned.push(text); },
+      setPinnedTopic: (text, login) => { pinned.push([text, login]); },
     });
-    const result = await run(h, { input: 'the parser' });
+    const result = await run(h, { input: 'the parser', login: 'quietorbit' });
     expect(result.status).toBe('succeeded');
-    expect(pinned).toEqual(['Working on the parser']);
+    // The invoking viewer rides along so moderation can take viewer-derived text down.
+    expect(pinned).toEqual([['Working on the parser', 'quietorbit']]);
   });
 
   // An unfilled template must not read as an instruction to take the card down or

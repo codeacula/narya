@@ -103,18 +103,30 @@ export function pinChatMessage(messageIdInput: unknown, nowMs = Date.now()): Pin
 }
 
 /**
- * Pin the operator's own topic. Used by the PUT route and the set_pinned_topic step;
- * the step has already rendered its template, so this only trims, caps and writes.
+ * Pin a topic. Used by the PUT route (the operator's own words) and the
+ * set_pinned_topic step, which has already rendered its template, so this only trims,
+ * caps and writes.
+ *
+ * `sourceLogin` is the viewer whose invocation produced the text, when an Action ran on
+ * someone's behalf. A step template can carry viewer text ({input}, {arg1}), so such a
+ * topic is NOT purely the operator's words: it records the viewer so a timeout, ban,
+ * flush or chat clear takes it down exactly like a pinned question, and a flushed
+ * viewer cannot put one up at all. Operator-typed topics pass no login and are never
+ * touched by chat moderation.
  *
  * NOTE for later: automatic or LLM pinning of *viewer* messages is deliberately not
  * built. It would go through pinChatMessage (so the moderation and ignore-list checks
  * apply) but needs an operator-approved rule for what may be put on stream unprompted.
  */
-export function setPinnedTopic(textInput: unknown, nowMs = Date.now()): PinnedCard {
+export function setPinnedTopic(textInput: unknown, nowMs = Date.now(), sourceLogin: string | null = null): PinnedCard {
   if (typeof textInput !== 'string') throw new HttpRouteError(400, 'text must be a string');
   const text = normalizeTopic(textInput);
   if (!text) throw new HttpRouteError(400, 'text must not be empty');
-  writeCard.run('topic', '', text, null, null, new Date(nowMs).toISOString());
+  const login = sourceLogin?.trim().toLowerCase() || null;
+  if (login && selectIgnored.get(login)) {
+    throw new HttpRouteError(409, 'That viewer has been flushed and cannot put text on stream');
+  }
+  writeCard.run('topic', '', text, null, login, new Date(nowMs).toISOString());
   return publish() as PinnedCard;
 }
 
@@ -126,8 +138,10 @@ export function clearPinnedCard(): void {
 }
 
 // --- moderation ---------------------------------------------------------------
-// Called from chat.ts and viewerIdentity.ts at the single place each applies. Topics
-// are the operator's own words and are never affected by what happens in chat.
+// Called from chat.ts and viewerIdentity.ts at the single place each applies. An
+// operator-typed topic has no author and is never affected by what happens in chat; a
+// topic an Action rendered on a viewer's behalf carries that viewer's login and is
+// cleared with them.
 
 export function clearPinnedCardForMessage(messageId: string): void {
   const row = currentRow();
@@ -136,12 +150,16 @@ export function clearPinnedCardForMessage(messageId: string): void {
 
 export function clearPinnedCardForAuthor(login: string): void {
   const row = currentRow();
-  if (row?.kind === 'question' && row.authorLogin === login.trim().toLowerCase()) clearPinnedCard();
+  if (row?.authorLogin && row.authorLogin === login.trim().toLowerCase()) clearPinnedCard();
 }
 
-/** A chat clear removes every message, so any pinned question goes with them. */
+/**
+ * A chat clear removes every message, so anything viewer-derived goes with them: a
+ * pinned question, or a topic an Action rendered on a viewer's behalf.
+ */
 export function clearPinnedQuestion(): void {
-  if (currentRow()?.kind === 'question') clearPinnedCard();
+  const row = currentRow();
+  if (row && (row.kind === 'question' || row.authorLogin)) clearPinnedCard();
 }
 
 export function registerPinnedCardRoutes(app: express.Express) {

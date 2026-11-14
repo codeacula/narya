@@ -93,7 +93,8 @@ export type ActionExecutorDeps = {
   isMuted?: () => boolean;
   /** Seam for tests: applies (or removes) the wind-down title suffix. */
   applyWindDownTitle?: (port: WindDownTitlePort, active: boolean) => Promise<void>;
-  setPinnedTopic?: (text: string) => void;
+  /** `sourceLogin` is the invoking viewer, so moderation can take a viewer-derived topic down. */
+  setPinnedTopic?: (text: string, sourceLogin: string | null) => void;
   clearPinnedCard?: () => void;
   /**
    * Applies an adjust_counter step. Returns null when the counter is gone, which
@@ -166,7 +167,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     now = () => new Date(),
     isMuted = () => false,
     applyWindDownTitle = applyWindDownTitleImpl,
-    setPinnedTopic = setPinnedTopicImpl,
+    setPinnedTopic = (text, sourceLogin) => { setPinnedTopicImpl(text, Date.now(), sourceLogin); },
     clearPinnedCard = clearPinnedCardImpl,
     adjustCounter = adjustCounterRow,
     resolveCounter = getCounterValue,
@@ -359,7 +360,8 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         // clearing: an unfilled template must not silently take a card down.
         const text = normalizeTopic(render(step.payload.template));
         if (!text) return skipped('The pinned topic template rendered empty.');
-        setPinnedTopic(text);
+        // The invoking viewer rides along so their timeout, ban or flush clears it.
+        setPinnedTopic(text, context.login ?? null);
         return SUCCEEDED;
       }
 

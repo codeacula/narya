@@ -144,4 +144,34 @@ describe('moderation clears the card', () => {
     flushViewer('quietorbit');
     expect(getPinnedCard()).toEqual({ kind: 'topic', text: 'Refactoring' });
   });
+
+  // A set_pinned_topic step can render viewer text ({input}), so a topic an Action set
+  // on a viewer's behalf must come down with that viewer like a question does.
+  test('a topic set on a viewer\'s behalf is cleared by their timeout, ban or flush', () => {
+    setPinnedTopic('viewer words', NOW, 'QuietOrbit');
+    handleTimeout('#codeacula', 'other', 60, FAKE_MSG);
+    expect(getPinnedCard()).toEqual({ kind: 'topic', text: 'viewer words' });
+    handleTimeout('#codeacula', 'quietorbit', 60, FAKE_MSG);
+    expect(getPinnedCard()).toBeNull();
+
+    setPinnedTopic('viewer words', NOW, 'quietorbit');
+    handleBan('#codeacula', 'quietorbit', FAKE_MSG);
+    expect(getPinnedCard()).toBeNull();
+
+    setPinnedTopic('viewer words', NOW, 'quietorbit');
+    flushViewer('quietorbit');
+    expect(getPinnedCard()).toBeNull();
+  });
+
+  test('a chat clear removes a viewer-derived topic but not an operator one', () => {
+    setPinnedTopic('viewer words', NOW, 'quietorbit');
+    handleChatClear('#codeacula');
+    expect(getPinnedCard()).toBeNull();
+  });
+
+  test('a flushed viewer cannot put a topic up', () => {
+    flushViewer('quietorbit');
+    expect(statusOf(() => setPinnedTopic('viewer words', NOW, 'quietorbit'))).toBe(409);
+    expect(getPinnedCard()).toBeNull();
+  });
 });
