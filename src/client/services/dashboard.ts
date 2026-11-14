@@ -50,6 +50,8 @@ import type {
   AutomodQueue,
   ChatbotCommand,
   ChatbotCommandUpsert,
+  LlmModelList,
+  LlmProviderId,
   LlmSettings,
   LlmSettingsUpdate,
   LlmTestResult,
@@ -410,6 +412,11 @@ export async function getLlmSettings(): Promise<LlmSettings> {
 
 export async function updateLlmSettings(settings: LlmSettingsUpdate): Promise<LlmSettings> {
   return sendJson<LlmSettings>('/api/llm/settings', 'PUT', settings);
+}
+
+/** The provider's model list, proxied by the server so its key stays there. */
+export async function getLlmProviderModels(id: LlmProviderId): Promise<LlmModelList> {
+  return fetchJson<LlmModelList>(`/api/llm/providers/${encodeURIComponent(id)}/models`);
 }
 
 export async function testLlm(question: string): Promise<LlmTestResult> {

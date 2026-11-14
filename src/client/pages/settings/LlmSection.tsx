@@ -1,67 +1,146 @@
-import React, { useState } from 'react';
-import type { LlmSettings, LlmSettingsUpdate } from '../../../shared/api';
-import { getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
+import React, { useEffect, useState } from 'react';
+import type { LlmApiFormat, LlmProviderId, LlmProviderProfile, LlmSettings } from '../../../shared/api';
+import { getLlmProviderModels, getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
 import { SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
 
-type LlmSettingsForm = LlmSettingsUpdate & {
-  apiKeyConfigured: boolean;
+/** One provider's editable fields. A stored key is never sent back; `apiKey` is a new one. */
+type ProviderDraft = LlmProviderProfile & {
+  apiKey: string;
+  clearApiKey: boolean;
+};
+
+type LlmSettingsForm = {
+  enabled: boolean;
+  /** The provider the dropdown shows; Save makes it the active one. */
+  selectedProvider: LlmProviderId;
+  providers: ProviderDraft[];
+  personalityPrompt: string;
+  temperature: number;
+  maxOutputTokens: number;
+  timeoutMs: number;
+  updatedAt: string | null;
 };
 
 const EMPTY_LLM_SETTINGS: LlmSettingsForm = {
   enabled: false,
-  baseUrl: 'http://localhost:1234/v1',
-  model: '',
-  apiKey: '',
-  clearApiKey: false,
-  apiKeyConfigured: false,
+  selectedProvider: 'local',
+  providers: [],
   personalityPrompt: '',
   temperature: 0.7,
   maxOutputTokens: 2048,
   timeoutMs: 15000,
+  updatedAt: null,
 };
 
-/** The form shape the server's settings map onto; a stored key is never sent back to it. */
+const FORMAT_LABELS: Record<LlmApiFormat, string> = {
+  responses: 'Responses',
+  chat_completions: 'Chat Completions',
+};
+
+type ModelListState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'loaded'; models: string[] }
+  | { status: 'failed'; error: string };
+
 function toLlmForm(settings: LlmSettings): LlmSettingsForm {
   return {
     enabled: settings.enabled,
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-    apiKey: '',
-    clearApiKey: false,
-    apiKeyConfigured: settings.apiKeyConfigured,
+    selectedProvider: settings.activeProvider,
+    providers: settings.providers.map(provider => ({ ...provider, apiKey: '', clearApiKey: false })),
     personalityPrompt: settings.personalityPrompt,
     temperature: settings.temperature,
     maxOutputTokens: settings.maxOutputTokens,
     timeoutMs: settings.timeoutMs,
+    updatedAt: settings.updatedAt,
   };
+}
+
+function findDraft(form: LlmSettingsForm, id: LlmProviderId): ProviderDraft | undefined {
+  return form.providers.find(provider => provider.id === id);
+}
+
+function apiKeyPlaceholder(draft: ProviderDraft): string {
+  if (draft.apiKeyConfigured) return 'Configured - leave blank to keep';
+  return draft.requiresApiKey ? 'Required' : 'Optional';
+}
+
+function idleModelHint(saved: ProviderDraft): string {
+  if (!saved.baseUrl) return 'Save a base URL to load models.';
+  return 'Save an API key to load models.';
 }
 
 export function LlmSection() {
   const [llmTesting, setLlmTesting] = useState(false);
   const [llmTestQuestion, setLlmTestQuestion] = useState('why is CSS like this?');
   const [llmTestReply, setLlmTestReply] = useState<string | null>(null);
+  const [modelList, setModelList] = useState<ModelListState>({ status: 'idle' });
 
   const llmForm = useSettingsForm<LlmSettingsForm>({
     initial: EMPTY_LLM_SETTINGS,
     load: () => getLlmSettings().then(toLlmForm),
     loadError: 'Could not load LLM settings',
-    save: form => updateLlmSettings({
-      enabled: form.enabled,
-      baseUrl: form.baseUrl,
-      model: form.model,
-      apiKey: form.apiKey,
-      clearApiKey: form.clearApiKey,
-      personalityPrompt: form.personalityPrompt,
-      temperature: form.temperature,
-      maxOutputTokens: form.maxOutputTokens,
-      timeoutMs: form.timeoutMs,
-    }).then(toLlmForm),
+    save: form => {
+      const draft = findDraft(form, form.selectedProvider);
+      if (!draft) return Promise.reject(new Error('Choose a provider first.'));
+      return updateLlmSettings({
+        enabled: form.enabled,
+        activeProvider: form.selectedProvider,
+        provider: {
+          baseUrl: draft.baseUrl,
+          model: draft.model,
+          apiFormat: draft.apiFormat,
+          apiKey: draft.apiKey,
+          clearApiKey: draft.clearApiKey,
+        },
+        personalityPrompt: form.personalityPrompt,
+        temperature: form.temperature,
+        maxOutputTokens: form.maxOutputTokens,
+        timeoutMs: form.timeoutMs,
+      }).then(toLlmForm);
+    },
     saveError: 'Could not save LLM settings',
   });
   const llmSettings = llmForm.value;
   const setLlmSettings = llmForm.setValue;
   const { loading: llmLoading, saving: llmSaving, message: llmMessage, error: llmError } = llmForm;
+  const busy = llmLoading || llmSaving;
+
+  const draft = findDraft(llmSettings, llmSettings.selectedProvider);
+  // Model loading follows what the server has stored, not unsaved typing: the server
+  // fetches the list with the saved URL and key, so a half-typed URL must not trigger it.
+  const saved = findDraft(llmForm.confirmed, llmSettings.selectedProvider);
+  const canLoadModels = Boolean(saved && saved.baseUrl && (!saved.requiresApiKey || saved.apiKeyConfigured));
+  const savedId = saved?.id;
+
+  useEffect(() => {
+    if (!llmSettings.enabled || !savedId || !canLoadModels) {
+      setModelList({ status: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    setModelList({ status: 'loading' });
+    getLlmProviderModels(savedId)
+      .then(result => {
+        if (cancelled) return;
+        setModelList(result.ok ? { status: 'loaded', models: result.models } : { status: 'failed', error: result.error });
+      })
+      .catch(caught => {
+        if (!cancelled) setModelList({ status: 'failed', error: errorMessage(caught, 'request failed') });
+      });
+    return () => { cancelled = true; };
+  // Re-runs on a provider switch and after every successful save (updatedAt moves).
+  }, [llmSettings.enabled, savedId, canLoadModels, llmForm.confirmed.updatedAt]);
+
+  const updateDraft = (changes: Partial<ProviderDraft>) => {
+    setLlmSettings(current => ({
+      ...current,
+      providers: current.providers.map(provider => (
+        provider.id === current.selectedProvider ? { ...provider, ...changes } : provider
+      )),
+    }));
+  };
 
   const handleLlmSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -95,7 +174,7 @@ export function LlmSection() {
         label="LLM settings"
         toggleLabel="Enable LLM"
         checked={llmSettings.enabled}
-        disabled={llmLoading || llmSaving}
+        disabled={busy}
         onChange={handleLlmEnabledToggle}
       />
 
@@ -108,51 +187,94 @@ export function LlmSection() {
       {llmSettings.enabled && (
       <form className="command-settings-form" onSubmit={handleLlmSubmit}>
         <label className="field">
-          <span>Base URL</span>
-          <input
-            value={llmSettings.baseUrl}
-            disabled={llmLoading || llmSaving}
-            placeholder="http://localhost:1234/v1"
-            onChange={event => setLlmSettings(current => ({ ...current, baseUrl: event.target.value }))}
-          />
+          <span>Provider</span>
+          <select
+            value={llmSettings.selectedProvider}
+            disabled={busy}
+            onChange={event => setLlmSettings(current => ({ ...current, selectedProvider: event.target.value as LlmProviderId }))}
+          >
+            {llmSettings.providers.map(provider => (
+              <option key={provider.id} value={provider.id}>{provider.label}</option>
+            ))}
+          </select>
+          {llmForm.confirmed.selectedProvider !== llmSettings.selectedProvider && (
+            <small>Save to switch to this provider.</small>
+          )}
         </label>
 
-        <label className="field">
-          <span>Model</span>
-          <input
-            value={llmSettings.model}
-            disabled={llmLoading || llmSaving}
-            placeholder="Loaded LM Studio model identifier"
-            onChange={event => setLlmSettings(current => ({ ...current, model: event.target.value }))}
-          />
-        </label>
+        {draft && (
+          <>
+            <label className="field">
+              <span>Base URL</span>
+              <input
+                value={draft.baseUrl}
+                disabled={busy}
+                placeholder="https://example.com/v1"
+                onChange={event => updateDraft({ baseUrl: event.target.value })}
+              />
+            </label>
 
-        <label className="field">
-          <span>API key</span>
-          <input
-            type="password"
-            value={llmSettings.apiKey ?? ''}
-            disabled={llmLoading || llmSaving || llmSettings.clearApiKey}
-            placeholder={llmSettings.apiKeyConfigured ? 'Configured - leave blank to keep' : 'Optional for LM Studio'}
-            onChange={event => setLlmSettings(current => ({ ...current, apiKey: event.target.value, clearApiKey: false }))}
-          />
-        </label>
+            <label className="field">
+              <span>API key</span>
+              <input
+                type="password"
+                value={draft.apiKey}
+                disabled={busy || draft.clearApiKey}
+                placeholder={apiKeyPlaceholder(draft)}
+                onChange={event => updateDraft({ apiKey: event.target.value, clearApiKey: false })}
+              />
+            </label>
 
-        <label className="command-enabled">
-          <input
-            type="checkbox"
-            checked={llmSettings.clearApiKey === true}
-            disabled={llmLoading || llmSaving || !llmSettings.apiKeyConfigured}
-            onChange={event => setLlmSettings(current => ({ ...current, clearApiKey: event.target.checked, apiKey: '' }))}
-          />
-          <span>Clear stored API key</span>
-        </label>
+            <label className="command-enabled">
+              <input
+                type="checkbox"
+                checked={draft.clearApiKey}
+                disabled={busy || !draft.apiKeyConfigured}
+                onChange={event => updateDraft({ clearApiKey: event.target.checked, apiKey: '' })}
+              />
+              <span>Clear stored API key</span>
+            </label>
+
+            <label className="field">
+              <span>API format</span>
+              <select
+                value={draft.apiFormat}
+                disabled={busy}
+                onChange={event => updateDraft({ apiFormat: event.target.value as LlmApiFormat })}
+              >
+                {(Object.keys(FORMAT_LABELS) as LlmApiFormat[]).map(format => (
+                  <option key={format} value={format}>{FORMAT_LABELS[format]}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Model</span>
+              <input
+                value={draft.model}
+                disabled={busy}
+                list="llm-models"
+                placeholder="Model identifier"
+                onChange={event => updateDraft({ model: event.target.value })}
+              />
+              <datalist id="llm-models">
+                {modelList.status === 'loaded' && modelList.models.map(model => <option key={model} value={model} />)}
+              </datalist>
+              <small>
+                {modelList.status === 'loading' && 'Loading models…'}
+                {modelList.status === 'loaded' && `${modelList.models.length} models loaded`}
+                {modelList.status === 'failed' && `Couldn't load models: ${modelList.error}`}
+                {modelList.status === 'idle' && saved && !canLoadModels && idleModelHint(saved)}
+              </small>
+            </label>
+          </>
+        )}
 
         <label className="field">
           <span>Personality prompt</span>
           <textarea
             value={llmSettings.personalityPrompt}
-            disabled={llmLoading || llmSaving}
+            disabled={busy}
             maxLength={2000}
             rows={5}
             placeholder="Be silly, lightly snarky, concise, and stream-chat friendly."
@@ -170,7 +292,7 @@ export function LlmSection() {
               max="2"
               step="0.1"
               value={llmSettings.temperature}
-              disabled={llmLoading || llmSaving}
+              disabled={busy}
               onChange={event => setLlmSettings(current => ({ ...current, temperature: Number(event.target.value) }))}
             />
           </label>
@@ -183,7 +305,7 @@ export function LlmSection() {
               max="8192"
               step="1"
               value={llmSettings.maxOutputTokens}
-              disabled={llmLoading || llmSaving}
+              disabled={busy}
               onChange={event => setLlmSettings(current => ({ ...current, maxOutputTokens: Number(event.target.value) }))}
             />
           </label>
@@ -196,14 +318,14 @@ export function LlmSection() {
               max="60000"
               step="500"
               value={llmSettings.timeoutMs}
-              disabled={llmLoading || llmSaving}
+              disabled={busy}
               onChange={event => setLlmSettings(current => ({ ...current, timeoutMs: Number(event.target.value) }))}
             />
           </label>
         </div>
 
         <div className="command-example">
-          LM Studio default: <code>http://localhost:1234/v1</code>. Use <code>!ponder why is CSS like this?</code>
+          Used by <code>llm_response</code> Action steps. Saving makes the selected provider active.
         </div>
 
         <div className="llm-test-panel">
@@ -211,7 +333,7 @@ export function LlmSection() {
             <span>Test question</span>
             <input
               value={llmTestQuestion}
-              disabled={llmLoading || llmSaving || llmTesting}
+              disabled={busy || llmTesting}
               maxLength={500}
               onChange={event => setLlmTestQuestion(event.target.value)}
             />
@@ -220,7 +342,7 @@ export function LlmSection() {
             <button
               className="modbtn"
               type="button"
-              disabled={llmLoading || llmSaving || llmTesting}
+              disabled={busy || llmTesting}
               onClick={handleLlmTest}
             >
               {llmTesting ? 'Testing...' : 'Test LLM'}
@@ -232,7 +354,7 @@ export function LlmSection() {
         <SettingsStatus message={llmMessage} error={llmError} />
 
         <div className="command-settings-actions">
-          <button className="modbtn gold" type="submit" disabled={llmLoading || llmSaving}>
+          <button className="modbtn gold" type="submit" disabled={busy}>
             {llmSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
