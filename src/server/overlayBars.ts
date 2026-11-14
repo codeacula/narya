@@ -1,24 +1,36 @@
 import type express from 'express';
 import type { LatestEvent, LatestEvents, OverlayStreamSession } from '../shared/api';
 import { db } from './db';
+import { broadcast } from './realtime';
 import { getActiveStreamSession } from './streamSession';
 
 type LatestRow = { actor: string; amount: number | null };
 
 // Latest EVER, deliberately not scoped to the session: the bar should be populated the
 // moment a stream starts, and "latest follower" is still true after the stream ends.
+// A flushed viewer's name must not stay on stream: rows whose actor_login is on the
+// ignore list are skipped, so "latest" falls back to the previous real event. Rows with
+// no actor_login (older rows, anonymous events) still count.
 // Gifts count as subs here — a gifted sub is the sub the channel last got.
 const selectLatestFollow = db.prepare(`
-  select actor, amount from stream_events where kind = 'follow' order by received_at desc limit 1
+  select actor, amount from stream_events where kind = 'follow'
+    and (actor_login is null or actor_login not in (select login from ignored_logins))
+  order by received_at desc limit 1
 `);
 const selectLatestSub = db.prepare(`
-  select actor, amount from stream_events where kind in ('sub', 'gift') order by received_at desc limit 1
+  select actor, amount from stream_events where kind in ('sub', 'gift')
+    and (actor_login is null or actor_login not in (select login from ignored_logins))
+  order by received_at desc limit 1
 `);
 const selectLatestCheer = db.prepare(`
-  select actor, amount from stream_events where kind = 'cheer' order by received_at desc limit 1
+  select actor, amount from stream_events where kind = 'cheer'
+    and (actor_login is null or actor_login not in (select login from ignored_logins))
+  order by received_at desc limit 1
 `);
 const selectLatestRaid = db.prepare(`
-  select actor, amount from stream_events where kind = 'raid' order by received_at desc limit 1
+  select actor, amount from stream_events where kind = 'raid'
+    and (actor_login is null or actor_login not in (select login from ignored_logins))
+  order by received_at desc limit 1
 `);
 
 function toLatest(row: unknown, withAmount: boolean): LatestEvent | null {
@@ -37,6 +49,14 @@ export function getLatestEvents(): LatestEvents {
     cheer: toLatest(selectLatestCheer.get(), true),
     raid: toLatest(selectLatestRaid.get(), true),
   };
+}
+
+/**
+ * Tell every open top bar to take the new value. Called after a flush or unflush, which
+ * change what "latest" means without any new stream event arriving to trigger a refetch.
+ */
+export function broadcastLatestEvents(): void {
+  broadcast('overlay:latest-events', getLatestEvents());
 }
 
 export function getOverlayStreamSession(): OverlayStreamSession {

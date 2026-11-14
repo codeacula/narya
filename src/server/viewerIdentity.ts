@@ -17,9 +17,12 @@
 import { db } from './db';
 import { deleteArchivedChatForLogin } from './retention';
 import { deleteInteractionsForLogin } from './llmContext';
+import { broadcastLatestEvents } from './overlayBars';
 import { clearPinnedCardForAuthor } from './pinnedCard';
+import { broadcast } from './realtime';
 import { anonymizeQuotesByLogin } from './quotes';
 import { deleteOverridesForLogin } from './triggerOverrides';
+import { getTwitchChannel } from './twitchIdentity';
 
 /** Helix caps Get Users at 100 logins per request. */
 const HELIX_USERS_BATCH = 100;
@@ -216,6 +219,22 @@ export function flushViewer(login: string, reason = ''): { messages: number; quo
   // After the transaction: it broadcasts, and a pinned question from a flushed viewer
   // must not stay on stream.
   clearPinnedCardForAuthor(key);
+  // Every open chat surface holds this viewer's rows in memory (the holding scenes never
+  // expire theirs), so tell them. Reuses the ban shape — "every message from this user
+  // is gone" — rather than a new type value; consumers match on username and don't
+  // branch on the type, and the rows are already hard-deleted server-side.
+  if (messages > 0) {
+    broadcast('chat:moderated', {
+      type: 'user.ban',
+      channel: getTwitchChannel(),
+      username: key,
+      deletedAt: now,
+      deletedReason: 'viewer flushed',
+    });
+  }
+  // Likewise a flushed name in the top bar, which would otherwise stay until the next
+  // follow/sub/cheer/raid prompted a refetch.
+  broadcastLatestEvents();
 
   return { messages, quotes, interactions, overrides };
 }
@@ -223,4 +242,6 @@ export function flushViewer(login: string, reason = ''): { messages: number; quo
 /** Lift a flush, so the viewer can be recorded again the next time they appear. */
 export function unflushViewer(login: string): void {
   deleteIgnored.run(login.trim().toLowerCase());
+  // Their events count for the top bar again.
+  broadcastLatestEvents();
 }

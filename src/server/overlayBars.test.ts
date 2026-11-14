@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test';
 import { db } from './db';
 import { getLatestEvents, getOverlayStreamSession } from './overlayBars';
 import { endActiveStreamSession, getOrStartStreamSession } from './streamSession';
+import { flushViewer, unflushViewer } from './viewerIdentity';
 
 function insertEvent(kind: string, actor: string, receivedAt: string, opts: { amount?: number | null; sessionId?: string | null } = {}) {
   db.prepare(`
@@ -12,6 +13,7 @@ function insertEvent(kind: string, actor: string, receivedAt: string, opts: { am
 
 beforeEach(() => {
   db.exec('delete from stream_events');
+  db.exec('delete from ignored_logins');
   endActiveStreamSession();
 });
 
@@ -68,6 +70,35 @@ describe('getLatestEvents', () => {
       expect(Object.keys(entry!).sort()).toEqual(['amount', 'name']);
     }
     expect(JSON.stringify(latest)).not.toContain('secret-session');
+  });
+});
+
+// Top-bar names are viewer-chosen text on a live scene, so a flush must reach them.
+describe('flushed viewers', () => {
+  test('a flushed actor is skipped and the previous real event shows', () => {
+    insertEvent('follow', 'GoodFollower', '2026-03-01T00:00:00.000Z');
+    insertEvent('follow', 'BadActor', '2026-03-02T00:00:00.000Z');
+    insertEvent('cheer', 'BadActor', '2026-03-02T00:00:00.000Z', { amount: 5 });
+    flushViewer('badactor');
+    expect(getLatestEvents().follow).toEqual({ name: 'GoodFollower', amount: null });
+    expect(getLatestEvents().cheer).toBeNull();
+  });
+
+  test('unflushing brings the name back', () => {
+    insertEvent('follow', 'BadActor', '2026-03-02T00:00:00.000Z');
+    flushViewer('badactor');
+    expect(getLatestEvents().follow).toBeNull();
+    unflushViewer('badactor');
+    expect(getLatestEvents().follow).toEqual({ name: 'BadActor', amount: null });
+  });
+
+  test('a row with no actor_login still counts', () => {
+    db.prepare(`
+      insert into stream_events (id, kind, actor, detail, tone, received_at, actor_login)
+      values (?, 'follow', 'Anon', 'detail', 'silver', '2026-03-01T00:00:00.000Z', null)
+    `).run(crypto.randomUUID());
+    flushViewer('someoneelse');
+    expect(getLatestEvents().follow).toEqual({ name: 'Anon', amount: null });
   });
 });
 

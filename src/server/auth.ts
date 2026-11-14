@@ -94,6 +94,9 @@ const OVERLAY_EVENTS = new Set([
   // The card's kind, name and text, or null when cleared — never the source message id
   // or author login.
   'overlay:pinned-card',
+  // The top bar's four latest names (and cheer/raid amounts) — the same field-by-field
+  // payload as GET /api/overlay/latest-events, nothing else.
+  'overlay:latest-events',
 ]);
 
 // Derived rather than separately configured so the operator has exactly one

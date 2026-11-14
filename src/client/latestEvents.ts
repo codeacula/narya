@@ -36,6 +36,10 @@ export function useLatestEvents(): LatestEvents {
 
   useSocketReconnect(refresh);
 
+  // Sent after a flush/unflush: "latest" changed with no stream event to prompt a
+  // refetch, and the payload is the server's answer, so apply it directly.
+  useSocket<LatestEvents>('overlay:latest-events', setLatest);
+
   useSocket<StreamEvent>('stream:event', React.useCallback((event) => {
     if (!BAR_EVENT_KINDS.has(event.kind)) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);

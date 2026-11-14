@@ -543,6 +543,10 @@ describe('overlay bar data', () => {
     expect(isOverlayEvent('overlay:pinned-card')).toBe(true);
   });
 
+  test('overlay connections receive the latest-events event', () => {
+    expect(isOverlayEvent('overlay:latest-events')).toBe(true);
+  });
+
   test('the overlay token reads the pinned card but cannot change it', () => {
     setToken(OPERATOR);
     const overlay = getOverlayToken()!;
