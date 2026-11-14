@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live scene</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=JetBrains+Mono:wght@500&family=Montserrat:wght@400;500;600&display=swap">
+<style>
+body{margin:0}
+@keyframes twinkle{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes drift{from{transform:translate(0,0)}to{transform:translate(-3%,-2%)}}
+.tw{animation:twinkle 4s ease-in-out infinite,drift 180s linear infinite alternate}
+.dr{animation:drift 120s linear infinite alternate}
+.orb{position:relative;width:var(--s);height:var(--s);border-radius:50%;isolation:isolate;flex:none;box-shadow:0 0 calc(var(--s)*.33) calc(var(--s)*.03) color-mix(in oklch,var(--g) 45%,transparent),0 0 calc(var(--s)*.6) calc(var(--s)*.1) color-mix(in oklch,var(--g) 22%,transparent)}
+.orb i{position:absolute;display:block;border-radius:50%;pointer-events:none}
+.orb .b{inset:0;background:radial-gradient(ellipse 55% 38% at 50% 58%,color-mix(in oklch,var(--w) 85%,transparent) 0%,color-mix(in oklch,var(--w) 35%,transparent) 25%,transparent 55%),radial-gradient(ellipse 35% 30% at 36% 55%,color-mix(in oklch,var(--g) 85%,white 15%) 0%,transparent 55%),radial-gradient(circle at 50% 50%,var(--mid) 0%,var(--mid) 35%,var(--body) 72%,var(--deep) 100%)}
+.orb .st{inset:0;background-image:radial-gradient(1.2px 1.2px at 30% 35%,#eaf6ff 0%,transparent 100%),radial-gradient(1px 1px at 42% 48%,#d4ecff 0%,transparent 100%),radial-gradient(1.6px 1.6px at 58% 42%,#fff 0%,transparent 100%),radial-gradient(1px 1px at 68% 58%,#cce6ff 0%,transparent 100%),radial-gradient(1.2px 1.2px at 48% 62%,#eaf6ff 0%,transparent 100%),radial-gradient(1.4px 1.4px at 62% 70%,#fff 0%,transparent 100%),radial-gradient(1px 1px at 72% 35%,#d4ecff 0%,transparent 100%)}
+.orb .r{inset:0;box-shadow:inset 0 0 0 1.5px color-mix(in oklch,var(--rim) 92%,transparent),inset 0 0 6px 0 color-mix(in oklch,var(--rim) 45%,transparent)}
+.orb .r2{inset:3.3%;box-shadow:inset 0 0 0 1px color-mix(in oklch,var(--rim) 55%,transparent),inset 0 0 calc(var(--s)*.09) 1px color-mix(in oklch,var(--g) 35%,transparent)}
+.orb .sp{top:8%;left:14%;width:58%;height:36%;background:radial-gradient(ellipse 45% 70% at 35% 40%,rgba(255,255,255,.95) 0%,rgba(255,255,255,.6) 18%,rgba(255,255,255,.15) 40%,transparent 65%);transform:rotate(-18deg);mix-blend-mode:screen}
+.orb .sp2{bottom:18%;right:20%;width:36%;height:22%;background:radial-gradient(ellipse 60% 60% at 50% 50%,rgba(180,220,255,.55) 0%,rgba(180,220,255,.18) 40%,transparent 70%);mix-blend-mode:screen}
+.arcane{--deep:#0a3a78;--body:#1862c8;--mid:#3aa0ff;--g:#5ec8ff;--rim:#b8e4ff;--w:#d4ecff}
+.moon{--deep:#16284d;--body:#2b5bb0;--mid:#5b90e0;--g:#9ec8ee;--rim:#e0edfa;--w:#eaf2fb}
+</style>
+</helmet>
+<div style="position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #1c273e; color: #fdfcf0; font-family: 'Montserrat',system-ui,sans-serif">
+<div style="position: absolute; left: 0; top: 48px; width: 1920px; height: 984px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: repeating-linear-gradient(135deg, #0c1220 0px, #0c1220 22px, #101829 22px, #101829 23px)"><div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 18px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #a2aabc">screen capture</div><div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 15px; color: #a2aabc; letter-spacing: 0.04em">editor or game · 1920 × 984 between the bars</div></div>
+<div style="position: absolute; right: 32px; bottom: 80px; width: 400px; display: flex; flex-direction: column; gap: 8px">
+<div style="padding: 9px 14px; background: rgba(19,27,45,0.88); border: 1px solid rgba(162,170,188,0.18); border-radius: 4px; font-family: 'Montserrat',system-ui,sans-serif; font-size: 18px; line-height: 1.4; color: #fdfcf0"><span style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 15px; color: #ffc488; margin-right: 10px">stargazer_42</span>the borrow checker wins again</div>
+<div style="padding: 9px 14px; background: rgba(19,27,45,0.88); border: 1px solid rgba(162,170,188,0.18); border-radius: 4px; font-family: 'Montserrat',system-ui,sans-serif; font-size: 18px; line-height: 1.4; color: #fdfcf0"><span style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 15px; color: #9ccae8; margin-right: 10px">quietorbit</span>what font is that in the terminal?</div>
+<div style="padding: 9px 14px; background: rgba(19,27,45,0.88); border: 1px solid rgba(162,170,188,0.18); border-radius: 4px; font-family: 'Montserrat',system-ui,sans-serif; font-size: 18px; line-height: 1.4; color: #fdfcf0"><span style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 15px; color: #bca6f0; margin-right: 10px">mossy_dev</span>first time catching a stream live, hello</div>
+<div style="width: 400px; height: 225px; margin-top: 8px; border: 1px solid rgba(162,170,188,0.32); border-radius: 4px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: repeating-linear-gradient(135deg, #0c1220 0px, #0c1220 22px, #101829 22px, #101829 23px)"><div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 18px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #a2aabc">webcam</div><div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 15px; color: #a2aabc; letter-spacing: 0.04em">video capture source</div></div>
+</div>
+<div style="position: absolute; left: 0; right: 0; top: 0; height: 48px; box-sizing: border-box; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; gap: 24px; background: rgba(19,27,45,0.94); border-bottom: 1px solid rgba(162,170,188,0.18)">
+<div style="display: flex; align-items: baseline; gap: 12px; min-width: 0"><div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #a2aabc">latest follower</div><div style="font-family: 'Montserrat',system-ui,sans-serif; font-size: 18px; font-weight: 500; color: #fdfcf0; white-space: nowrap">[viewer name]</div></div>
+<div aria-hidden="true" style="width: 1px; height: 24px; background: rgba(162,170,188,0.32)"></div>
+<div style="display: flex; align-items: baseline; gap: 12px; min-width: 0"><div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #a2aabc">latest sub</div><div style="font-family: 'Montserrat',system-ui,sans-serif; font-size: 18px; font-weight: 500; color: #fdfcf0; white-space: nowrap">[viewer name]</div></div>
+<div aria-hidden="true" style="width: 1px; height: 24px; background: rgba(162,170,188,0.32)"></div>
+<div style="display: flex; align-items: baseline; gap: 12px; min-width: 0"><div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #a2aabc">latest bits</div><div style="font-family: 'Montserrat',system-ui,sans-serif; font-size: 18px; font-weight: 500; color: #fdfcf0; white-space: nowrap">[viewer name] <span style="color: #a2aabc; font-weight: 400">· [n]</span></div></div>
+<div aria-hidden="true" style="width: 1px; height: 24px; background: rgba(162,170,188,0.32)"></div>
+<div style="display: flex; align-items: baseline; gap: 12px; min-width: 0"><div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #a2aabc">latest raid</div><div style="font-family: 'Montserrat',system-ui,sans-serif; font-size: 18px; font-weight: 500; color: #fdfcf0; white-space: nowrap">[channel name] <span style="color: #a2aabc; font-weight: 400">· [n]</span></div></div>
+</div>
+<div style="position: absolute; left: 0; right: 0; bottom: 0; height: 48px; box-sizing: border-box; padding: 0 32px; display: flex; align-items: center; gap: 24px; background: rgba(19,27,45,0.94); border-top: 1px solid rgba(162,170,188,0.18)">
+<div style="display: flex; align-items: center; gap: 14px"><div class="orb arcane" style="--s: 22px" aria-hidden="true"><i class="b"></i><i class="st"></i><i class="r2"></i><i class="r"></i><i class="sp"></i><i class="sp2"></i></div><div style="font-family: 'Cinzel','Cormorant Garamond',serif; font-size: 19px; font-weight: 600; letter-spacing: 0.22em; color: #fdfcf0">CODEACULA</div></div>
+<div aria-hidden="true" style="width: 1px; height: 24px; background: rgba(162,170,188,0.32)"></div>
+<div style="display: flex; align-items: baseline; gap: 12px; min-width: 0"><div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #a2aabc">now</div><div style="font-family: 'Montserrat',system-ui,sans-serif; font-size: 18px; font-weight: 500; color: #fdfcf0; white-space: nowrap">[what I am building today]</div></div>
+<div style="flex-grow: 1"></div>
+<div style="display: flex; align-items: center; gap: 12px; min-width: 0"><div style="color: #a2aabc; display: flex"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></div><div style="font-family: 'Montserrat',system-ui,sans-serif; font-size: 18px; font-weight: 500; color: #fdfcf0; white-space: nowrap">[track title] <span style="color: #a2aabc; font-weight: 400">· [artist]</span></div></div>
+<div aria-hidden="true" style="width: 1px; height: 24px; background: rgba(162,170,188,0.32)"></div>
+<div style="font-family: 'JetBrains Mono',ui-monospace,monospace; font-size: 18px; font-weight: 500; letter-spacing: 0.04em; color: #ffb86c">01:24:07</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
