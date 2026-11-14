@@ -94,7 +94,7 @@ export type ActionExecutorDeps = {
   /** Seam for tests: applies (or removes) the wind-down title suffix. */
   applyWindDownTitle?: (port: WindDownTitlePort, active: boolean) => Promise<void>;
   /** `sourceLogin` is the invoking viewer, so moderation can take a viewer-derived topic down. */
-  setPinnedTopic?: (text: string, sourceLogin: string | null) => void;
+  setPinnedTopic?: (text: string, sourceLogin: string | null, messageId: string | null) => void;
   clearPinnedCard?: () => void;
   /**
    * Applies an adjust_counter step. Returns null when the counter is gone, which
@@ -167,7 +167,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
     now = () => new Date(),
     isMuted = () => false,
     applyWindDownTitle = applyWindDownTitleImpl,
-    setPinnedTopic = (text, sourceLogin) => { setPinnedTopicImpl(text, Date.now(), sourceLogin); },
+    setPinnedTopic = (text, sourceLogin, messageId) => { setPinnedTopicImpl(text, Date.now(), sourceLogin, messageId); },
     clearPinnedCard = clearPinnedCardImpl,
     adjustCounter = adjustCounterRow,
     resolveCounter = getCounterValue,
@@ -361,7 +361,8 @@ export function createActionExecutor(deps: ActionExecutorDeps): ActionExecutor {
         const text = normalizeTopic(render(step.payload.template));
         if (!text) return skipped('The pinned topic template rendered empty.');
         // The invoking viewer rides along so their timeout, ban or flush clears it.
-        setPinnedTopic(text, context.login ?? null);
+        // And the chat line that triggered it, so deleting that one message does too.
+        setPinnedTopic(text, context.login ?? null, context.messageId ?? null);
         return SUCCEEDED;
       }
 

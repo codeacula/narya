@@ -399,7 +399,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
       if (!hit) continue;
       candidates.push({
         trigger,
-        context: { actor, login, role, roles: getViewerRolesFromBadges(message.badges), tags, message: text, input: remainder, args: tokenize(remainder) },
+        context: { actor, login, role, roles: getViewerRolesFromBadges(message.badges), tags, message: text, messageId: message.id, input: remainder, args: tokenize(remainder) },
       });
     }
 
@@ -411,7 +411,7 @@ export function createTriggerDispatcher(deps: TriggerDispatcherDeps): TriggerDis
         const input = text.trim().slice(word.length).trim();
         candidates.push({
           trigger,
-          context: { actor, login, role, roles: getViewerRolesFromBadges(message.badges), tags, message: text, input, args: tokenize(input) },
+          context: { actor, login, role, roles: getViewerRolesFromBadges(message.badges), tags, message: text, messageId: message.id, input, args: tokenize(input) },
         });
       }
     }

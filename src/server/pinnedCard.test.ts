@@ -163,6 +163,21 @@ describe('moderation clears the card', () => {
     expect(getPinnedCard()).toBeNull();
   });
 
+  // The step records the triggering chat line, so deleting that one message — not just
+  // moderating the viewer — takes the topic down.
+  test('a topic carrying a message id is cleared when that message is deleted', () => {
+    setPinnedTopic('viewer words', NOW, 'quietorbit', 'm9');
+    handleMessageDeleted('#codeacula', 'other-message', 'quietorbit', undefined, FAKE_MSG);
+    expect(getPinnedCard()).toEqual({ kind: 'topic', text: 'viewer words' });
+    handleMessageDeleted('#codeacula', 'm9', 'quietorbit', undefined, FAKE_MSG);
+    expect(getPinnedCard()).toBeNull();
+  });
+
+  test('the message id never reaches the overlay payload', () => {
+    setPinnedTopic('viewer words', NOW, 'quietorbit', 'm9');
+    expect(getPinnedCard()).toEqual({ kind: 'topic', text: 'viewer words' });
+  });
+
   test('a chat clear removes a viewer-derived topic but not an operator one', () => {
     setPinnedTopic('viewer words', NOW, 'quietorbit');
     handleChatClear('#codeacula');

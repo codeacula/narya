@@ -1149,6 +1149,12 @@ export type TemplateContext = {
   quoteSubmitter?: string;
   quoteShownCount?: number;
   quoteDate?: string;
+  /**
+   * The chat message that fired a chat_phrase / viewer_command trigger. Not a template
+   * token: it exists so a step that puts viewer-derived text on stream can be taken
+   * down when that one message is deleted by moderation.
+   */
+  messageId?: string;
   /** External inbound payload for {data.*} — set on a redis_event invocation. */
   data?: Record<string, unknown>;
 };

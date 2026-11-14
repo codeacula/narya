@@ -98,6 +98,18 @@ beforeEach(() => {
 });
 
 describe('chat phrase triggers', () => {
+  // The id is what lets a set_pinned_topic step be taken down when this one message is deleted.
+  test('hands the chat message id to the Action context for phrases and commands', async () => {
+    trigger({ kind: 'chat_phrase', config: { phrase: 'hype', match: 'contains', roles: [] } });
+    trigger({ kind: 'viewer_command', config: { command: '!hi', aliases: [], roles: [] } });
+    const { dispatcher, runner } = setup();
+
+    await dispatcher.handleChatMessage(chat({ id: 'msg-phrase', message: 'hype' }));
+    await dispatcher.handleChatMessage(chat({ id: 'msg-cmd', message: '!hi' }));
+
+    expect(runner.calls.map(call => call.context.messageId)).toEqual(['msg-phrase', 'msg-cmd']);
+  });
+
   test('fires on a case-insensitive contains match', async () => {
     trigger({ kind: 'chat_phrase', config: { phrase: 'Hype', match: 'contains', roles: [] } });
     const { dispatcher, runner } = setup();

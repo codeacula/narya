@@ -111,14 +111,15 @@ export function pinChatMessage(messageIdInput: unknown, nowMs = Date.now()): Pin
  * someone's behalf. A step template can carry viewer text ({input}, {arg1}), so such a
  * topic is NOT purely the operator's words: it records the viewer so a timeout, ban,
  * flush or chat clear takes it down exactly like a pinned question, and a flushed
- * viewer cannot put one up at all. Operator-typed topics pass no login and are never
+ * viewer cannot put one up at all. `messageId` is the triggering chat line, when there
+ * was one, so deleting that single message takes the topic down too. Operator-typed topics pass no login and are never
  * touched by chat moderation.
  *
  * NOTE for later: automatic or LLM pinning of *viewer* messages is deliberately not
  * built. It would go through pinChatMessage (so the moderation and ignore-list checks
  * apply) but needs an operator-approved rule for what may be put on stream unprompted.
  */
-export function setPinnedTopic(textInput: unknown, nowMs = Date.now(), sourceLogin: string | null = null): PinnedCard {
+export function setPinnedTopic(textInput: unknown, nowMs = Date.now(), sourceLogin: string | null = null, messageId: string | null = null): PinnedCard {
   if (typeof textInput !== 'string') throw new HttpRouteError(400, 'text must be a string');
   const text = normalizeTopic(textInput);
   if (!text) throw new HttpRouteError(400, 'text must not be empty');
@@ -126,7 +127,7 @@ export function setPinnedTopic(textInput: unknown, nowMs = Date.now(), sourceLog
   if (login && selectIgnored.get(login)) {
     throw new HttpRouteError(409, 'That viewer has been flushed and cannot put text on stream');
   }
-  writeCard.run('topic', '', text, null, login, new Date(nowMs).toISOString());
+  writeCard.run('topic', '', text, messageId?.trim() || null, login, new Date(nowMs).toISOString());
   return publish() as PinnedCard;
 }
 
@@ -145,7 +146,8 @@ export function clearPinnedCard(): void {
 
 export function clearPinnedCardForMessage(messageId: string): void {
   const row = currentRow();
-  if (row?.kind === 'question' && row.messageId === messageId) clearPinnedCard();
+  // Any kind: a viewer-derived topic carries the id of the message that produced it.
+  if (row?.messageId && row.messageId === messageId) clearPinnedCard();
 }
 
 export function clearPinnedCardForAuthor(login: string): void {
