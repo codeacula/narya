@@ -14,6 +14,16 @@ For non-trivial features, write a short plan before implementation. Request conf
 
 Superpowers skills write specs and plans under `docs/superpowers/`, and committing them is fine — no need to relocate them to `.claude/plans/`.
 
+**"Make it so" means do as much of the work as possible.** When the operator says it, treat it as approval of the discussed plan and carry it through without checking in between steps: plan, implement, test, verify, fix what verification finds, and commit. Make reasonable calls yourself and record the assumptions in the handoff rather than stopping to ask. Stop only for something you cannot do or must not do on your own: credentials or OAuth sign-in, a decision that changes security or scope beyond the plan, or an irreversible outward-facing action (pushing to `main`, live Twitch moderation, real chat or Discord messages). "Make it so" does not lift any safety rule in this file. When you hand back, list anything you left undone and why.
+
+**Subagent models.** Pick the cheapest model that can do the subtask reliably, and set it explicitly when spawning:
+
+- **Haiku**: mechanical, well-specified work with easily checked output, such as file and symbol searches, inventorying call sites, summarizing logs or test output, and simple bulk edits that follow an exact pattern.
+- **Sonnet**: scoped implementation of a planned task, writing tests, focused reviews of a single module or diff, and research that needs some judgment.
+- **Inherit the main model**: architecture and design decisions, anything that touches authentication, authorization, secrets, or the overlay event allowlist, data migrations, multi-boundary debugging, and the final review before merge.
+
+Verify a cheaper model's claims before you rely on them, especially "nothing found" results.
+
 ## Code review
 
 When asked to review code, review the code that exists rather than implementing changes unless explicitly requested.
