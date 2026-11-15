@@ -1159,11 +1159,13 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 /* The editor is a card rather than loose fields on the page: it appears above the
    list it edits, so it needs an edge to say where the form stops and the rows
    begin. Same border, radius, and surface as .counter-row, one step brighter, so
-   it reads as the same family lifted forward. */
+   it reads as the same family lifted forward.
+   Neither the card nor the list is inset: both start on the SettingsHeader's left
+   edge, as every `.set-group` section does (Counters and Apps used to sit 14px in). */
 .counter-editor {
   display: grid;
   gap: 14px;
-  margin: 14px 14px 0;
+  margin: 0 0 14px;
   padding: 14px;
   border: 1px solid var(--border-2);
   border-radius: var(--radius-2);
@@ -1172,7 +1174,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 .counter-list {
   display: grid;
   gap: 8px;
-  padding: 14px 14px 0;
 }
 .counter-row {
   display: flex;
@@ -1543,7 +1544,8 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
    its own spacing: inset under a group label, or above the first group of a page. */
 .set-group > .command-settings-status { margin: 14px 14px 0; }
 .rewards-page > .command-settings-status,
-.cats-page > .command-settings-status { margin: 0 0 var(--panel-gap); }
+.cats-page > .command-settings-status,
+.settings-measure > .command-settings-status { margin: 0 0 var(--panel-gap); }
 .command-settings-actions {
   display: flex;
   justify-content: flex-end;
