@@ -156,7 +156,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   // backlog apart from activity that arrived while you were watching.
   const [seeded, setSeeded] = useState(false);
   const { settings: attentionSettings, update: updateAttentionSettings } = useAttentionSettings();
-  const shoutouts = useSessionShoutouts(status.streamSessionId);
+  const { shoutouts, health: shoutoutsHealth, retry: retryShoutouts } = useSessionShoutouts(status.streamSessionId);
   const lastChatAt = React.useRef<number>(0);
   // Mirror the channel into a ref so the stable chat:message handler can read
   // the current login without hardcoding it or re-subscribing.
@@ -267,44 +267,54 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     if (viewersDebounceRef.current) clearTimeout(viewersDebounceRef.current);
   }, []);
 
+  const mountedRef = React.useRef(true);
   useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const { feedSucceeded, feedFailed } = feed;
 
-    const refreshAll = async () => {
-      try {
-        const [nextViewers, nextChat, nextEvents, nextStatus, nextObsStatus] = await Promise.all([
-          getViewers(),
-          getChatEntries(),
-          getStreamEvents(),
-          getDashboardStatus(),
-          getObsStatus().catch(() => null),
-        ]);
-        if (cancelled) return;
-        setViewers(nextViewers);
-        setChat(nextChat);
-        setEvents(nextEvents);
-        setStatus(nextStatus);
-        setStatusKnown(true);
-        if (nextObsStatus) setObsStatus(nextObsStatus);
-      } catch (error) {
-        console.error('Failed to refresh dashboard data:', error);
-        if (!cancelled) setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
-      } finally {
-        // Even a failed seed ends the quiet period; otherwise one bad fetch would
-        // mute the attention chime for the rest of the session.
-        if (!cancelled) setSeeded(true);
-      }
-    };
+  // The full refresh re-seeds chat, events and viewers every DASHBOARD_FULL_REFRESH_MS.
+  // The WebSocket only appends to those lists, and it is down whenever the backend is,
+  // so a refresh that fails means the lists really are getting old: its outcome feeds
+  // `feed.feedHealth`, which the chat and activity panels use to mark themselves stale,
+  // and to say "unavailable" rather than "no chat yet" when the first load never landed.
+  const refreshAll = React.useCallback(async () => {
+    try {
+      const [nextViewers, nextChat, nextEvents, nextStatus, nextObsStatus] = await Promise.all([
+        getViewers(),
+        getChatEntries(),
+        getStreamEvents(),
+        getDashboardStatus(),
+        getObsStatus().catch(() => null),
+      ]);
+      if (!mountedRef.current) return;
+      setViewers(nextViewers);
+      setChat(nextChat);
+      setEvents(nextEvents);
+      setStatus(nextStatus);
+      setStatusKnown(true);
+      if (nextObsStatus) setObsStatus(nextObsStatus);
+      feedSucceeded();
+    } catch (error) {
+      console.error('Failed to refresh dashboard data:', error);
+      if (!mountedRef.current) return;
+      setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
+      feedFailed();
+    } finally {
+      // Even a failed seed ends the quiet period; otherwise one bad fetch would
+      // mute the attention chime for the rest of the session.
+      if (mountedRef.current) setSeeded(true);
+    }
+  }, [setChat, setViewers, feedSucceeded, feedFailed]);
+  const retryRefresh = React.useCallback(() => { void refreshAll(); }, [refreshAll]);
 
+  useEffect(() => {
     void refreshAll();
     // No 5s status poll — the dashboard:status WS heartbeat keeps status fresh.
     const fullRefresh = setInterval(refreshAll, DASHBOARD_FULL_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(fullRefresh);
-    };
-  }, [setChat, setViewers]);
+    return () => clearInterval(fullRefresh);
+  }, [refreshAll]);
 
   // Real Twitch EventSub events from the backend
   useSocket<StreamEvent>('stream:event', React.useCallback((evt) => {
@@ -563,6 +573,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       return updated;
     },
     loadOlderChat: feed.loadOlderChat,
+    feedHealth: feed.feedHealth,
+    onRetryFeed: retryRefresh,
   };
 
   const handlePop = (id: string, on: boolean) => {
@@ -606,7 +618,15 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     }
     if (tab === 'activity') return MODULES.events?.render(ctx);
     if (tab === 'shoutouts') {
-      return <ShoutoutsPanel shoutouts={shoutouts} streamActive={status.streamSessionId !== null} onOpenViewer={ctx.openViewerPopout} />;
+      return (
+        <ShoutoutsPanel
+          shoutouts={shoutouts}
+          health={shoutoutsHealth}
+          onRetry={retryShoutouts}
+          streamActive={status.streamSessionId !== null}
+          onOpenViewer={ctx.openViewerPopout}
+        />
+      );
     }
     return <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />;
   }
@@ -620,6 +640,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       settings={attentionSettings}
       onAck={attention.ack}
       onSettingsChange={updateAttentionSettings}
+      health={feed.feedHealth}
+      onRetry={retryRefresh}
     />
   );
 

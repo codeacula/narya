@@ -186,7 +186,7 @@ export function OverlayTextPage() {
 }
 
 export function OverlayShoutoutsPage() {
-  const shoutouts = useSessionShoutouts();
+  const { shoutouts } = useSessionShoutouts();
   return (
     <main className="overlay-widget overlay-shoutouts-widget" aria-label="Stream shoutouts overlay">
       <ShoutoutTicker shoutouts={shoutouts} />

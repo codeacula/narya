@@ -731,6 +731,7 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 .empty-state .es-action,
 .split-empty .es-action { margin-top: var(--space-2); }
 .es-action .btn-primary { border: 0; min-height: 34px; }
+.feed-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); }
 /* Note: a two-line note inside a panel that already has a heading (a tablet button
    grid). Left-aligned with the content around it, and it spans a grid's columns
    rather than sitting in the first cell. */
@@ -1768,6 +1769,11 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .stale-notice-retry:hover { color: var(--fg-1); }
 .stale-notice-retry:focus-visible { outline: 2px solid var(--gold-400); outline-offset: 2px; }
+/* A stale marker docked above a dashboard feed (chat, activity, shoutouts). Collapses
+   to nothing while the feed is fresh, because StaleNotice then renders nothing. */
+.feed-stale { flex: none; padding: 6px 12px; border-bottom: 1px solid var(--border-1); }
+.feed-stale:empty { display: none; }
+.feed-stale .stale-notice { margin: 0; }
 .settings-eyebrow {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
   text-transform: uppercase; color: var(--fg-3); margin-bottom: 6px;
