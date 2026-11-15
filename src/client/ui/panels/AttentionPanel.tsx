@@ -1,6 +1,8 @@
 import React from 'react';
 import { Icon } from '../icons';
 import { EmptyState } from '../emptyState';
+import { loadPhase, type RefreshHealth } from '../../refreshHealth';
+import { StaleNotice } from '../staleNotice';
 import { formatAgo } from '../../../shared/time';
 import { kindEyebrow, kindTone } from '../../eventKinds';
 import { DEFAULT_ATTENTION_TAG, type AttentionItem, type AttentionSettings } from '../../attention';
@@ -90,12 +92,21 @@ export function AttentionPanel({
   settings,
   onAck,
   onSettingsChange,
+  health,
+  onRetry,
 }: {
   items: AttentionItem[];
   acked: Set<string>;
   settings: AttentionSettings;
   onAck: (id: string) => void;
   onSettingsChange: (patch: Partial<AttentionSettings>) => void;
+  /**
+   * How the dashboard load behind `items` (its events and chat) stands. Without it a
+   * failed first load drew "Nothing to thank yet" over a stream that may have had a
+   * raid in it.
+   */
+  health?: RefreshHealth;
+  onRetry?: () => void;
 }) {
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const settingsRef = React.useRef<HTMLDivElement>(null);
@@ -131,11 +142,14 @@ export function AttentionPanel({
     };
   }, [settingsOpen]);
 
+  const phase = health ? loadPhase(health) : 'fresh';
+  const unloaded = items.length === 0 && (phase === 'failed' || phase === 'loading');
+
   return (
     <div className="att-feed">
       <div className="att-toolbar">
         <span className="att-hint">
-          {items.length === 0 ? 'nothing waiting' : 'click an item to clear its highlight'}
+          {unloaded ? '' : items.length === 0 ? 'nothing waiting' : 'click an item to clear its highlight'}
         </span>
         <div className="evt-filter-anchor" ref={settingsRef}>
           <button
@@ -177,7 +191,17 @@ export function AttentionPanel({
           )}
         </div>
       </div>
-      {items.length === 0 ? (
+      {health ? <div className="feed-stale"><StaleNotice health={health} onRetry={onRetry} /></div> : null}
+      {items.length === 0 && phase === 'failed' ? (
+        <EmptyState
+          title="Attention feed unavailable"
+          action={onRetry ? <button className="modbtn" type="button" onClick={onRetry}>Retry</button> : undefined}
+        >
+          Narya could not load recent events and chat. New ones still land here as they arrive.
+        </EmptyState>
+      ) : items.length === 0 && phase === 'loading' ? (
+        <EmptyState title="Loading the attention feed…" />
+      ) : items.length === 0 ? (
         <EmptyState title="Nothing to thank yet">Follows, subs, cheers, raids, and tagged chat land here.</EmptyState>
       ) : (
         <div className="att-list-wrap">

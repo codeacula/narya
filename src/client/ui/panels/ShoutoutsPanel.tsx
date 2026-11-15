@@ -2,13 +2,20 @@ import React from 'react';
 import type { SessionShoutout } from '../../../shared/api';
 import { kindChip, kindTone } from '../../eventKinds';
 import { EmptyState } from '../emptyState';
+import { loadPhase, type RefreshHealth } from '../../refreshHealth';
+import { StaleNotice } from '../staleNotice';
 
 export function ShoutoutsPanel({
   shoutouts,
+  health,
+  onRetry,
   streamActive,
   onOpenViewer,
 }: {
   shoutouts: SessionShoutout[];
+  /** How the roster's refetches stand (useSessionShoutouts). */
+  health?: RefreshHealth;
+  onRetry?: () => void;
   streamActive: boolean;
   onOpenViewer: (login: string) => void;
 }) {
@@ -27,12 +34,33 @@ export function ShoutoutsPanel({
   if (!streamActive) {
     return <EmptyState title="Not streaming">Shoutouts collect once you go live.</EmptyState>;
   }
+  const phase = health ? loadPhase(health) : 'fresh';
+  if (shoutouts.length === 0 && phase === 'failed') {
+    return (
+      <EmptyState
+        title="Shoutouts unavailable"
+        action={onRetry ? <button className="modbtn" type="button" onClick={onRetry}>Retry</button> : undefined}
+      >
+        Narya could not load this stream's shoutouts.
+      </EmptyState>
+    );
+  }
+  if (shoutouts.length === 0 && phase === 'loading') {
+    return <EmptyState title="Loading shoutouts…" />;
+  }
+  const stale = health ? <div className="feed-stale"><StaleNotice health={health} onRetry={onRetry} /></div> : null;
   if (shoutouts.length === 0) {
-    return <EmptyState title="Nobody to shout out yet">Follows, subs, cheers, and raids collect here.</EmptyState>;
+    return (
+      <>
+        {stale}
+        <EmptyState title="Nobody to shout out yet">Follows, subs, cheers, and raids collect here.</EmptyState>
+      </>
+    );
   }
 
   return (
     <div className="shout-feed">
+      {stale}
       <div className="att-toolbar">
         <span className="att-hint">{shoutouts.length} to thank this stream</span>
         <button className="att-dismiss" type="button" onClick={copyNames}>

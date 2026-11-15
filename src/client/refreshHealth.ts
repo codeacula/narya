@@ -34,3 +34,17 @@ export function staleNoticeText(health: RefreshHealth): string | null {
   if (!isStale(health) || health.lastSuccessAt === null) return null;
   return `Couldn't refresh · last updated ${formatAgo(new Date(health.lastSuccessAt).toISOString())}`;
 }
+
+/**
+ * Where a list that is loaded and then kept fresh stands, for choosing what an empty
+ * list says. An empty list only means "nothing here" once a load has succeeded:
+ * before that it is `loading`, and if every attempt so far has failed it is `failed`,
+ * which must not be drawn as an empty stream. `stale` is a list that loaded once and
+ * has failed since (see `isStale`).
+ */
+export type LoadPhase = 'loading' | 'failed' | 'fresh' | 'stale';
+
+export function loadPhase(health: RefreshHealth): LoadPhase {
+  if (health.lastSuccessAt === null) return health.consecutiveFailures > 0 ? 'failed' : 'loading';
+  return health.consecutiveFailures > 0 ? 'stale' : 'fresh';
+}

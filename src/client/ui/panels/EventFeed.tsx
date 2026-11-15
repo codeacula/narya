@@ -8,6 +8,10 @@ import {
   loadHiddenKinds,
   saveHiddenKinds,
 } from './eventPresentation';
+import { loadPhase } from '../../refreshHealth';
+import { StaleNotice } from '../staleNotice';
+import { eventFeedEmpty } from './feedEmpty';
+import { FeedEmptyState } from './FeedEmptyState';
 
 export function EventFeed({ ctx }: { ctx: PanelCtx }) {
   const [hiddenKinds, setHiddenKinds] = React.useState<Set<string>>(() => loadHiddenKinds());
@@ -46,10 +50,19 @@ export function EventFeed({ ctx }: { ctx: PanelCtx }) {
     [ctx.events],
   );
 
-  const hiddenCount = React.useMemo(
-    () => knownKinds.filter(k => hiddenKinds.has(k)).length,
+  // Only the hidden kinds that actually occur in the loaded events matter here: a
+  // hidden kind with no events behind it hides nothing.
+  const hiddenPresent = React.useMemo(
+    () => knownKinds.filter(k => hiddenKinds.has(k)),
     [knownKinds, hiddenKinds],
   );
+  const hiddenCount = hiddenPresent.length;
+
+  const showAllKinds = React.useCallback(() => {
+    const next = new Set<string>();
+    saveHiddenKinds(next);
+    setHiddenKinds(next);
+  }, []);
 
   const visibleEvents = React.useMemo(() => {
     const q = evtSearch.trim().toLowerCase();
@@ -69,6 +82,17 @@ export function EventFeed({ ctx }: { ctx: PanelCtx }) {
     () => sessionBoundaryIndex(visibleEvents, ctx.currentSessionId, { side: 'past', markListStart: true }),
     [visibleEvents, ctx.currentSessionId],
   );
+
+  // Says why the list is empty, so the operator's own filter never reads as a quiet
+  // stream (feedEmpty.ts).
+  const empty = eventFeedEmpty({
+    phase: ctx.feedHealth ? loadPhase(ctx.feedHealth) : undefined,
+    total: ctx.events.length,
+    visible: visibleEvents.length,
+    query: evtSearch,
+    hiddenLabels: hiddenPresent.map(kind => EVT_KIND_LABEL[kind] ?? kind),
+    allHidden: ctx.events.length > 0 && ctx.events.every(e => hiddenKinds.has(e.kind)),
+  });
 
   return (
     <div className="evt-feed">
@@ -105,6 +129,15 @@ export function EventFeed({ ctx }: { ctx: PanelCtx }) {
           </div>
         )}
       </div>
+      {ctx.feedHealth ? (
+        <div className="feed-stale"><StaleNotice health={ctx.feedHealth} onRetry={ctx.onRetryFeed} /></div>
+      ) : null}
+      {empty ? (
+        <FeedEmptyState
+          empty={empty}
+          handlers={{ retry: ctx.onRetryFeed, 'clear-search': () => setEvtSearch(''), 'clear-filters': showAllKinds }}
+        />
+      ) : null}
       <div className="evt-list">
         {visibleEvents.map((e, index) => {
           // The server stores the alert-palette tone with each event (follow silver, sub

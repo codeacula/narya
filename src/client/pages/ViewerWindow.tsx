@@ -5,6 +5,7 @@ import type { PanelCtx } from '../ui/panels';
 import type { Viewer } from '../../shared/api';
 import { pathForViewer } from '../routing';
 import { EmptyState } from '../ui/emptyState';
+import { Icon } from '../ui/icons';
 
 export function ViewerWindowPage() {
   const params = new URLSearchParams(window.location.search);
@@ -58,7 +59,8 @@ export function ViewerWindowPage() {
           target="_blank"
           rel="noreferrer"
         >
-          Open full page ↗
+          <span>Open full page</span>
+          <Icon name="popout" size={13} aria-hidden="true" focusable="false" />
         </a>
       </div>
       <Spotlight ctx={ctx} login={login} />

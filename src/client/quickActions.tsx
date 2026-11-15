@@ -1,12 +1,13 @@
-// Manual automation triggers, rendered as buttons for the dashboard and the tablet.
-// Both surfaces share useQuickActions; only the chrome differs (the dashboard's
-// panel.css uses BEM-style `quick-action--tone` modifiers, the tablet's styles.css
-// uses `quick-action-tone-x` classes).
+// Manual automation triggers, rendered as buttons on the tablet. The dashboard has no
+// quick-actions panel: one was written and registered in MODULES (622a5ff) but no
+// dashboard layout ever mounted it, so it was removed rather than left as dead code.
+// useQuickActions stays separate from the tablet chrome so a dashboard panel can be
+// added back on top of it.
 import React from 'react';
 import type { AutomationTrigger, CategoryModulesResponse, TriggerRunResult } from '../shared/api';
 import { getAutomationTriggers, getCategoryModules, runAutomationTrigger } from './services/dashboard';
 import { useSocket } from './realtime';
-import { runResultTone, summarizeRunResult } from './pages/settings/automation';
+import { runResultTone } from './pages/settings/automation';
 import { errorMessage } from './errors';
 import { EmptyState } from './ui/emptyState';
 
@@ -93,51 +94,6 @@ export function useQuickActions(): QuickActionsState {
   }, [triggers, modules]);
 
   return { actions, loading, error, runs, runningId, run };
-}
-
-/** Dashboard panel. Registered in the MODULES registry by the integrator. */
-export function QuickActionsPanel() {
-  const { actions, loading, error, runs, runningId, run } = useQuickActions();
-
-  return (
-    <div className="quick-actions">
-      {error && <div className="quick-actions-error">{error}</div>}
-
-      {loading ? (
-        <EmptyState title="Loading quick actions…" />
-      ) : actions.length === 0 ? (
-        <EmptyState title="No quick actions">
-          Add a Manual button trigger in Settings → Automation.
-        </EmptyState>
-      ) : (
-        <div className="quick-actions-grid">
-          {actions.map(action => {
-            const result = runs[action.id];
-            const tone = result ? runResultTone(result) : null;
-            return (
-              <button
-                className={'quick-action' + (tone ? ` quick-action--${tone}` : '') + (action.armed ? '' : ' quick-action--disarmed')}
-                type="button"
-                key={action.id}
-                disabled={runningId === action.id || !action.armed}
-                title={action.armed
-                  ? (result ? summarizeRunResult(result) : action.moduleName ?? 'Global')
-                  : `Only fires while ${action.moduleName} is the active module.`}
-                onClick={() => run(action.id)}
-              >
-                <span className="quick-action-label">{action.label}</span>
-                <span className="quick-action-scope">{action.moduleName ?? 'global'}</span>
-                {runningId === action.id && <span className="quick-action-state">running…</span>}
-                {runningId !== action.id && result && (
-                  <span className={`quick-action-state quick-action-state--${tone}`}>{result.status}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
 }
 
 /** Tablet variant: reuses the tablet's own button chrome from styles.css. */

@@ -1,17 +1,8 @@
 import type { ObsStatus } from '../shared/api';
 
-/**
- * The one word every surface uses for "Narya is not connected to OBS": offline. Not
- * "unavailable" (which reads as broken for good) and not "disconnected" (which reads
- * as something the operator did). The stat bar's health gauge, the tablet's status
- * chip and notice, and the dashboard's toast all take their wording from here.
- */
-export const OBS_OFFLINE = 'OBS offline';
-
-/** The tablet's status chip, which already sits under an "OBS" eyebrow. */
-export function obsConnectionLabel(connected: boolean): string {
-  return connected ? 'Connected' : 'Offline';
-}
+// The words for a connected or offline OBS live with every other service's in
+// connectionWords.ts; re-exported here for the callers that already import them.
+export { OBS_OFFLINE, obsConnectionLabel } from './connectionWords';
 
 /**
  * What the tablet's OBS panel says when something is wrong, in the operator's words.

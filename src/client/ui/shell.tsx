@@ -2,7 +2,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Icon } from './icons';
 import { CrystalOrb } from '../crystalOrb';
 import { isSettingsRoute, type DashboardRoute } from '../routing';
-import { adGaugeSub, healthGauge, UNKNOWN_VALUE, viewersGauge } from './statBarText';
+import { adGaugeSub, connectionsLine, healthGauge, UNKNOWN_VALUE, viewersGauge } from './statBarText';
+import type { DashboardStatus } from '../../shared/api';
 
 type DragPos = { x: number; y: number; w: number; h: number };
 type DragMemo = { sx: number; sy: number; ox: number; oy: number };
@@ -182,7 +183,7 @@ export function StatBar({
   adBreakDurationSeconds: number | null;
   prerollFreeTimeSeconds: number | null;
   snoozeCount: number | null;
-  chatConnection: string;
+  chatConnection: DashboardStatus['chatConnection'];
   obsConnected: boolean;
   eventSubConnected: boolean;
   eventSubError: string | null;
@@ -338,7 +339,7 @@ export function StatBar({
       <Gauge label="Stream" className={'stream-gauge ' + streamClass} icon={<span className={'live-dot' + (streamActive ? '' : ' offline')} />}>
         <div className="gauge-value">{streamLabel}</div>
         <div className="gauge-sub">
-          {uptimeSourceLabel} · chat {chatConnection.toLowerCase()} · events {eventSubConnected ? 'open' : eventSubError ? 'error' : 'closed'}
+          {uptimeSourceLabel} · {connectionsLine({ chatConnection, eventSubConnected })}
           {eventSubError && !eventSubConnected && (
             <button
               className="eventsub-retry-btn"

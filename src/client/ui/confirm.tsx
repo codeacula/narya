@@ -23,6 +23,15 @@ import { confirmTextMatches } from './modalLogic';
  * (case and surrounding spaces forgiven); use it where a slip cannot be taken back,
  * and leave it off for local deletes, where it would only train people to type
  * without reading. Requests made while one is open queue behind it.
+ *
+ * The one deliberate exception: the chat-row ban (`ChatRowActions` in
+ * ui/panels/Chat.tsx) confirms in place instead. The first tap arms the button and
+ * relabels it "sure?", the second bans, and it disarms on blur or after 4 seconds.
+ * Row moderation happens mid-stream on a moving list, often from the tablet, where a
+ * modal over the chat would cover the message being acted on and add a reach to a
+ * dialog button. The ban/timeout modal, with a reason field, is still one click away
+ * from the viewer's name. Do not copy the in-place pattern elsewhere: anything that
+ * is not one-tap row moderation uses this dialog.
  */
 
 export type ConfirmTone = 'default' | 'danger';

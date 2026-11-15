@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { INITIAL_REFRESH_HEALTH, isStale, recordRefresh, staleNoticeText } from './refreshHealth';
+import { INITIAL_REFRESH_HEALTH, isStale, loadPhase, recordRefresh, staleNoticeText } from './refreshHealth';
 
 describe('refresh health', () => {
   test('a list that never loaded is not stale, however often it fails', () => {
@@ -33,5 +33,27 @@ describe('refresh health', () => {
     const twoMinutesAgo = Date.now() - 2 * 60_000 - 5_000;
     const health = recordRefresh(recordRefresh(INITIAL_REFRESH_HEALTH, true, twoMinutesAgo), false, Date.now());
     expect(staleNoticeText(health)).toBe("Couldn't refresh · last updated 2m ago");
+  });
+});
+
+describe('loadPhase', () => {
+  test('nothing attempted yet is loading, not empty', () => {
+    expect(loadPhase(INITIAL_REFRESH_HEALTH)).toBe('loading');
+  });
+
+  test('only failures so far is failed, however many', () => {
+    let health = recordRefresh(INITIAL_REFRESH_HEALTH, false, 1_000);
+    expect(loadPhase(health)).toBe('failed');
+    health = recordRefresh(health, false, 2_000);
+    expect(loadPhase(health)).toBe('failed');
+  });
+
+  test('a success is fresh, a failure after it is stale, and the next success clears it', () => {
+    let health = recordRefresh(INITIAL_REFRESH_HEALTH, false, 1_000);
+    health = recordRefresh(health, true, 2_000);
+    expect(loadPhase(health)).toBe('fresh');
+    health = recordRefresh(health, false, 3_000);
+    expect(loadPhase(health)).toBe('stale');
+    expect(loadPhase(recordRefresh(health, true, 4_000))).toBe('fresh');
   });
 });

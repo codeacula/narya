@@ -17,6 +17,10 @@ import {
   timeoutSeconds,
 } from '../../timeoutDuration';
 import { belongsToCurrentSession, sessionBoundaryIndex, type PanelCtx } from './context';
+import { loadPhase } from '../../refreshHealth';
+import { StaleNotice } from '../staleNotice';
+import { chatEmpty } from './feedEmpty';
+import { FeedEmptyState } from './FeedEmptyState';
 
 /** How long an armed ban stays armed before reverting. Long enough to read the
  *  relabelled button and press it, short enough that walking away disarms it. */
@@ -42,9 +46,10 @@ export type ChatRowModeration = {
  * reflows under the pointer as the operator moves down a moving list.
  *
  * Timeout fires on the first click because it expires on its own. Ban arms and
- * confirms in place — the same idiom as Flush on the viewer page — because there
- * is no unban route here and Twitch purges the messages the moment it lands, so
- * a misfire is not something this app can walk back.
+ * confirms in place because there is no unban route here and Twitch purges the
+ * messages the moment it lands, so a misfire is not something this app can walk
+ * back. This in-place arm is the one documented exception to the shared confirm
+ * dialog (see ui/confirm.tsx).
  */
 function ChatRowActions({ login, messageId, moderation, canModerate }: {
   login: string;
@@ -390,6 +395,15 @@ export function Chat({ ctx, canModerate = false }: { ctx: PanelCtx; canModerate?
     [displayedChat, ctx.currentSessionId],
   );
 
+  // Says why the list is empty: loading, a failed load, a quiet chat, or a search
+  // that matched nothing (feedEmpty.ts).
+  const empty = chatEmpty({
+    phase: ctx.feedHealth ? loadPhase(ctx.feedHealth) : undefined,
+    total: ctx.chat.length,
+    visible: displayedChat.length,
+    query: chatSearch,
+  });
+
   return (
     <>
       <div className="chat-bar">
@@ -405,8 +419,17 @@ export function Chat({ ctx, canModerate = false }: { ctx: PanelCtx; canModerate?
         </button>
       </div>
       {modError && <div className="chat-mod-error" role="status">{modError}</div>}
+      {ctx.feedHealth ? (
+        <div className="feed-stale"><StaleNotice health={ctx.feedHealth} onRetry={ctx.onRetryFeed} /></div>
+      ) : null}
       <div className="chat-list" ref={listRef} onScroll={handleScroll}>
         {loadingOlder && <div className="chat-loading">loading…</div>}
+        {empty ? (
+          <FeedEmptyState
+            empty={empty}
+            handlers={{ retry: ctx.onRetryFeed, 'clear-search': () => setChatSearch('') }}
+          />
+        ) : null}
         {displayedChat.map((m, index) => {
           // Whispers arrive live and carry no session, so they never read as past.
           const fromThisStream = m.kind === 'whisper' || belongsToCurrentSession(m.sessionId, ctx.currentSessionId);

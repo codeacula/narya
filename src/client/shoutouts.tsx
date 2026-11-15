@@ -3,6 +3,7 @@ import type { SessionShoutout, StreamEvent } from '../shared/api';
 import { ATTENTION_EVENT_KINDS, kindVerb } from './eventKinds';
 import { useSocket } from './realtime';
 import { getSessionShoutouts } from './services/dashboard';
+import { useRefreshHealth } from './ui/staleNotice';
 
 const SHOUTOUT_REFRESH_MS = 60_000;
 const SHOUTOUT_ROTATE_MS = 5_000;
@@ -18,12 +19,21 @@ const SHOUTOUT_DEBOUNCE_MS = 2_000;
 export function useSessionShoutouts(sessionId: string | null = null) {
   const [shoutouts, setShoutouts] = React.useState<SessionShoutout[]>([]);
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The roster is only ever refetched — no socket event carries it — so a failing
+  // refetch leaves an old list that looks current. The dashboard tab marks it stale,
+  // and says "unavailable" rather than "nobody to shout out" when it never loaded.
+  // The overlay ticker ignores this: a browser source has no one to tell.
+  const { health, succeeded, failed } = useRefreshHealth();
 
   const refresh = React.useCallback(() => {
-    void getSessionShoutouts().then(setShoutouts).catch((error: unknown) => {
+    void getSessionShoutouts().then(next => {
+      setShoutouts(next);
+      succeeded();
+    }).catch((error: unknown) => {
       console.error('Failed to load session shoutouts:', error);
+      failed();
     });
-  }, []);
+  }, [succeeded, failed]);
 
   const refreshSoon = React.useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -44,7 +54,7 @@ export function useSessionShoutouts(sessionId: string | null = null) {
     if (ATTENTION_EVENT_KINDS.has(event.kind)) refreshSoon();
   }, [refreshSoon]));
 
-  return shoutouts;
+  return { shoutouts, health, retry: refresh };
 }
 
 /** Phrase every kind a person contributed: "subscribed & cheered". */

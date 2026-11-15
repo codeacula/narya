@@ -33,25 +33,34 @@ type TabletChatData = {
 
 function useTabletChatData(): TabletChatData {
   const feed = useChatFeed();
-  const { setChat, setViewers, refreshChatters } = feed;
+  const { setChat, setViewers, refreshChatters, feedSucceeded, feedFailed } = feed;
   const [currentSessionId, setCurrentSessionId] = React.useState<string | null>(null);
   const channelRef = React.useRef('');
-
+  const mountedRef = React.useRef(true);
   React.useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // One load, then the socket keeps it current. Its outcome feeds the chat's
+  // feedHealth so a failed load reads "Chat unavailable" with a Retry, not "No chat yet".
+  const loadChat = React.useCallback(() => {
     void Promise.all([getChatEntries(), getViewers(), getDashboardStatus()])
       .then(([nextChat, nextViewers, status]) => {
-        if (cancelled) return;
+        if (!mountedRef.current) return;
         setChat(nextChat);
         setViewers(nextViewers);
         setCurrentSessionId(status.streamSessionId);
         channelRef.current = status.channel.toLowerCase();
+        feedSucceeded();
       })
       .catch((error: unknown) => {
         console.error('Failed to load tablet chat:', error);
+        if (mountedRef.current) feedFailed();
       });
-    return () => { cancelled = true; };
-  }, [setChat, setViewers]);
+  }, [setChat, setViewers, feedSucceeded, feedFailed]);
+
+  React.useEffect(() => { loadChat(); }, [loadChat]);
 
   // Presence can go stale while the socket is down, so re-sync on reconnect.
   useSocketReconnect(refreshChatters);
@@ -70,6 +79,8 @@ function useTabletChatData(): TabletChatData {
     // Chat never edits profiles; satisfy the contract by echoing the input back.
     updateViewerProfile: async (_login: string, profile: ViewerProfileUpdate) => profile,
     loadOlderChat: feed.loadOlderChat,
+    feedHealth: feed.feedHealth,
+    onRetryFeed: loadChat,
   };
 
   return { ctx, chatters: feed.liveChatters, chattersError: feed.chattersError };

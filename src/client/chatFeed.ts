@@ -21,6 +21,8 @@ import type {
   Viewer,
 } from '../shared/api';
 import { errorMessage } from './errors';
+import { useRefreshHealth } from './ui/staleNotice';
+import type { RefreshHealth } from './refreshHealth';
 
 // A full older-chat page; a short page means we've reached the beginning.
 export const OLDER_CHAT_PAGE = 80;
@@ -89,6 +91,14 @@ export type ChatFeed = {
   chattersError: string | null;
   refreshChatters: () => void;
   loadOlderChat: () => Promise<boolean>;
+  /**
+   * How the chat list's REST loads stand: the caller's own seed/full refresh reports
+   * into it through `feedSucceeded` / `feedFailed`, and so does the `chat:moderated`
+   * refetch here. Passed to `Chat` as `PanelCtx.feedHealth`.
+   */
+  feedHealth: RefreshHealth;
+  feedSucceeded: () => void;
+  feedFailed: () => void;
 };
 
 export function useChatFeed(
@@ -106,6 +116,7 @@ export function useChatFeed(
   const viewerLoginsRef = React.useRef<Set<string>>(new Set());
   const mountedRef = React.useRef(true);
   const onChatMessageRef = React.useRef(options.onChatMessage);
+  const { health: feedHealth, succeeded: feedSucceeded, failed: feedFailed } = useRefreshHealth();
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -120,6 +131,11 @@ export function useChatFeed(
     viewerLoginsRef.current = new Set(Object.keys(viewers));
   }, [viewers]);
 
+  // Deliberately quiet on failure. The viewer map only decorates chat rows (name
+  // colour, role badges); a row with no record still renders, in the fallback colour.
+  // So a failed refetch leaves nothing on screen that reads as wrong, and the caller's
+  // full refresh, which also loads viewers and does mark the feed stale, retries it
+  // within DASHBOARD_FULL_REFRESH_MS.
   const refreshViewers = React.useCallback(() => {
     void getViewers().then(nextViewers => {
       if (mountedRef.current) setViewers(nextViewers);
@@ -184,10 +200,14 @@ export function useChatFeed(
       if (!mountedRef.current) return;
       setChat(nextChat);
       setViewers(nextViewers);
+      feedSucceeded();
     }).catch((error: unknown) => {
+      // A removal that never reached the list leaves a deleted message looking live,
+      // with pin/timeout/ban still offered — so this one marks the chat stale.
       console.error('Failed to refresh chat after moderation event:', error);
+      if (mountedRef.current) feedFailed();
     });
-  }, []));
+  }, [feedSucceeded, feedFailed]));
 
   const loadOlderChat = React.useCallback(async () => {
     const { older, hasMore } = await fetchOlderChatPage(chat, getChatEntriesBefore);
@@ -214,5 +234,8 @@ export function useChatFeed(
     chattersError,
     refreshChatters,
     loadOlderChat,
+    feedHealth,
+    feedSucceeded,
+    feedFailed,
   };
 }

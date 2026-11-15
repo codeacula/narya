@@ -1,4 +1,5 @@
 import React, { useRef, useCallback, useEffect } from 'react';
+import { Icon } from './icons';
 
 const STYLE = `
   .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
@@ -13,7 +14,8 @@ const STYLE = `
     border-bottom:1px solid var(--border-1)}
   .twk-hd b{font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--fg-2)}
   .twk-x{appearance:none;border:0;background:transparent;color:var(--fg-3);
-    width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:13px;line-height:1;min-height:0}
+    width:22px;height:22px;border-radius:4px;cursor:pointer;line-height:1;min-height:0;
+    display:inline-grid;place-items:center;padding:0}
   .twk-x:hover{background:rgba(255,255,255,0.06);color:var(--fg-1)}
   .twk-body{padding:4px 12px 12px;display:flex;flex-direction:column;gap:10px;
     overflow-y:auto;overflow-x:hidden;min-height:0;
@@ -101,7 +103,9 @@ export function TweaksPanel({
       >
         <div className="twk-hd" onMouseDown={onDragStart}>
           <b>{title}</b>
-          <button className="twk-x" onMouseDown={e => e.stopPropagation()} onClick={onClose}>✕</button>
+          <button className="twk-x" type="button" aria-label={`Close ${title}`} onMouseDown={e => e.stopPropagation()} onClick={onClose}>
+            <Icon name="x" size={14} aria-hidden="true" focusable="false" />
+          </button>
         </div>
         <div className="twk-body">{children}</div>
       </div>
