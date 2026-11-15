@@ -16,6 +16,11 @@ export type OverflowBelow = {
   unacked: number;
   /** Where "show me" should scroll to, or null when nothing is below. */
   scrollTarget: number | null;
+  /**
+   * Index of the first row below the fold, or null when nothing is below. "Show me"
+   * moves focus there: scrolling to the end unmounts the footer that had focus.
+   */
+  firstIndex: number | null;
 };
 
 /**
@@ -24,30 +29,37 @@ export type OverflowBelow = {
  */
 const EDGE_TOLERANCE_PX = 1;
 
-export const NOTHING_BELOW: OverflowBelow = { count: 0, unacked: 0, scrollTarget: null };
+export const NOTHING_BELOW: OverflowBelow = { count: 0, unacked: 0, scrollTarget: null, firstIndex: null };
 
 export function overflowBelow(rows: readonly ListRow[], viewport: ListViewport): OverflowBelow {
   const viewBottom = viewport.scrollTop + viewport.clientHeight;
   let count = 0;
   let unacked = 0;
   let firstTop: number | null = null;
-  for (const row of rows) {
+  let firstIndex: number | null = null;
+  for (const [index, row] of rows.entries()) {
     // A row cut by the edge counts: its detail line is exactly what goes unread.
     if (row.bottom <= viewBottom + EDGE_TOLERANCE_PX) continue;
     count++;
     if (row.unacked) unacked++;
-    if (firstTop === null) firstTop = row.top;
+    if (firstTop === null) {
+      firstTop = row.top;
+      firstIndex = index;
+    }
   }
   if (firstTop === null) return NOTHING_BELOW;
   // Bring the first unread row to the top. A row taller than the viewport would already
   // start above the top edge, and scrolling "to" it would go nowhere or backwards — page
   // down instead.
   const scrollTarget = firstTop > viewport.scrollTop ? firstTop : viewBottom;
-  return { count, unacked, scrollTarget };
+  return { count, unacked, scrollTarget, firstIndex };
 }
 
 export function sameOverflow(a: OverflowBelow, b: OverflowBelow): boolean {
-  return a.count === b.count && a.unacked === b.unacked && a.scrollTarget === b.scrollTarget;
+  return a.count === b.count
+    && a.unacked === b.unacked
+    && a.scrollTarget === b.scrollTarget
+    && a.firstIndex === b.firstIndex;
 }
 
 /** "3 more below", or "3 more below · 2 new" when some of them are still highlighted. */

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { overflowBelow, overflowLabel, type ListRow } from './attentionOverflow';
+import { overflowBelow, overflowLabel, sameOverflow, type ListRow } from './attentionOverflow';
 
 // Five 68px rows, the shape the dashboard's attention list measured at 1600x1000.
 function rows(unacked: boolean[] = [true, true, true, true, true]): ListRow[] {
@@ -45,6 +45,20 @@ test('a row taller than the viewport pages down instead of scrolling backwards',
 });
 
 test('the label names the new ones only when there are some', () => {
-  expect(overflowLabel({ count: 3, unacked: 0, scrollTarget: 0 })).toBe('3 more below');
-  expect(overflowLabel({ count: 3, unacked: 2, scrollTarget: 0 })).toBe('3 more below · 2 new');
+  expect(overflowLabel({ count: 3, unacked: 0, scrollTarget: 0, firstIndex: 0 })).toBe('3 more below');
+  expect(overflowLabel({ count: 3, unacked: 2, scrollTarget: 0, firstIndex: 0 })).toBe('3 more below · 2 new');
+});
+
+test('the first row below the fold is named, so "show me" can move focus onto it', () => {
+  // Rows 0-1 fit in 150px; row 2 (136-204) is cut, so focus belongs on row 2.
+  expect(overflowBelow(rows(), { scrollTop: 0, clientHeight: 150 }).firstIndex).toBe(2);
+  // Scrolled one row down: rows 1-3 fit, row 4 is the first one below.
+  expect(overflowBelow(rows(), { scrollTop: 68, clientHeight: 210 }).firstIndex).toBe(4);
+  expect(overflowBelow(rows(), { scrollTop: 0, clientHeight: 400 }).firstIndex).toBeNull();
+});
+
+test('a change in which row is first below is a change, even when the counts match', () => {
+  const a = { count: 2, unacked: 0, scrollTarget: 136, firstIndex: 2 };
+  expect(sameOverflow(a, { ...a })).toBe(true);
+  expect(sameOverflow(a, { ...a, firstIndex: 3 })).toBe(false);
 });

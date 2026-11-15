@@ -108,7 +108,13 @@ export function AttentionPanel({
     const list = listRef.current;
     if (!list || below.scrollTarget === null) return;
     list.scrollTo({ top: below.scrollTarget, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-  }, [below.scrollTarget]);
+    // Reaching the end unmounts this footer while it has focus, which drops focus to
+    // <body>. Land it on the first row just revealed instead — every row is already
+    // a button, so this adds no tab stop. preventScroll leaves the scroll above in
+    // charge, smooth or not.
+    const row = below.firstIndex === null ? null : list.children[below.firstIndex];
+    if (row instanceof HTMLElement) row.focus({ preventScroll: true });
+  }, [below.scrollTarget, below.firstIndex]);
 
   React.useEffect(() => {
     if (!settingsOpen) return;

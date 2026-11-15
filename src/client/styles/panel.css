@@ -2605,6 +2605,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .att-row:last-child { border-bottom: none; }
 .att-row:hover { background: rgba(255,255,255,0.03); }
+/* "n more below" hands focus to the first revealed row; the browser's default ring
+   is near-black on navy and half-hidden by the unacked hairline, so match the
+   footer's gold ring, inset like it. */
+.att-row:focus-visible { outline: 1px solid var(--gold-400); outline-offset: -2px; }
 .att-row .evt-detail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-eyebrow {
   display: block;
