@@ -34,6 +34,7 @@ import {
   MAX_LLM_SYSTEM_PROMPT_LENGTH,
 } from '../../../shared/api';
 import { normalizeProfileTag } from '../../../shared/viewerTags';
+import type { PickerLoad } from './listState';
 
 // Mirrors of the server's limits in src/server/actions.ts. Duplicated deliberately:
 // validating here turns a 400 round-trip into an inline message, but the server
@@ -985,4 +986,19 @@ export function obsSceneHint(sceneCount: number, connected: boolean | null): str
   if (connected === true) return 'OBS has no scenes to offer — the name is saved as typed.';
   if (connected === false) return `${OBS_OFFLINE} — the name is saved as typed.`;
   return 'The name is saved as typed.';
+}
+
+/**
+ * What a step's saved counter reference amounts to, given the counter list as loaded.
+ * Only a list that actually loaded can say a counter was deleted: a failed or pending
+ * load is `unknown`, which used to be drawn as "deleted counter" on every saved step.
+ */
+export function counterReference(
+  counterId: string,
+  counters: readonly Counter[],
+  load: PickerLoad,
+): 'none' | 'found' | 'deleted' | 'unknown' {
+  if (!counterId) return 'none';
+  if (counters.some(counter => counter.id === counterId)) return 'found';
+  return load.status === 'loaded' ? 'deleted' : 'unknown';
 }

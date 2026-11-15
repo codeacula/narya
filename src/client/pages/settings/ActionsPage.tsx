@@ -25,7 +25,7 @@ import {
 } from '../../services/dashboard';
 import { LlmStepFields } from './LlmStepFields';
 import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
-import { listFace } from './listState';
+import { asSentence, listFace, PICKER_LOADING, type PickerLoad } from './listState';
 import { errorMessage } from '../../errors';
 import {
   MAX_ASSETS_PER_STEP,
@@ -42,6 +42,7 @@ import {
   summarizeActionRunResult,
   unplayableAssetIds,
   validateAction,
+  counterReference,
 } from './automation';
 import { EmptyState } from '../../ui/emptyState';
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
@@ -124,6 +125,9 @@ function AssetPicker({
  * missing case returns undefined and React renders nothing — the operator gets a
  * step row with a type dropdown and no fields at all, and nothing errors.
  */
+/** The counter list for adjust_counter steps, with how its load went. */
+type CounterPicker = { list: Counter[]; load: PickerLoad; retry: () => void };
+
 function StepPayloadFields({
   step,
   assets,
@@ -138,7 +142,7 @@ function StepPayloadFields({
   scenes: string[];
   /** The line under the scene field (obsSceneHint). */
   sceneHint: string;
-  counters: Counter[];
+  counters: CounterPicker;
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
 }): React.ReactElement {
@@ -469,7 +473,8 @@ function StepPayloadFields({
     case 'clear_pinned_card':
       return <p className="action-hint">Takes down the pinned card, whether it is a question or a topic.</p>;
 
-    case 'adjust_counter':
+    case 'adjust_counter': {
+      const counterRef = counterReference(step.payload.counterId, counters.list, counters.load);
       return (
         <>
           <label className="field">
@@ -480,14 +485,26 @@ function StepPayloadFields({
               onChange={event => onChange({ ...step, payload: { ...step.payload, counterId: event.target.value } })}
             >
               <option value="">Pick a counter…</option>
-              {counters.map(counter => (
+              {/* While the list is unknown the saved choice stays selected and visible,
+                  so saving the action keeps it. */}
+              {counterRef === 'unknown' && (
+                <option value={step.payload.counterId}>Saved counter (list not loaded)</option>
+              )}
+              {counters.list.map(counter => (
                 <option key={counter.id} value={counter.id}>{counter.label}</option>
               ))}
             </select>
             {/* A counter referenced by a saved step but since deleted would otherwise
-                show as an empty select that silently reverts on the next save. */}
-            {step.payload.counterId && !counters.some(entry => entry.id === step.payload.counterId) && (
+                show as an empty select that silently reverts on the next save. Only a
+                list that loaded can say so (counterReference). */}
+            {counterRef === 'deleted' && (
               <span className="media-asset-tag media-asset-tag--broken">deleted counter</span>
+            )}
+            {counters.load.status === 'failed' && (
+              <small className="error">
+                {asSentence(counters.load.error)}{' '}
+                <button type="button" className="stale-notice-retry" onClick={counters.retry}>Retry</button>
+              </small>
             )}
           </label>
           <label className="field">
@@ -522,6 +539,7 @@ function StepPayloadFields({
           </label>
         </>
       );
+    }
 
     case 'quote_add':
       return (
@@ -617,7 +635,7 @@ function StepRow({
   assets: MediaAsset[];
   scenes: string[];
   sceneHint: string;
-  counters: Counter[];
+  counters: CounterPicker;
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
   onMove: (to: number) => void;
@@ -750,6 +768,8 @@ export function ActionsSettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<ActionUpsert | null>(null);
   const [counters, setCounters] = useState<Counter[]>([]);
+  const [countersLoad, setCountersLoad] = useState<PickerLoad>(PICKER_LOADING);
+  const [countersAttempt, setCountersAttempt] = useState(0);
   const [runs, setRuns] = useState<Record<string, ActionRunResult>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -799,10 +819,23 @@ export function ActionsSettingsPage() {
   // Its own tolerant effect rather than part of `load`: a counters fetch that fails
   // should cost the operator the counter dropdown, not the whole Actions page.
   useEffect(() => {
+    let cancelled = false;
+    setCountersLoad(PICKER_LOADING);
     void getCounters()
-      .then(response => setCounters(response.counters))
-      .catch(() => setCounters([]));
-  }, []);
+      .then(response => {
+        if (cancelled) return;
+        setCounters(response.counters);
+        setCountersLoad({ status: 'loaded' });
+      })
+      .catch(caught => {
+        if (!cancelled) setCountersLoad({ status: 'failed', error: errorMessage(caught, 'Could not load counters') });
+      });
+    return () => { cancelled = true; };
+  }, [countersAttempt]);
+  const counterPicker = useMemo<CounterPicker>(
+    () => ({ list: counters, load: countersLoad, retry: () => setCountersAttempt(n => n + 1) }),
+    [counters, countersLoad],
+  );
 
 
   const busy = loading || saving;
@@ -1036,7 +1069,7 @@ export function ActionsSettingsPage() {
                     assets={assets}
                     scenes={scenes}
                     sceneHint={obsSceneHint(scenes.length, obsConnected)}
-                    counters={counters}
+                    counters={counterPicker}
                     disabled={busy}
                     onChange={next => updateStep(index, next)}
                     onMove={to => setDraft(current => (current ? { ...current, steps: moveStep(current.steps, index, to) } : current))}

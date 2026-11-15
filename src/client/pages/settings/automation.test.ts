@@ -56,6 +56,7 @@ import {
   validateConditions,
   validateStep,
   validateTrigger,
+  counterReference,
 } from './automation';
 import { newTrigger } from './AutomationPage';
 
@@ -1460,5 +1461,23 @@ describe('obsSceneHint', () => {
     for (const connected of [true, false, null]) {
       expect(obsSceneHint(0, connected)).not.toContain('not connected');
     }
+  });
+});
+
+describe('counterReference', () => {
+  const deaths = { id: 'c1', key: 'deaths', label: 'Deaths', value: 3, createdAt: '', updatedAt: '' };
+
+  test('a counter list that failed to load cannot call a saved counter deleted', () => {
+    expect(counterReference('c1', [], { status: 'failed', error: 'boom' })).toBe('unknown');
+    expect(counterReference('c1', [], { status: 'loading' })).toBe('unknown');
+  });
+
+  test('only a loaded list that lacks it says deleted', () => {
+    expect(counterReference('c9', [deaths], { status: 'loaded' })).toBe('deleted');
+  });
+
+  test('a counter on the list is found, and no pick is none', () => {
+    expect(counterReference('c1', [deaths], { status: 'loaded' })).toBe('found');
+    expect(counterReference('', [], { status: 'failed', error: 'boom' })).toBe('none');
   });
 });
