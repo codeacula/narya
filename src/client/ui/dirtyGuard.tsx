@@ -1,6 +1,6 @@
 import React from 'react';
 import { useConfirm } from './confirm';
-import { createDirtyRegistry, discardPrompt, draftIsDirty } from './dirtyGuardLogic';
+import { createDirtyRegistry, discardPrompt, draftIsDirty, runUnlessRefused } from './dirtyGuardLogic';
 
 /**
  * The unsaved-edit guard: one place that knows whether any editor on the page holds
@@ -11,7 +11,13 @@ import { createDirtyRegistry, discardPrompt, draftIsDirty } from './dirtyGuardLo
  *   The returned `discardThen(fn)` gates the editor's own switches (picking another
  *   row, New, Close) behind the same confirm, and runs `fn` at once when clean.
  * - A navigator (the settings rail, the top nav, browser back/forward) calls
- *   `useLeaveGuard().confirmLeave()` and only moves on a `true`.
+ *   `useLeaveGuard().confirmLeave()` and only moves on a `true`. A page whose switch
+ *   unmounts more than its own editor (a trigger editor that also holds a viewer
+ *   override row) gates it with `useLeaveGuard().discardAllThen(fn)`, which asks about
+ *   every dirty editor rather than only the caller's.
+ * - A filtered list of self-editing cards keeps the open ones mounted with
+ *   `useOpenIds` + `keepOpenInView` (dirtyGuardLogic.ts), since an unmount reports the
+ *   card clean and would drop its draft without asking.
  * - While anything is dirty a `beforeunload` handler is attached, so closing or
  *   reloading the tab (or following an OAuth link) gets the browser's own prompt. It
  *   is removed again as soon as the last editor is clean, which keeps the page
@@ -31,6 +37,8 @@ type DirtyGuardApi = {
   ask: (labels: string[]) => Promise<boolean>;
   /** Resolves true when nothing is dirty, else asks about everything that is. */
   confirmLeave: () => Promise<boolean>;
+  /** Runs `fn` at once when nothing is dirty, else after a yes to the same question. */
+  discardAllThen: (fn: () => void) => void;
 };
 
 const DirtyGuardContext = React.createContext<DirtyGuardApi | null>(null);
@@ -68,6 +76,7 @@ export function DirtyGuardProvider({ children }: { children: React.ReactNode }) 
       isDirty: () => registry.any(),
       ask,
       confirmLeave: () => (registry.any() ? ask(registry.labels()) : Promise.resolve(true)),
+      discardAllThen: fn => runUnlessRefused(registry.labels(), ask, fn),
     };
   }, [confirm]);
 
@@ -106,22 +115,41 @@ export function useDirtyGuard(isDirty: boolean, label: string) {
     () => (dirtyRef.current ? api.ask([labelRef.current]) : Promise.resolve(true)),
     [api],
   );
+  // Clean runs synchronously, so an unguarded click behaves exactly as before.
   const discardThen = React.useCallback((fn: () => void) => {
-    // Clean runs synchronously, so an unguarded click behaves exactly as before.
-    if (!dirtyRef.current) {
-      fn();
-      return;
-    }
-    void confirmDiscard().then(ok => { if (ok) fn(); });
-  }, [confirmDiscard]);
+    runUnlessRefused(dirtyRef.current ? [labelRef.current] : [], api.ask, fn);
+  }, [api]);
 
   return { confirmDiscard, discardThen };
 }
 
-/** For navigators: whether anything is dirty, and the confirm to raise before leaving. */
+/**
+ * For navigators: whether anything is dirty, the confirm to raise before leaving, and
+ * `discardAllThen(fn)` — `discardThen` over every registered editor, for an in-page
+ * switch that unmounts editors other than the caller's own.
+ */
 export function useLeaveGuard() {
   const api = useDirtyGuardApi();
-  return { isDirty: api.isDirty, confirmLeave: api.confirmLeave };
+  return { isDirty: api.isDirty, confirmLeave: api.confirmLeave, discardAllThen: api.discardAllThen };
+}
+
+/**
+ * Which cards in a list have an editor open, for `keepOpenInView`. A card reports
+ * itself with `setOpen(id, true/false)`; the returned set changes identity only when
+ * membership does.
+ */
+export function useOpenIds<K>() {
+  const [open, setOpenIds] = React.useState<ReadonlySet<K>>(() => new Set());
+  const setOpen = React.useCallback((id: K, isOpen: boolean) => {
+    setOpenIds(current => {
+      if (current.has(id) === isOpen) return current;
+      const next = new Set(current);
+      if (isOpen) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  return { open, setOpen };
 }
 
 /**

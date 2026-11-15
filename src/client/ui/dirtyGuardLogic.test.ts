@@ -5,6 +5,8 @@ import {
   discardPrompt,
   draftIsDirty,
   draftsDiffer,
+  keepOpenInView,
+  runUnlessRefused,
   stableStringify,
 } from './dirtyGuardLogic';
 
@@ -112,5 +114,66 @@ describe('createDirtyRegistry', () => {
     const registry = createDirtyRegistry();
     expect(registry.set('ghost', null)).toBe(false);
     expect(registry.any()).toBe(false);
+  });
+});
+
+describe('runUnlessRefused', () => {
+  test('nothing dirty runs at once, without asking', () => {
+    const asked: string[][] = [];
+    let ran = false;
+    runUnlessRefused([], async labels => { asked.push(labels); return true; }, () => { ran = true; });
+    expect(ran).toBe(true);
+    expect(asked).toEqual([]);
+  });
+
+  test('asks about every dirty editor, not only the caller\'s', async () => {
+    // The trigger editor is clean but its viewer-override row holds a typed login.
+    const registry = createDirtyRegistry();
+    registry.set('trigger-editor', null);
+    registry.set('override-row', 'the new viewer override');
+    const asked: string[][] = [];
+    let ran = false;
+    runUnlessRefused(registry.labels(), async labels => { asked.push(labels); return false; }, () => { ran = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(asked).toEqual([['the new viewer override']]);
+    expect(ran).toBe(false);
+  });
+
+  test('a yes runs the switch', async () => {
+    let ran = false;
+    runUnlessRefused(['the trigger "Raid"'], async () => true, () => { ran = true; });
+    expect(ran).toBe(false);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ran).toBe(true);
+  });
+});
+
+describe('keepOpenInView', () => {
+  type Card = { id: string; text: string; hidden: boolean };
+  const cards: Card[] = [
+    { id: 'a', text: 'pizza', hidden: false },
+    { id: 'b', text: 'tacos', hidden: true },
+    { id: 'c', text: 'pizza again', hidden: false },
+  ];
+  const idOf = (card: Card) => card.id;
+
+  test('with nothing open it is a plain filter', () => {
+    expect(keepOpenInView(cards, card => card.text.includes('pizza'), new Set<string>(), idOf).map(idOf)).toEqual(['a', 'c']);
+  });
+
+  test('a card with an open editor survives a filter that excludes it', () => {
+    // Editing "tacos", then typing "pizza" into Find.
+    expect(keepOpenInView(cards, card => card.text.includes('pizza'), new Set(['b']), idOf).map(idOf)).toEqual(['a', 'b', 'c']);
+  });
+
+  test('a hidden card with unsaved tags survives "Show hidden" switching off', () => {
+    expect(keepOpenInView(cards, card => !card.hidden, new Set(['b']), idOf).map(idOf)).toEqual(['a', 'b', 'c']);
+    expect(keepOpenInView(cards, card => !card.hidden, new Set<string>(), idOf).map(idOf)).toEqual(['a', 'c']);
+  });
+
+  test('an open id with no item (a removed card) adds nothing', () => {
+    expect(keepOpenInView(cards, () => false, new Set(['gone']), idOf)).toEqual([]);
   });
 });

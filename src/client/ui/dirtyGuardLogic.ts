@@ -89,3 +89,36 @@ export function createDirtyRegistry() {
 }
 
 export type DirtyRegistry = ReturnType<typeof createDirtyRegistry>;
+
+/**
+ * Run `fn` unless the operator refuses to throw away unsaved work. With nothing in
+ * `labels` it runs synchronously, so a clean click behaves exactly as an unguarded
+ * one; otherwise `ask` is raised once about every label and `fn` runs on a yes.
+ */
+export function runUnlessRefused(
+  labels: readonly string[],
+  ask: (labels: string[]) => Promise<boolean>,
+  fn: () => void,
+): void {
+  if (labels.length === 0) {
+    fn();
+    return;
+  }
+  void ask([...labels]).then(ok => { if (ok) fn(); });
+}
+
+/**
+ * A filtered list that never drops an item whose editor is open. Cards keep their
+ * draft in their own state, so a filter that unmounts one (typing in Find, switching
+ * "Show hidden" off, hiding the card being edited) throws the draft away — and the
+ * unmount reports the editor clean, so nothing asks first. An open editor stays in
+ * the list whatever the filter says, in its original position.
+ */
+export function keepOpenInView<T, K>(
+  items: readonly T[],
+  matches: (item: T) => boolean,
+  open: ReadonlySet<K>,
+  idOf: (item: T) => K,
+): T[] {
+  return items.filter(item => open.has(idOf(item)) || matches(item));
+}

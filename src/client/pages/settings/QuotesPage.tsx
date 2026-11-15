@@ -6,8 +6,8 @@ import { createQuote, deleteQuote, getQuotes, updateQuote } from '../../services
 import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
 import { formatAgo } from '../../../shared/time';
-import { useDirtyGuard } from '../../ui/dirtyGuard';
-import { draftsDiffer } from '../../ui/dirtyGuardLogic';
+import { useDirtyGuard, useOpenIds } from '../../ui/dirtyGuard';
+import { draftsDiffer, keepOpenInView } from '../../ui/dirtyGuardLogic';
 import { EmptyState } from '../../ui/emptyState';
 
 type Draft = { text: string; slug: string; submittedBy: string };
@@ -17,15 +17,20 @@ const EMPTY_DRAFT: Draft = { text: '', slug: '', submittedBy: '' };
 /**
  * One quote. Editing is inline and local until saved, so a refresh caused by another
  * card's save cannot discard edits in progress here — the same reason the category
- * cards keep their own draft state.
+ * cards keep their own draft state. Because the draft lives here, the card reports
+ * when it is editing (`setOpen`) and the page keeps it in the list past the Find
+ * filter: unmounting it would drop the draft without asking.
  */
-function QuoteCard({ quote, busy, onSave, onDelete }: {
+function QuoteCard({ quote, busy, setOpen, onSave, onDelete }: {
   quote: Quote;
   busy: boolean;
+  setOpen: (id: string, open: boolean) => void;
   onSave: (draft: Draft) => void;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  useEffect(() => { setOpen(quote.id, editing); }, [setOpen, quote.id, editing]);
+  useEffect(() => () => setOpen(quote.id, false), [setOpen, quote.id]);
   const [draft, setDraft] = useState<Draft>({
     text: quote.text,
     slug: quote.slug ?? '',
@@ -138,15 +143,17 @@ export function QuotesPage() {
 
   // Mirrors the command's own lookup closely enough to be useful: number, keyword, or
   // any text. It is a filter over already-loaded quotes, not a second search path.
+  // A quote being edited stays listed whatever Find says (keepOpenInView).
+  const { open: editingIds, setOpen } = useOpenIds<string>();
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (!needle) return quotes;
-    return quotes.filter(quote =>
+    return keepOpenInView(quotes, quote =>
       String(quote.number) === needle
       || (quote.slug ?? '').includes(needle)
       || quote.text.toLowerCase().includes(needle)
-      || quote.submittedBy.toLowerCase().includes(needle));
-  }, [quotes, search]);
+      || quote.submittedBy.toLowerCase().includes(needle), editingIds, quote => quote.id);
+  }, [quotes, search, editingIds]);
 
   const act = (work: () => Promise<unknown>, success: string, failure: string) => {
     setBusy(true);
@@ -249,6 +256,7 @@ export function QuotesPage() {
               key={quote.id}
               quote={quote}
               busy={disabled}
+              setOpen={setOpen}
               onSave={next => act(
                 () => updateQuote(quote.id, {
                   text: next.text,

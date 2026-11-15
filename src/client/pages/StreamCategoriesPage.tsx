@@ -16,7 +16,8 @@ import { Icon } from '../ui/icons';
 import { SettingsHeader, SettingsStatus } from './settings/shared';
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
-import { useDirtyGuard } from '../ui/dirtyGuard';
+import { useDirtyGuard, useOpenIds } from '../ui/dirtyGuard';
+import { keepOpenInView } from '../ui/dirtyGuardLogic';
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -25,12 +26,14 @@ function normalizeTagInput(value: string): string {
 function CategoryCard({
   category,
   busy,
+  setOpen,
   onSaveTags,
   onToggleHidden,
   onDelete,
 }: {
   category: SavedStreamCategory;
   busy: boolean;
+  setOpen: (id: string, open: boolean) => void;
   onSaveTags: (tags: string[]) => void;
   onToggleHidden: () => void;
   onDelete: () => void;
@@ -40,6 +43,10 @@ function CategoryCard({
   const [tagFocused, setTagFocused] = React.useState(false);
   const dirty = tags.join(' ') !== category.tags.join(' ');
   useDirtyGuard(dirty, `the tags for ${category.name}`);
+  // Unsaved tags keep this card listed past "Show hidden" (keepOpenInView): hiding it,
+  // or turning the filter off, would otherwise unmount it and drop the tags unasked.
+  React.useEffect(() => { setOpen(category.id, dirty); }, [setOpen, category.id, dirty]);
+  React.useEffect(() => () => setOpen(category.id, false), [setOpen, category.id]);
 
   // Any save/hide/delete replaces the whole category list, handing every card a
   // fresh `tags` array. Sync local state only when THIS card's persisted value
@@ -249,7 +256,8 @@ export function StreamCategoriesPage() {
     }
   };
 
-  const visible = categories.filter(cat => showHidden || !cat.hidden);
+  const { open: dirtyIds, setOpen } = useOpenIds<string>();
+  const visible = keepOpenInView(categories, cat => showHidden || !cat.hidden, dirtyIds, cat => cat.id);
   const hiddenCount = categories.filter(cat => cat.hidden).length;
 
   return (
@@ -293,6 +301,7 @@ export function StreamCategoriesPage() {
                   key={category.id}
                   category={category}
                   busy={busy}
+                  setOpen={setOpen}
                   onSaveTags={tags => void run(() => setStreamCategoryTags(category.id, tags))}
                   onToggleHidden={() => void run(() => setSavedStreamCategoryHidden(category.id, !category.hidden))}
                   onDelete={async () => {

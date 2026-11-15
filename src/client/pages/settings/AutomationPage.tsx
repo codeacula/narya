@@ -39,7 +39,7 @@ import {
   updateAutomationTrigger,
 } from '../../services/dashboard';
 import { SettingsHeader, SettingsStatus } from './shared';
-import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
+import { useDirtyGuard, useDraft, useLeaveGuard } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
 import {
   CHAT_PHRASE_MATCHES,
@@ -1111,6 +1111,7 @@ function TriggerOverridesSection({
 function TriggerEditor({
   draft,
   editingId,
+  openCount,
   actions,
   modules,
   rewards,
@@ -1133,6 +1134,10 @@ function TriggerEditor({
 }: {
   draft: AutomationTriggerInput;
   editingId: string | null;
+  /** Bumped each time a trigger is opened, created or closed. It keys the override
+   *  add row, so a half-typed row the operator agreed to discard really is discarded,
+   *  even when the same trigger is opened again. */
+  openCount: number;
   actions: Action[];
   modules: CategoryModule[];
   rewards: ViewerReward[];
@@ -1295,6 +1300,10 @@ function TriggerEditor({
         {supportsOverrides(draft.kind) && (
           editingId ? (
             <TriggerOverridesSection
+              // Keyed per opening, not just per trigger: TriggerEditor stays mounted as
+              // the operator moves between triggers, so without it a typed login would
+              // follow them onto the next trigger's override row.
+              key={`${editingId}:${openCount}`}
               triggerId={editingId}
               overrides={overrides}
               actions={actions}
@@ -1329,6 +1338,7 @@ export function AutomationSettingsPage() {
   const [overrides, setOverrides] = useState<TriggerOverride[]>([]);
   const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<AutomationTriggerInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [openCount, setOpenCount] = useState(0);
   const [runs, setRuns] = useState<Record<string, TriggerRunResult>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1442,20 +1452,26 @@ export function AutomationSettingsPage() {
 
   const busy = loading || saving;
 
-  const { discardThen } = useDirtyGuard(
+  useDirtyGuard(
     dirty,
     editingId ? `the trigger "${baseline?.name || 'Untitled trigger'}"` : 'the new trigger',
   );
+  // Switching or closing the editor also throws away the viewer-override add row, which
+  // registers with the guard on its own — so the switch asks about every dirty editor,
+  // not only this page's trigger draft.
+  const { discardAllThen } = useLeaveGuard();
 
-  const startCreate = (kind: AutomationTriggerKind) => discardThen(() => {
+  const startCreate = (kind: AutomationTriggerKind) => discardAllThen(() => {
     setEditingId(null);
+    setOpenCount(count => count + 1);
     resetDraft(newTrigger(kind));
     setMessage(null);
     setError(null);
   });
 
-  const startEdit = (trigger: AutomationTrigger) => discardThen(() => {
+  const startEdit = (trigger: AutomationTrigger) => discardAllThen(() => {
     setEditingId(trigger.id);
+    setOpenCount(count => count + 1);
     resetDraft(triggerToInput(trigger));
     setMessage(null);
     setError(null);
@@ -1463,6 +1479,7 @@ export function AutomationSettingsPage() {
 
   const closeEditor = () => {
     setEditingId(null);
+    setOpenCount(count => count + 1);
     resetDraft(null);
   };
 
@@ -1696,6 +1713,7 @@ export function AutomationSettingsPage() {
                   <TriggerEditor
                     draft={draft}
                     editingId={editingId}
+                    openCount={openCount}
                     actions={actions}
                     modules={modules}
                     rewards={rewards}
@@ -1710,7 +1728,7 @@ export function AutomationSettingsPage() {
                     overrideBusy={overrideBusy}
                     onChange={setDraft}
                     onSubmit={handleSubmit}
-                    onClose={() => discardThen(closeEditor)}
+                    onClose={() => discardAllThen(closeEditor)}
                     onTest={editingTrigger ? () => handleRun(editingTrigger) : undefined}
                     onDelete={editingTrigger ? () => handleDelete(editingTrigger) : undefined}
                     onSaveOverride={saveOverride}
