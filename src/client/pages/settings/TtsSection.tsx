@@ -12,6 +12,7 @@ import {
 } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
 import { SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 
 const DEFAULT_TENGWAR_URL = 'http://127.0.0.1:8008';
 
@@ -33,7 +34,7 @@ function TengwarService({
   /** Re-runs the reachability check and reloads the voice list from the new address. */
   onSaved: () => void;
 }) {
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_TENGWAR_URL);
+  const { draft: baseUrl, setDraft: setBaseUrl, resetDraft: resetBaseUrl, dirty: baseUrlDirty } = useDraft(DEFAULT_TENGWAR_URL);
   // Never populated from the server: the key is a secret, so the API reports only
   // whether one is set. Blank means "keep what's stored", matching every other
   // secret field in Settings.
@@ -49,7 +50,7 @@ function TengwarService({
     void getAppConfig()
       .then(config => {
         if (cancelled) return;
-        setBaseUrl(config.tengwarBaseUrl);
+        resetBaseUrl(config.tengwarBaseUrl);
         setApiKeyConfigured(config.tengwarApiKeyConfigured);
       })
       .catch(caught => {
@@ -58,6 +59,9 @@ function TengwarService({
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  // A typed key is unsaved work too: the field is never filled from the server.
+  useDirtyGuard(baseUrlDirty || apiKey !== '', 'the Tengwar service');
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -69,7 +73,7 @@ function TengwarService({
     // stale form overwrite settings this page doesn't show.
     void updateAppConfig({ tengwarBaseUrl: baseUrl, ...(apiKey ? { tengwarApiKey: apiKey } : {}) })
       .then(config => {
-        setBaseUrl(config.tengwarBaseUrl);
+        resetBaseUrl(config.tengwarBaseUrl);
         setApiKeyConfigured(config.tengwarApiKeyConfigured);
         setApiKey('');
         setMessage(enabled ? 'Saved — rechecking the service.' : 'Saved.');
@@ -207,6 +211,7 @@ export function TtsSection() {
       volume: settings.volume,
     }),
     saveError: 'Could not save TTS settings',
+    unsavedLabel: 'the speech settings',
   });
   const ttsSettings = ttsForm.value;
   const setTtsSettings = ttsForm.setValue;
@@ -232,7 +237,9 @@ export function TtsSection() {
     ttsForm.submit(ttsSettings, 'TTS settings saved.');
   };
 
-  const handleTtsEnabledToggle = (enabled: boolean) => {
+  // The toggle saves from the confirmed value, which replaces the form — so unsaved
+  // edits would vanish with it. Ask first, as leaving the section would.
+  const handleTtsEnabledToggle = (enabled: boolean) => ttsForm.discardThen(() => {
     const next = { ...ttsForm.confirmed, enabled };
     setTtsSettings(next);
     const saved = ttsForm.submit(next, enabled ? 'Text-to-Speech enabled.' : 'Text-to-Speech disabled.');
@@ -250,7 +257,7 @@ export function TtsSection() {
       setTtsVoices([]);
       setTtsStatus(null);
     }
-  };
+  });
 
   const handleTtsTest = () => {
     setTtsTesting(true);

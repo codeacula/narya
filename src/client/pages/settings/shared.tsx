@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { SettingsRoute } from '../../routing';
 import { settingsSection } from './sections';
 import { errorMessage } from '../../errors';
+import { useDirtyGuard } from '../../ui/dirtyGuard';
+import { draftsDiffer } from '../../ui/dirtyGuardLogic';
 
 /**
  * The header every settings section shares. Eyebrow, title, and intro come from the
@@ -116,8 +118,14 @@ export function useSettingsForm<T>({
   loadError,
   save,
   saveError,
+  unsavedLabel,
 }: {
   initial: T;
+  /**
+   * What the unsaved-edit guard calls this form ("the wind-down schedule"). Required
+   * so no section built on this hook can lose an edit silently.
+   */
+  unsavedLabel: string;
   /**
    * Resolves the value to show. `cancelled()` reports whether the section has unmounted —
    * check it before any setState of your own, as the hook does for its own state.
@@ -180,9 +188,18 @@ export function useSettingsForm<T>({
       .finally(() => setSaving(false));
   };
 
+  // Dirty only once something has loaded: before that the form shows `initial`, and an
+  // edit cannot have happened because every field is disabled while loading.
+  const dirty = confirmed.current !== null && draftsDiffer(value, confirmed.current);
+  const { discardThen } = useDirtyGuard(dirty, unsavedLabel);
+
   return {
     value,
     setValue,
+    /** True while the form differs from the last value the server confirmed. */
+    dirty,
+    /** Runs `fn` now when clean, or after the operator agrees to discard the edits. */
+    discardThen,
     /** The last server-confirmed value, or the current form value before the first load. */
     confirmed: confirmed.current ?? value,
     loading,

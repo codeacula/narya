@@ -4,6 +4,7 @@ import { useToast } from '../../ui/notifications';
 import { getAppConfig, updateAppConfig } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
 import { SettingsStatus } from './shared';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 
 type AppConfigForm = {
   twitchChannel: string;
@@ -83,7 +84,12 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
 
 export function ConnectionsSection({ eventSubConnected, redisConnected }: { eventSubConnected: boolean; redisConnected: boolean }) {
   const { pushToast } = useToast();
-  const [appConfigForm, setAppConfigForm] = useState<AppConfigForm>(EMPTY_APP_CONFIG_FORM);
+  const {
+    draft: appConfigForm,
+    setDraft: setAppConfigForm,
+    resetDraft: resetAppConfigForm,
+    dirty: appConfigDirty,
+  } = useDraft<AppConfigForm>(EMPTY_APP_CONFIG_FORM);
   const [appConfigLoading, setAppConfigLoading] = useState(true);
   const [appConfigSaving, setAppConfigSaving] = useState(false);
   const [appConfigMessage, setAppConfigMessage] = useState<string | null>(null);
@@ -95,7 +101,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
     void getAppConfig()
       .then(config => {
         if (!cancelled) {
-          setAppConfigForm(appConfigToForm(config));
+          resetAppConfigForm(appConfigToForm(config));
           setAppConfigError(null);
         }
       })
@@ -107,6 +113,10 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
       });
     return () => { cancelled = true; };
   }, []);
+
+  // Secrets are write-only fields that start blank, so typing one makes the form dirty
+  // exactly like any other edit.
+  useDirtyGuard(appConfigDirty, 'Connections & credentials');
 
   const handleAppConfigSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -132,7 +142,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
       clearRedisUrl: appConfigForm.clearRedisUrl,
     })
       .then(config => {
-        setAppConfigForm(appConfigToForm(config));
+        resetAppConfigForm(appConfigToForm(config));
         setAppConfigMessage('Saved — reconnecting affected services.');
         // No success toast here: the settings:updated broadcast handler
         // (serviceStatus.tsx) already shows one in this same browser.

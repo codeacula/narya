@@ -23,6 +23,7 @@ export function WindDownSection() {
       overlayEnabled: settings.overlayEnabled,
     }),
     saveError: 'Could not save wind-down settings',
+    unsavedLabel: 'the wind-down schedule',
   });
   const windDownSettings = windDownForm.value;
   const setWindDownSettings = windDownForm.setValue;

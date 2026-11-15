@@ -118,14 +118,14 @@ export function LlmSection() {
       return updateLlmSettings(update).then(toLlmForm);
     },
     saveError: 'Could not save LLM settings',
+    unsavedLabel: 'the AI settings',
   });
   const llmSettings = llmForm.value;
   const setLlmSettings = llmForm.setValue;
   const { loading: llmLoading, saving: llmSaving, message: llmMessage, error: llmError } = llmForm;
   const busy = llmLoading || llmSaving;
-  // The form starts as a copy of the confirmed value and every edit replaces it, so a
-  // structural comparison is enough to know whether there is anything to reset.
-  const dirty = JSON.stringify(llmSettings) !== JSON.stringify(llmForm.confirmed);
+  // Whether there is anything to reset — the same comparison the unsaved-edit guard uses.
+  const dirty = llmForm.dirty;
 
   const draft = findDraft(llmSettings, llmSettings.selectedProvider);
   // Model loading follows what the server has stored, not unsaved typing: the server
@@ -167,11 +167,13 @@ export function LlmSection() {
     llmForm.submit(llmSettings, 'Saved');
   };
 
-  const handleLlmEnabledToggle = (enabled: boolean) => {
+  // The toggle saves from the confirmed value, which replaces the form — so unsaved
+  // edits would vanish with it. Ask first, as leaving the section would.
+  const handleLlmEnabledToggle = (enabled: boolean) => llmForm.discardThen(() => {
     const next = { ...llmForm.confirmed, enabled };
     setLlmSettings(next);
     llmForm.submit(next, enabled ? 'LLM enabled.' : 'LLM disabled.');
-  };
+  });
 
   const handleLlmReset = () => {
     setLlmSettings(llmForm.confirmed);

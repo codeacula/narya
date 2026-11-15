@@ -9,6 +9,7 @@ import { Icon } from '../../ui/icons';
 import { Modal, ModalTitle } from '../../ui/modal';
 import { withToken } from '../../auth';
 import { SettingsRow } from './shared';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import {
   clearDiscordGoLiveSettings,
   getDiscordChannels,
@@ -46,7 +47,12 @@ export function GoLiveSection() {
   const [discordStatus, setDiscordStatus] = useState<DiscordStatus>(EMPTY_DISCORD_STATUS);
   const [discordGuilds, setDiscordGuilds] = useState<DiscordGuild[]>([]);
   const [discordChannels, setDiscordChannels] = useState<DiscordChannel[]>([]);
-  const [goLiveSettings, setGoLiveSettings] = useState<GoLiveSettingsForm>(EMPTY_GO_LIVE_SETTINGS);
+  const {
+    draft: goLiveSettings,
+    setDraft: setGoLiveSettings,
+    resetDraft: resetGoLiveSettings,
+    dirty: goLiveDirty,
+  } = useDraft<GoLiveSettingsForm>(EMPTY_GO_LIVE_SETTINGS);
   const [goLiveLoading, setGoLiveLoading] = useState(true);
   const [goLiveSaving, setGoLiveSaving] = useState(false);
   const [goLiveMessage, setGoLiveMessage] = useState<string | null>(null);
@@ -96,7 +102,7 @@ export function GoLiveSection() {
         }
         if (!cancelled) {
           setDiscordStatus(nextDiscordStatus);
-          setGoLiveSettings(nextGoLiveSettings);
+          resetGoLiveSettings(nextGoLiveSettings);
           setDiscordGuilds(nextGuilds);
           setDiscordChannels(nextChannels);
           setGoLiveError(discordListError);
@@ -173,19 +179,23 @@ export function GoLiveSection() {
       .finally(() => setDiscordRefreshing(false));
   };
 
-  const handleDiscordDisconnect = () => {
+  const { discardThen } = useDirtyGuard(goLiveDirty, 'the go-live announcement');
+
+  // Disconnecting replaces the form with what the server now holds, so it would take
+  // any unsaved scene or message edit with it — ask first.
+  const handleDiscordDisconnect = () => discardThen(() => {
     setDiscordDisconnecting(true);
     setGoLiveMessage(null);
     setGoLiveError(null);
     void clearDiscordGoLiveSettings()
       .then(saved => {
-        setGoLiveSettings(saved);
+        resetGoLiveSettings(saved);
         setDiscordChannels([]);
         setGoLiveMessage('Discord channel disconnected');
       })
       .catch(error => setGoLiveError(errorMessage(error, 'Could not disconnect Discord')))
       .finally(() => setDiscordDisconnecting(false));
-  };
+  });
 
   const handleGoLiveSettingsSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -201,7 +211,7 @@ export function GoLiveSection() {
       discordMessage: goLiveSettings.discordMessage,
     })
       .then(saved => {
-        setGoLiveSettings(saved);
+        resetGoLiveSettings(saved);
         setGoLiveMessage('Go Live settings saved');
       })
       .catch(error => setGoLiveError(errorMessage(error, 'Could not save Go Live settings')))
