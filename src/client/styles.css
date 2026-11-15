@@ -1074,6 +1074,30 @@ nav {
   font-size: 13px;
 }
 
+.tablet-error p {
+  margin: 0;
+}
+
+/* OBS being unreachable is a state Narya is already handling (it reconnects on its
+   own), not something the operator did wrong — a notice, so it does not wear the
+   same red as a failed button press. */
+.tablet-error--offline {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+/* The raw error, kept for diagnosis but set below the sentence that explains it. */
+.tablet-error .tablet-error-detail {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .tablet-button-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

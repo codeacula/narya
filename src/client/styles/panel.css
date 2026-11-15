@@ -340,10 +340,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   transition: background var(--dur-fast);
 }
 .msg:hover { background: rgba(255,255,255,0.022); }
+/* Keyboard focus, not any focus: Chromium focuses a button on mouse click, so a
+   plain :focus-within kept a row lit after its name was clicked and the pointer had
+   left. Separate rules, so a browser without :has() still keeps the hover rule. */
+.msg:has(:focus-visible) { background: rgba(255,255,255,0.022); }
 /* Messages from an earlier stream recede. Lighter than the activity feed's
    .evt--past because chat is the panel you actually read. */
 .msg--past { opacity: 0.6; }
 .msg--past:hover { opacity: 1; }
+.msg--past:has(:focus-visible) { opacity: 1; }
 .chat-divider {
   display: flex; align-items: center; gap: 8px;
   margin: 4px 0;
@@ -373,7 +378,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .msg-user:hover { border-bottom-color: currentColor; }
 button.msg-user { padding: 0; background: none; border-width: 0 0 1px; border-radius: 0; line-height: inherit; }
-button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offset: 2px; }
+button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offset: 2px; }
 /* overflow-wrap: a pasted URL is one unbroken token and would otherwise push the
    chat column wider than the panel. */
 .msg-text { color: var(--ivory-100); overflow-wrap: anywhere; }
@@ -393,6 +398,7 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   opacity: 0; transition: opacity var(--dur-fast);
 }
 .msg:hover .msg-time { opacity: 1; }
+.msg:has(:focus-visible) .msg-time { opacity: 1; }
 
 /* Inline moderation. Taken out of flow rather than floated: a reserved float box
    would cost every row ~70px of text width forever to buy a no-reflow hover,
@@ -410,8 +416,17 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur-fast);
 }
-.msg:hover .msg-mod,
-.msg-mod:focus-within { opacity: 1; pointer-events: auto; }
+/* Keyboard parity with hover: the row reveals its time and actions as soon as
+   anything in it has keyboard focus — the name button included, which is the row's
+   first tab stop. Scoping this to .msg-mod alone left the actions invisible until
+   focus had already landed on a button the operator could not see, and never showed
+   the time at all. :focus-visible rather than :focus-within, because a mouse click
+   focuses the button too and would leave the actions over the end of the message
+   after the pointer had gone. No extra tab stops: the row itself stays unfocusable.
+   An armed ban stays shown, so a live "sure?" is never hidden. */
+.msg:hover .msg-mod { opacity: 1; pointer-events: auto; }
+.msg:has(:focus-visible) .msg-mod,
+.msg:has(.msg-mod-btn.armed) .msg-mod { opacity: 1; pointer-events: auto; }
 /* Opaque, because the button sits over the tail of a long message. Masking with
    a panel-coloured backing plate behind the whole group instead reads as a patch
    over any row carrying a highlight tint. */
@@ -425,6 +440,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 }
 .msg-mod-btn:hover { color: var(--fg-1); border-color: var(--border-3); background: var(--bg-3); }
 .msg-mod-btn:disabled { opacity: 0.5; cursor: default; }
+/* The browser default ring is near-black on navy; match the name button's gold. */
+.msg-mod-btn:focus-visible { outline: 1px solid var(--gold-400); outline-offset: 1px; }
 .msg-mod-btn.danger { color: var(--danger-fg); border-color: var(--danger-border); }
 .msg-mod-btn.danger:hover { background: var(--danger-bg); }
 /* Armed ban: filled rather than outlined, so the second click lands on a control
@@ -479,17 +496,43 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
    (minmax(320px, 0.8fr)), so it would occlude message text on every row. */
 .tablet-shell .msg-mod {
   position: static;
-  display: flex; gap: 8px;
+  display: flex; gap: 12px;
   margin-top: 7px;
   opacity: 1; pointer-events: auto;
 }
-/* Finger-sized, matching the AutoMod row buttons — the closest existing
-   always-visible row action on this surface. */
+/* 44px is the touch-target floor: these sit in a list that scrolls under the
+   operator's thumb, so a near miss lands on the neighbouring button. */
 .tablet-shell .msg-mod-btn {
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 44px; min-width: 56px;
+  padding: 0 16px;
   font-size: 12px;
   border-radius: var(--radius-2);
+}
+/* Ban is the one row action that cannot be undone from here, so it does not sit
+   in the same cluster as pin and 10m: it is pushed to the far end of the row,
+   behind a hairline, where a tap meant for its neighbours cannot reach it. The
+   arm-then-confirm step (and its timed disarm, in Chat.tsx) is the second guard. */
+.tablet-shell .msg-mod-btn.danger {
+  position: relative;
+  margin-left: auto;
+}
+.tablet-shell .msg-mod-btn.danger::before {
+  content: '';
+  position: absolute; left: -12px; top: 6px; bottom: 6px;
+  border-left: 1px solid var(--border-1);
+}
+/* The tablet's large-button chrome (styles.css) restyles every button on :hover and
+   :active, and a touch screen keeps :hover on whatever was last tapped. Without these
+   the armed ban took that gold hover border and near-transparent fill while keeping its
+   dark armed text — the "sure?" was unreadable exactly when it mattered. */
+.tablet-shell .msg-mod-btn.danger:hover:not(:disabled),
+.tablet-shell .msg-mod-btn.danger:active:not(:disabled) {
+  border-color: var(--danger-border); background: var(--danger-bg);
+}
+.tablet-shell .msg-mod-btn.danger.armed,
+.tablet-shell .msg-mod-btn.danger.armed:hover:not(:disabled),
+.tablet-shell .msg-mod-btn.danger.armed:active:not(:disabled) {
+  color: var(--fg-inverse); background: var(--danger-base); border-color: var(--danger-base);
 }
 /* The tablet's house press feedback, since hover tells a finger nothing. */
 .tablet-shell .msg-mod-btn:active:not(:disabled) { transform: scale(0.97); }
@@ -2523,7 +2566,36 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .att-settings-field input:focus { border-color: var(--border-3); }
 
 .panel-empty { padding: 18px 14px; font-size: 12px; color: var(--fg-3); text-align: center; line-height: 1.5; }
-.att-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+/* position: relative makes the list the rows' offsetParent, so the "more below"
+   cue can read row positions straight off offsetTop in scroll coordinates. */
+.att-list-wrap { position: relative; display: flex; flex-direction: column; min-height: 0; }
+.att-list { position: relative; display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+/* Overflow cue: a hairline footer that says how much is below, with a fade over
+   the clipped edge of the list above it. Both exist only while something is below. */
+.att-more {
+  position: relative; flex: none;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  width: 100%; height: 26px; padding: 0 12px;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--fg-2); background: var(--bg-2);
+  border: 0; border-top: 1px solid var(--border-1); border-radius: 0;
+  cursor: pointer;
+  animation: att-cue-in var(--dur-slow) var(--ease-out);
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.att-more::before {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: calc(100% + 1px); height: 24px;
+  background: linear-gradient(to bottom, transparent, var(--bg-2));
+  pointer-events: none;
+}
+.att-more:hover { color: var(--accent-fg); background: rgba(255,255,255,0.03); }
+.att-more:focus-visible { outline: 1px solid var(--gold-400); outline-offset: -2px; }
+@keyframes att-cue-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .att-more { animation: none; }
+}
 .att-row {
   position: relative;
   display: flex; gap: 10px; align-items: center; text-align: left; width: 100%;
@@ -2533,6 +2605,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .att-row:last-child { border-bottom: none; }
 .att-row:hover { background: rgba(255,255,255,0.03); }
+/* "n more below" hands focus to the first revealed row; the browser's default ring
+   is near-black on navy and half-hidden by the unacked hairline, so match the
+   footer's gold ring, inset like it. */
+.att-row:focus-visible { outline: 1px solid var(--gold-400); outline-offset: -2px; }
 .att-row .evt-detail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-eyebrow {
   display: block;
