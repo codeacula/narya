@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useConfirm } from '../../ui/confirm';
 import type { MediaAsset, MediaFile, MediaKind } from '../../../shared/api';
-import { useToast } from '../../ui/notifications';
 import { errorMessage } from '../../errors';
 import { ListUnavailable, SettingsStatus } from './shared';
 import {
@@ -66,7 +65,6 @@ function volumePercent(volume: number): string {
 }
 
 function MediaLibrary() {
-  const { pushToast } = useToast();
   const confirm = useConfirm();
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [discovered, setDiscovered] = useState<MediaFile[]>([]);
@@ -76,6 +74,7 @@ function MediaLibrary() {
   const { draft: newForm, setDraft: setNewForm, resetDraft: resetNewForm, dirty: newFormDirty } = useDraft<NewForm>(EMPTY_NEW);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // A failed load is not an empty list (listState.ts); the next successful load clears it.
   const [loadFailed, setLoadFailed] = useState(false);
@@ -111,23 +110,23 @@ function MediaLibrary() {
   const pickedFile = discovered.find(file => file.src === newForm.src) ?? null;
 
   /**
-   * Every write goes through here, so every write reports itself the same way: a toast
-   * that outlives the re-render, and the error kept in the pane you were working in. The
-   * old inline-only "Asset saved" line sat above a list you had already scrolled past.
+   * Every write goes through here, so every write reports itself the same way: one
+   * `SettingsStatus` line at the top of the editor pane (the feedback rule in shared.tsx).
+   * It sits in the same place whatever the pane shows, so a delete that empties the pane
+   * still says it worked, and its live region is the same node before and after.
    */
   const run = <T,>(work: Promise<T>, done: string, failed: string): Promise<T> => {
     setSaving(true);
+    setMessage(null);
     setError(null);
     return work
       .then(async result => {
         await load();
-        pushToast({ kind: 'success', title: done });
+        setMessage(done);
         return result;
       })
       .catch(caught => {
-        const message = errorMessage(caught, failed);
-        setError(message);
-        pushToast({ kind: 'error', title: failed, message });
+        setError(errorMessage(caught, failed));
         throw caught;
       })
       .finally(() => setSaving(false));
@@ -143,12 +142,14 @@ function MediaLibrary() {
     setSelection({ mode: 'new' });
     resetNewForm(EMPTY_NEW);
     resetEdit(null);
+    setMessage(null);
     setError(null);
   });
 
   const openAsset = (asset: MediaAsset) => discardThen(() => {
     setSelection({ mode: 'edit', id: asset.id });
     resetEdit(formFromAsset(asset));
+    setMessage(null);
     setError(null);
   });
 
@@ -280,202 +281,198 @@ function MediaLibrary() {
               from public/clips and public/sounds, or a remote URL.
             </EmptyState>
           ) : selection.mode === 'new' ? (
-            <>
-              <div className="command-editor-head">
-                <div>
-                  <div className="set-label">New asset</div>
-                  <div className="set-sub">
-                    {newForm.sourceType === 'local'
-                      ? 'The only place raw files from public/clips and public/sounds appear.'
-                      : 'An http(s) URL hosted elsewhere. Nothing else is accepted.'}
-                  </div>
+            <div className="command-editor-head">
+              <div>
+                <div className="set-label">New asset</div>
+                <div className="set-sub">
+                  {newForm.sourceType === 'local'
+                    ? 'The only place raw files from public/clips and public/sounds appear.'
+                    : 'An http(s) URL hosted elsewhere. Nothing else is accepted.'}
                 </div>
-                <button className="modbtn" type="button" disabled={saving} onClick={() => setSelection({ mode: 'none' })}>
-                  Cancel
-                </button>
               </div>
+              <button className="modbtn" type="button" disabled={saving} onClick={() => setSelection({ mode: 'none' })}>
+                Cancel
+              </button>
+            </div>
+          ) : !edit ? null : (
+            <div className="command-editor-head">
+              <div>
+                <div className="set-label">{edit.label || 'Asset'}</div>
+                <div className="set-sub">
+                  {editing && !editing.available
+                    ? 'This asset’s file is missing. Point it at a file that exists, or disable it.'
+                    : 'Rename, re-point, or set the playback volume.'}
+                </div>
+              </div>
+              <div className="command-row-actions">
+                {editing && (
+                  <button className="modbtn" type="button" disabled={busy} onClick={() => handleToggle(editing)}>
+                    {editing.enabled ? 'Disable' : 'Enable'}
+                  </button>
+                )}
+                {editing && (
+                  <button className="modbtn danger" type="button" disabled={busy} onClick={() => handleDelete(editing)}>
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
-              <SettingsStatus error={error} />
+          <SettingsStatus message={message} error={error} />
 
-              <form className="settings-mini-form" onSubmit={handleCreate}>
+          {selection.mode === 'new' ? (
+            <form className="settings-mini-form" onSubmit={handleCreate}>
+              <label className="field">
+                <span>Source</span>
+                <select
+                  value={newForm.sourceType}
+                  disabled={busy}
+                  onChange={event => setNewForm({ ...EMPTY_NEW, sourceType: event.target.value as 'local' | 'remote' })}
+                >
+                  <option value="local">A file in public/</option>
+                  <option value="remote">A remote URL</option>
+                </select>
+              </label>
+
+              {newForm.sourceType === 'local' ? (
                 <label className="field">
-                  <span>Source</span>
+                  <span>File</span>
                   <select
-                    value={newForm.sourceType}
-                    disabled={busy}
-                    onChange={event => setNewForm({ ...EMPTY_NEW, sourceType: event.target.value as 'local' | 'remote' })}
+                    value={newForm.src}
+                    disabled={busy || discovered.length === 0}
+                    onChange={event => setNewForm(current => ({ ...current, src: event.target.value, label: '' }))}
                   >
-                    <option value="local">A file in public/</option>
-                    <option value="remote">A remote URL</option>
+                    <option value="">
+                      {discovered.length === 0 ? 'No files found under public/' : 'Select a file…'}
+                    </option>
+                    {discovered.map(file => (
+                      <option key={file.src} value={file.src}>
+                        {file.label} ({file.kind}){claimed.has(file.src) ? ' — already in library' : ''}
+                      </option>
+                    ))}
                   </select>
                 </label>
-
-                {newForm.sourceType === 'local' ? (
+              ) : (
+                <>
                   <label className="field">
-                    <span>File</span>
-                    <select
-                      value={newForm.src}
-                      disabled={busy || discovered.length === 0}
-                      onChange={event => setNewForm(current => ({ ...current, src: event.target.value, label: '' }))}
-                    >
-                      <option value="">
-                        {discovered.length === 0 ? 'No files found under public/' : 'Select a file…'}
-                      </option>
-                      {discovered.map(file => (
-                        <option key={file.src} value={file.src}>
-                          {file.label} ({file.kind}){claimed.has(file.src) ? ' — already in library' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <>
-                    <label className="field">
-                      <span>URL</span>
-                      <input
-                        value={newForm.src}
-                        disabled={busy}
-                        maxLength={500}
-                        placeholder="https://cdn.example/horn.mp3"
-                        onChange={event => setNewForm(current => ({ ...current, src: event.target.value }))}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Kind</span>
-                      <select
-                        value={newForm.kind}
-                        disabled={busy}
-                        onChange={event => setNewForm(current => ({ ...current, kind: event.target.value as MediaKind }))}
-                      >
-                        <option value="audio">Audio</option>
-                        <option value="video">Video</option>
-                      </select>
-                    </label>
-                  </>
-                )}
-
-                <label className="field">
-                  <span>Label</span>
-                  <input
-                    value={newForm.label}
-                    disabled={busy || (newForm.sourceType === 'local' && !pickedFile)}
-                    maxLength={60}
-                    placeholder={newForm.sourceType === 'local'
-                      ? (pickedFile ? pickedFile.label : 'Pick a file first')
-                      : 'Air horn'}
-                    onChange={event => setNewForm(current => ({ ...current, label: event.target.value }))}
-                  />
-                </label>
-
-                <div className="command-settings-actions">
-                  <button
-                    className="modbtn gold"
-                    type="submit"
-                    disabled={busy || (newForm.sourceType === 'local'
-                      ? !pickedFile
-                      : !newForm.label.trim() || !newForm.src.trim())}
-                  >
-                    {saving ? 'Adding...' : 'Add to library'}
-                  </button>
-                </div>
-              </form>
-            </>
-          ) : !edit ? null : (
-            <>
-              <div className="command-editor-head">
-                <div>
-                  <div className="set-label">{edit.label || 'Asset'}</div>
-                  <div className="set-sub">
-                    {editing && !editing.available
-                      ? 'This asset’s file is missing. Point it at a file that exists, or disable it.'
-                      : 'Rename, re-point, or set the playback volume.'}
-                  </div>
-                </div>
-                <div className="command-row-actions">
-                  {editing && (
-                    <button className="modbtn" type="button" disabled={busy} onClick={() => handleToggle(editing)}>
-                      {editing.enabled ? 'Disable' : 'Enable'}
-                    </button>
-                  )}
-                  {editing && (
-                    <button className="modbtn danger" type="button" disabled={busy} onClick={() => handleDelete(editing)}>
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <SettingsStatus error={error} />
-
-              <form className="settings-mini-form" onSubmit={handleSaveEdit}>
-                <label className="command-enabled">
-                  <input
-                    type="checkbox"
-                    checked={edit.enabled}
-                    disabled={busy}
-                    onChange={event => setEdit(current => (current ? { ...current, enabled: event.target.checked } : current))}
-                  />
-                  <span>Enabled</span>
-                </label>
-
-                <label className="field">
-                  <span>Label</span>
-                  <input
-                    value={edit.label}
-                    disabled={busy}
-                    maxLength={60}
-                    onChange={event => setEdit(current => (current ? { ...current, label: event.target.value } : current))}
-                  />
-                </label>
-
-                <label className="field">
-                  <span>{editing?.sourceType === 'remote' ? 'URL' : 'File'}</span>
-                  {editing?.sourceType === 'remote' ? (
+                    <span>URL</span>
                     <input
-                      value={edit.src}
+                      value={newForm.src}
                       disabled={busy}
                       maxLength={500}
                       placeholder="https://cdn.example/horn.mp3"
-                      onChange={event => setEdit(current => (current ? { ...current, src: event.target.value } : current))}
+                      onChange={event => setNewForm(current => ({ ...current, src: event.target.value }))}
                     />
-                  ) : (
+                  </label>
+                  <label className="field">
+                    <span>Kind</span>
                     <select
-                      value={edit.src}
+                      value={newForm.kind}
                       disabled={busy}
-                      onChange={event => setEdit(current => (current ? { ...current, src: event.target.value } : current))}
+                      onChange={event => setNewForm(current => ({ ...current, kind: event.target.value as MediaKind }))}
                     >
-                      {/* Keep the missing src selected so saving other fields doesn't silently re-point it. */}
-                      {!repairOptions.some(file => file.src === edit.src) && (
-                        <option value={edit.src}>{edit.src} (missing)</option>
-                      )}
-                      {repairOptions.map(file => (
-                        <option key={file.src} value={file.src}>{file.label}</option>
-                      ))}
+                      <option value="audio">Audio</option>
+                      <option value="video">Video</option>
                     </select>
-                  )}
-                </label>
+                  </label>
+                </>
+              )}
 
-                <label className="field">
-                  <span>Volume ({volumePercent(edit.volume)})</span>
+              <label className="field">
+                <span>Label</span>
+                <input
+                  value={newForm.label}
+                  disabled={busy || (newForm.sourceType === 'local' && !pickedFile)}
+                  maxLength={60}
+                  placeholder={newForm.sourceType === 'local'
+                    ? (pickedFile ? pickedFile.label : 'Pick a file first')
+                    : 'Air horn'}
+                  onChange={event => setNewForm(current => ({ ...current, label: event.target.value }))}
+                />
+              </label>
+
+              <div className="command-settings-actions">
+                <button
+                  className="modbtn gold"
+                  type="submit"
+                  disabled={busy || (newForm.sourceType === 'local'
+                    ? !pickedFile
+                    : !newForm.label.trim() || !newForm.src.trim())}
+                >
+                  {saving ? 'Adding...' : 'Add to library'}
+                </button>
+              </div>
+            </form>
+          ) : selection.mode === 'edit' && edit ? (
+            <form className="settings-mini-form" onSubmit={handleSaveEdit}>
+              <label className="command-enabled">
+                <input
+                  type="checkbox"
+                  checked={edit.enabled}
+                  disabled={busy}
+                  onChange={event => setEdit(current => (current ? { ...current, enabled: event.target.checked } : current))}
+                />
+                <span>Enabled</span>
+              </label>
+
+              <label className="field">
+                <span>Label</span>
+                <input
+                  value={edit.label}
+                  disabled={busy}
+                  maxLength={60}
+                  onChange={event => setEdit(current => (current ? { ...current, label: event.target.value } : current))}
+                />
+              </label>
+
+              <label className="field">
+                <span>{editing?.sourceType === 'remote' ? 'URL' : 'File'}</span>
+                {editing?.sourceType === 'remote' ? (
                   <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={edit.volume}
+                    value={edit.src}
                     disabled={busy}
-                    onChange={event => setEdit(current => (current ? { ...current, volume: Number(event.target.value) } : current))}
+                    maxLength={500}
+                    placeholder="https://cdn.example/horn.mp3"
+                    onChange={event => setEdit(current => (current ? { ...current, src: event.target.value } : current))}
                   />
-                </label>
+                ) : (
+                  <select
+                    value={edit.src}
+                    disabled={busy}
+                    onChange={event => setEdit(current => (current ? { ...current, src: event.target.value } : current))}
+                  >
+                    {/* Keep the missing src selected so saving other fields doesn't silently re-point it. */}
+                    {!repairOptions.some(file => file.src === edit.src) && (
+                      <option value={edit.src}>{edit.src} (missing)</option>
+                    )}
+                    {repairOptions.map(file => (
+                      <option key={file.src} value={file.src}>{file.label}</option>
+                    ))}
+                  </select>
+                )}
+              </label>
 
-                <div className="command-settings-actions">
-                  <button className="modbtn gold" type="submit" disabled={busy}>
-                    {saving ? 'Saving...' : 'Save asset'}
-                  </button>
-                </div>
-              </form>
-            </>
-          )}
+              <label className="field">
+                <span>Volume ({volumePercent(edit.volume)})</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={edit.volume}
+                  disabled={busy}
+                  onChange={event => setEdit(current => (current ? { ...current, volume: Number(event.target.value) } : current))}
+                />
+              </label>
+
+              <div className="command-settings-actions">
+                <button className="modbtn gold" type="submit" disabled={busy}>
+                  {saving ? 'Saving...' : 'Save asset'}
+                </button>
+              </div>
+            </form>
+          ) : null}
         </div>
       </div>
     </div>
@@ -527,7 +524,6 @@ function MediaButtonManager({
   copy: ManagerCopy;
   mediaFiles: MediaFile[];
 }) {
-  const { pushToast } = useToast();
   const confirm = useConfirm();
   const [items, setItems] = useState<MediaButtonItem[]>([]);
   const { draft: form, setDraft: setForm, baseline: formBaseline, resetDraft: resetForm, dirty: formDirty } = useDraft<Form | null>(null);
@@ -536,6 +532,7 @@ function MediaButtonManager({
   const [customMode, setCustomMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // A failed load is not an empty list (listState.ts); the next successful load clears it.
   const [loadFailed, setLoadFailed] = useState(false);
@@ -573,6 +570,7 @@ function MediaButtonManager({
   const loadForm = (next: Form | null) => {
     resetForm(next);
     setCustomMode(false);
+    setMessage(null);
     setError(null);
   };
 
@@ -580,6 +578,7 @@ function MediaButtonManager({
     event.preventDefault();
     if (!form) return;
     setSaving(true);
+    setMessage(null);
     setError(null);
     const payload = { label: form.label, filename: form.filename };
     const request = form.id ? api.update(form.id, payload) : api.create(payload);
@@ -591,12 +590,10 @@ function MediaButtonManager({
         // edits it rather than silently adding a second copy.
         resetForm(formFrom(saved));
         setCustomMode(false);
-        pushToast({ kind: 'success', title: `${noun} saved` });
+        setMessage(`${noun} saved`);
       })
       .catch(caught => {
-        const message = errorMessage(caught, `Could not save ${copy.noun}`);
-        setError(message);
-        pushToast({ kind: 'error', title: `Could not save ${copy.noun}`, message });
+        setError(errorMessage(caught, `Could not save ${copy.noun}`));
       })
       .finally(() => setSaving(false));
   };
@@ -612,17 +609,18 @@ function MediaButtonManager({
     });
     if (!ok) return;
     setSaving(true);
+    setMessage(null);
     setError(null);
     void api.remove(id)
       .then(() => {
         setItems(current => current.filter(entry => entry.id !== id));
         loadForm(null);
-        pushToast({ kind: 'success', title: `${noun} deleted` });
+        // After loadForm, which clears the line: the pane is empty now, and this is
+        // what says the delete went through.
+        setMessage(`${noun} deleted`);
       })
       .catch(caught => {
-        const message = errorMessage(caught, `Could not delete ${copy.noun}`);
-        setError(message);
-        pushToast({ kind: 'error', title: `Could not delete ${copy.noun}`, message });
+        setError(errorMessage(caught, `Could not delete ${copy.noun}`));
       })
       .finally(() => setSaving(false));
   };
@@ -686,75 +684,77 @@ function MediaButtonManager({
               Pick a {copy.noun} button to rename it or re-point it, or hit New to add one.
             </EmptyState>
           ) : (
-            <>
-              <div className="command-editor-head">
-                <div>
-                  <div className="set-label">{form.id ? (form.label || noun) : `New ${copy.noun} button`}</div>
-                  <div className="set-sub">{copy.sub}</div>
-                </div>
-                <div className="command-row-actions">
-                  {form.id && (
-                    <button className="modbtn danger" type="button" disabled={saving} onClick={() => handleDelete(form.id!)}>
-                      Delete
-                    </button>
-                  )}
-                  <button className="modbtn" type="button" disabled={saving} onClick={() => discardThen(() => loadForm(null))}>
-                    Close
-                  </button>
-                </div>
+            <div className="command-editor-head">
+              <div>
+                <div className="set-label">{form.id ? (form.label || noun) : `New ${copy.noun} button`}</div>
+                <div className="set-sub">{copy.sub}</div>
               </div>
+              <div className="command-row-actions">
+                {form.id && (
+                  <button className="modbtn danger" type="button" disabled={saving} onClick={() => handleDelete(form.id!)}>
+                    Delete
+                  </button>
+                )}
+                <button className="modbtn" type="button" disabled={saving} onClick={() => discardThen(() => loadForm(null))}>
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
 
-              <SettingsStatus error={error} />
+          {/* One status node in one slot whatever the pane shows, so a delete that
+              empties the pane still reports, through the same live region. */}
+          <SettingsStatus message={message} error={error} />
 
-              <form className="settings-mini-form" onSubmit={handleSubmit}>
+          {form ? (
+            <form className="settings-mini-form" onSubmit={handleSubmit}>
+              <label className="field">
+                <span>Label</span>
+                <input
+                  value={form.label}
+                  disabled={loading || saving}
+                  maxLength={60}
+                  placeholder={copy.labelPlaceholder}
+                  onChange={event => setForm(current => (current ? { ...current, label: event.target.value } : current))}
+                />
+              </label>
+              <label className="field">
+                <span>File</span>
+                <select
+                  value={selectValue}
+                  disabled={loading || saving || (mediaFiles.length === 0 && !copy.allowCustomPath && !offCatalog)}
+                  onChange={event => onSelectFile(event.target.value)}
+                >
+                  <option value="">Select a file…</option>
+                  {/* Keep a deleted/off-catalog binding visible for catalog-only managers. */}
+                  {!copy.allowCustomPath && offCatalog && (
+                    <option value={form.filename}>{form.filename} (missing)</option>
+                  )}
+                  {mediaFiles.map(file => (
+                    <option key={file.src} value={file.src}>{file.label}</option>
+                  ))}
+                  {copy.allowCustomPath && <option value={CUSTOM_VALUE}>Custom path or URL…</option>}
+                </select>
+              </label>
+              {showCustomInput && (
                 <label className="field">
-                  <span>Label</span>
+                  <span>Custom path or URL</span>
                   <input
-                    value={form.label}
+                    value={form.filename}
                     disabled={loading || saving}
-                    maxLength={60}
-                    placeholder={copy.labelPlaceholder}
-                    onChange={event => setForm(current => (current ? { ...current, label: event.target.value } : current))}
+                    maxLength={240}
+                    placeholder={copy.filePlaceholder}
+                    onChange={event => setForm(current => (current ? { ...current, filename: event.target.value } : current))}
                   />
                 </label>
-                <label className="field">
-                  <span>File</span>
-                  <select
-                    value={selectValue}
-                    disabled={loading || saving || (mediaFiles.length === 0 && !copy.allowCustomPath && !offCatalog)}
-                    onChange={event => onSelectFile(event.target.value)}
-                  >
-                    <option value="">Select a file…</option>
-                    {/* Keep a deleted/off-catalog binding visible for catalog-only managers. */}
-                    {!copy.allowCustomPath && offCatalog && (
-                      <option value={form.filename}>{form.filename} (missing)</option>
-                    )}
-                    {mediaFiles.map(file => (
-                      <option key={file.src} value={file.src}>{file.label}</option>
-                    ))}
-                    {copy.allowCustomPath && <option value={CUSTOM_VALUE}>Custom path or URL…</option>}
-                  </select>
-                </label>
-                {showCustomInput && (
-                  <label className="field">
-                    <span>Custom path or URL</span>
-                    <input
-                      value={form.filename}
-                      disabled={loading || saving}
-                      maxLength={240}
-                      placeholder={copy.filePlaceholder}
-                      onChange={event => setForm(current => (current ? { ...current, filename: event.target.value } : current))}
-                    />
-                  </label>
-                )}
-                <div className="command-settings-actions">
-                  <button className="modbtn gold" type="submit" disabled={loading || saving}>
-                    {saving ? 'Saving...' : `Save ${copy.noun}`}
-                  </button>
-                </div>
-              </form>
-            </>
-          )}
+              )}
+              <div className="command-settings-actions">
+                <button className="modbtn gold" type="submit" disabled={loading || saving}>
+                  {saving ? 'Saving...' : `Save ${copy.noun}`}
+                </button>
+              </div>
+            </form>
+          ) : null}
         </div>
       </div>
     </div>

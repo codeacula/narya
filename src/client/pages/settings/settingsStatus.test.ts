@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { SettingsStatus } from './shared';
 
 const render = (props: React.ComponentProps<typeof SettingsStatus>) =>
@@ -29,5 +31,18 @@ describe('SettingsStatus', () => {
     expect(html).toContain('<div class="sr-only" role="status"></div>');
     expect(html).toContain('<div class="sr-only" role="alert">Could not save</div>');
     expect(html).toContain('<div class="command-settings-status error" aria-hidden="true">Could not save</div>');
+  });
+});
+
+describe('the settings feedback rule (shared.tsx)', () => {
+  // A save, delete or load on a settings page reports through SettingsStatus beside
+  // the form, not a toast. Content used to toast every write, and Connections showed a
+  // failed save twice (toast and inline).
+  test('no settings section reports through toasts', () => {
+    const dir = import.meta.dir;
+    const offenders = readdirSync(dir)
+      .filter(name => name.endsWith('.tsx'))
+      .filter(name => /useToast|pushToast/.test(readFileSync(join(dir, name), 'utf8')));
+    expect(offenders).toEqual([]);
   });
 });

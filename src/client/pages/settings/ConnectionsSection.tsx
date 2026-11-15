@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import type { AppConfig } from '../../../shared/api';
-import { useToast } from '../../ui/notifications';
 import { getAppConfig, updateAppConfig } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
 import { SettingsStatus } from './shared';
@@ -83,7 +82,6 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
 };
 
 export function ConnectionsSection({ eventSubConnected, redisConnected }: { eventSubConnected: boolean; redisConnected: boolean }) {
-  const { pushToast } = useToast();
   const {
     draft: appConfigForm,
     setDraft: setAppConfigForm,
@@ -148,9 +146,9 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
         // (serviceStatus.tsx) already shows one in this same browser.
       })
       .catch(error => {
-        const message = errorMessage(error, 'Could not save configuration');
-        setAppConfigError(message);
-        pushToast({ kind: 'error', title: 'Could not save connections', message });
+        // Reported once, beside the Save button (the settings feedback rule in
+        // shared.tsx) — a toast as well said the same thing twice.
+        setAppConfigError(errorMessage(error, 'Could not save configuration'));
       })
       .finally(() => setAppConfigSaving(false));
   };
