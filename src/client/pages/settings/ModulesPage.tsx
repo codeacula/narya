@@ -22,6 +22,7 @@ import { useSocket } from '../../realtime';
 import { useDebouncedSuggestions } from '../../suggestions';
 import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
 import { asSentence, listFace, PICKER_LOADING, type PickerLoad } from './listState';
+import { moduleDraftDirty } from './moduleDraft';
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
 import { EmptyState } from '../../ui/emptyState';
@@ -156,7 +157,10 @@ export function ModulesSettingsPage() {
   const [groups, setGroups] = useState<ViewerRewardCategory[]>([]);
   const [groupsLoad, setGroupsLoad] = useState<PickerLoad>(PICKER_LOADING);
   const [groupsAttempt, setGroupsAttempt] = useState(0);
-  const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<CategoryModuleInput | null>(null);
+  const { draft, setDraft, baseline, resetDraft } = useDraft<CategoryModuleInput | null>(null);
+  // Not useDraft's own `dirty`: games and reward groups are sets, and the editor appends
+  // to them, so re-ticking a group must not read as an edit (moduleDraft.ts).
+  const dirty = moduleDraftDirty(draft, baseline);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
