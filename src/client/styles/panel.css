@@ -240,9 +240,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .stage--cockpit { grid-template-columns: minmax(380px, 1.15fr) minmax(380px, 0.85fr); }
 
 .col-stack { min-height: 0; display: grid; gap: var(--panel-gap); grid-auto-rows: minmax(0, 1fr); }
-.col-stack.s2 { grid-template-rows: 1fr 1fr; }
-.col-stack.s3 { grid-template-rows: auto 1fr 1.1fr; }
-.col-stack.s2-top-auto { grid-template-rows: auto 1fr; }
 
 /* Attention and the tabbed panel share the column, attention slightly smaller.
    Both scroll internally rather than pushing the other off screen. */
@@ -1131,14 +1128,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 .set-row:last-child { border-bottom: none; }
 .set-label { font-size: 14px; color: var(--fg-1); }
 .set-sub { font-size: 12px; color: var(--fg-3); margin-top: 2px; }
-.reward-media-missing {
-  color: var(--warning-fg);
-  border: 1px solid var(--warning-border);
-  background: var(--warning-bg);
-  border-radius: var(--radius-2);
-  padding: 6px 8px;
-  margin-top: 6px;
-}
 .set-control { margin-left: auto; flex: none; }
 .set-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: var(--radius-1); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; }
 .set-badge--ok { background: var(--success-bg); color: var(--success-fg); border: 1px solid var(--success-border); }
@@ -1209,13 +1198,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
   text-align: right;
 }
 .counter-row-actions { display: flex; gap: 6px; flex: none; }
-.command-action-summary {
-  color: var(--fg-3);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .command-row-actions,
 .command-editor-head {
   display: flex;
@@ -1227,9 +1209,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 }
 .command-editor-head {
   justify-content: space-between;
-}
-.settings-inline-status {
-  margin: 14px 14px 0;
 }
 .settings-editor-section {
   display: grid;
@@ -1513,18 +1492,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   color: var(--fg-3);
   font-size: 12px;
 }
-/* One Twitch event type inside the Alerts section. */
-.alert-kind {
-  min-inline-size: 0;
-  margin: 0;
-  padding: 12px;
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-2);
-  background: var(--bg-1);
-  display: grid;
-  gap: 10px;
-}
-.alert-kind-legend { padding: 0; }
 .command-example code {
   color: var(--accent-fg);
   font-family: var(--font-mono);
@@ -1709,8 +1676,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   opacity: 1;
 }
 .ctrl-scene-button:disabled { cursor: not-allowed; opacity: 0.5; }
-.ctrl-status { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); }
-.ctrl-status.live { color: var(--success-fg); }
 
 /* ================= CHATTERS LIST ================= */
 .chatter-list { display: flex; flex-direction: column; padding: 6px 0; }
@@ -1810,7 +1775,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 12px;
 }
 .reward-form-prompt { grid-column: 1; }
-.reward-form-enabled { align-self: end; min-height: 38px; }
 /* Editor: grouped sections + one switch-and-value control for limits and cooldown. */
 .reward-fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
 .reward-fieldset + .reward-fieldset { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border-1); }
