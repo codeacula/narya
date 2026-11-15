@@ -1125,9 +1125,10 @@ nav {
   to   { opacity: 0; transform: translateY(-8px); }
 }
 
-/* Overlay chat (ChatPanel, which only ever renders compact): the newest row sits at the
-   bottom of the column. Moderated rows are filtered out before render, so there is no
-   removed-message style here. */
+/* Overlay chat (ChatPanel): the newest row sits at the bottom of the column. Moderated
+   rows are filtered out before render, so there is no removed-message style here. The
+   `compact` class is a leftover name from when ChatPanel had a dashboard form; it stays
+   so the overlay's selectors, and so what OBS renders, do not change. */
 .chat-panel.compact {
   display: flex;
   flex-direction: column-reverse;

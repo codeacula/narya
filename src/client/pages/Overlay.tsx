@@ -37,7 +37,7 @@ export function OverlaySoundsPage() {
 export function OverlayChatPage() {
   return (
     <main className="overlay-widget overlay-chat-widget">
-      <ChatPanel compact />
+      <ChatPanel />
     </main>
   );
 }
@@ -222,7 +222,7 @@ export function OverlayPage() {
     <main className="overlay-frame">
       <TopBar />
       <div className="overlay-chat">
-        <ChatPanel compact />
+        <ChatPanel />
       </div>
       <PinnedCardView card={pinned} />
       <BottomBar />
