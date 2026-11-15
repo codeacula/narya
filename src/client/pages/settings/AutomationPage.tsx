@@ -644,7 +644,7 @@ function TriggerActionsEditor({
           <div key={entry.actionId} className={'action-step' + (entry.enabled ? '' : ' action-step--off')}>
             <div className="action-step-head">
               <span className="action-step-index">{index + 1}</span>
-              <span className="action-step-name" style={{ flex: '1 1 200px', minWidth: 0, fontWeight: 600 }}>
+              <span className="action-step-name">
                 {actionName(entry.actionId) ?? 'unknown action'}
               </span>
               <label className="command-enabled">

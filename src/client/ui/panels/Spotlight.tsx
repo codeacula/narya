@@ -102,7 +102,7 @@ export function Spotlight({
                 {viewer.roles.includes('vip') && <span className="rolepill vip">vip</span>}
                 {viewer.roles.includes('sub') && <span className="rolepill sub">subscriber</span>}
                 {viewer.roles.length === 0 && (
-                  <span className="rolepill" style={{ color: 'var(--fg-3)', borderColor: 'var(--border-1)' }}>
+                  <span className="rolepill viewer">
                     viewer
                   </span>
                 )}
@@ -138,7 +138,7 @@ export function Spotlight({
         )}
 
         <div>
-          <div className="spot-section-label" style={{ marginBottom: '9px' }}>Recent in chat</div>
+          <div className="spot-section-label">Recent in chat</div>
           <div className="spot-recent">
             {viewer.recent.map((r, i) => (
               <div className={'rmsg' + (r.kind ? ' ' + r.kind : '')} key={i}>

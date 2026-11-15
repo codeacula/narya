@@ -242,7 +242,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
               />
             </label>
             {appConfigForm.twitchClientSecretConfigured && (
-              <label className="command-enabled" style={{ marginTop: 8 }}>
+              <label className="command-enabled secret-clear">
                 <input
                   type="checkbox"
                   checked={appConfigForm.clearTwitchClientSecret}
@@ -277,7 +277,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
               />
             </label>
             {appConfigForm.obsPasswordConfigured && (
-              <label className="command-enabled" style={{ marginTop: 8 }}>
+              <label className="command-enabled secret-clear">
                 <input
                   type="checkbox"
                   checked={appConfigForm.clearObsPassword}
@@ -327,7 +327,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
               />
             </label>
             {appConfigForm.discordBotTokenConfigured && (
-              <label className="command-enabled" style={{ marginTop: 8 }}>
+              <label className="command-enabled secret-clear">
                 <input
                   type="checkbox"
                   checked={appConfigForm.clearDiscordBotToken}
@@ -356,7 +356,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
             </small>
           </label>
           {appConfigForm.redisConfigured && (
-            <label className="command-enabled" style={{ marginTop: 8 }}>
+            <label className="command-enabled secret-clear">
               <input
                 type="checkbox"
                 checked={appConfigForm.clearRedisUrl}

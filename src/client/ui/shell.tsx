@@ -398,7 +398,7 @@ export function StatBar({
       <Gauge label="Stream health">
         <div className="gauge-value health">
           <span className={'health-dot ' + healthDotClass} />
-          <span style={{ fontSize: '15px' }}>
+          <span className="health-value">
             {health.value}<small>{health.unit}</small>
           </span>
           <span className="health-bars">
@@ -543,7 +543,7 @@ export function PopWindow({
           <i /><i /><i /><i /><i /><i />
         </span>
         <span className="popwin-title">{title}</span>
-        <span className="panel-actions" style={{ marginLeft: 'auto' }}>
+        <span className="panel-actions">
           <button className="icon-btn" title="Re-dock" aria-label="Re-dock" onClick={() => onClose(id)}>
             <Icon name="dock" />
           </button>

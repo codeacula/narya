@@ -121,7 +121,7 @@ export function SettingsRow({
 }) {
   return (
     <div className="set-row">
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="set-row-text">
         <div className="set-label">{label}</div>
         {sub && <div className="set-sub">{sub}</div>}
       </div>

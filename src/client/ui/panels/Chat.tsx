@@ -148,7 +148,7 @@ export function ChatMessageRow({
   // plain span where the row is already about that viewer.
   const name = onUserClick
     ? <button type="button" className="msg-user" style={{ color }} onClick={() => onUserClick(m.user)}>{display}</button>
-    : <span className="msg-user" style={{ color, cursor: 'default' }}>{display}</span>;
+    : <span className="msg-user" style={{ color }}>{display}</span>;
   const body = renderContent(m.text, m.emotes ?? null, emoteMap);
   // Matches the ping cue in Dashboard's chat:message handler, self-messages included:
   // a highlight that fires where the sound doesn't would be worse than neither.

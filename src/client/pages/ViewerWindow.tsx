@@ -4,6 +4,7 @@ import { Spotlight } from '../ui/panels';
 import type { PanelCtx } from '../ui/panels';
 import type { Viewer } from '../../shared/api';
 import { pathForViewer } from '../routing';
+import { EmptyState } from '../ui/emptyState';
 
 export function ViewerWindowPage() {
   const params = new URLSearchParams(window.location.search);
@@ -15,7 +16,11 @@ export function ViewerWindowPage() {
   }, []);
 
   if (!login) {
-    return <div style={{ padding: '20px', color: '#fff' }}>No viewer selected</div>;
+    return (
+      <div className="viewer-window">
+        <EmptyState title="No viewer selected">Open a viewer from the dashboard or the roster to see them here.</EmptyState>
+      </div>
+    );
   }
 
   const ctx: PanelCtx = {
@@ -45,14 +50,13 @@ export function ViewerWindowPage() {
   };
 
   return (
-    <div style={{ padding: '12px', background: 'var(--bg-1)', minHeight: '100vh' }}>
-      <div style={{ marginBottom: '10px', textAlign: 'right' }}>
+    <div className="viewer-window">
+      <div className="viewer-window-bar">
         <a
-          className="modbtn"
+          className="modbtn viewer-window-open"
           href={pathForViewer(login)}
           target="_blank"
           rel="noreferrer"
-          style={{ display: 'inline-block', textDecoration: 'none' }}
         >
           Open full page ↗
         </a>

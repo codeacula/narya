@@ -225,7 +225,7 @@ export function GoLiveSection() {
 
       <SettingsRow
         label={
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className="set-label-help">
             Discord bot
             <button
               className="icon-btn"
@@ -233,7 +233,6 @@ export function GoLiveSection() {
               title="Discord bot setup instructions"
               aria-label="Discord bot setup instructions"
               onClick={() => setDiscordHelpOpen(true)}
-              style={{ color: 'var(--fg-3)' }}
             >
               <Icon name="info" size={13} />
             </button>
@@ -241,12 +240,12 @@ export function GoLiveSection() {
         }
         sub={discordConnectionSub}
       >
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className="set-control-row">
           {discordStatus.ready ? (
             <>
               <span className="set-badge set-badge--ok">Connected</span>
               {discordStatus.installUrl && (
-                <a className="btn-primary" href={withToken("/api/auth/discord")} style={{ fontSize: '11px' }}>
+                <a className="btn-primary btn-primary--small" href={withToken("/api/auth/discord")}>
                   Reinstall
                 </a>
               )}
@@ -266,7 +265,6 @@ export function GoLiveSection() {
               aria-label="Re-check Discord connection"
               disabled={discordRefreshing}
               onClick={handleDiscordRefresh}
-              style={{ color: 'var(--fg-3)' }}
             >
               <Icon name="refresh" size={13} />
             </button>
