@@ -101,7 +101,11 @@ export function NavBar({
       >
         <Icon name="grid" size={15} />
       </button>
-      <div className="nav-avatar">{channelName ? channelName.charAt(0).toUpperCase() : '?'}</div>
+      {/* The channel's initial; with no channel set yet (a fresh install), a person
+          outline rather than a "?" glyph standing in for an icon. */}
+      <div className="nav-avatar" title={channelName ? undefined : 'No channel set'}>
+        {channelName ? channelName.charAt(0).toUpperCase() : <Icon name="user" size={15} aria-hidden="true" />}
+      </div>
     </div>
   );
 }
