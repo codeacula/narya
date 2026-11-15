@@ -15,7 +15,7 @@ import { mergeRoster, rosterRefreshError, type Person } from '../viewerRoster';
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
 import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
-import { ListUnavailable } from './settings/shared';
+import { ListUnavailable, SettingsAnnouncer } from './settings/shared';
 import { neverLoaded } from './settings/listState';
 
 type Segment = 'all' | 'live' | 'vips' | 'mods';
@@ -350,8 +350,11 @@ export function ViewersPage({
           />
         </div>
 
-        {error ? <div className="viewers-status is-error" role="alert">{error}</div> : null}
-        {message ? <div className="viewers-status" role="status">{message}</div> : null}
+        {/* The live regions stay mounted (SettingsAnnouncer): one inserted together
+            with its text is often not read out. The drawn notice is only the look. */}
+        <SettingsAnnouncer message={message} error={error} />
+        {error ? <div className="viewers-status is-error" aria-hidden="true">{error}</div> : null}
+        {message ? <div className="viewers-status" aria-hidden="true">{message}</div> : null}
         <StaleNotice health={rosterHealth} />
 
         {loading ? (
