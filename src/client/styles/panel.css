@@ -377,7 +377,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   transition: border-color var(--dur-fast);
 }
 .msg-user:hover { border-bottom-color: currentColor; }
-.msg-user::after { content: ":"; color: var(--fg-3); font-weight: 400; margin-right: 5px; }
+button.msg-user { padding: 0; background: none; border-width: 0 0 1px; border-radius: 0; line-height: inherit; }
+button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offset: 2px; }
 /* overflow-wrap: a pasted URL is one unbroken token and would otherwise push the
    chat column wider than the panel. */
 .msg-text { color: var(--ivory-100); overflow-wrap: anywhere; }
@@ -447,6 +448,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   color: var(--fg-3);
 }
 .msg-mod-status.timeout { color: var(--warning-fg); border-color: var(--warning-border); background: var(--warning-bg); }
+/* Removed on Twitch: struck through, so it can never be mistaken for live chat. */
+.msg--deleted .msg-text { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--danger-base) 60%, transparent); }
+.msg-mod-status.removed {
+  /* The reason can be a moderator's free-text ban reason; cap it (full text on hover). */
+  max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--danger-fg); border-color: var(--danger-border); background: var(--danger-bg);
+}
 .msg-mod-status.ban { color: var(--danger-fg); border-color: var(--danger-border); background: var(--danger-bg); }
 /* The message recedes once its author has been actioned — but stays readable,
    since it is usually the evidence for why. */

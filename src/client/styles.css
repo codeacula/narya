@@ -915,6 +915,23 @@ nav {
   background: transparent;
   font-family: var(--font-mono);
   font-size: 10px;
+/* The chat row's name is a button (it opens the viewer); keep it inline text here,
+   including through the large-button chrome's hover and press states, which out-rank a
+   plain selector — and a touch screen keeps :hover after a tap. */
+.tablet-shell button.msg-user,
+.tablet-shell button.msg-user:hover:not(:disabled),
+.tablet-shell button.msg-user:active:not(:disabled) {
+  min-height: 0;
+  padding: 0;
+  border-width: 0 0 1px;
+  border-color: transparent;
+  border-radius: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  transform: none;
+}
+
 }
 
 .tablet-chat-panel .chat-bar button:hover:not(:disabled) {

@@ -142,10 +142,13 @@ export function ChatMessageRow({
   channel?: string;
   moderation?: ChatRowModeration;
 }) {
-  const color = viewer?.color ?? '#d7dce2';
+  const color = viewer?.color ?? 'var(--silver-300)';
   const display = viewer?.display ?? m.user;
-  const nameStyle = onUserClick ? { color } : { color, cursor: 'default' as const };
-  const onNameClick = onUserClick ? () => onUserClick(m.user) : undefined;
+  // A real button when it opens the viewer, so it is reachable from the keyboard; a
+  // plain span where the row is already about that viewer.
+  const name = onUserClick
+    ? <button type="button" className="msg-user" style={{ color }} onClick={() => onUserClick(m.user)}>{display}</button>
+    : <span className="msg-user" style={{ color, cursor: 'default' }}>{display}</span>;
   const body = renderContent(m.text, m.emotes ?? null, emoteMap);
   // Matches the ping cue in Dashboard's chat:message handler, self-messages included:
   // a highlight that fires where the sound doesn't would be worse than neither.
@@ -156,7 +159,7 @@ export function ChatMessageRow({
       <div className="msg msg-whisper">
         <span className="msg-time">{m.time}</span>
         <span className="hl-tag whisper-tag">whisper</span>
-        <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
+        {name}
         <span className="msg-text">{body}</span>
       </div>
     );
@@ -170,21 +173,25 @@ export function ChatMessageRow({
     && !viewer?.roles.includes('mod')
     && m.user.toLowerCase() !== channel.toLowerCase();
   const status = moderatable ? moderation.status : null;
+  // Already removed on Twitch (deleted, or its author timed out/banned): kept on the
+  // operator's screen as the record of what happened, but with nothing left to act on.
+  const deleted = Boolean(m.deletedAt);
   // A row that was just timed out or banned is going to be removed from the overlay;
   // pinning it would only fail (or be cleared again), so it gets no pin either.
-  const showActions = moderation && !status && (moderatable || moderation.onPin);
+  const showActions = moderation && !status && !deleted && (moderatable || moderation.onPin);
   return (
     <div
       className={'msg' + hlClass + (fromThisStream ? '' : ' msg--past') + (isMention ? ' msg--mention' : '')
-        + (status ? ' msg--moderated' : '')}
+        + (status || deleted ? ' msg--moderated' : '') + (deleted ? ' msg--deleted' : '')}
     >
       <span className="msg-time">{m.time}</span>
-      <span className="msg-user" style={nameStyle} onClick={onNameClick}>{display}</span>
+      {deleted && <span className="msg-mod-status removed" title={m.deletedReason || 'removed'}>{m.deletedReason || 'removed'}</span>}
+      {name}
       <span className="msg-text">{body}</span>
       {/* Last in the row: the dashboard positions this absolutely, so DOM order does
           not affect where it lands there, while the tablet renders it in flow on its
           own line below the message — which only reads correctly from here. */}
-      {moderation && (status || showActions) && (
+      {moderation && !deleted && (status || showActions) && (
         <ChatRowActions login={m.user} messageId={m.id} moderation={moderation} canModerate={Boolean(moderatable)} />
       )}
     </div>
