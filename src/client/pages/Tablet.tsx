@@ -19,7 +19,8 @@ import {
   triggerObsTransition,
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
-import { obsConnectionLabel, obsNotice } from '../obsNotice';
+import { obsNotice } from '../obsNotice';
+import { obsConnectionLabel } from '../connectionWords';
 import { EmptyState } from '../ui/emptyState';
 import { Icon } from '../ui/icons';
 

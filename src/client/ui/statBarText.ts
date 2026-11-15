@@ -1,5 +1,5 @@
 import type { DashboardStatus } from '../../shared/api';
-import { OBS_OFFLINE } from '../obsNotice';
+import { chatConnectionWord, connectionWord, OBS_OFFLINE } from '../connectionWords';
 
 /**
  * What the stat bar's gauges say, kept apart from `StatBar` so the wording rule is
@@ -99,4 +99,39 @@ export function healthGauge({
   const dropPct = (dropped / frameBase) * 100;
   const lag = laggedFrames !== null ? `${laggedFrames} frames` : UNKNOWN_VALUE;
   return { value, unit, sub: `drop: ${dropped} (${dropPct.toFixed(2)}%) · lag: ${lag}` };
+}
+
+/**
+ * The Stream gauge's connection read-out, after the uptime source: "chat connected ·
+ * events offline". Same words as the toasts and the Display panel (connectionWords.ts).
+ * An EventSub failure is still "offline" here; the retry button beside it is what
+ * says it needs a hand.
+ */
+export function connectionsLine({
+  chatConnection,
+  eventSubConnected,
+}: {
+  chatConnection: DashboardStatus['chatConnection'];
+  eventSubConnected: boolean;
+}): string {
+  return `chat ${chatConnectionWord(chatConnection)} · events ${connectionWord(eventSubConnected)}`;
+}
+
+/**
+ * The Display panel's Live Data list. Until the first status arrives every value is a
+ * dash: the placeholder status says "no channel" and "OBS offline", which nobody has
+ * claimed yet. After that, services use the shared connected/offline words, and an
+ * empty channel is one that has not been set in Settings.
+ */
+export function liveDataRows(
+  status: Pick<DashboardStatus, 'channel' | 'chatConnection' | 'eventSubConnected' | 'obsConnected'>,
+  known: boolean,
+): Array<{ label: string; value: string }> {
+  const rows = [
+    { label: 'Channel', value: status.channel || 'not set' },
+    { label: 'Chat', value: chatConnectionWord(status.chatConnection) },
+    { label: 'EventSub', value: connectionWord(status.eventSubConnected) },
+    { label: 'OBS', value: connectionWord(status.obsConnected) },
+  ];
+  return known ? rows : rows.map(row => ({ ...row, value: UNKNOWN_VALUE }));
 }

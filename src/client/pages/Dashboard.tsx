@@ -49,6 +49,7 @@ import type { ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMe
 import { NO_ACTIVE_SESSION_FOR_PLANNED_END } from '../../shared/api';
 import { errorMessage } from '../errors';
 import { useToast } from '../ui/notifications';
+import { liveDataRows } from '../ui/statBarText';
 
 /* ---------------- constants ---------------- */
 
@@ -134,6 +135,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [popped, setPopped] = useState<Record<string, PoppedState>>({});
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
+  // False while `status` is still EMPTY_STATUS: its "no channel" and "OBS offline" are
+  // placeholders, not facts, and the Live Data list must not report them as such.
+  const [statusKnown, setStatusKnown] = useState(false);
   const { pushToast } = useToast();
   const [streamInfoOpen, setStreamInfoOpen] = useState(false);
   const [streamInfoForm, setStreamInfoForm] = useState<StreamInfoForm>({ title: '', category: '', tags: [], status: '', plannedEndAt: '' });
@@ -280,6 +284,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         setChat(nextChat);
         setEvents(nextEvents);
         setStatus(nextStatus);
+        setStatusKnown(true);
         if (nextObsStatus) setObsStatus(nextObsStatus);
       } catch (error) {
         console.error('Failed to refresh dashboard data:', error);
@@ -329,6 +334,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
   useSocket<DashboardStatus>('dashboard:status', React.useCallback((nextStatus) => {
     setStatus(nextStatus);
+    setStatusKnown(true);
   }, []));
 
   useSocket<ObsStatus>('obs:status', React.useCallback((nextStatus) => {
@@ -815,10 +821,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       <TweaksPanel title="Display" open={tweaksOpen} onClose={() => setTweaksOpen(false)}>
         <TweakSection label="Live Data" />
         <div className="live-data-list">
-          <div><span>Channel</span><b>{status.channel || 'unavailable'}</b></div>
-          <div><span>Chat</span><b>{status.chatConnection.toLowerCase()}</b></div>
-          <div><span>EventSub</span><b>{status.eventSubConnected ? 'open' : 'closed'}</b></div>
-          <div><span>OBS</span><b>{status.obsConnected ? 'connected' : 'unavailable'}</b></div>
+          {liveDataRows(status, statusKnown).map(row => (
+            <div key={row.label}><span>{row.label}</span><b>{row.value}</b></div>
+          ))}
         </div>
         {/* Lives here rather than in Stream Controls, which only mounts when OBS is
             connected — see OverlayBoundsToggle. */}
