@@ -19,7 +19,7 @@ import {
   triggerObsTransition,
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
-import { obsNotice } from '../obsNotice';
+import { obsConnectionLabel, obsNotice } from '../obsNotice';
 import { EmptyState } from '../ui/emptyState';
 import { Icon } from '../ui/icons';
 
@@ -221,7 +221,7 @@ export function TabletPage() {
               <div className="tablet-status-group">
                 <span className="tablet-status">
                   <span className={connectionClass} />
-                  {obsStatus.connected ? 'Connected' : 'Offline'}
+                  {obsConnectionLabel(obsStatus.connected)}
                 </span>
                 {/* Studio mode is something OBS reports. While OBS is unreachable the
                     server zeroes it, so "Studio off" would be a claim nobody made. */}

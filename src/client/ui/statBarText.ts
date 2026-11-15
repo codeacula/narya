@@ -1,4 +1,5 @@
 import type { DashboardStatus } from '../../shared/api';
+import { OBS_OFFLINE } from '../obsNotice';
 
 /**
  * What the stat bar's gauges say, kept apart from `StatBar` so the wording rule is
@@ -88,7 +89,7 @@ export function healthGauge({
 }): { value: string; unit: string; sub: string } {
   const value = bitrateKbps === null ? UNKNOWN_VALUE : String(bitrateKbps);
   const unit = bitrateKbps === null ? '' : ' kbps';
-  if (!obsConnected) return { value, unit, sub: 'OBS offline' };
+  if (!obsConnected) return { value, unit, sub: OBS_OFFLINE };
   // Throughput, not frame counts, is the idle signal: a connected but idle OBS still
   // reports skipped/lagged frame numbers, and obs.ts only derives a bitrate while the
   // output is active (the same rule the stat bar's health meter keys off).

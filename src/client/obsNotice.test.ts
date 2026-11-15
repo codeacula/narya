@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { obsNotice } from './obsNotice';
+import { OBS_OFFLINE, obsConnectionLabel, obsNotice } from './obsNotice';
+import { healthGauge } from './ui/statBarText';
 
 const RAW = 'connect ECONNREFUSED 127.0.0.1:4455';
 const offline = { connected: false, lastError: RAW };
@@ -55,4 +56,16 @@ test('Narya not answering is not mistaken for OBS being down', () => {
   expect(notice?.tone).toBe('error');
   expect(notice?.message).not.toContain('OBS is offline');
   expect(notice?.detail).toBe('Failed to fetch');
+});
+
+test('the stat bar, the tablet chip and the tablet notice use one word for a down OBS', () => {
+  const statBar = healthGauge({ obsConnected: false, bitrateKbps: null, totalFrames: null, droppedFrames: null, laggedFrames: null }).sub;
+  const chip = obsConnectionLabel(false);
+  const notice = obsNotice({ obsStatus: offline, loaded: true, statusError: null, commandError: null })!.message;
+  expect(statBar).toBe(OBS_OFFLINE);
+  for (const text of [statBar, chip, notice, OBS_OFFLINE]) {
+    expect(text.toLowerCase()).toContain('offline');
+    expect(text.toLowerCase()).not.toMatch(/unavailable|disconnected/);
+  }
+  expect(obsConnectionLabel(true)).toBe('Connected');
 });

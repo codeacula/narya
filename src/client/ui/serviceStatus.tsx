@@ -2,6 +2,7 @@ import React from 'react';
 import type { DashboardStatus, DiscordAnnounceFailedPayload, SettingsUpdatedPayload } from '../../shared/api';
 import { useSocket } from '../realtime';
 import { useToast } from './notifications';
+import { OBS_OFFLINE } from '../obsNotice';
 
 // Watches live service status and settings changes, surfacing transient toasts with
 // guidance when something connects, drops, or needs configuration. Inline, persistent
@@ -18,7 +19,7 @@ export function ServiceStatusToasts() {
     if (prev.obs && !status.obsConnected) {
       pushToast({
         kind: 'error',
-        title: 'OBS disconnected',
+        title: OBS_OFFLINE,
         message: 'Check the OBS WebSocket URL and password in Settings → Connections.',
       });
     } else if (!prev.obs && status.obsConnected) {
