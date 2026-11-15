@@ -82,6 +82,14 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M5 14l-2 2 3 3 2-2"/>
     </>
   ),
+  /* A broadcast mast: the broadcaster's role badge. */
+  broadcast: (
+    <>
+      <circle cx="12" cy="12" r="2"/>
+      <path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49"/>
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/>
+    </>
+  ),
   'chevron-down': <path d="m6 9 6 6 6-6"/>,
   'arrow-up': <path d="M12 19V5M6 11l6-6 6 6"/>,
   'arrow-down': <path d="M12 5v14M6 13l6 6 6-6"/>,

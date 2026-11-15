@@ -2793,10 +2793,11 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   background: none;
   border: none;
   color: var(--fg-3);
-  font-size: 1.1rem;
+  display: inline-grid;
+  place-items: center;
   line-height: 1;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 2px;
 }
 .toast-close:hover { color: var(--fg-1); }
 
@@ -3858,4 +3859,4 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 /* ================= VIEWER POPOUT (/viewer) ================= */
 .viewer-window { padding: 12px; background: var(--bg-1); min-height: 100vh; }
 .viewer-window-bar { margin-bottom: 10px; text-align: right; }
-.viewer-window-open { display: inline-block; text-decoration: none; }
+.viewer-window-open { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }

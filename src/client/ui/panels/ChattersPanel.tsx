@@ -1,5 +1,6 @@
 import type { Viewer, Chatter } from '../../../shared/api';
-import { badgesFor, ROLE_BADGE } from './badges';
+import { badgesFor, ROLE_BADGE, ROLE_BADGE_LABEL } from './badges';
+import { Icon } from '../icons';
 import { EmptyState } from '../emptyState';
 
 const ROLE_SORT_ORDER: Record<string, number> = { broadcaster: 0, mod: 1, vip: 2, sub: 3 };
@@ -88,7 +89,9 @@ export function ChattersPanel({
             {badges.length > 0 && (
               <span className="chatter-badges">
                 {badges.map(b => (
-                  <span className={'cbadge ' + b} key={b} title={b}>{ROLE_BADGE[b]}</span>
+                  <span className={'cbadge ' + b} key={b} title={ROLE_BADGE_LABEL[b]} role="img" aria-label={ROLE_BADGE_LABEL[b]}>
+                    <Icon name={ROLE_BADGE[b] ?? 'star'} size={12} aria-hidden="true" focusable="false" />
+                  </span>
                 ))}
               </span>
             )}
