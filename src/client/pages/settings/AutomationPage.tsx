@@ -1666,9 +1666,12 @@ export function AutomationSettingsPage() {
 
         <SettingsStatus message={message} error={error} />
 
-        {actions.length === 0 && !loading && !loadFailed && (
-          <SettingsStatus error="No actions exist yet. A trigger has to run one — create an action first in Settings → Actions." />
-        )}
+        {/* Mounted while empty so its live region exists before the text lands. */}
+        <SettingsStatus
+          error={actions.length === 0 && !loading && !loadFailed
+            ? 'No actions exist yet. A trigger has to run one — create an action first in Settings → Actions.'
+            : null}
+        />
 
         <div className="set-group">
           <div className="set-group-label">Triggers</div>

@@ -378,24 +378,24 @@ export function ModulesSettingsPage() {
 
             {/* A failed category lookup with no module active has nowhere per-module to
                 report itself, and "no module active" from a healthy off-category stream
-                must not look identical to "we could not reach Twitch". */}
-            {state.lookupError && (
-              <SettingsStatus
-                error={<>
-                  Could not establish the live Twitch category, so no reward state was changed:{' '}
-                  {state.lookupError} Modules stay as they were until a Reconcile succeeds.
-                </>}
-              />
-            )}
+                must not look identical to "we could not reach Twitch".
 
-            {degraded.length > 0 && (
-              <SettingsStatus
-                error={<>
-                  {degraded.length} module{degraded.length === 1 ? '' : 's'} degraded. Twitch did not fully accept the
-                  last reward change — retry to re-apply it.
-                </>}
-              />
-            )}
+                Both lines stay mounted with nothing to say, so their live regions exist
+                before the text arrives: a region inserted with its text is often not
+                announced (SettingsAnnouncer). */}
+            <SettingsStatus
+              error={state.lookupError ? <>
+                Could not establish the live Twitch category, so no reward state was changed:{' '}
+                {state.lookupError} Modules stay as they were until a Reconcile succeeds.
+              </> : null}
+            />
+
+            <SettingsStatus
+              error={degraded.length > 0 ? <>
+                {degraded.length} module{degraded.length === 1 ? '' : 's'} degraded. Twitch did not fully accept the
+                last reward change — retry to re-apply it.
+              </> : null}
+            />
           </div>
         </div>
 
