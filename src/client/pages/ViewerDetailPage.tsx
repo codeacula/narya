@@ -257,7 +257,7 @@ export function ViewerDetailPane({
         {loadingHistory ? (
           <EmptyState title="Loading chat history…" />
         ) : messages.length === 0 ? (
-          <div className="viewer-history-empty">No chat messages recorded for this viewer yet.</div>
+          <EmptyState title="No chat yet">No chat messages are recorded for this viewer.</EmptyState>
         ) : (
           <div className="viewer-history-chat">
             {/* Newest first: the array is oldest→newest, so render it reversed. */}

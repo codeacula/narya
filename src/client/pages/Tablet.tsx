@@ -20,6 +20,7 @@ import {
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
 import { obsNotice } from '../obsNotice';
+import { EmptyState } from '../ui/emptyState';
 
 // Dropping focus after a tap keeps a tablet's on-screen button from staying
 // visually "stuck" highlighted. Keyboard activation (Enter/Space) also fires
@@ -262,28 +263,33 @@ export function TabletPage() {
               </div>
             ) : null}
 
-            <div className="tablet-button-grid sceneGrid">
-              {hasScenes ? scenes.map(scene => {
-                const isCurrent = scene === obsStatus.currentProgramScene;
-                const className = isCurrent ? 'scene-button current' : 'scene-button';
-                const isPending = pendingAction === `scene:${scene}`;
-                return (
-                  <button
-                    className={className}
-                    disabled={controlsDisabled || isCurrent}
-                    key={scene}
-                    onClick={() => {
-                      void runObsCommand(`scene:${scene}`, () => switchObsScene(scene));
-                    }}
-                  >
-                    <span>{sceneLabel(scene, obsStatus.scenePrefix)}</span>
-                    {isPending ? <small>Switching</small> : null}
-                  </button>
-                );
-              }) : (
-                <p className="muted">No OBS scenes available yet.</p>
-              )}
-            </div>
+            {/* While OBS is offline the notice above already says the buttons come
+                back on reconnect, so an empty grid says nothing more. A connected OBS
+                with no scenes is the only case left to explain. */}
+            {hasScenes ? (
+              <div className="tablet-button-grid sceneGrid">
+                {scenes.map(scene => {
+                  const isCurrent = scene === obsStatus.currentProgramScene;
+                  const className = isCurrent ? 'scene-button current' : 'scene-button';
+                  const isPending = pendingAction === `scene:${scene}`;
+                  return (
+                    <button
+                      className={className}
+                      disabled={controlsDisabled || isCurrent}
+                      key={scene}
+                      onClick={() => {
+                        void runObsCommand(`scene:${scene}`, () => switchObsScene(scene));
+                      }}
+                    >
+                      <span>{sceneLabel(scene, obsStatus.scenePrefix)}</span>
+                      {isPending ? <small>Switching</small> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : obsStatus.connected ? (
+              <EmptyState size="compact" title="No scenes">OBS reports no scenes to switch between.</EmptyState>
+            ) : null}
 
             {obsStatus.studioMode ? (
               <button
@@ -332,7 +338,9 @@ export function TabletPage() {
                   >
                     {sound.label}
                   </button>
-                )) : <p className="muted">No sounds yet — add them in Settings → Content.</p>}
+                )) : (
+                  <EmptyState size="compact" title="No sounds yet">Add sound buttons in Settings → Content.</EmptyState>
+                )}
               </div>
             </div>
 
@@ -346,7 +354,9 @@ export function TabletPage() {
                   >
                     {clip.label}
                   </button>
-                )) : <p className="muted">No clips yet — add them in Settings → Content.</p>}
+                )) : (
+                  <EmptyState size="compact" title="No clips yet">Add clip buttons in Settings → Content.</EmptyState>
+                )}
               </div>
             </div>
           </section>

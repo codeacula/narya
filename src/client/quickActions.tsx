@@ -8,6 +8,7 @@ import { getAutomationTriggers, getCategoryModules, runAutomationTrigger } from 
 import { useSocket } from './realtime';
 import { runResultTone, summarizeRunResult } from './pages/settings/automation';
 import { errorMessage } from './errors';
+import { EmptyState } from './ui/emptyState';
 
 export type QuickAction = {
   id: string;
@@ -103,11 +104,11 @@ export function QuickActionsPanel() {
       {error && <div className="quick-actions-error">{error}</div>}
 
       {loading ? (
-        <div className="command-empty">Loading quick actions...</div>
+        <EmptyState title="Loading quick actions…" />
       ) : actions.length === 0 ? (
-        <div className="command-empty">
-          No manual triggers. Add one in Settings → Automation → Manual button.
-        </div>
+        <EmptyState title="No quick actions">
+          Add a Manual button trigger in Settings → Automation.
+        </EmptyState>
       ) : (
         <div className="quick-actions-grid">
           {actions.map(action => {
@@ -156,9 +157,11 @@ export function TabletQuickActions() {
 
       <div className="tablet-button-grid">
         {loading ? (
-          <p className="muted">Loading…</p>
+          <EmptyState size="compact" title="Loading quick actions…" />
         ) : actions.length === 0 ? (
-          <p className="muted">No manual triggers — add them in Settings → Automation.</p>
+          <EmptyState size="compact" title="No quick actions">
+            Add a Manual button trigger in Settings → Automation.
+          </EmptyState>
         ) : actions.map(action => {
           const result = runs[action.id];
           const tone = result ? runResultTone(result) : null;
