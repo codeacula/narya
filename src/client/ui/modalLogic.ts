@@ -23,6 +23,33 @@ export function trapTabTarget(count: number, currentIndex: number, shift: boolea
 }
 
 /**
+ * Whether a dialog whose `initialFocusRef` target could not take focus on open (it was
+ * disabled while the dialog loaded) should move focus there now that it can.
+ *
+ * Only while focus still sits where the dialog parked it as a fallback and the
+ * operator has not moved it since: a dialog that finishes loading must not pull focus
+ * away from a field the operator already tabbed or clicked into. Tabbing away and
+ * back onto the fallback counts as moving it.
+ */
+export function shouldApplyDeferredFocus({
+  ready,
+  parkedOn,
+  active,
+  operatorMoved,
+}: {
+  /** The caller says the initial-focus target can take focus now. */
+  ready: boolean;
+  /** Where the dialog put focus because the target could not take it; null if it could. */
+  parkedOn: unknown;
+  /** `document.activeElement` now. */
+  active: unknown;
+  /** Focus has moved, or the pointer went down in the dialog, since it was parked. */
+  operatorMoved: boolean;
+}): boolean {
+  return ready && parkedOn != null && !operatorMoved && active === parkedOn;
+}
+
+/**
  * Open modals, innermost last. Escape and the Tab trap belong to the top one only:
  * a confirm raised over the Stream Info modal must close itself, not both.
  */
