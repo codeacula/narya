@@ -640,7 +640,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 .spot-section-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-3); }
 .spot-recent { display: flex; flex-direction: column; gap: 6px; }
 .spot-recent .rmsg { display: flex; gap: 10px; font-size: 12px; color: var(--ivory-100); }
-.spot-recent .rmsg .ago { font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); flex: none; width: 38px; }
+/* One line, sized to its text: a fixed 38px wrapped "20m ago" onto two lines. */
+.spot-recent .rmsg .ago { font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); flex: none; min-width: 7ch; white-space: nowrap; }
 .spot-recent .rmsg .body .chat-emote { height: 18px; width: auto; vertical-align: middle; margin: 0 1px; }
 .spot-recent .rmsg.event .body { color: var(--warning-fg); }
 .spot-recent .rmsg.mod .body { color: var(--success-fg); }
