@@ -19,6 +19,7 @@ import {
   updateMediaAsset,
   updateSoundButton,
 } from '../../services/dashboard';
+import { CrystalOrb } from '../../crystalOrb';
 
 const DEFAULT_VOLUME = 0.8;
 
@@ -248,7 +249,7 @@ function MediaLibrary() {
         <div className="settings-split-detail">
           {selection.mode === 'none' ? (
             <div className="split-empty">
-              <div className="es-orb" />
+              <CrystalOrb variant="moon" size={40} />
               <div className="es-title">Nothing selected</div>
               <div className="es-sub">
                 Pick an asset to rename it, re-point it, or set its playback volume. New adds a file
@@ -638,7 +639,7 @@ function MediaButtonManager({
         <div className="settings-split-detail">
           {!form ? (
             <div className="split-empty">
-              <div className="es-orb" />
+              <CrystalOrb variant="moon" size={40} />
               <div className="es-title">Nothing selected</div>
               <div className="es-sub">
                 Pick a {copy.noun} button to rename it or re-point it, or hit New to add one.

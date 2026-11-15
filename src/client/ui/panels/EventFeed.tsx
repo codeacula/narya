@@ -5,7 +5,6 @@ import { belongsToCurrentSession, sessionBoundaryIndex, type PanelCtx } from './
 import {
   EVT_ICON,
   EVT_KIND_LABEL,
-  EVT_TONE_OVERRIDE,
   loadHiddenKinds,
   saveHiddenKinds,
 } from './eventPresentation';
@@ -108,7 +107,10 @@ export function EventFeed({ ctx }: { ctx: PanelCtx }) {
       </div>
       <div className="evt-list">
         {visibleEvents.map((e, index) => {
-          const tone = EVT_TONE_OVERRIDE[e.kind] ?? e.tone;
+          // The server stores the alert-palette tone with each event (follow silver, sub
+          // gold, raid violet, cheer blue; a watch-streak redeem silver), which is what
+          // the overlay uses too — so no client-side override.
+          const tone = e.tone;
           const fromThisStream = belongsToCurrentSession(e.sessionId, ctx.currentSessionId);
           return (
             <React.Fragment key={e.id}>

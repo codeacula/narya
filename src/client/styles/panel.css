@@ -34,17 +34,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   height: 46px;
   padding: 0 var(--space-5);
   border-bottom: 1px solid var(--border-1);
-  background: rgba(12, 18, 32, 0.55);
-  backdrop-filter: blur(12px);
+  /* Flat, like the overlay bars: no blur, a hairline on the inner edge. */
+  background: rgba(12, 18, 32, 0.94);
 }
 .brand { display: flex; align-items: center; gap: 10px; }
-.brand img { width: 22px; height: 22px; display: block; }
 .brand .wm {
   font-family: var(--font-logo);
   font-size: 15px;
-  letter-spacing: 0.28em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--ivory-100);
+  color: var(--ivory-50);
   padding-left: 2px;
 }
 .brand .wm span { color: var(--accent-fg); }
@@ -142,7 +141,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .gauge-value small { font-size: 11px; color: var(--fg-2); font-weight: 500; }
 .gauge-sub { font-family: var(--font-mono); font-size: 10px; color: var(--fg-2); letter-spacing: 0.04em; }
 
-.gauge.live .gauge-value { color: var(--success-fg); }
+/* Live uptime is the bar's one gold value, as it is in the overlay's bottom bar. The
+   green live dot beside the label still says "on air". */
+.gauge.live .gauge-value { color: var(--gold-500); }
 .gauge.offline .gauge-value { color: var(--silver-500); }
 
 /* Stream gauge hero treatment */
@@ -152,9 +153,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .gauge.stream-gauge .gauge-value {
   font-size: var(--step-3);
   line-height: 1;
-}
-.gauge.stream-gauge.live {
-  background: rgba(127, 200, 163, 0.04);
 }
 .gauge.stream-gauge .gauge-sub {
   font-family: var(--font-display);
@@ -225,7 +223,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 
 .health { display: flex; align-items: center; gap: 8px; }
 .health-dot { width: 9px; height: 9px; border-radius: 50%; }
-.health-dot.good { background: var(--success-base); box-shadow: 0 0 8px rgba(127,200,163,0.6); }
+.health-dot.good { background: var(--success-base); }
 .health-dot.warn { background: var(--warning-base); }
 .health-dot.bad { background: var(--silver-600); }
 .health-bars { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
@@ -254,21 +252,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .panel {
   min-height: 0; min-width: 0;
   display: flex; flex-direction: column;
-  background:
-    radial-gradient(circle at 95% 5%, rgba(61, 43, 107, 0.07), transparent 60%),
-    var(--bg-2);
+  /* Flat navy-900 with a hairline, as the overlay cards are: no tint, no accent stripe. */
+  background: var(--bg-2);
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   overflow: hidden;
-}
-.panel:not(.ghost) {
-  border-left: 2px solid rgba(var(--gold-rgb), 0.2);
 }
 .panel-head {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-1);
-  background: linear-gradient(180deg, rgba(255,255,255,0.015), transparent);
   flex: none;
 }
 .panel-title {
@@ -277,10 +270,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   color: var(--fg-2);
   display: flex; align-items: center; gap: 8px;
 }
-.panel-title .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px rgba(var(--gold-rgb), 0.6); }
+/* Marks a live feed. Silver, not gold: gold is kept for the one thing that needs acting on. */
+.panel-title .tdot { width: 6px; height: 6px; border-radius: 50%; background: var(--silver-400); }
 .panel-count {
   font-family: var(--font-mono); font-size: 10px; color: var(--fg-3);
-  padding: 1px 7px; border: 1px solid var(--border-1); border-radius: var(--radius-pill);
+  padding: 1px 7px; border: 1px solid var(--border-1); border-radius: var(--radius-1);
 }
 .panel-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .icon-btn {
@@ -308,7 +302,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   flex: none; display: flex; align-items: center; gap: 6px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border-1);
-  background: linear-gradient(180deg, rgba(255,255,255,0.012), transparent);
 }
 .chat-search {
   flex: 1; min-width: 0;
@@ -322,7 +315,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .chat-search:focus { border-color: var(--border-3); background: var(--bg-void); box-shadow: 0 0 0 2px rgba(var(--gold-rgb), 0.12); }
 .chat-bar-scroll-btn {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 0 8px; height: 26px; border-radius: var(--radius-pill);
+  padding: 0 8px; height: 26px; border-radius: var(--radius-2);
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--fg-2); background: transparent; border: 1px solid var(--border-1);
   cursor: pointer;
@@ -344,7 +337,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   --msg-time-slot: 60px;
   padding: var(--row-pad-y) 14px;
   font-size: 15px; line-height: 1.5;
-  border-left: 2px solid transparent;
   transition: background var(--dur-fast);
 }
 .msg:hover { background: rgba(255,255,255,0.022); }
@@ -370,10 +362,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .cbadge.broadcaster { background: var(--danger-base); }
 .cbadge.mod { background: var(--success-base); }
-.cbadge.vip { background: var(--note-base); color: #fff; }
+.cbadge.vip { background: var(--note-base); }
 .cbadge.sub { background: var(--gold-500); }
 .msg-user {
-  font-weight: 600; cursor: pointer; border-bottom: 1px solid transparent;
+  /* Mono and role-coloured, as the overlay chat draws usernames. */
+  font-family: var(--font-mono); font-size: 14px; font-weight: 500;
+  margin-right: 8px;
+  cursor: pointer; border-bottom: 1px solid transparent;
   transition: border-color var(--dur-fast);
 }
 .msg-user:hover { border-bottom-color: currentColor; }
@@ -444,10 +439,15 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   margin-left: 8px;
   padding: 1px 6px;
   font-family: var(--font-mono); font-size: 9px; letter-spacing: var(--track-caps); text-transform: uppercase;
-  border: 1px solid var(--border-2); border-radius: var(--radius-pill);
+  border: 1px solid var(--border-2); border-radius: var(--radius-1);
   color: var(--fg-3);
 }
 .msg-mod-status.timeout { color: var(--warning-fg); border-color: var(--warning-border); background: var(--warning-bg); }
+.msg-mod-status.ban { color: var(--danger-fg); border-color: var(--danger-border); background: var(--danger-bg); }
+/* The message recedes once its author has been actioned — but stays readable,
+   since it is usually the evidence for why. */
+.msg--moderated .msg-text,
+.msg--moderated .msg-user { opacity: 0.55; }
 /* Removed on Twitch: struck through, so it can never be mistaken for live chat. */
 .msg--deleted .msg-text { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--danger-base) 60%, transparent); }
 .msg-mod-status.removed {
@@ -455,11 +455,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--danger-fg); border-color: var(--danger-border); background: var(--danger-bg);
 }
-.msg-mod-status.ban { color: var(--danger-fg); border-color: var(--danger-border); background: var(--danger-bg); }
-/* The message recedes once its author has been actioned — but stays readable,
-   since it is usually the evidence for why. */
-.msg--moderated .msg-text,
-.msg--moderated .msg-user { opacity: 0.55; }
 
 .chat-mod-error {
   padding: 4px 14px;
@@ -503,26 +498,29 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   margin: 7px 0 0; padding: 3px 9px;
   font-size: 10px;
 }
+/* Highlighted rows take their palette's -bg fill and keep the tag chip as the label;
+   there is no coloured stripe, matching the overlay's flat cards. */
 .msg.hl-first,
-.msg.hl-first-ever { border-left-color: var(--info-base); background: rgba(106,168,212,0.11); }
-.msg.hl-first-session { border-left-color: var(--success-base); background: rgba(127,200,163,0.11); }
-.msg.hl-broadcaster { border-left-color: var(--gold-500); background: rgba(var(--gold-rgb), 0.12); }
-.msg.hl-sub { border-left-color: var(--gold-500); background: rgba(var(--gold-rgb), 0.10); }
-.msg.hl-mod { border-left-color: var(--success-base); background: rgba(80,250,123,0.09); }
-.msg.hl-vip { border-left-color: var(--note-base); background: rgba(159,110,235,0.11); }
+.msg.hl-first-ever { background: color-mix(in srgb, var(--info-bg) 75%, transparent); }
+/* The quietest: early in a stream nearly every row is someone's first of the session. */
+.msg.hl-first-session { background: color-mix(in srgb, var(--success-bg) 45%, transparent); }
+.msg.hl-broadcaster { background: color-mix(in srgb, var(--warning-bg) 75%, transparent); }
+.msg.hl-sub { background: color-mix(in srgb, var(--warning-bg) 50%, transparent); }
+.msg.hl-mod { background: color-mix(in srgb, var(--success-bg) 60%, transparent); }
+.msg.hl-vip { background: color-mix(in srgb, var(--note-bg) 75%, transparent); }
 /* Someone said your name — the visual half of the ping cue, gold to match the
    overlay's .chat-message.mention. Placed after the hl- tints deliberately: at equal
    specificity the later rule wins, so "they're talking to you" outranks the role
    colour of whoever said it. */
 .msg.msg--mention {
-  border-left-color: var(--gold-500);
-  background: rgba(var(--gold-rgb), 0.16);
+  background: var(--warning-bg);
+  box-shadow: inset 0 0 0 1px var(--warning-border);
 }
 .msg.hl-mod .hl-tag { color: var(--success-fg); border: 1px solid var(--success-border); background: var(--success-bg); }
 .msg.hl-vip .hl-tag { color: var(--note-fg); border: 1px solid var(--note-border); background: var(--note-bg); }
 .msg .hl-tag {
   display: inline-block; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.12em;
-  text-transform: uppercase; padding: 1px 6px; border-radius: var(--radius-pill);
+  text-transform: uppercase; padding: 1px 6px; border-radius: var(--radius-1);
   margin-right: 6px; vertical-align: middle;
 }
 .msg.hl-first .hl-tag,
@@ -530,8 +528,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 .msg.hl-first-session .hl-tag { color: var(--success-fg); border: 1px solid var(--success-border); background: var(--success-bg); }
 .msg.hl-broadcaster .hl-tag { color: var(--warning-fg); border: 1px solid var(--warning-border); background: var(--warning-bg); }
 .msg.hl-sub .hl-tag { color: var(--warning-fg); border: 1px solid var(--warning-border); background: var(--warning-bg); }
-.msg.selected { background: rgba(var(--gold-rgb), 0.07); border-left-color: var(--accent); }
-.msg.msg-whisper { border-left-color: var(--note-base); background: rgba(158,130,232,0.10); }
+.msg.selected { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--border-3); }
+.msg.msg-whisper { background: var(--note-bg); }
 .msg.msg-whisper .whisper-tag { color: var(--note-fg); border: 1px solid var(--note-border); background: var(--note-bg); }
 
 .chat-input {
@@ -572,7 +570,7 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   padding: 6px 14px; cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
 }
-.chat-send:hover:not(:disabled) { background: rgba(var(--gold-rgb), 0.2); color: #ffe2bf; box-shadow: 0 0 8px rgba(var(--gold-rgb), 0.15); }
+.chat-send:hover:not(:disabled) { background: rgba(var(--gold-rgb), 0.2); color: var(--gold-300); }
 .chat-send:disabled { cursor: not-allowed; opacity: 0.5; }
 .chat-input-error,
 .chat-input-notice {
@@ -603,14 +601,14 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 .spot-roles { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
 .rolepill {
   font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 2px 8px; border-radius: var(--radius-pill); border: 1px solid;
+  padding: 2px 8px; border-radius: var(--radius-1); border: 1px solid;
 }
 .rolepill.mod { color: var(--success-fg); border-color: var(--success-border); background: var(--success-bg); }
 .rolepill.vip { color: var(--note-fg); border-color: var(--note-border); background: var(--note-bg); }
 .rolepill.sub { color: var(--warning-fg); border-color: var(--warning-border); background: var(--warning-bg); }
 .profile-tag {
   font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
-  padding: 2px 8px; border-radius: var(--radius-pill);
+  padding: 2px 8px; border-radius: var(--radius-1);
   color: var(--info-fg); border: 1px solid var(--info-border); background: var(--info-bg);
 }
 
@@ -666,12 +664,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 10px; padding: 20px; text-align: center; color: var(--fg-3);
 }
-.empty-state .es-orb {
-  width: 44px; height: 44px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, rgba(158,130,232,0.5), rgba(28,39,62,0.9) 70%);
-  border: 1px solid var(--note-border);
-  box-shadow: 0 0 26px rgba(107,79,184,0.35);
-}
 .empty-state .es-title { font-family: var(--font-display); font-style: italic; font-size: var(--step-1); color: var(--ivory-200); }
 .empty-state .es-sub { font-size: 12px; max-width: 30ch; line-height: 1.5; }
 
@@ -695,7 +687,7 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 .tone-warning .evt-icon { color: var(--warning-base); border-color: var(--warning-border); background: var(--warning-bg); }
 .tone-info .evt-icon { color: var(--info-base); border-color: var(--info-border); background: var(--info-bg); }
 .tone-note .evt-icon { color: var(--note-base); border-color: var(--note-border); background: var(--note-bg); }
-.tone-silver .evt-icon { color: var(--silver-400); border-color: var(--border-2); background: rgba(162,170,188,0.08); }
+.tone-silver .evt-icon { color: var(--silver-300); border-color: var(--border-2); background: rgba(162,170,188,0.08); }
 
 /* Events from an earlier stream (or from off-stream) recede so the current
    stream's activity reads first. */
@@ -717,7 +709,7 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   display: flex; flex-direction: column;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   box-shadow: var(--shadow-3), 0 0 40px -10px rgba(0,0,0,0.7);
   overflow: hidden;
 }
@@ -784,13 +776,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   color: var(--fg-3);
 }
 .split-detail .split-empty { min-height: 100%; }
-.split-empty .es-orb {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-2);
-  background: radial-gradient(circle at 35% 30%, rgba(var(--gold-rgb), 0.22), transparent 62%);
-}
 .split-empty .es-title {
   font-family: var(--font-display);
   font-style: italic;
@@ -947,7 +932,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   height: 6px;
   border-radius: var(--radius-pill);
   background: var(--warning-base);
-  box-shadow: 0 0 8px rgba(var(--gold-rgb), 0.55);
 }
 
 .settings-canvas {
@@ -1035,7 +1019,7 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
    container, so the offset now resolves against `.settings-canvas` instead.
    Note this does not by itself make the editor pane visibly stick: see the caveat on
    `.settings-split-detail`. */
-.set-group { border: 1px solid var(--border-1); border-radius: var(--radius-3); background: var(--bg-2); margin-bottom: var(--panel-gap); overflow: clip; }
+.set-group { border: 1px solid var(--border-1); border-radius: var(--radius-2); background: var(--bg-2); margin-bottom: var(--panel-gap); overflow: clip; }
 .set-group-label {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--fg-3); padding: 9px 14px; border-bottom: 1px solid var(--border-1); background: rgba(255,255,255,0.012);
@@ -1060,11 +1044,14 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   margin-top: 6px;
 }
 .set-control { margin-left: auto; flex: none; }
-.set-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; }
-.set-badge--ok { background: rgba(80,250,123,0.12); color: #50fa7b; border: 1px solid rgba(80,250,123,0.3); }
-.set-badge--ok::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #50fa7b; }
-.btn-primary { display: inline-block; padding: 7px 16px; border-radius: var(--radius-2); background: var(--arcane-400); color: #fff; font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background var(--dur-fast); }
-.btn-primary:hover { background: var(--arcane-500); }
+.set-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: var(--radius-1); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; }
+.set-badge--ok { background: var(--success-bg); color: var(--success-fg); border: 1px solid var(--success-border); }
+.set-badge--ok::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--success-base); }
+/* The primary call to action is the design system's gold, the same filled gold as an
+   active scene button — not a second, violet accent. */
+.btn-primary { display: inline-block; padding: 7px 16px; border: 1px solid var(--gold-400); border-radius: var(--radius-2); background: var(--gold-500); color: var(--navy-950); font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; cursor: pointer; transition: background var(--dur-fast); }
+.btn-primary:hover { background: var(--gold-400); }
+.btn-primary:disabled { cursor: not-allowed; opacity: 0.5; }
 .command-empty {
   color: var(--fg-3);
   font-size: 13px;
@@ -1181,9 +1168,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
    scrollbar and let a long row (an action's `/ban <user> [reason]` usage chip) push
    the scroll width out instead of ellipsizing inside the column. `hidden` rather than
    `clip` because a `clip` paired with a non-clip axis computes to `hidden` anyway. */
-/* A kind picker is as wide as its longest option; beside the hint it squeezed the
-   sentence into a ~110px column. Stack the two instead. */
-.split-list-head:has(> .split-new-select) { flex-direction: column; align-items: stretch; }
 .settings-split-list .settings-mini-list {
   max-height: min(56vh, 540px);
   overflow-y: auto;
@@ -1197,6 +1181,9 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   gap: var(--space-3);
 }
 .split-list-head .set-sub { max-width: 40ch; }
+/* A kind picker is as wide as its longest option; beside the hint it squeezed the
+   sentence into a ~110px column. Stack the two instead. */
+.split-list-head:has(> .split-new-select) { flex-direction: column; align-items: stretch; }
 /* Caveat, measured: this `sticky` is currently inert, and fixing `.set-group`'s
    scrollport was necessary but not sufficient. The grid row is as tall as its tallest
    column, the list caps itself at 540px and scrolls internally, and so the *editor* is
@@ -1338,7 +1325,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   max-width: 100%;
   padding: 1px 7px;
   border: 1px solid var(--border-1);
-  border-radius: 99px;
+  border-radius: var(--radius-1);
   background: rgba(255,255,255,0.03);
   color: var(--fg-3);
   font-family: inherit;
@@ -1521,7 +1508,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .panel-tab:hover:not(.active) { color: var(--fg-1); background: rgba(255,255,255,0.03); }
 .panel-tab-badge {
   margin-left: 6px; padding: 0 5px; min-width: 15px; display: inline-block; text-align: center;
-  font-size: 10px; line-height: 15px; border-radius: var(--radius-pill);
+  font-size: 10px; line-height: 15px; border-radius: var(--radius-1);
   background: var(--danger-bg); color: var(--danger-fg); border: 1px solid var(--danger-border);
 }
 .nav-automod-alert {
@@ -1529,7 +1516,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   height: 28px; padding: 0 10px; margin-right: 8px;
   font-size: 12px; font-weight: 600; cursor: pointer;
   color: var(--danger-fg); background: var(--danger-bg);
-  border: 1px solid var(--danger-border); border-radius: var(--radius-pill);
+  border: 1px solid var(--danger-border); border-radius: var(--radius-2);
 }
 .nav-automod-alert:hover { border-color: var(--danger-fg); }
 .nav-automod-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger-fg); }
@@ -1611,7 +1598,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   border-color: var(--gold-400);
   background: var(--gold-500);
   color: var(--navy-950);
-  box-shadow: 0 0 18px rgba(var(--gold-rgb), 0.16);
   opacity: 1;
 }
 .ctrl-scene-button:disabled { cursor: not-allowed; opacity: 0.5; }
@@ -1710,7 +1696,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-1);
 }
 .reward-ctrl + .reward-ctrl { margin-top: 8px; }
@@ -1756,7 +1742,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   margin-left: 8px;
   padding: 1px 6px;
   border: 1px solid var(--note-border);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-2);
   background: var(--note-bg);
   color: var(--note-fg);
   font-family: var(--font-mono);
@@ -1784,7 +1770,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .reward-group {
   margin-bottom: var(--panel-gap);
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-2);
   /* No overflow:hidden — it would clip the "Active for stream categories" combobox that
      opens past the card's bottom edge. The rounded bottom corners are handled on .reward-list. */
@@ -1842,7 +1828,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   height: 26px;
   padding: 0 3px 0 11px;
   border: 1px solid var(--border-3);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-1);
   background: var(--warning-bg);
   color: var(--gold-300);
   font-size: 12px;
@@ -1868,7 +1854,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   min-height: 26px;
   padding: 4px 12px;
   border: 1px dashed var(--border-2);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-2);
   background: transparent;
   color: var(--fg-2);
   font: 12px var(--font-body);
@@ -1886,7 +1872,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   max-width: 80vw;
   padding: 8px;
   border: 1px solid var(--border-2);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-1);
   box-shadow: var(--shadow-3);
 }
@@ -1935,7 +1921,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   flex: none;
   margin-left: auto;
   padding: 1px 7px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-1);
   background: var(--bg-3);
   color: var(--fg-3);
   font-family: var(--font-mono);
@@ -1967,7 +1953,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   cursor: pointer;
 }
 .suggestion-toggle:hover { color: var(--fg-2); }
-.reward-list { display: grid; overflow: hidden; border-radius: 0 0 var(--radius-3) var(--radius-3); }
+.reward-list { display: grid; overflow: hidden; border-radius: 0 0 var(--radius-2) var(--radius-2); }
 .reward-row {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) minmax(150px, 190px) auto;
@@ -2012,7 +1998,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   flex: none;
   padding: 2px 6px;
   border: 1px solid var(--border-2);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-1);
   color: var(--fg-3);
   font-family: var(--font-mono);
   font-size: 9px;
@@ -2072,7 +2058,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 8px;
   padding: 42px 20px;
   border: 1px dashed var(--border-2);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   text-align: center;
 }
 .reward-empty-state .btn-primary { border: 0; min-height: 34px; margin-top: 6px; }
@@ -2132,8 +2118,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(3, 7, 14, 0.72);
-  backdrop-filter: blur(10px);
+  background: rgba(3, 7, 14, 0.82);
 }
 .stream-info-modal {
   width: min(520px, 100%);
@@ -2142,7 +2127,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--border-2);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-2);
   box-shadow: var(--shadow-3);
 }
@@ -2153,7 +2138,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 16px;
   padding: 20px;
   border: 1px solid var(--border-2);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-2);
   box-shadow: var(--shadow-3);
 }
@@ -2285,7 +2270,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   padding: 5px 11px;
   font-family: var(--font-mono); font-size: 11px; letter-spacing: var(--track-caps);
   color: var(--fg-2); background: transparent;
-  border: 1px solid var(--border-2); border-radius: var(--radius-pill);
+  border: 1px solid var(--border-2); border-radius: var(--radius-2);
   cursor: pointer;
   transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
 }
@@ -2348,8 +2333,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   color: var(--fg-3);
 }
 /* Stream-info: saved-category dropdown with an Add button that flips to search. */
-/* With no tags the empty well read as a second, unusable text box above the real one. */
-.tag-chip-list:empty { display: none; }
 .stream-cat-picker { display: flex; gap: 8px; align-items: stretch; }
 .stream-cat-picker > .suggestion-anchor,
 .stream-cat-picker > select { flex: 1; min-width: 0; }
@@ -2365,6 +2348,8 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   border-radius: var(--radius-2);
   background: var(--bg-void);
 }
+/* With no tags the empty well read as a second, unusable text box above the real one. */
+.tag-chip-list:empty { display: none; }
 .tag-chip {
   display: inline-flex;
   align-items: center;
@@ -2372,7 +2357,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   min-height: 18px;
   padding: 1px 3px 1px 7px;
   border: 1px solid var(--border-2);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-1);
   background: rgba(255,255,255,0.025);
   color: var(--fg-1);
   font-family: var(--font-mono);
@@ -2386,7 +2371,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-1);
   background: transparent;
   color: var(--fg-3);
   cursor: pointer;
@@ -2497,6 +2482,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   padding: 2px 6px; border-radius: var(--radius-2); border: 1px solid var(--border-2);
   color: var(--fg-2); white-space: nowrap;
 }
+.shout-chip.tone-silver { color: var(--silver-300); border-color: var(--border-2); background: rgba(162,170,188,0.08); }
 .shout-chip.tone-warning { color: var(--warning-base); border-color: var(--warning-border); background: var(--warning-bg); }
 .shout-chip.tone-info { color: var(--info-base); border-color: var(--info-border); background: var(--info-bg); }
 .shout-chip.tone-note { color: var(--note-base); border-color: var(--note-border); background: var(--note-bg); }
@@ -2539,31 +2525,47 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .panel-empty { padding: 18px 14px; font-size: 12px; color: var(--fg-3); text-align: center; line-height: 1.5; }
 .att-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
 .att-row {
-  display: flex; gap: 8px; align-items: center; text-align: left; width: 100%;
+  position: relative;
+  display: flex; gap: 10px; align-items: center; text-align: left; width: 100%;
   padding: 8px 12px; border: 0; border-bottom: 1px solid var(--border-1);
-  border-left: 2px solid transparent;
   background: transparent; color: var(--fg-1); cursor: pointer; font: inherit;
-  transition: background var(--dur-fast), border-left-color var(--dur-fast);
+  transition: background var(--dur-base) var(--ease-out);
 }
 .att-row:last-child { border-bottom: none; }
 .att-row:hover { background: rgba(255,255,255,0.03); }
-.att-row .evt-actor, .att-row .evt-detail { display: block; }
-.att-row .evt-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Unacked items stay loud until clicked, so a thank-you never scrolls past unnoticed. */
-.att-row--unacked {
-  background: rgba(255,255,255,0.04);
-  animation: att-pulse 2.4s ease-in-out infinite;
+.att-row .evt-detail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-eyebrow {
+  display: block;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--fg-3);
 }
-.att-row--unacked.tone-warning { border-left-color: var(--warning-base); }
-.att-row--unacked.tone-info { border-left-color: var(--info-base); }
-.att-row--unacked.tone-note { border-left-color: var(--note-base); }
-.att-row--unacked.tone-silver { border-left-color: var(--silver-400); }
-@keyframes att-pulse {
-  0%, 100% { background: rgba(255,255,255,0.03); }
-  50% { background: rgba(var(--gold-rgb), 0.10); }
+.att-actor {
+  display: block;
+  font-family: var(--font-display); font-style: italic; font-size: 19px; line-height: 1.15;
+  color: var(--ivory-200);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Unacked items are the overlay's alert card in miniature — the tone's -bg fill, its
+   hairline and its eyebrow colour — and stay that way until clicked, so a thank-you
+   never scrolls past unnoticed. The hairline breathes slowly; nothing bounces. */
+.att-row--unacked { background: var(--att-bg); }
+.att-row--unacked .att-actor { color: var(--ivory-50); }
+.att-row--unacked .att-eyebrow { color: var(--att-fg); }
+.att-row--unacked::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  box-shadow: inset 0 0 0 1px var(--att-border);
+  animation: att-breathe 3.2s var(--ease-in-out) infinite;
+}
+.att-row.tone-silver { --att-bg: rgba(162,170,188,0.08); --att-border: var(--border-2); --att-fg: var(--silver-300); }
+.att-row.tone-warning { --att-bg: var(--warning-bg); --att-border: var(--warning-border); --att-fg: var(--warning-fg); }
+.att-row.tone-info { --att-bg: var(--info-bg); --att-border: var(--info-border); --att-fg: var(--info-fg); }
+.att-row.tone-note { --att-bg: var(--note-bg); --att-border: var(--note-border); --att-fg: var(--note-fg); }
+@keyframes att-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .att-row--unacked { animation: none; }
+  .att-row--unacked::after { animation: none; }
 }
 
 /* ============================================================
@@ -2586,7 +2588,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   align-items: flex-start;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-3);
-  border-radius: 10px;
+  border-radius: var(--radius-2);
   border: 1px solid var(--border-2);
   background: var(--bg-2);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
@@ -2623,7 +2625,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   display: flex;
   gap: var(--space-2);
   padding: var(--space-3);
-  border-radius: 8px;
+  border-radius: var(--radius-2);
   border: 1px solid var(--border-2);
   background: var(--bg-2);
   font-size: 0.8rem;
@@ -2670,7 +2672,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: var(--space-4);
   padding: var(--space-4);
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-2);
 }
 .cat-card.is-hidden { opacity: 0.55; }
@@ -2703,7 +2705,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .cat-groups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .cat-group {
   padding: 2px 9px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-1);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: var(--track-wide);
@@ -2806,7 +2808,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 6px;
   padding: 6px 12px;
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-2);
   background: transparent;
   color: var(--fg-2);
   font-family: var(--font-mono);
@@ -2860,14 +2862,13 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   height: 6px;
   border-radius: var(--radius-pill);
   background: var(--success-base);
-  box-shadow: 0 0 8px var(--success-base);
 }
 .viewers-status.is-error { color: var(--fg-1); }
-.viewers-status.is-error::before { background: var(--danger-base); box-shadow: 0 0 8px var(--danger-base); }
+.viewers-status.is-error::before { background: var(--danger-base); }
 
 .roster-list {
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-2);
   overflow: hidden;
 }
@@ -3022,10 +3023,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
    history stops bloating the page. Newest message sits at the top; the rows
    themselves are the shared .msg component, so they read identically to the
    dashboard chat. No horizontal padding — the rows own their inset and their
-   left-border highlight aligns to the well edge. */
+   highlight fill runs to the well edge. */
 .viewer-history-chat {
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-void);
   max-height: min(64vh, 560px);
   overflow-y: auto;
@@ -3036,7 +3037,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .roster-badge {
   padding: 1px 7px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-1);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: var(--track-wide);
@@ -3263,7 +3264,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .action-run-status {
   flex: none;
   padding: 2px 8px;
-  border-radius: 99px;
+  border-radius: var(--radius-1);
   border: 1px solid currentColor;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -3339,7 +3340,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   align-items: center;
   gap: 5px;
   padding: 2px 9px;
-  border-radius: 99px;
+  border-radius: var(--radius-1);
   border: 1px solid var(--border-1);
   font-family: var(--font-mono);
   font-size: 10px;
@@ -3399,7 +3400,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 6px;
   padding: 4px 6px 4px 10px;
   border: 1px solid var(--border-2);
-  border-radius: 99px;
+  border-radius: var(--radius-1);
   background: rgba(255,255,255,0.03);
   color: var(--fg-1);
   font-size: 12px;
@@ -3594,7 +3595,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: var(--space-3);
   padding: var(--space-4);
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-2);
 }
 
@@ -3608,7 +3609,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-2);
   background: var(--bg-2);
 }
 .quote-card--editing { border-color: var(--border-3); }

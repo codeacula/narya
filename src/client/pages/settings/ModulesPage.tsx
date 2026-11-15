@@ -21,6 +21,7 @@ import { useSocket } from '../../realtime';
 import { useDebouncedSuggestions } from '../../suggestions';
 import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
+import { CrystalOrb } from '../../crystalOrb';
 
 const EMPTY_RESPONSE: CategoryModulesResponse = {
   modules: [],
@@ -399,7 +400,7 @@ export function ModulesSettingsPage() {
             <div className="settings-split-detail">
               {!draft ? (
                 <div className="split-empty">
-                  <div className="es-orb" />
+                  <CrystalOrb variant="moon" size={40} />
                   <div className="es-title">Nothing selected</div>
                   <div className="es-sub">
                     Pick a module on the left to edit the Twitch categories it claims and the reward

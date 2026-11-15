@@ -71,6 +71,8 @@ import {
   triggerScopeLabel,
   validateTrigger,
 } from './automation';
+import { CrystalOrb } from '../../crystalOrb';
+import { Icon } from '../../ui/icons';
 
 const ALERT_EVENT_KINDS: AlertEventKind[] = ['sub', 'gift', 'cheer', 'raid', 'follow'];
 
@@ -659,19 +661,21 @@ function TriggerActionsEditor({
                   className="modbtn"
                   type="button"
                   title="Move up"
+                  aria-label="Move up"
                   disabled={disabled || index === 0}
                   onClick={() => onChange(reindex(moveStep(triggerActions, index, index - 1)))}
                 >
-                  ↑
+                  <Icon name="arrow-up" size={13} />
                 </button>
                 <button
                   className="modbtn"
                   type="button"
                   title="Move down"
+                  aria-label="Move down"
                   disabled={disabled || index === triggerActions.length - 1}
                   onClick={() => onChange(reindex(moveStep(triggerActions, index, index + 1)))}
                 >
-                  ↓
+                  <Icon name="arrow-down" size={13} />
                 </button>
                 <button
                   className="modbtn danger"
@@ -1658,7 +1662,7 @@ export function AutomationSettingsPage() {
             <div className="settings-split-detail">
               {!draft ? (
                 <div className="split-empty">
-                  <div className="es-orb" />
+                  <CrystalOrb variant="moon" size={40} />
                   <div className="es-title">Nothing selected</div>
                   <div className="es-sub">
                     Pick a trigger on the left to see what fires it, which action it runs, and its

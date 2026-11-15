@@ -15,6 +15,7 @@ import {
   removeVip,
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
+import { CrystalOrb } from '../crystalOrb';
 
 const PAGE_SIZE = 80;
 
@@ -254,7 +255,7 @@ export function ViewerDetailPane({
       <section className="viewer-history">
         <div className="spot-section-label">Chat history</div>
         {loadingHistory ? (
-          <div className="empty-state"><div className="es-orb" /><div className="es-title">Loading chat history…</div></div>
+          <div className="empty-state"><CrystalOrb variant="moon" size={40} /><div className="es-title">Loading chat history…</div></div>
         ) : messages.length === 0 ? (
           <div className="viewer-history-empty">No chat messages recorded for this viewer yet.</div>
         ) : (
