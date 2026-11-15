@@ -1727,7 +1727,7 @@ export function AutomationSettingsPage() {
                             <div className="settings-item-main">
                               <b>{trigger.name}</b>
                               <span>{describeTriggerConfig(trigger, rewardTitles)}</span>
-                              <span>→ {actionLabel}</span>
+                              <span className="settings-item-runs"><Icon name="arrow-right" size={11} aria-hidden="true" /><span className="sr-only">Runs </span>{actionLabel}</span>
                               <div className="media-asset-tags">
                                 <span
                                   className={'media-asset-tag' + (isGlobalTrigger(trigger) ? ' media-asset-tag--global' : ' media-asset-tag--scoped')}

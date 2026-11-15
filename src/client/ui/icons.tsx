@@ -93,6 +93,7 @@ const PATHS: Record<string, React.ReactNode> = {
   'chevron-down': <path d="m6 9 6 6 6-6"/>,
   'arrow-up': <path d="M12 19V5M6 11l6-6 6 6"/>,
   'arrow-down': <path d="M12 5v14M6 13l6 6 6-6"/>,
+  'arrow-right': <path d="M5 12h14M13 6l6 6-6 6"/>,
   /* The four alert glyphs from the overlay's alert cards (overlayText.tsx ToneIcon),
      so a follow, sub, raid or cheer reads the same on the dashboard as on stream. */
   sparkle: <path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/>,
@@ -119,6 +120,13 @@ const PATHS: Record<string, React.ReactNode> = {
     <>
       <circle cx="12" cy="12" r="10"/>
       <path d="M12 16v-4M12 8h.01"/>
+    </>
+  ),
+  /* A warning: the same circle as `info`, with the mark turned upside down. */
+  alert: (
+    <>
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M12 8v4M12 16h.01"/>
     </>
   ),
   refresh: (

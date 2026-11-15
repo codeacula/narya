@@ -1409,6 +1409,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.settings-item-runs svg { vertical-align: -2px; margin-right: 5px; }
 .media-asset-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1974,7 +1975,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   border-radius: 50%;
   background: transparent;
   color: var(--fg-3);
-  font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }
@@ -2816,7 +2816,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .settings-alert--warn { border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning-fg); }
 .settings-alert--info { border-color: var(--info-border); background: var(--info-bg); color: var(--info-fg); }
-.settings-alert-icon { flex: none; font-weight: 700; }
+.settings-alert-icon { flex: none; margin-top: 1px; }
 
 /* ---------------- Stream categories — "game crests" ---------------- */
 .cats-toolbar { margin-bottom: var(--space-4); }
@@ -2882,6 +2882,9 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   color: var(--fg-arcane);
   background: var(--note-bg);
   border: 1px solid var(--note-border);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .cat-card-acts { display: flex; flex-direction: column; gap: 6px; flex: none; }
 
@@ -3588,9 +3591,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   background: transparent;
   color: var(--fg-3);
   cursor: pointer;
-  font-size: 14px;
   line-height: 1;
   padding: 2px 4px;
+  display: inline-grid;
+  place-items: center;
 }
 .module-game-remove:hover { color: var(--danger-fg); }
 .module-game-remove:disabled { cursor: not-allowed; opacity: 0.5; }

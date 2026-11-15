@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Icon } from '../../ui/icons';
 import type { TtsSettings, TtsVoice } from '../../../shared/api';
 import type { TtsStatus } from '../../services/dashboard';
 import {
@@ -106,12 +107,12 @@ function TengwarService({
             rendering "unavailable" would read as a fault rather than a choice. */}
         {!enabled ? (
           <div className="settings-alert settings-alert--info">
-            <span className="settings-alert-icon">i</span>
+            <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
             <span>Text-to-Speech is off — Tengwar is not being contacted. Enable it below to check the connection and load voices.</span>
           </div>
         ) : status && (
           <div className={'settings-alert ' + (status.ok ? 'settings-alert--info' : 'settings-alert--warn')}>
-            <span className="settings-alert-icon">{status.ok ? 'i' : '!'}</span>
+            <Icon name={status.ok ? 'info' : 'alert'} className="settings-alert-icon" aria-hidden="true" />
             <span>
               Tengwar {status.ok ? 'connected' : 'unavailable'}
               {status.baseUrl ? ` at ${status.baseUrl}` : ''}

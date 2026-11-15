@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Icon } from '../../ui/icons';
 import type { AppConfig } from '../../../shared/api';
 import { getAppConfig, updateAppConfig } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
@@ -159,7 +160,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
 
       {!appConfigLoading && (!appConfigForm.twitchClientId || !appConfigForm.twitchClientSecretConfigured) && (
         <div className="settings-alert settings-alert--warn">
-          <span className="settings-alert-icon">!</span>
+          <Icon name="alert" className="settings-alert-icon" aria-hidden="true" />
           <span>
             Twitch app credentials are required for EventSub, uptime, and the ad schedule.
             Create an application at{' '}
@@ -173,7 +174,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
       {!appConfigLoading && appConfigForm.twitchClientId && appConfigForm.twitchClientSecretConfigured
         && !eventSubConnected && (
         <div className="settings-alert settings-alert--info">
-          <span className="settings-alert-icon">i</span>
+          <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
           <span>
             Twitch app credentials are set but EventSub is not connected. Use “Login with Twitch”
             above to authorize, then events will start flowing.
@@ -182,7 +183,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
       )}
       {!appConfigLoading && !appConfigForm.redisConfigured && (
         <div className="settings-alert settings-alert--info">
-          <span className="settings-alert-icon">i</span>
+          <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
           <span>
             Redis is optional. Set a Redis URL below to publish redeems and other events onto a
             stream for external apps (see Settings → Apps) to consume — Narya works exactly the
@@ -192,7 +193,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
       )}
       {!appConfigLoading && appConfigForm.redisConfigured && !redisConnected && (
         <div className="settings-alert settings-alert--warn">
-          <span className="settings-alert-icon">!</span>
+          <Icon name="alert" className="settings-alert-icon" aria-hidden="true" />
           <span>
             Redis is configured but not connected — check the URL and credentials. Events are not
             being published until the connection recovers.

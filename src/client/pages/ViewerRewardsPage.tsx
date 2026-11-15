@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Icon } from '../ui/icons';
 import { useConfirm } from '../ui/confirm';
 import type { RewardStreamCategory, SavedStreamCategory, SavedStreamCategoryInput, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
 import {
@@ -497,7 +498,7 @@ function CategoryGamesEditor({
         {category.games.map(game => (
           <span className="reward-game-chip" key={game.id}>
             {game.name}
-            <button type="button" aria-label={`Remove ${game.name}`} disabled={busy} onClick={() => removeGame(game.id)}>×</button>
+            <button type="button" aria-label={`Remove ${game.name}`} disabled={busy} onClick={() => removeGame(game.id)}><Icon name="x" size={12} aria-hidden="true" /></button>
           </span>
         ))}
         <div className="reward-games-add">

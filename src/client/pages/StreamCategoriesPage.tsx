@@ -92,7 +92,7 @@ function CategoryCard({
           {category.rewardGroups.length > 0 ? (
             <div className="cat-groups">
               {category.rewardGroups.map(group => (
-                <span className="cat-group" key={group.id} title="Reward group that switches on with this category">◆ {group.name}</span>
+                <span className="cat-group" key={group.id} title="Reward group that switches on with this category"><Icon name="gem" size={10} aria-hidden="true" />{group.name}</span>
               ))}
             </div>
           ) : (

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Icon } from '../../ui/icons';
 import { useConfirm } from '../../ui/confirm';
 import type {
   CategoryModule,
@@ -95,9 +96,10 @@ function GamePicker({
                 type="button"
                 disabled={disabled}
                 title={`Remove ${game.name}`}
+                aria-label={`Remove ${game.name}`}
                 onClick={() => onChange(games.filter(entry => entry.id !== game.id))}
               >
-                ×
+                <Icon name="x" size={12} aria-hidden="true" />
               </button>
             </span>
           );
