@@ -192,12 +192,20 @@ export function ViewerDetailPane({
   const historyNonceRef = React.useRef(0);
   historyNonceRef.current = historyNonce;
   const [loadingHistory, setLoadingHistory] = React.useState(true);
+  // A failed load is not an empty history: "No chat yet" for a regular whose messages
+  // simply did not arrive would be a false statement about them.
+  const [historyFailed, setHistoryFailed] = React.useState(false);
   const [hasMore, setHasMore] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
+  // A failed "Load older" keeps the button (the older page is still there to fetch)
+  // and says why nothing appeared.
+  const [olderFailed, setOlderFailed] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
     setLoadingHistory(true);
+    setHistoryFailed(false);
+    setOlderFailed(false);
     setMessages([]);
     getViewerMessages(login)
       .then(rows => {
@@ -205,15 +213,20 @@ export function ViewerDetailPane({
         setMessages(rows);
         setHasMore(rows.length === PAGE_SIZE);
       })
-      .catch(() => { if (!cancelled) { setMessages([]); setHasMore(false); } })
+      .catch(() => { if (!cancelled) { setMessages([]); setHasMore(false); setHistoryFailed(true); } })
       .finally(() => { if (!cancelled) setLoadingHistory(false); });
     return () => { cancelled = true; };
   }, [login, historyNonce]);
+
+  // Re-runs the effect above. Bumping the nonce also drops any older page still in
+  // flight, which is right: it belongs to the history being replaced.
+  const retryHistory = () => setHistoryNonce(nonce => nonce + 1);
 
   const loadOlder = () => {
     const oldest = messages[0];
     if (!oldest || loadingMore) return;
     setLoadingMore(true);
+    setOlderFailed(false);
     // Stamped with the generation in flight when the request went out. A flush
     // during pagination bumps the nonce, and without this the in-flight page
     // resolves afterward and appends messages the server has already deleted —
@@ -225,7 +238,7 @@ export function ViewerDetailPane({
         setMessages(current => [...older, ...current]);
         setHasMore(older.length === PAGE_SIZE);
       })
-      .catch(() => { if (generation === historyNonceRef.current) setHasMore(false); })
+      .catch(() => { if (generation === historyNonceRef.current) setOlderFailed(true); })
       .finally(() => setLoadingMore(false));
   };
 
@@ -272,6 +285,13 @@ export function ViewerDetailPane({
         <div className="spot-section-label">Chat history</div>
         {loadingHistory ? (
           <EmptyState title="Loading chat history…" />
+        ) : historyFailed ? (
+          <EmptyState
+            title="Chat history unavailable"
+            action={<button className="modbtn" type="button" onClick={retryHistory}>Retry</button>}
+          >
+            Narya could not load @{login}'s messages.
+          </EmptyState>
         ) : messages.length === 0 ? (
           <EmptyState title="No chat yet">No chat messages are recorded for this viewer.</EmptyState>
         ) : (
@@ -281,9 +301,14 @@ export function ViewerDetailPane({
               <ChatMessageRow key={message.id} m={message} viewer={viewer} emoteMap={emoteMap} />
             ))}
             {hasMore ? (
-              <button className="modbtn viewer-history-more" type="button" disabled={loadingMore} onClick={loadOlder}>
-                {loadingMore ? 'Loading…' : 'Load older'}
-              </button>
+              <div className="viewer-history-more">
+                <button className="modbtn" type="button" disabled={loadingMore} onClick={loadOlder}>
+                  {loadingMore ? 'Loading…' : olderFailed ? 'Retry' : 'Load older'}
+                </button>
+                {olderFailed && !loadingMore ? (
+                  <span className="viewer-history-more-error" role="status">Could not load older messages.</span>
+                ) : null}
+              </div>
             ) : null}
           </div>
         )}

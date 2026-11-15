@@ -3196,8 +3196,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   padding: 6px 0;
 }
 .viewer-history-more {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-3);
   margin: var(--space-2) 14px var(--space-1);
 }
+.viewer-history-more-error { font-family: var(--font-mono); font-size: 10px; color: var(--warning-fg); }
 .roster-badge {
   padding: 1px 7px;
   border-radius: var(--radius-1);
