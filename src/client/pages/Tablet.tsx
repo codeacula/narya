@@ -22,7 +22,7 @@ import {
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
 import { obsNotice } from '../obsNotice';
-import { obsConnectionLabel } from '../connectionWords';
+import { obsConnectionDot, obsConnectionLabel } from '../connectionWords';
 import { EmptyState } from '../ui/emptyState';
 import { ListUnavailable, SettingsAnnouncer } from './settings/shared';
 import { listFace } from './settings/listState';
@@ -213,7 +213,10 @@ export function TabletPage() {
   const obsUnavailable = !obsStatus.connected;
   const hasScenes = scenes.length > 0;
   const controlsDisabled = obsUnavailable || Boolean(pendingAction);
-  const connectionClass = obsStatus.connected ? 'tablet-status-dot connected' : 'tablet-status-dot disconnected';
+  // Null until a status has arrived: `emptyObsStatus` says disconnected, which is a
+  // placeholder, not something OBS or Narya reported.
+  const obsConnected = obsLoaded ? obsStatus.connected : null;
+  const connectionClass = 'tablet-status-dot ' + obsConnectionDot(obsConnected);
   const notice = obsNotice({ obsStatus, loaded: obsLoaded, statusError, commandError });
 
   async function runObsCommand(action: string, command: () => Promise<{ obsStatus?: ObsStatus }>) {
@@ -262,7 +265,7 @@ export function TabletPage() {
               <div className="tablet-status-group">
                 <span className="tablet-status">
                   <span className={connectionClass} />
-                  {obsConnectionLabel(obsStatus.connected)}
+                  {obsConnectionLabel(obsConnected)}
                 </span>
                 {/* Studio mode is something OBS reports. While OBS is unreachable the
                     server zeroes it, so "Studio off" would be a claim nobody made. */}

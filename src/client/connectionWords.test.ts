@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { DashboardStatus } from '../shared/api';
-import { chatConnectionWord, connectionWord, OBS_OFFLINE, obsConnectionLabel, serviceStateTitle } from './connectionWords';
+import { chatConnectionWord, connectionWord, OBS_OFFLINE, obsConnectionDot, obsConnectionLabel, serviceStateTitle } from './connectionWords';
 import { connectionsLine, liveDataRows, UNKNOWN_VALUE } from './ui/statBarText';
 import { serviceTransitionToasts, type ServiceSnapshot } from './ui/serviceTransitions';
 
@@ -87,5 +87,21 @@ describe('Display panel Live Data', () => {
 
   test('before the first status every value is a dash, not a placeholder claim', () => {
     for (const row of liveDataRows({ ...live, channel: '' }, false)) expect(row.value).toBe(UNKNOWN_VALUE);
+  });
+});
+
+describe("the tablet's OBS chip", () => {
+  // The bug: with the status GET failing the chip said "Offline" from the placeholder
+  // status, beside "Could not load OBS status".
+  test('a state nobody has reported is unknown, not offline', () => {
+    expect(obsConnectionLabel(null)).toBe('Unknown');
+    expect(obsConnectionDot(null)).toBe('idle');
+  });
+
+  test('a reported state keeps its word and colour', () => {
+    expect(obsConnectionLabel(true)).toBe('Connected');
+    expect(obsConnectionDot(true)).toBe('connected');
+    expect(obsConnectionLabel(false)).toBe('Offline');
+    expect(obsConnectionDot(false)).toBe('disconnected');
   });
 });

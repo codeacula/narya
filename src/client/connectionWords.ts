@@ -38,7 +38,18 @@ export function serviceStateTitle(service: string, connected: boolean): string {
 /** "Narya is not connected to OBS", wherever it is said. */
 export const OBS_OFFLINE = serviceStateTitle('OBS', false);
 
-/** The tablet's status chip, which already sits under an "OBS" eyebrow. */
-export function obsConnectionLabel(connected: boolean): string {
+/**
+ * The tablet's status chip, which already sits under an "OBS" eyebrow. `null` is a
+ * state the tablet has not heard yet (its status GET failed, or is still out): the
+ * placeholder status says "disconnected", and the chip must not repeat that as fact.
+ */
+export function obsConnectionLabel(connected: boolean | null): string {
+  if (connected === null) return 'Unknown';
   return connected ? 'Connected' : 'Offline';
+}
+
+/** The chip's dot: green, red, or the quiet grey of a state nobody has reported. */
+export function obsConnectionDot(connected: boolean | null): 'connected' | 'disconnected' | 'idle' {
+  if (connected === null) return 'idle';
+  return connected ? 'connected' : 'disconnected';
 }
