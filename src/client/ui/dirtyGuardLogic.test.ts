@@ -6,6 +6,7 @@ import {
   draftIsDirty,
   draftsDiffer,
   keepOpenInView,
+  leavePrompt,
   runUnlessRefused,
   stableStringify,
 } from './dirtyGuardLogic';
@@ -175,5 +176,59 @@ describe('keepOpenInView', () => {
 
   test('an open id with no item (a removed card) adds nothing', () => {
     expect(keepOpenInView(cards, () => false, new Set(['gone']), idOf)).toEqual([]);
+  });
+});
+
+describe('leavePrompt', () => {
+  const tokenPrompt = {
+    title: 'Leave without copying the token?',
+    body: 'It is shown only once. Without a copy, "pztmi" needs another new token.',
+    confirmLabel: 'Leave without it',
+    cancelLabel: 'Stay and copy it',
+  };
+
+  test('plain edits get the generic discard prompt', () => {
+    const prompt = leavePrompt([{ label: 'the trigger "Raid"' }]);
+    expect(prompt.title).toBe('Discard unsaved changes?');
+    expect(String(prompt.body)).toContain('the trigger "Raid"');
+  });
+
+  test('work with its own question is asked in its own words', () => {
+    const prompt = leavePrompt([{ label: 'the new token for "pztmi"', prompt: tokenPrompt }]);
+    expect(prompt.title).toBe('Leave without copying the token?');
+    expect(prompt.body).toBe(tokenPrompt.body);
+    expect(prompt.confirmLabel).toBe('Leave without it');
+    expect(prompt.cancelLabel).toBe('Stay and copy it');
+    // Still a danger confirm, so a stray Enter lands on "Stay".
+    expect(prompt.tone).toBe('danger');
+  });
+
+  test('a custom question without labels falls back to Leave anyway / Stay', () => {
+    const prompt = leavePrompt([{ label: 'x', prompt: { title: 'T?', body: 'B.' } }]);
+    expect(prompt.confirmLabel).toBe('Leave anyway');
+    expect(prompt.cancelLabel).toBe('Stay');
+  });
+
+  test('mixed with a plain edit, the generic prompt names everything at stake', () => {
+    const prompt = leavePrompt([
+      { label: 'the new token for "pztmi"', prompt: tokenPrompt },
+      { label: 'the new app' },
+    ]);
+    expect(prompt.title).toBe('Discard unsaved changes?');
+    expect(String(prompt.body)).toContain('the new token for "pztmi"');
+    expect(String(prompt.body)).toContain('the new app');
+  });
+});
+
+describe('createDirtyRegistry with a custom prompt', () => {
+  test('keeps the prompt beside the label, and labels() stays a plain list', () => {
+    const registry = createDirtyRegistry();
+    registry.set('token', 'the new token', { title: 'T?', body: 'B.' });
+    registry.set('app', 'the new app');
+    expect(registry.labels()).toEqual(['the new token', 'the new app']);
+    expect(registry.entries()).toEqual([
+      { label: 'the new token', prompt: { title: 'T?', body: 'B.' } },
+      { label: 'the new app' },
+    ]);
   });
 });

@@ -1,6 +1,13 @@
 import React from 'react';
 import { useConfirm } from './confirm';
-import { createDirtyRegistry, discardPrompt, draftIsDirty, runUnlessRefused } from './dirtyGuardLogic';
+import {
+  createDirtyRegistry,
+  draftIsDirty,
+  leavePrompt,
+  runUnlessRefused,
+  type DirtyEntry,
+  type DirtyPrompt,
+} from './dirtyGuardLogic';
 
 /**
  * The unsaved-edit guard: one place that knows whether any editor on the page holds
@@ -10,6 +17,9 @@ import { createDirtyRegistry, discardPrompt, draftIsDirty, runUnlessRefused } fr
  *   would be lost ("the action \"Raid hype\""), and the confirm lists every dirty one.
  *   The returned `discardThen(fn)` gates the editor's own switches (picking another
  *   row, New, Close) behind the same confirm, and runs `fn` at once when clean.
+ *   Work that is not an edit passes its own question as a third argument
+ *   (`useDirtyGuard(revealed, label, { title, body })` — a token shown only once);
+ *   it is asked as-is when it is all that is at stake (`leavePrompt`).
  * - A navigator (the settings rail, the top nav, browser back/forward) calls
  *   `useLeaveGuard().confirmLeave()` and only moves on a `true`. A page whose switch
  *   unmounts more than its own editor (a trigger editor that also holds a viewer
@@ -31,10 +41,10 @@ import { createDirtyRegistry, discardPrompt, draftIsDirty, runUnlessRefused } fr
  */
 
 type DirtyGuardApi = {
-  setDirty: (id: string, label: string | null) => void;
+  setDirty: (id: string, label: string | null, prompt?: DirtyPrompt) => void;
   isDirty: () => boolean;
-  /** Ask about the given labels. Resolves false without asking if a prompt is already open. */
-  ask: (labels: string[]) => Promise<boolean>;
+  /** Ask about the given editors. Resolves false without asking if a prompt is already open. */
+  ask: (entries: DirtyEntry[]) => Promise<boolean>;
   /** Resolves true when nothing is dirty, else asks about everything that is. */
   confirmLeave: () => Promise<boolean>;
   /** Runs `fn` at once when nothing is dirty, else after a yes to the same question. */
@@ -56,27 +66,27 @@ export function DirtyGuardProvider({ children }: { children: React.ReactNode }) 
 
   const api = React.useMemo<DirtyGuardApi>(() => {
     const registry = registryRef.current;
-    const ask = async (labels: string[]) => {
+    const ask = async (entries: DirtyEntry[]) => {
       // One question at a time: a browser Back pressed while the confirm is up must
       // not stack a second prompt behind it.
       if (promptOpenRef.current) return false;
       promptOpenRef.current = true;
       try {
-        return await confirm(discardPrompt(labels));
+        return await confirm(leavePrompt(entries));
       } finally {
         promptOpenRef.current = false;
       }
     };
     return {
-      setDirty(id, label) {
-        if (!registry.set(id, label)) return;
+      setDirty(id, label, prompt) {
+        if (!registry.set(id, label, prompt)) return;
         if (registry.any()) window.addEventListener('beforeunload', holdUnload);
         else window.removeEventListener('beforeunload', holdUnload);
       },
       isDirty: () => registry.any(),
       ask,
-      confirmLeave: () => (registry.any() ? ask(registry.labels()) : Promise.resolve(true)),
-      discardAllThen: fn => runUnlessRefused(registry.labels(), ask, fn),
+      confirmLeave: () => (registry.any() ? ask(registry.entries()) : Promise.resolve(true)),
+      discardAllThen: fn => runUnlessRefused(registry.entries(), ask, fn),
     };
   }, [confirm]);
 
@@ -96,28 +106,30 @@ function useDirtyGuardApi(): DirtyGuardApi {
  * in-page switches: `confirmDiscard()` resolves true when clean or when the operator
  * agrees to discard, and `discardThen(fn)` runs `fn` on that answer.
  */
-export function useDirtyGuard(isDirty: boolean, label: string) {
+export function useDirtyGuard(isDirty: boolean, label: string, prompt?: DirtyPrompt) {
   const api = useDirtyGuardApi();
   const id = React.useId();
   const dirtyRef = React.useRef(isDirty);
-  const labelRef = React.useRef(label);
+  const entryRef = React.useRef<DirtyEntry>({ label, prompt });
   dirtyRef.current = isDirty;
-  labelRef.current = label;
+  entryRef.current = prompt ? { label, prompt } : { label };
+  // Callers pass the prompt inline, so the effect keys on its text, not its identity.
+  const promptKey = prompt ? JSON.stringify(prompt) : '';
 
   React.useEffect(() => {
-    api.setDirty(id, isDirty ? label : null);
-  }, [api, id, isDirty, label]);
+    api.setDirty(id, isDirty ? label : null, entryRef.current.prompt);
+  }, [api, id, isDirty, label, promptKey]);
   // An editor that unmounts (its section was left, its card removed) is no longer
   // holding anything, whatever it last reported.
   React.useEffect(() => () => api.setDirty(id, null), [api, id]);
 
   const confirmDiscard = React.useCallback(
-    () => (dirtyRef.current ? api.ask([labelRef.current]) : Promise.resolve(true)),
+    () => (dirtyRef.current ? api.ask([entryRef.current]) : Promise.resolve(true)),
     [api],
   );
   // Clean runs synchronously, so an unguarded click behaves exactly as before.
   const discardThen = React.useCallback((fn: () => void) => {
-    runUnlessRefused(dirtyRef.current ? [labelRef.current] : [], api.ask, fn);
+    runUnlessRefused(dirtyRef.current ? [entryRef.current] : [], api.ask, fn);
   }, [api]);
 
   return { confirmDiscard, discardThen };

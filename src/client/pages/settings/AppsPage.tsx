@@ -143,9 +143,27 @@ function AppTokenControls({
   const [revealed, setRevealed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Whether the token on screen has been copied at least once. `copied` only drives the
+  // button's brief "Copied" label and resets after 1.5s; this one stays set.
+  const [secured, setSecured] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const disabledOverall = disabled || busy;
+
+  // A revealed token nobody has copied is the one thing on this page that cannot be
+  // recovered: leaving (the settings rail, the top nav, closing the tab) or Dismiss
+  // would lose it, and the app would need yet another rotation. Not an "unsaved
+  // change", so it asks its own question.
+  const { discardThen } = useDirtyGuard(
+    revealed !== null && !secured,
+    `the new token for "${app.name}"`,
+    {
+      title: 'Leave without copying the token?',
+      body: `It is shown only once. Without a copy, "${app.name}" needs another new token.`,
+      confirmLabel: 'Leave without it',
+      cancelLabel: 'Stay and copy it',
+    },
+  );
 
   // Rotate occupies the same coordinates as the harmless first Mint, and the server
   // rotates the hash before returning — one stray click kills a running app's
@@ -166,6 +184,7 @@ function AppTokenControls({
     setBusy(true);
     setError(null);
     setCopied(false);
+    setSecured(false);
     void mintAppToken(app.id)
       .then(result => {
         // FIRST, before anything that can fail. The server has already rotated the
@@ -197,6 +216,7 @@ function AppTokenControls({
     // if it still worked would be actively misleading.
     setRevealed(null);
     setCopied(false);
+    setSecured(false);
     void revokeAppToken(app.id)
       .then(() => onChanged())
       .catch(caught => setError(errorMessage(caught, 'Could not revoke the token')))
@@ -208,6 +228,7 @@ function AppTokenControls({
     void navigator.clipboard.writeText(revealed)
       .then(() => {
         setCopied(true);
+        setSecured(true);
         setTimeout(() => setCopied(false), 1500);
       })
       .catch((copyError: unknown) => {
@@ -254,7 +275,11 @@ function AppTokenControls({
           </div>
           <div className="counter-row-actions">
             <button className="modbtn" type="button" onClick={handleCopy}>{copied ? 'Copied' : 'Copy'}</button>
-            <button className="modbtn" type="button" onClick={() => { setRevealed(null); setCopied(false); }}>
+            <button
+              className="modbtn"
+              type="button"
+              onClick={() => discardThen(() => { setRevealed(null); setCopied(false); setSecured(false); })}
+            >
               Dismiss
             </button>
           </div>

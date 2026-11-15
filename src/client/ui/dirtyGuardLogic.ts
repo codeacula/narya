@@ -65,24 +65,68 @@ export function discardPrompt(labels: readonly string[]): ConfirmOptions {
 }
 
 /**
+ * An editor's own question, for work that is not an "edit" — a freshly minted token
+ * shown only once is not a change anyone can save. Plain strings, so a registration
+ * can be compared and re-sent cheaply. Asked as-is when it is the only thing at stake.
+ */
+export type DirtyPrompt = {
+  title: string;
+  body: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+};
+
+/** What one dirty editor reported: what the work is called, and its own question if any. */
+export type DirtyEntry = { label: string; prompt?: DirtyPrompt };
+
+/**
+ * The confirm raised before the given editors' work is thrown away.
+ *
+ * - Everything at stake asked its own question, and they are all the same question
+ *   (one revealed token, or two): that question, still as a danger confirm.
+ * - Anything else: the generic discard prompt over every label, so nothing at stake
+ *   goes unnamed. An editor with its own question still lends its label to the list.
+ */
+export function leavePrompt(entries: readonly DirtyEntry[]): ConfirmOptions {
+  const custom = entries.map(entry => entry.prompt);
+  const first = custom[0];
+  if (first && custom.every(prompt => prompt && prompt.title === first.title && prompt.body === first.body)) {
+    return {
+      title: first.title,
+      body: first.body,
+      confirmLabel: first.confirmLabel ?? 'Leave anyway',
+      cancelLabel: first.cancelLabel ?? 'Stay',
+      tone: 'danger',
+    };
+  }
+  return discardPrompt(entries.map(entry => entry.label));
+}
+
+/**
  * Which editors currently hold unsaved work, keyed by a per-editor id. `set` reports
  * whether "anything is dirty" flipped, which is when the provider attaches or removes
  * its `beforeunload` handler.
  */
 export function createDirtyRegistry() {
-  const entries = new Map<string, string>();
+  const entries = new Map<string, DirtyEntry>();
   return {
-    /** Mark an editor dirty with a label, or clean with `null`. Returns true when `any()` changed. */
-    set(id: string, label: string | null): boolean {
+    /**
+     * Mark an editor dirty with a label (and, optionally, its own question), or clean
+     * with `null`. Returns true when `any()` changed.
+     */
+    set(id: string, label: string | null, prompt?: DirtyPrompt): boolean {
       const before = entries.size > 0;
       if (label === null) entries.delete(id);
-      else entries.set(id, label);
+      else entries.set(id, prompt ? { label, prompt } : { label });
       return before !== entries.size > 0;
     },
     any(): boolean {
       return entries.size > 0;
     },
     labels(): string[] {
+      return [...entries.values()].map(entry => entry.label);
+    },
+    entries(): DirtyEntry[] {
       return [...entries.values()];
     },
   };
@@ -95,9 +139,9 @@ export type DirtyRegistry = ReturnType<typeof createDirtyRegistry>;
  * `labels` it runs synchronously, so a clean click behaves exactly as an unguarded
  * one; otherwise `ask` is raised once about every label and `fn` runs on a yes.
  */
-export function runUnlessRefused(
-  labels: readonly string[],
-  ask: (labels: string[]) => Promise<boolean>,
+export function runUnlessRefused<T>(
+  labels: readonly T[],
+  ask: (labels: T[]) => Promise<boolean>,
   fn: () => void,
 ): void {
   if (labels.length === 0) {
