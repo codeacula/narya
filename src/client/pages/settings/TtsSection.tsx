@@ -16,6 +16,7 @@ import { SettingsAnnouncer, SettingsStatus, SettingsToggleLabel, useSettingsForm
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { useConfirm } from '../../ui/confirm';
 import { serviceStateTitle } from '../../connectionWords';
+import { emptyVoicesCopy } from './ttsVoiceCopy';
 
 const DEFAULT_TENGWAR_URL = 'http://127.0.0.1:8008';
 
@@ -231,6 +232,7 @@ export function TtsSection() {
   const setTtsSettings = ttsForm.setValue;
   const { loading: ttsLoading, saving: ttsSaving, message: ttsMessage, error: ttsError } = ttsForm;
   const ttsEnabled = ttsSettings.enabled;
+  const emptyVoices = emptyVoicesCopy(ttsStatus ? ttsStatus.ok : null);
 
   // Called after the service address changes. A no-op while TTS is off: saving the
   // URL must not become a back door to connecting.
@@ -315,14 +317,14 @@ export function TtsSection() {
       <form className="command-settings-form" onSubmit={handleTtsSubmit}>
         <label className="field">
           <span>Voice</span>
-          {/* The list comes from Tengwar, so an empty one means the service is
-              unreachable — not that the operator has no voices to choose from. */}
+          {/* The list comes from Tengwar, so an empty one is about the service, not
+              the operator's choices. It says so in the alert's own words. */}
           {ttsVoices.length === 0 ? (
             <>
               <select value="" disabled>
-                <option value="">No voices — Tengwar unreachable</option>
+                <option value="">{emptyVoices.option}</option>
               </select>
-              <small>Check the Tengwar URL above, then save to retry.</small>
+              <small>{emptyVoices.hint}</small>
             </>
           ) : (
             <select
