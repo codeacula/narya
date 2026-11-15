@@ -33,6 +33,9 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
   const [busy, setBusy] = useState(false);
   useDirtyGuard(newName.trim() !== '', `the new event for "${app.name}"`);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not "no events declared" (listState.ts); a later load that works clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const load = useCallback(async () => setEvents(await getAppEvents(app.id)), [app.id]);
 
@@ -40,11 +43,21 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
     let cancelled = false;
     setLoading(true);
     void load()
-      .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load events')); })
+      .then(() => {
+        if (cancelled) return;
+        setError(null);
+        setLoadFailed(false);
+      })
+      .catch(caught => {
+        if (cancelled) return;
+        setError(errorMessage(caught, 'Could not load events'));
+        setLoadFailed(true);
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
+
+  const face = listFace({ loading, loadFailed, count: events.length });
 
   // Include `loading`: Add must stay disabled during the mount fetch, or a fast add before
   // the mount GET resolves lets that stale snapshot overwrite the just-added row.
@@ -57,8 +70,13 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
     setError(null);
     void declareAppEvent(app.id, eventName)
       .then(async () => {
-        await load();
+        // Declared: clear the field first, so a failed reload below is not read as
+        // a failed declare (and the guard stops asking about a name already saved).
         setNewName('');
+        await load().catch(caught => {
+          throw new Error(`Declared, but the list could not be reloaded: ${errorMessage(caught, 'unknown error')}`);
+        });
+        setLoadFailed(false);
       })
       .catch(caught => setError(errorMessage(caught, 'Could not declare event')))
       .finally(() => setBusy(false));
@@ -97,9 +115,16 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
   return (
     <div className="field">
       <span>Declared events</span>
-      {loading ? (
+      {face === 'unavailable' ? (
+        <ListUnavailable
+          size="compact"
+          title="Declared events unavailable"
+          onRetry={() => setLoadAttempt(n => n + 1)}
+          retrying={loading}
+        />
+      ) : face === 'loading' ? (
         <div className="command-empty">Loading events…</div>
-      ) : events.length === 0 ? (
+      ) : face === 'empty' ? (
         <div className="command-empty">
           No events declared yet. Declare the names this app publishes so a redis_event
           trigger can bind to one.
@@ -138,7 +163,7 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
           Add
         </button>
       </div>
-      {error && <small className="action-hint" role="alert">{error}</small>}
+      <SettingsStatus error={error} />
     </div>
   );
 }
@@ -256,6 +281,7 @@ function AppTokenControls({
       .catch((copyError: unknown) => {
         // The error object from the Clipboard API never carries the token itself.
         console.error('Failed to copy the app token:', copyError);
+        setError('Could not copy the token. Select it and copy it by hand.');
       });
   };
 
@@ -307,7 +333,7 @@ function AppTokenControls({
           </div>
         </div>
       )}
-      {error && <small className="action-hint" role="alert">{error}</small>}
+      <SettingsStatus error={error} />
     </div>
   );
 }
