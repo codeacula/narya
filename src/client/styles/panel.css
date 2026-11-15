@@ -2119,6 +2119,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   place-items: center;
   padding: 24px;
   background: rgba(3, 7, 14, 0.82);
+  /* Modal portals this backdrop into <body>, outside .cockpit, so it has to carry
+     the body typography itself or dialog text falls back to the root's unloaded Inter. */
+  color: var(--fg-1);
+  font-family: var(--font-body);
 }
 .stream-info-modal {
   width: min(520px, 100%);
