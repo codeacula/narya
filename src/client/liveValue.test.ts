@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createWriteGuard } from './liveValue';
+import { createWriteGuard, nextLiveValueStatus } from './liveValue';
 
 describe('createWriteGuard', () => {
   test('a fetch with no write since it started is current', () => {
@@ -20,5 +20,26 @@ describe('createWriteGuard', () => {
     const guard = createWriteGuard();
     guard.bump();
     expect(guard.begin()()).toBe(true);
+  });
+});
+
+describe('nextLiveValueStatus', () => {
+  test('a first fetch that fails leaves the value unknown, not "loaded"', () => {
+    expect(nextLiveValueStatus('loading', 'fetch-failed')).toBe('failed');
+  });
+
+  test('a fetch or a write makes the value known', () => {
+    expect(nextLiveValueStatus('loading', 'fetched')).toBe('loaded');
+    expect(nextLiveValueStatus('failed', 'written')).toBe('loaded');
+  });
+
+  // A reconnect refetch that fails must not hide a value the server already gave us.
+  test('a later failure keeps a known value known', () => {
+    expect(nextLiveValueStatus('loaded', 'fetch-failed')).toBe('loaded');
+  });
+
+  test('a retry goes back to loading only from a failure', () => {
+    expect(nextLiveValueStatus('failed', 'retry')).toBe('loading');
+    expect(nextLiveValueStatus('loaded', 'retry')).toBe('loaded');
   });
 });

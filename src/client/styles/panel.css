@@ -742,6 +742,9 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 /* The tablet is read at arm's length: the same note, one step larger. */
 .tablet-shell .empty-state--note .es-title { font-size: var(--step-1); }
 .tablet-shell .empty-state--note .es-sub { font-size: var(--step--1); }
+.empty-state--note .es-action { margin-top: var(--space-2); }
+/* A Retry in a tablet button grid is a touch target, not a 60px soundboard tile. */
+.tablet-shell .empty-state--note .es-action .modbtn { min-height: 44px; padding: 8px 18px; font-size: 13px; }
 
 /* ================= EVENT FEED ================= */
 .evt-list { display: flex; flex-direction: column; }
@@ -1642,6 +1645,20 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   letter-spacing: 0.03em;
   line-height: 1.4;
 }
+/* A switch whose state could not be read, or whose flip was refused. */
+.ctrl-inline-problem { color: var(--danger-fg); }
+.ctrl-inline-retry {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-1);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ctrl-inline-retry:hover { color: var(--fg-accent); }
 .ctrl-scene-button {
   display: flex;
   align-items: center;

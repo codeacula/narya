@@ -966,6 +966,15 @@ nav {
   color: var(--warning-fg);
 }
 
+/* A notice that carries its own fix (a Retry): the sentence, then the button. */
+.tablet-error--action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tablet-error--action .modbtn { min-height: 44px; padding: 8px 18px; font-size: 13px; }
+
 /* The raw error, kept for diagnosis but set below the sentence that explains it. */
 .tablet-error .tablet-error-detail {
   margin-top: 4px;

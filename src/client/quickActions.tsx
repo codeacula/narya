@@ -10,6 +10,8 @@ import { useSocket } from './realtime';
 import { runResultTone } from './pages/settings/automation';
 import { errorMessage } from './errors';
 import { EmptyState } from './ui/emptyState';
+import { ListUnavailable, SettingsAnnouncer } from './pages/settings/shared';
+import { listFace } from './pages/settings/listState';
 
 export type QuickAction = {
   id: string;
@@ -24,7 +26,11 @@ export type QuickAction = {
 export type QuickActionsState = {
   actions: QuickAction[];
   loading: boolean;
-  error: string | null;
+  /** The trigger list could not be loaded: `actions` is not "none", it is unknown. */
+  loadError: string | null;
+  /** The last run that failed to start. Says nothing about the list. */
+  runError: string | null;
+  retry: () => void;
   /** The most recent run, keyed by trigger id, so a partial run stays visible on the button. */
   runs: Record<string, TriggerRunResult>;
   runningId: string | null;
@@ -40,27 +46,32 @@ export function useQuickActions(): QuickActionsState {
   const [triggers, setTriggers] = React.useState<AutomationTrigger[]>([]);
   const [modules, setModules] = React.useState<CategoryModulesResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [runError, setRunError] = React.useState<string | null>(null);
+  const [attempt, setAttempt] = React.useState(0);
   const [runs, setRuns] = React.useState<Record<string, TriggerRunResult>>({});
   const [runningId, setRunningId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     Promise.all([getAutomationTriggers(), getCategoryModules()])
       .then(([nextTriggers, nextModules]) => {
         if (cancelled) return;
         setTriggers(nextTriggers);
         setModules(nextModules);
-        setError(null);
+        setLoadError(null);
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setError(errorMessage(caught, 'Could not load quick actions'));
+        if (!cancelled) setLoadError(errorMessage(caught, 'Could not load quick actions'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [attempt]);
+
+  const retry = React.useCallback(() => setAttempt(n => n + 1), []);
 
   useSocket<CategoryModulesResponse>('category-modules:updated', React.useCallback((payload) => {
     setModules(payload);
@@ -68,10 +79,11 @@ export function useQuickActions(): QuickActionsState {
 
   const run = React.useCallback((id: string) => {
     setRunningId(id);
+    setRunError(null);
     void runAutomationTrigger(id)
       .then(result => setRuns(current => ({ ...current, [id]: result })))
       .catch((caught: unknown) => {
-        setError(errorMessage(caught, 'Could not run the action'));
+        setRunError(errorMessage(caught, 'Could not run the action'));
       })
       .finally(() => setRunningId(null));
   }, []);
@@ -93,12 +105,13 @@ export function useQuickActions(): QuickActionsState {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [triggers, modules]);
 
-  return { actions, loading, error, runs, runningId, run };
+  return { actions, loading, loadError, runError, retry, runs, runningId, run };
 }
 
 /** Tablet variant: reuses the tablet's own button chrome from styles.css. */
 export function TabletQuickActions() {
-  const { actions, loading, error, runs, runningId, run } = useQuickActions();
+  const { actions, loading, loadError, runError, retry, runs, runningId, run } = useQuickActions();
+  const face = listFace({ loading, loadFailed: loadError !== null, count: actions.length });
 
   return (
     <section className="tablet-panel quick-actions-panel">
@@ -109,12 +122,17 @@ export function TabletQuickActions() {
         </div>
       </div>
 
-      {error && <p className="tablet-error">{error}</p>}
+      {/* The load error is the unavailable face below, not this line: drawing both
+          put "No quick actions" under "Could not load quick actions". */}
+      <SettingsAnnouncer error={runError} />
+      {runError && <p className="tablet-error" aria-hidden="true">{runError}</p>}
 
       <div className="tablet-button-grid">
-        {loading ? (
+        {face === 'unavailable' ? (
+          <ListUnavailable size="note" title="Quick actions unavailable" onRetry={retry} retrying={loading} />
+        ) : face === 'loading' ? (
           <EmptyState size="note" title="Loading quick actions…" />
-        ) : actions.length === 0 ? (
+        ) : face === 'empty' ? (
           <EmptyState size="note" title="No quick actions">
             Add a Manual button trigger in Settings → Automation.
           </EmptyState>

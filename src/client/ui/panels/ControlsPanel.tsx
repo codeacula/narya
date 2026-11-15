@@ -7,6 +7,7 @@ import { useToast } from '../notifications';
 import { sceneLabel, switchableScenes } from '../../scenes';
 import { useMediaMute } from '../../mediaMute';
 import { useWindDown } from '../../windDown';
+import { SettingsAnnouncer } from '../../pages/settings/shared';
 
 export function ControlsPanel({
   status,
@@ -75,26 +76,63 @@ export function ControlsPanel({
  * lit until the operator turns it off.
  */
 function MediaMuteToggle() {
-  const { muted, busy, toggle } = useMediaMute();
+  const { muted, status, retry, busy, error, toggle } = useMediaMute();
+  // Until the server has said, the box is not drawn ticked or unticked as if it knew.
+  const known = status === 'loaded';
 
   return (
     <div className="ctrl-section ctrl-mute-section">
       <span className="ctrl-label">commands</span>
-      <label className={'ctrl-toggle' + (muted ? ' is-muted' : '')}>
+      <label className={'ctrl-toggle' + (known && muted ? ' is-muted' : '')}>
         <input
           type="checkbox"
-          checked={muted}
-          disabled={busy}
+          checked={known && muted}
+          disabled={busy || !known}
           onChange={event => toggle(event.target.checked)}
         />
         <span>Mute sound/video commands</span>
       </label>
-      {muted && (
+      {known && muted && (
         <p className="ctrl-inline-warning" role="status">
           Quick-Disable actions are silenced. Redemptions on unflagged actions still play.
         </p>
       )}
+      <ControlProblem
+        unreadable={status === 'failed' ? 'Could not read whether commands are muted.' : null}
+        error={error}
+        onRetry={retry}
+      />
     </div>
+  );
+}
+
+/**
+ * What went wrong with a persisted switch: its state could not be read (with a Retry,
+ * since nothing else re-asks until the socket reconnects), or a flip was refused. The
+ * spoken half is always mounted (`SettingsAnnouncer`) so the line is announced.
+ */
+function ControlProblem({
+  unreadable,
+  error,
+  onRetry,
+}: {
+  unreadable: string | null;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  const text = error ?? unreadable;
+  return (
+    <>
+      <SettingsAnnouncer error={text} />
+      {text ? (
+        <p className="ctrl-inline-warning ctrl-inline-problem">
+          <span aria-hidden="true">{text}</span>
+          {!error && unreadable ? (
+            <button className="ctrl-inline-retry" type="button" onClick={onRetry}>Retry</button>
+          ) : null}
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -104,8 +142,9 @@ function MediaMuteToggle() {
  * exposes no API for that, and a raid during wind-down still celebrates in full.
  */
 function WindDownToggle() {
-  const { state, busy, toggle } = useWindDown();
-  const active = Boolean(state?.active);
+  const { state, status, retry, busy, error, toggle } = useWindDown();
+  const known = status === 'loaded';
+  const active = known && Boolean(state?.active);
 
   return (
     <div className="ctrl-section ctrl-winddown-section">
@@ -114,7 +153,7 @@ function WindDownToggle() {
         <input
           type="checkbox"
           checked={active}
-          disabled={busy}
+          disabled={busy || !known}
           onChange={event => toggle(event.target.checked)}
         />
         <span>Signal ending soon</span>
@@ -125,6 +164,11 @@ function WindDownToggle() {
           Title suffix and countdown overlay are live. Raids still land and still celebrate.
         </p>
       )}
+      <ControlProblem
+        unreadable={status === 'failed' ? 'Could not read whether the wind-down is on.' : null}
+        error={error}
+        onRetry={retry}
+      />
     </div>
   );
 }

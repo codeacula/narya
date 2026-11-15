@@ -22,6 +22,8 @@ import { errorMessage } from '../errors';
 import { obsNotice } from '../obsNotice';
 import { obsConnectionLabel } from '../connectionWords';
 import { EmptyState } from '../ui/emptyState';
+import { ListUnavailable, SettingsAnnouncer } from './settings/shared';
+import { listFace } from './settings/listState';
 import { Icon } from '../ui/icons';
 
 // Dropping focus after a tap keeps a tablet's on-screen button from staying
@@ -156,11 +158,46 @@ function TabletPinnedCard({ onError }: { onError: (message: string) => void }) {
   );
 }
 
+/**
+ * One soundboard group. A failed load is "unavailable" with a Retry, and a load still
+ * in flight says so: both used to fall through to "No sounds yet" (see listFace).
+ */
+function MediaButtons({
+  load,
+  noun,
+  empty,
+  onPlay,
+}: {
+  load: { items: { id: string; label: string }[]; loading: boolean; error: string | null; retry: () => void };
+  noun: string;
+  empty: React.ReactNode;
+  onPlay: (id: string) => void;
+}) {
+  const face = listFace({ loading: load.loading, loadFailed: load.error !== null, count: load.items.length });
+  if (face === 'unavailable') {
+    return <ListUnavailable size="note" title={`${noun} unavailable`} onRetry={load.retry} retrying={load.loading} />;
+  }
+  if (face === 'loading') return <EmptyState size="note" title={`Loading ${noun.toLowerCase()}…`} />;
+  if (face === 'empty') return <>{empty}</>;
+  return (
+    <>
+      {load.items.map(item => (
+        <button key={item.id} onClick={event => { blurIfPointer(event); onPlay(item.id); }}>
+          {item.label}
+        </button>
+      ))}
+    </>
+  );
+}
+
 export function TabletPage() {
   const { obsStatus, setObsStatus, loaded: obsLoaded, error: statusError } = useObsStatus();
-  const soundButtons = useSoundButtons();
-  const clipButtons = useClipButtons();
+  const sounds = useSoundButtons();
+  const clips = useClipButtons();
   const media = useMediaMute();
+  // Until the server has said, the button is neither lit nor dark as if it knew.
+  const muteKnown = media.status === 'loaded';
+  const muteProblem = media.error ?? (media.status === 'failed' ? 'Could not read whether commands are muted.' : null);
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [commandError, setCommandError] = React.useState<string | null>(null);
 
@@ -321,47 +358,49 @@ export function TabletPage() {
               </div>
               <button
                 type="button"
-                className={'tablet-mute-button' + (media.muted ? ' active' : '')}
-                aria-pressed={media.muted}
-                disabled={media.busy}
+                className={'tablet-mute-button' + (muteKnown && media.muted ? ' active' : '')}
+                aria-pressed={muteKnown ? media.muted : undefined}
+                disabled={media.busy || !muteKnown}
                 onClick={event => { blurIfPointer(event); media.toggle(!media.muted); }}
                 title="Silences sound and video commands. Redemptions on unflagged actions still play."
               >
                 {/* The words are the button's name; the glyph only repeats them. */}
-                <Icon name={media.muted ? 'speaker-off' : 'speaker'} size={18} aria-hidden="true" focusable="false" />
-                <span>{media.muted ? 'Commands muted' : 'Mute commands'}</span>
+                <Icon name={muteKnown && media.muted ? 'speaker-off' : 'speaker'} size={18} aria-hidden="true" focusable="false" />
+                <span>{!muteKnown ? 'Mute state unknown' : media.muted ? 'Commands muted' : 'Mute commands'}</span>
               </button>
             </div>
+
+            <SettingsAnnouncer error={muteProblem} />
+            {muteProblem ? (
+              <div className="tablet-error tablet-error--action">
+                <p aria-hidden="true">{muteProblem}</p>
+                {!media.error ? (
+                  <button type="button" className="modbtn" onClick={media.retry}>Retry</button>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="media-group">
               <p className="media-group-label">Sounds</p>
               <div className="tablet-button-grid">
-                {soundButtons.length > 0 ? soundButtons.map(sound => (
-                  <button
-                    key={sound.id}
-                    onClick={event => { blurIfPointer(event); playSound(sound.id); }}
-                  >
-                    {sound.label}
-                  </button>
-                )) : (
-                  <EmptyState size="note" title="No sounds yet">Add sound buttons in Settings → Content.</EmptyState>
-                )}
+                <MediaButtons
+                  load={sounds}
+                  noun="Sounds"
+                  empty={<EmptyState size="note" title="No sounds yet">Add sound buttons in Settings → Content.</EmptyState>}
+                  onPlay={playSound}
+                />
               </div>
             </div>
 
             <div className="media-group">
               <p className="media-group-label">Clips</p>
               <div className="tablet-button-grid">
-                {clipButtons.length > 0 ? clipButtons.map(clip => (
-                  <button
-                    key={clip.id}
-                    onClick={event => { blurIfPointer(event); playClip(clip.id); }}
-                  >
-                    {clip.label}
-                  </button>
-                )) : (
-                  <EmptyState size="note" title="No clips yet">Add clip buttons in Settings → Content.</EmptyState>
-                )}
+                <MediaButtons
+                  load={clips}
+                  noun="Clips"
+                  empty={<EmptyState size="note" title="No clips yet">Add clip buttons in Settings → Content.</EmptyState>}
+                  onPlay={playClip}
+                />
               </div>
             </div>
           </section>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLoadOnce } from './loadOnce';
 import type { SoundButton, SoundPlayback } from '../shared/api';
 import { getSoundButtons } from './services/dashboard';
 import { useSocket } from './realtime';
@@ -51,18 +52,9 @@ export function playAutomodAlert() {
   setTimeout(() => playTone(880, 170, 0.24), 130);
 }
 
+/** Sound buttons for the tablet's Media panel, with their load state (see useLoadOnce). */
 export function useSoundButtons() {
-  const [soundButtons, setSoundButtons] = React.useState<SoundButton[]>([]);
-
-  React.useEffect(() => {
-    getSoundButtons()
-      .then(setSoundButtons)
-      .catch((error: unknown) => {
-        console.error('Failed to load sound buttons:', error);
-      });
-  }, []);
-
-  return soundButtons;
+  return useLoadOnce<SoundButton>(getSoundButtons, 'Could not load sound buttons');
 }
 
 export function useSoundEvents(audioRefs: React.RefObject<Record<string, HTMLAudioElement | null>>) {
