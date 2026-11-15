@@ -245,6 +245,25 @@ export function ViewerDetailPane({
   const isVip = person.roles.has('vip');
   const isMod = person.roles.has('mod');
 
+  // Taking a role away acts on Twitch at once and the viewer feels it mid-chat, so it
+  // confirms; it can be granted back from here, so it is not typed. Granting is
+  // additive and stays one click.
+  const confirm = useConfirm();
+  const revokeRole = async (role: 'vip' | 'mod') => {
+    const vip = role === 'vip';
+    const ok = await confirm({
+      title: vip ? `Remove VIP from @${login}?` : `Remove mod from @${login}?`,
+      body: vip
+        ? 'Twitch takes their VIP badge away now. You can make them a VIP again from here.'
+        : 'Twitch takes their moderator role away now, along with their mod tools in chat. You can make them a mod again from here.',
+      confirmLabel: vip ? 'Remove VIP' : 'Remove mod',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    if (vip) onAction(() => removeVip(login), `remove VIP from @${login}`);
+    else onAction(() => removeModerator(login), `remove mod from @${login}`);
+  };
+
   return (
     <div className="viewer-detail">
       <header className="viewer-detail-head">
@@ -263,10 +282,10 @@ export function ViewerDetailPane({
         </div>
         <div className="viewer-detail-roles">
           {isVip
-            ? <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => removeVip(login), `remove VIP from @${login}`)}>Un-VIP</button>
+            ? <button className="modbtn" type="button" disabled={busy} onClick={() => void revokeRole('vip')}>Un-VIP</button>
             : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantVip(login), `VIP @${login}`)}>VIP</button>}
           {isMod
-            ? <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => removeModerator(login), `remove mod from @${login}`)}>Un-Mod</button>
+            ? <button className="modbtn" type="button" disabled={busy} onClick={() => void revokeRole('mod')}>Un-Mod</button>
             : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantModerator(login), `mod @${login}`)}>Mod</button>}
           <ViewerRecordActions
             login={login}

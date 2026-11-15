@@ -46,9 +46,10 @@ export type ChatRowModeration = {
  * reflows under the pointer as the operator moves down a moving list.
  *
  * Timeout fires on the first click because it expires on its own. Ban arms and
- * confirms in place — the same idiom as Flush on the viewer page — because there
- * is no unban route here and Twitch purges the messages the moment it lands, so
- * a misfire is not something this app can walk back.
+ * confirms in place because there is no unban route here and Twitch purges the
+ * messages the moment it lands, so a misfire is not something this app can walk
+ * back. This in-place arm is the one documented exception to the shared confirm
+ * dialog (see ui/confirm.tsx).
  */
 function ChatRowActions({ login, messageId, moderation, canModerate }: {
   login: string;
