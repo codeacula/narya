@@ -42,6 +42,31 @@ export function nextLiveValueStatus(current: LiveValueStatus, event: LiveValueEv
 }
 
 /**
+ * A live value's status plus whether a known value is only last-known.
+ *
+ * `stale` is set when a refetch of a value that was already `loaded` fails — the
+ * reconnect refetch, or a retry. The value stays (it came from the server), but a
+ * control that writes it should say it may be out of date, with a way to ask again,
+ * rather than present it as current. Any fetch or write that lands clears it.
+ */
+export type LiveValueHealth = { status: LiveValueStatus; stale: boolean };
+
+export const INITIAL_LIVE_VALUE_HEALTH: LiveValueHealth = { status: 'loading', stale: false };
+
+export function nextLiveValueHealth(current: LiveValueHealth, event: LiveValueEvent): LiveValueHealth {
+  const status = nextLiveValueStatus(current.status, event);
+  switch (event) {
+    case 'fetched':
+    case 'written':
+      return { status, stale: false };
+    case 'fetch-failed':
+      return { status, stale: current.status === 'loaded' };
+    case 'retry':
+      return { status, stale: current.stale };
+  }
+}
+
+/**
  * Seed a value from REST on mount, then let a WebSocket event replace it.
  *
  * A failed initial fetch leaves `fallback` in place: these are display values
@@ -64,15 +89,23 @@ export function useLiveValue<T>(fetcher: () => Promise<T>, eventName: string, fa
   return [value, setValue];
 }
 
-/** `useLiveValue`, plus whether the value is known yet and a way to ask again. */
+/**
+ * `useLiveValue`, plus whether the value is known yet, whether a refetch of it has
+ * since failed (`stale`, see `LiveValueHealth`), and a way to ask again.
+ */
 export function useLiveValueState<T>(fetcher: () => Promise<T>, eventName: string, fallback: T): {
   value: T;
   setValue: React.Dispatch<React.SetStateAction<T>>;
   status: LiveValueStatus;
+  stale: boolean;
   retry: () => void;
 } {
   const [value, setValueState] = React.useState<T>(fallback);
-  const [status, setStatus] = React.useState<LiveValueStatus>('loading');
+  const [health, setHealth] = React.useState<LiveValueHealth>(INITIAL_LIVE_VALUE_HEALTH);
+  const advance = React.useCallback(
+    (event: LiveValueEvent) => setHealth(current => nextLiveValueHealth(current, event)),
+    [],
+  );
   const fetchRef = React.useRef(fetcher);
   fetchRef.current = fetcher;
   const fallbackRef = React.useRef(fallback);
@@ -83,8 +116,8 @@ export function useLiveValueState<T>(fetcher: () => Promise<T>, eventName: strin
   const setValue = React.useCallback<React.Dispatch<React.SetStateAction<T>>>((next) => {
     guardRef.current.bump();
     setValueState(next);
-    setStatus(current => nextLiveValueStatus(current, 'written'));
-  }, []);
+    advance('written');
+  }, [advance]);
 
   const refresh = React.useCallback((resetOnError: boolean) => {
     const isCurrent = guardRef.current.begin();
@@ -92,15 +125,15 @@ export function useLiveValueState<T>(fetcher: () => Promise<T>, eventName: strin
       .then((next) => {
         if (mountedRef.current && isCurrent()) {
           setValueState(next);
-          setStatus(current => nextLiveValueStatus(current, 'fetched'));
+          advance('fetched');
         }
       })
       .catch(() => {
         if (!mountedRef.current || !isCurrent()) return;
         if (resetOnError) setValueState(fallbackRef.current);
-        setStatus(current => nextLiveValueStatus(current, 'fetch-failed'));
+        advance('fetch-failed');
       });
-  }, []);
+  }, [advance]);
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -109,14 +142,14 @@ export function useLiveValueState<T>(fetcher: () => Promise<T>, eventName: strin
   }, [refresh]);
 
   const retry = React.useCallback(() => {
-    setStatus(current => nextLiveValueStatus(current, 'retry'));
+    advance('retry');
     // Keeps the value on a second failure: a failed value is already the fallback.
     refresh(false);
-  }, [refresh]);
+  }, [advance, refresh]);
 
   useSocketReconnect(React.useCallback(() => refresh(false), [refresh]));
 
   useSocket<T>(eventName, React.useCallback((next: T) => setValue(next), [setValue]));
 
-  return { value, setValue, status, retry };
+  return { value, setValue, status: health.status, stale: health.stale, retry };
 }

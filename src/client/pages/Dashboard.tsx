@@ -153,6 +153,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [obsStatus, setObsStatus] = useState<ObsStatus>(EMPTY_OBS_STATUS);
   const [sceneSwitching, setSceneSwitching] = useState(false);
+  // The last scene switch failed. Shown on the scene buttons, cleared by the next press.
+  const [sceneError, setSceneError] = useState<string | null>(null);
   const automodQueue = useAutomodQueue();
   const [rightTab, setRightTab] = useState<RightTab>('chatters');
   // False until the first REST refresh lands, so the attention feed can tell the
@@ -450,14 +452,18 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       .finally(() => setGoLiveBusy(false));
   }, [refreshDashboardStatus]);
 
+  // A refusal used to reach only the console: the button simply did nothing. It is
+  // reported beside the buttons, as the tablet reports it beside its own.
   const handleSwitchScene = React.useCallback((sceneName: string) => {
     setSceneSwitching(true);
+    setSceneError(null);
     void switchObsScene(sceneName)
       .then(result => {
         if (result.obsStatus) setObsStatus(result.obsStatus);
       })
       .catch(error => {
         console.error('Failed to switch OBS scene:', error);
+        setSceneError(errorMessage(error, 'Could not switch the OBS scene.'));
       })
       .finally(() => setSceneSwitching(false));
   }, []);
@@ -666,8 +672,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     };
   }
 
-  const showControls = status.obsConnected;
-
   const attentionPanel = (
     <Panel
       id="attention"
@@ -688,25 +692,28 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const dashboardLayout = (
     <div className="stage stage--cockpit">
       {slot('chat')}
-      <div className={`col-stack attention-stack${showControls ? ' with-controls' : ''}`}>
-        {showControls && (
-          <Panel
-            id="controls"
-            title="stream controls"
-            dot={false}
-            popped={false}
-            onPop={() => undefined}
-          >
-            <ControlsPanel
-              status={status}
-              scenes={obsStatus.scenes}
-              scenePrefix={obsStatus.scenePrefix}
-              currentScene={obsStatus.currentProgramScene}
-              onSwitchScene={handleSwitchScene}
-              sceneSwitching={sceneSwitching}
-            />
-          </Panel>
-        )}
+      {/* Stream Controls is always mounted. It used to show only while OBS was
+          connected, so an OBS drop took the mute, wind-down, holding scenes and pinned
+          card with it and threw away a typed draft without asking. */}
+      <div className="col-stack attention-stack with-controls">
+        <Panel
+          id="controls"
+          title="stream controls"
+          dot={false}
+          popped={false}
+          onPop={() => undefined}
+        >
+          <ControlsPanel
+            status={status}
+            statusKnown={statusKnown}
+            scenes={obsStatus.scenes}
+            scenePrefix={obsStatus.scenePrefix}
+            currentScene={obsStatus.currentProgramScene}
+            onSwitchScene={handleSwitchScene}
+            sceneSwitching={sceneSwitching}
+            sceneError={sceneError}
+          />
+        </Panel>
         {attentionPanel}
         <Panel
           id="chatters"
@@ -851,8 +858,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             <div key={row.label}><span>{row.label}</span><b>{row.value}</b></div>
           ))}
         </div>
-        {/* Lives here rather than in Stream Controls, which only mounts when OBS is
-            connected — see OverlayBoundsToggle. */}
+        {/* Lives here rather than in Stream Controls so it is reachable from every
+            page — see OverlayBoundsToggle. */}
         <TweakSection label="Overlays" />
         <OverlayBoundsToggle />
       </TweaksPanel>

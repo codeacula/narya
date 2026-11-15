@@ -6,7 +6,9 @@ import { TabletQuickActions } from '../quickActions';
 import { useClipButtons } from '../clips';
 import { useCountdown } from '../countdown';
 import { endsAtFor, useHoldingSceneControls } from '../holdingScenes';
-import { pinnedCardSummary, usePinnedCardControls } from '../pinnedCard';
+import { usePinnedCardControls } from '../pinnedCard';
+import { clearOffered, holdingReadoutText, pinnedCardReadout } from '../controlFaces';
+import type { LiveValueStatus } from '../liveValue';
 import { useMediaMute } from '../mediaMute';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
@@ -83,9 +85,10 @@ const HOLDING_SCENES: { scene: HoldingScene; label: string }[] = [
   { scene: 'brb', label: 'Be right back' },
 ];
 
-function HoldingReadout({ endsAt }: { endsAt: string | null }) {
+function HoldingReadout({ endsAt, status }: { endsAt: string | null; status: LiveValueStatus }) {
   const reading = useCountdown(endsAt);
-  return <span className="holding-readout">{reading ? reading.label : 'no countdown'}</span>;
+  // Never "no countdown" off a failed load: the scene may be counting down on stream.
+  return <span className="holding-readout">{holdingReadoutText(status, reading ? reading.label : null, 'no countdown')}</span>;
 }
 
 /**
@@ -93,7 +96,7 @@ function HoldingReadout({ endsAt }: { endsAt: string | null }) {
  * adjustment and the Ending scene's "next stream" line stay on the dashboard.
  */
 function TabletHoldingScenes({ onError }: { onError: (message: string) => void }) {
-  const { state, busy, start, clear } = useHoldingSceneControls(onError);
+  const { state, status, busy, start, clear } = useHoldingSceneControls(onError);
   return (
     <section className="tablet-panel holding-panel">
       <div className="tablet-panel-header">
@@ -106,7 +109,7 @@ function TabletHoldingScenes({ onError }: { onError: (message: string) => void }
         const endsAt = endsAtFor(state, scene);
         return (
           <div className="media-group" key={scene}>
-            <p className="media-group-label">{label} <HoldingReadout endsAt={endsAt} /></p>
+            <p className="media-group-label">{label} <HoldingReadout endsAt={endsAt} status={status} /></p>
             <div className="tablet-button-grid">
               {HOLDING_PRESETS.map(minutes => (
                 <button
@@ -118,7 +121,7 @@ function TabletHoldingScenes({ onError }: { onError: (message: string) => void }
                 </button>
               ))}
               <button
-                disabled={busy || endsAt === null}
+                disabled={busy || !clearOffered(status, endsAt !== null)}
                 onClick={event => { blurIfPointer(event); void clear(scene); }}
               >
                 Clear
@@ -136,7 +139,7 @@ function TabletHoldingScenes({ onError }: { onError: (message: string) => void }
  * chat row (the chat panel is on this surface too); topic entry stays on the dashboard.
  */
 function TabletPinnedCard({ onError }: { onError: (message: string) => void }) {
-  const { card, busy, clear } = usePinnedCardControls(onError);
+  const { card, status, busy, clear } = usePinnedCardControls(onError);
   return (
     <section className="tablet-panel pinned-panel">
       <div className="tablet-panel-header">
@@ -145,10 +148,10 @@ function TabletPinnedCard({ onError }: { onError: (message: string) => void }) {
           <h2>Pinned card</h2>
         </div>
       </div>
-      <p className="media-group-label">{pinnedCardSummary(card)}</p>
+      <p className="media-group-label">{pinnedCardReadout(status, card).text}</p>
       <div className="tablet-button-grid">
         <button
-          disabled={busy || card === null}
+          disabled={busy || !clearOffered(status, card !== null)}
           onClick={event => { blurIfPointer(event); void clear(); }}
         >
           Clear

@@ -1612,8 +1612,13 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .ctrl-section { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-1); }
 .ctrl-section:last-child { border-bottom: none; }
 .ctrl-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-3); flex: none; width: 52px; }
-.ctrl-scene-section { align-items: flex-start; }
+.ctrl-scene-section { align-items: flex-start; flex-wrap: wrap; }
 .ctrl-scene-section .ctrl-label { padding-top: 8px; }
+/* Where the scene buttons stand while OBS is offline. */
+.ctrl-scene-note {
+  flex: 1; min-width: 0; margin: 0; padding-top: 7px;
+  color: var(--fg-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.03em; line-height: 1.4;
+}
 .ctrl-scene-grid {
   display: grid;
   /* Column count is set inline (ceil(scenes / 2)) so scenes fill exactly two
@@ -3757,6 +3762,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   color: var(--gold-400);
 }
 .ctrl-holding-readout.is-overdue { color: var(--warning-fg); }
+.ctrl-holding-readout.is-unknown { color: var(--fg-3); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+/* The column sections have no label column for the problem line to indent past. */
+.ctrl-holding-section .ctrl-inline-warning,
+.ctrl-pinned-section .ctrl-inline-warning { padding-left: 0; }
 .ctrl-holding-buttons { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .ctrl-holding-row .ctrl-label { width: 66px; }
 .ctrl-holding-row .ctrl-scene-button { min-height: 28px; padding: 4px 8px; }

@@ -19,12 +19,14 @@ const UNMUTED: MediaMuteState = { muted: false };
 export function useMediaMute(): {
   muted: boolean;
   status: LiveValueStatus;
+  /** A refetch since the value was known failed; `muted` is only last-known. */
+  stale: boolean;
   retry: () => void;
   busy: boolean;
   error: string | null;
   toggle: (next: boolean) => void;
 } {
-  const { value: state, setValue: setState, status, retry } = useLiveValueState<MediaMuteState>(getMediaMute, 'media:mute', UNMUTED);
+  const { value: state, setValue: setState, status, stale, retry } = useLiveValueState<MediaMuteState>(getMediaMute, 'media:mute', UNMUTED);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -37,5 +39,5 @@ export function useMediaMute(): {
       .finally(() => setBusy(false));
   }, [setState]);
 
-  return { muted: state.muted, status, retry, busy, error, toggle };
+  return { muted: state.muted, status, stale, retry, busy, error, toggle };
 }
