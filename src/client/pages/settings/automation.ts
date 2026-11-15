@@ -1,5 +1,6 @@
 // Pure helpers behind the Actions, Automation, and Modules settings pages.
 // Kept free of React and fetch so the step/trigger rules can be tested directly.
+import { OBS_OFFLINE } from '../../obsNotice';
 import type {
   Action,
   ActionRunResult,
@@ -33,6 +34,7 @@ import {
   MAX_LLM_SYSTEM_PROMPT_LENGTH,
 } from '../../../shared/api';
 import { normalizeProfileTag } from '../../../shared/viewerTags';
+import type { PickerLoad } from './listState';
 
 // Mirrors of the server's limits in src/server/actions.ts. Duplicated deliberately:
 // validating here turns a 400 round-trip into an inline message, but the server
@@ -971,4 +973,32 @@ export function triggerToInput(trigger: AutomationTrigger): AutomationTriggerInp
     } as AutomationTriggerInput;
   }
   return input as AutomationTriggerInput;
+}
+
+/**
+ * The line under an "OBS scene" step's name field. It says "offline" in the words
+ * every other surface uses (OBS_OFFLINE) and only when OBS is known to be offline:
+ * a connected OBS with no scenes, or a status Narya never got, is not "offline".
+ * `connected` is null while the status is loading or after it failed.
+ */
+export function obsSceneHint(sceneCount: number, connected: boolean | null): string {
+  if (sceneCount > 0) return 'Scenes read from the connected OBS.';
+  if (connected === true) return 'OBS has no scenes to offer — the name is saved as typed.';
+  if (connected === false) return `${OBS_OFFLINE} — the name is saved as typed.`;
+  return 'The name is saved as typed.';
+}
+
+/**
+ * What a step's saved counter reference amounts to, given the counter list as loaded.
+ * Only a list that actually loaded can say a counter was deleted: a failed or pending
+ * load is `unknown`, which used to be drawn as "deleted counter" on every saved step.
+ */
+export function counterReference(
+  counterId: string,
+  counters: readonly Counter[],
+  load: PickerLoad,
+): 'none' | 'found' | 'deleted' | 'unknown' {
+  if (!counterId) return 'none';
+  if (counters.some(counter => counter.id === counterId)) return 'found';
+  return load.status === 'loaded' ? 'deleted' : 'unknown';
 }

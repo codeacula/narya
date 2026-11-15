@@ -9,7 +9,6 @@ import { openViewerPopout } from '../viewerPopout';
 import { isMentionOf } from '../chatText';
 import { playMentionAlert, playTone } from '../sounds';
 import {
-  disconnectTwitch,
   getViewers,
   getChatEntries,
   getStreamEvents,
@@ -28,9 +27,11 @@ import {
   reconnectEventSub,
 } from '../services/dashboard';
 import { useSessionShoutouts } from '../shoutouts';
-import { useSocket } from '../realtime';
+import { useSocket, useSocketState } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsShell } from './settings/SettingsShell';
+import { connectionsFreshness } from './settings/connectionCopy';
+import { useLeaveGuard } from '../ui/dirtyGuard';
 import {
   dashboardRouteFromName,
   dashboardRouteFromPath,
@@ -47,6 +48,8 @@ import type { ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMe
 import { NO_ACTIVE_SESSION_FOR_PLANNED_END } from '../../shared/api';
 import { errorMessage } from '../errors';
 import { useToast } from '../ui/notifications';
+import { liveDataRows, statusIsStale } from '../ui/statBarText';
+import { createLatestOnly } from '../latestOnly';
 
 /* ---------------- constants ---------------- */
 
@@ -131,6 +134,13 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [popped, setPopped] = useState<Record<string, PoppedState>>({});
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
+  // False while `status` is still EMPTY_STATUS: its "no channel" and "OBS offline" are
+  // placeholders, not facts, and the Live Data list must not report them as such.
+  const [statusKnown, setStatusKnown] = useState(false);
+  // The last full refresh failed and no status has arrived since (statusIsStale).
+  const [statusRefreshFailed, setStatusRefreshFailed] = useState(false);
+  const socketState = useSocketState();
+  const statusStale = statusIsStale({ socket: socketState, refreshFailed: statusRefreshFailed });
   const { pushToast } = useToast();
   const [streamInfoOpen, setStreamInfoOpen] = useState(false);
   const [streamInfoForm, setStreamInfoForm] = useState<StreamInfoForm>({ title: '', category: '', tags: [], status: '', plannedEndAt: '' });
@@ -138,18 +148,28 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [streamInfoSaving, setStreamInfoSaving] = useState(false);
   const [streamInfoMessage, setStreamInfoMessage] = useState<string | null>(null);
   const [streamInfoError, setStreamInfoError] = useState<string | null>(null);
+  // Whether the open modal's fields came from the server. Save PUTs every one of them —
+  // title, tags, status line, planned end — so blanks (or the last open's values) left by
+  // a failed load must never be savable (`formFace`).
+  const [streamInfoLoaded, setStreamInfoLoaded] = useState(false);
+  const [streamInfoLoadFailed, setStreamInfoLoadFailed] = useState(false);
+  // Only the latest load may fill the form: a slow one from a closed modal, or from
+  // before a Retry, must not land over a newer one.
+  const streamInfoLoadSeq = React.useRef(0);
   const [prerollBusy, setPrerollBusy] = useState(false);
   const [goLiveBusy, setGoLiveBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [obsStatus, setObsStatus] = useState<ObsStatus>(EMPTY_OBS_STATUS);
   const [sceneSwitching, setSceneSwitching] = useState(false);
+  // The last scene switch failed. Shown on the scene buttons, cleared by the next press.
+  const [sceneError, setSceneError] = useState<string | null>(null);
   const automodQueue = useAutomodQueue();
   const [rightTab, setRightTab] = useState<RightTab>('chatters');
   // False until the first REST refresh lands, so the attention feed can tell the
   // backlog apart from activity that arrived while you were watching.
   const [seeded, setSeeded] = useState(false);
   const { settings: attentionSettings, update: updateAttentionSettings } = useAttentionSettings();
-  const shoutouts = useSessionShoutouts(status.streamSessionId);
+  const { shoutouts, health: shoutoutsHealth, retry: retryShoutouts } = useSessionShoutouts(status.streamSessionId);
   const lastChatAt = React.useRef<number>(0);
   // Mirror the channel into a ref so the stable chat:message handler can read
   // the current login without hardcoding it or re-subscribing.
@@ -186,31 +206,67 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   });
   const { chat, setChat, viewers, setViewers } = feed;
 
-  const changePage = React.useCallback((nextPage: string) => {
+  // Every way off the current page asks the unsaved-edit guard first (ui/dirtyGuard.tsx):
+  // a settings editor holding a draft gets a "Discard unsaved changes?" confirm, and
+  // nothing moves unless the operator agrees. Clean pages navigate synchronously.
+  const { isDirty, confirmLeave } = useLeaveGuard();
+  // The path of the page actually on screen. Back/Forward has already changed the URL
+  // by the time popstate fires, so a refused leave needs this to put it back.
+  const shownPathRef = React.useRef(window.location.pathname);
+
+  const leaveThen = React.useCallback((path: string, go: () => void): Promise<boolean> => {
+    const move = () => {
+      if (window.location.pathname !== path) window.history.pushState({}, '', path);
+      shownPathRef.current = path;
+      go();
+      return true;
+    };
+    // Re-selecting the page you are on throws nothing away, so it never asks.
+    if (window.location.pathname === path || !isDirty()) return Promise.resolve(move());
+    return confirmLeave().then(ok => (ok ? move() : false));
+  }, [isDirty, confirmLeave]);
+
+  /** Resolves true once the page has changed, false when the operator stayed put. */
+  const changePage = React.useCallback((nextPage: string): Promise<boolean> => {
     const route = dashboardRouteFromName(nextPage);
-    const path = pathForDashboardRoute(route);
-    if (window.location.pathname !== path) window.history.pushState({}, '', path);
-    setPage(route);
-  }, []);
+    return leaveThen(pathForDashboardRoute(route), () => setPage(route));
+  }, [leaveThen]);
 
   // Navigate to a single viewer's page (/viewers/<login>). Kept separate from
   // changePage because the destination carries a per-viewer path segment.
   const navigateToViewer = React.useCallback((login: string) => {
-    const path = pathForViewer(login);
-    if (window.location.pathname !== path) window.history.pushState({}, '', path);
-    setViewerLogin(login.toLowerCase());
-    setPage('viewer');
-  }, []);
+    void leaveThen(pathForViewer(login), () => {
+      setViewerLogin(login.toLowerCase());
+      setPage('viewer');
+    });
+  }, [leaveThen]);
 
   useEffect(() => {
-    const handlePopState = () => {
-      const nextRoute = dashboardRouteFromPath(window.location.pathname);
+    const showPath = (path: string) => {
+      shownPathRef.current = path;
+      const nextRoute = dashboardRouteFromPath(path);
       setPage(nextRoute);
-      setViewerLogin(nextRoute === 'viewer' ? viewerLoginFromPath(window.location.pathname) : null);
+      setViewerLogin(nextRoute === 'viewer' ? viewerLoginFromPath(path) : null);
+    };
+    const handlePopState = () => {
+      const target = window.location.pathname;
+      if (!isDirty()) {
+        showPath(target);
+        return;
+      }
+      // The browser has already moved the URL. Put back the page still on screen, then
+      // ask; only an agreed leave re-applies the destination. (This re-pushes rather than
+      // stepping history, so the entry being left becomes the newest one.)
+      window.history.pushState({}, '', shownPathRef.current);
+      void confirmLeave().then(ok => {
+        if (!ok) return;
+        window.history.pushState({}, '', target);
+        showPath(target);
+      });
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [isDirty, confirmLeave]);
 
   useEffect(() => {
     channelRef.current = status.channel.toLowerCase();
@@ -224,43 +280,62 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     if (viewersDebounceRef.current) clearTimeout(viewersDebounceRef.current);
   }, []);
 
+  const mountedRef = React.useRef(true);
   useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const { feedSucceeded, feedFailed } = feed;
 
-    const refreshAll = async () => {
-      try {
-        const [nextViewers, nextChat, nextEvents, nextStatus, nextObsStatus] = await Promise.all([
-          getViewers(),
-          getChatEntries(),
-          getStreamEvents(),
-          getDashboardStatus(),
-          getObsStatus().catch(() => null),
-        ]);
-        if (cancelled) return;
-        setViewers(nextViewers);
-        setChat(nextChat);
-        setEvents(nextEvents);
-        setStatus(nextStatus);
-        if (nextObsStatus) setObsStatus(nextObsStatus);
-      } catch (error) {
-        console.error('Failed to refresh dashboard data:', error);
-        if (!cancelled) setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
-      } finally {
-        // Even a failed seed ends the quiet period; otherwise one bad fetch would
-        // mute the attention chime for the rest of the session.
-        if (!cancelled) setSeeded(true);
-      }
-    };
+  // The full refresh re-seeds chat, events and viewers every DASHBOARD_FULL_REFRESH_MS.
+  // The WebSocket only appends to those lists, and it is down whenever the backend is,
+  // so a refresh that fails means the lists really are getting old: its outcome feeds
+  // `feed.feedHealth`, which the chat and activity panels use to mark themselves stale,
+  // and to say "unavailable" rather than "no chat yet" when the first load never landed.
+  //
+  // The interval and the panels' Retry can overlap, so only the newest refresh may land:
+  // a slow failure settling after a successful retry would otherwise re-mark fresh lists
+  // stale, and an older snapshot settling last would overwrite newer chat and events.
+  const [refreshGate] = React.useState(createLatestOnly);
+  const refreshAll = React.useCallback(async () => {
+    const isCurrent = refreshGate.begin();
+    try {
+      const [nextViewers, nextChat, nextEvents, nextStatus, nextObsStatus] = await Promise.all([
+        getViewers(),
+        getChatEntries(),
+        getStreamEvents(),
+        getDashboardStatus(),
+        getObsStatus().catch(() => null),
+      ]);
+      if (!mountedRef.current || !isCurrent()) return;
+      setViewers(nextViewers);
+      setChat(nextChat);
+      setEvents(nextEvents);
+      setStatus(nextStatus);
+      setStatusKnown(true);
+      setStatusRefreshFailed(false);
+      if (nextObsStatus) setObsStatus(nextObsStatus);
+      feedSucceeded();
+    } catch (error) {
+      console.error('Failed to refresh dashboard data:', error);
+      if (!mountedRef.current || !isCurrent()) return;
+      setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
+      setStatusRefreshFailed(true);
+      feedFailed();
+    } finally {
+      // Even a failed seed ends the quiet period; otherwise one bad fetch would
+      // mute the attention chime for the rest of the session.
+      if (mountedRef.current) setSeeded(true);
+    }
+  }, [refreshGate, setChat, setViewers, feedSucceeded, feedFailed]);
+  const retryRefresh = React.useCallback(() => { void refreshAll(); }, [refreshAll]);
 
+  useEffect(() => {
     void refreshAll();
     // No 5s status poll — the dashboard:status WS heartbeat keeps status fresh.
     const fullRefresh = setInterval(refreshAll, DASHBOARD_FULL_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(fullRefresh);
-    };
-  }, [setChat, setViewers]);
+    return () => clearInterval(fullRefresh);
+  }, [refreshAll]);
 
   // Real Twitch EventSub events from the backend
   useSocket<StreamEvent>('stream:event', React.useCallback((evt) => {
@@ -290,39 +365,38 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
   useSocket<DashboardStatus>('dashboard:status', React.useCallback((nextStatus) => {
     setStatus(nextStatus);
+    setStatusKnown(true);
+    setStatusRefreshFailed(false);
   }, []));
 
   useSocket<ObsStatus>('obs:status', React.useCallback((nextStatus) => {
     setObsStatus(nextStatus);
   }, []));
 
-  // Disconnecting drops EventSub, alerts and the ad schedule until the next sign-in, so
-  // it confirms first and reports a failure where the operator is looking.
-  const disconnectTwitchAccount = React.useCallback((account: 'user' | 'bot') => {
-    const what = account === 'bot' ? 'the bot account' : 'your Twitch account';
-    const consequence = account === 'bot'
-      ? 'Dashboard chat messages will stop sending as the bot until you sign it in again.'
-      : 'Alerts, EventSub and the ad schedule stop until you sign in again.';
-    if (!window.confirm(`Disconnect ${what}? ${consequence}`)) return;
-    void disconnectTwitch(account)
-      .then(() => getDashboardStatus())
+  // Settings > Connections reports a disconnect itself; this only re-reads the status so
+  // its rows and the stat bar follow. A failed re-read changes nothing: the socket's next
+  // `dashboard:status` carries the same news.
+  const handleTwitchDisconnected = React.useCallback(() => {
+    void getDashboardStatus()
       .then(setStatus)
-      .catch((error: unknown) => {
-        console.error(`Failed to disconnect ${what}:`, error);
-        pushToast({ kind: 'error', title: `Could not disconnect ${what}`, message: errorMessage(error, 'The server did not respond.') });
-      });
-  }, [pushToast]);
-  const handleTwitchLogout = React.useCallback(() => disconnectTwitchAccount('user'), [disconnectTwitchAccount]);
-  const handleTwitchBotLogout = React.useCallback(() => disconnectTwitchAccount('bot'), [disconnectTwitchAccount]);
+      .catch((error: unknown) => console.error('Failed to refresh status after a Twitch disconnect:', error));
+  }, []);
 
+  // The stat bar's retry is the only place this is asked for, and a refusal used to go
+  // to the console alone: the button just did nothing.
   const handleReconnectEventSub = React.useCallback(() => {
     void reconnectEventSub()
       .then(() => getDashboardStatus())
       .then(setStatus)
       .catch((error: unknown) => {
         console.error('Failed to reconnect EventSub:', error);
+        pushToast({
+          kind: 'error',
+          title: 'Could not reconnect Twitch EventSub',
+          message: errorMessage(error, 'The server did not respond.'),
+        });
       });
-  }, []);
+  }, [pushToast]);
 
   const refreshDashboardStatus = React.useCallback(() => {
     void getDashboardStatus().then(setStatus).catch((error: unknown) => {
@@ -386,14 +460,18 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       .finally(() => setGoLiveBusy(false));
   }, [refreshDashboardStatus]);
 
+  // A refusal used to reach only the console: the button simply did nothing. It is
+  // reported beside the buttons, as the tablet reports it beside its own.
   const handleSwitchScene = React.useCallback((sceneName: string) => {
     setSceneSwitching(true);
+    setSceneError(null);
     void switchObsScene(sceneName)
       .then(result => {
         if (result.obsStatus) setObsStatus(result.obsStatus);
       })
       .catch(error => {
         console.error('Failed to switch OBS scene:', error);
+        setSceneError(errorMessage(error, 'Could not switch the OBS scene.'));
       })
       .finally(() => setSceneSwitching(false));
   }, []);
@@ -414,8 +492,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     return Number.isNaN(date.getTime()) ? null : date.toISOString();
   };
 
-  const handleOpenStreamInfo = React.useCallback(() => {
-    setStreamInfoOpen(true);
+  const loadStreamInfo = React.useCallback(() => {
+    const seq = ++streamInfoLoadSeq.current;
     setStreamInfoLoading(true);
     setStreamInfoMessage(null);
     setStreamInfoError(null);
@@ -425,6 +503,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     // touched the status field.
     void Promise.all([getStreamInfo(), getStreamStatusRaw(), getPlannedStreamEnd()])
       .then(([info, status, planned]) => {
+        if (seq !== streamInfoLoadSeq.current) return;
+        setStreamInfoLoaded(true);
+        setStreamInfoLoadFailed(false);
         setStreamInfoForm({
           title: info.title,
           category: info.category,
@@ -435,13 +516,25 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         });
       })
       .catch(error => {
+        if (seq !== streamInfoLoadSeq.current) return;
+        setStreamInfoLoadFailed(true);
         setStreamInfoError(errorMessage(error, 'Could not load stream info'));
       })
-      .finally(() => setStreamInfoLoading(false));
+      .finally(() => { if (seq === streamInfoLoadSeq.current) setStreamInfoLoading(false); });
   }, []);
+
+  const handleOpenStreamInfo = React.useCallback(() => {
+    setStreamInfoOpen(true);
+    // Every open reads afresh; what the last open loaded is not what is live now.
+    setStreamInfoLoaded(false);
+    setStreamInfoLoadFailed(false);
+    loadStreamInfo();
+  }, [loadStreamInfo]);
 
   const handleStreamInfoSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // The modal offers no Save until the fields have loaded; this is the backstop.
+    if (!streamInfoLoaded) return;
     setStreamInfoSaving(true);
     setStreamInfoMessage(null);
     setStreamInfoError(null);
@@ -476,7 +569,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         setStreamInfoError(errorMessage(error, 'Could not save stream info'));
       })
       .finally(() => setStreamInfoSaving(false));
-  }, [refreshDashboardStatus, streamInfoForm]);
+  }, [refreshDashboardStatus, streamInfoForm, streamInfoLoaded]);
 
   const attention = useAttention({
     events,
@@ -512,6 +605,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       return updated;
     },
     loadOlderChat: feed.loadOlderChat,
+    feedHealth: feed.feedHealth,
+    onRetryFeed: retryRefresh,
   };
 
   const handlePop = (id: string, on: boolean) => {
@@ -551,11 +646,19 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
   function renderRightTab(tab: RightTab) {
     if (tab === 'chatters') {
-      return <ChattersPanel chatters={feed.liveChatters} viewers={viewers} error={feed.chattersError} onOpenViewer={ctx.openViewerPopout} />;
+      return <ChattersPanel chatters={feed.liveChatters} viewers={viewers} error={feed.chattersError} loaded={feed.chattersLoaded} onOpenViewer={ctx.openViewerPopout} />;
     }
     if (tab === 'activity') return MODULES.events?.render(ctx);
     if (tab === 'shoutouts') {
-      return <ShoutoutsPanel shoutouts={shoutouts} streamActive={status.streamSessionId !== null} onOpenViewer={ctx.openViewerPopout} />;
+      return (
+        <ShoutoutsPanel
+          shoutouts={shoutouts}
+          health={shoutoutsHealth}
+          onRetry={retryShoutouts}
+          streamActive={status.streamSessionId !== null}
+          onOpenViewer={ctx.openViewerPopout}
+        />
+      );
     }
     return <AutomodPanel queue={automodQueue} subscriptionInactive={status.twitchMissingScopes.includes('moderator:manage:automod')} />;
   }
@@ -569,6 +672,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       settings={attentionSettings}
       onAck={attention.ack}
       onSettingsChange={updateAttentionSettings}
+      health={feed.feedHealth}
+      onRetry={retryRefresh}
     />
   );
 
@@ -590,8 +695,6 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     };
   }
 
-  const showControls = status.obsConnected;
-
   const attentionPanel = (
     <Panel
       id="attention"
@@ -612,25 +715,28 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const dashboardLayout = (
     <div className="stage stage--cockpit">
       {slot('chat')}
-      <div className={`col-stack attention-stack${showControls ? ' with-controls' : ''}`}>
-        {showControls && (
-          <Panel
-            id="controls"
-            title="stream controls"
-            dot={false}
-            popped={false}
-            onPop={() => undefined}
-          >
-            <ControlsPanel
-              status={status}
-              scenes={obsStatus.scenes}
-              scenePrefix={obsStatus.scenePrefix}
-              currentScene={obsStatus.currentProgramScene}
-              onSwitchScene={handleSwitchScene}
-              sceneSwitching={sceneSwitching}
-            />
-          </Panel>
-        )}
+      {/* Stream Controls is always mounted. It used to show only while OBS was
+          connected, so an OBS drop took the mute, wind-down, holding scenes and pinned
+          card with it and threw away a typed draft without asking. */}
+      <div className="col-stack attention-stack with-controls">
+        <Panel
+          id="controls"
+          title="stream controls"
+          dot={false}
+          popped={false}
+          onPop={() => undefined}
+        >
+          <ControlsPanel
+            status={status}
+            statusKnown={statusKnown}
+            scenes={obsStatus.scenes}
+            scenePrefix={obsStatus.scenePrefix}
+            currentScene={obsStatus.currentProgramScene}
+            onSwitchScene={handleSwitchScene}
+            sceneSwitching={sceneSwitching}
+            sceneError={sceneError}
+          />
+        </Panel>
         {attentionPanel}
         <Panel
           id="chatters"
@@ -667,11 +773,13 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             className="nav-automod-alert"
             title="Held messages awaiting review"
             onClick={() => {
-              changePage('dashboard');
-              // The AutoMod queue lives in the tabbed right panel; re-dock it so
-              // the tab switch below lands somewhere the operator can see.
-              handlePop('chatters', false);
-              setRightTab('automod');
+              void changePage('dashboard').then(moved => {
+                if (!moved) return;
+                // The AutoMod queue lives in the tabbed right panel; re-dock it so
+                // the tab switch below lands somewhere the operator can see.
+                handlePop('chatters', false);
+                setRightTab('automod');
+              });
             }}
           >
             <span className="nav-automod-dot" aria-hidden="true" />
@@ -710,6 +818,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         eventSubConnected={status.eventSubConnected}
         eventSubError={status.eventSubError}
         onReconnectEventSub={handleReconnectEventSub}
+        stale={statusStale}
       />
       {page === 'viewers' || page === 'viewer' ? (
         // One page, two panes. /viewers is the list with nothing selected; /viewers/<login>
@@ -724,9 +833,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         <SettingsShell
           route={page}
           status={status}
+          freshness={connectionsFreshness({ known: statusKnown, stale: statusStale })}
           onNavigate={changePage}
-          onTwitchLogout={handleTwitchLogout}
-          onTwitchBotLogout={handleTwitchBotLogout}
+          onTwitchDisconnected={handleTwitchDisconnected}
         />
       ) : (
         dashboardLayout
@@ -756,6 +865,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         <StreamInfoModal
           form={streamInfoForm}
           loading={streamInfoLoading}
+          loaded={streamInfoLoaded}
+          loadFailed={streamInfoLoadFailed}
+          onRetry={loadStreamInfo}
           saving={streamInfoSaving}
           message={streamInfoMessage}
           error={streamInfoError}
@@ -768,13 +880,12 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       <TweaksPanel title="Display" open={tweaksOpen} onClose={() => setTweaksOpen(false)}>
         <TweakSection label="Live Data" />
         <div className="live-data-list">
-          <div><span>Channel</span><b>{status.channel || 'unavailable'}</b></div>
-          <div><span>Chat</span><b>{status.chatConnection.toLowerCase()}</b></div>
-          <div><span>EventSub</span><b>{status.eventSubConnected ? 'open' : 'closed'}</b></div>
-          <div><span>OBS</span><b>{status.obsConnected ? 'connected' : 'unavailable'}</b></div>
+          {liveDataRows(status, statusKnown && !statusStale).map(row => (
+            <div key={row.label}><span>{row.label}</span><b>{row.value}</b></div>
+          ))}
         </div>
-        {/* Lives here rather than in Stream Controls, which only mounts when OBS is
-            connected — see OverlayBoundsToggle. */}
+        {/* Lives here rather than in Stream Controls so it is reachable from every
+            page — see OverlayBoundsToggle. */}
         <TweakSection label="Overlays" />
         <OverlayBoundsToggle />
       </TweaksPanel>

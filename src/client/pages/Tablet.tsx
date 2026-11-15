@@ -6,7 +6,9 @@ import { TabletQuickActions } from '../quickActions';
 import { useClipButtons } from '../clips';
 import { useCountdown } from '../countdown';
 import { endsAtFor, useHoldingSceneControls } from '../holdingScenes';
-import { pinnedCardSummary, usePinnedCardControls } from '../pinnedCard';
+import { usePinnedCardControls } from '../pinnedCard';
+import { clearOffered, holdingReadoutText, pinnedCardReadout } from '../controlFaces';
+import type { LiveValueStatus } from '../liveValue';
 import { useMediaMute } from '../mediaMute';
 import { useSocket } from '../realtime';
 import { useSoundButtons } from '../sounds';
@@ -19,6 +21,12 @@ import {
   triggerObsTransition,
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
+import { obsNotice } from '../obsNotice';
+import { obsConnectionDot, obsConnectionLabel } from '../connectionWords';
+import { EmptyState } from '../ui/emptyState';
+import { ListUnavailable, SettingsAnnouncer } from './settings/shared';
+import { listFace } from './settings/listState';
+import { Icon } from '../ui/icons';
 
 // Dropping focus after a tap keeps a tablet's on-screen button from staying
 // visually "stuck" highlighted. Keyboard activation (Enter/Space) also fires
@@ -43,11 +51,15 @@ const emptyObsStatus: ObsStatus = {
 function useObsStatus() {
   const [obsStatus, setObsStatus] = React.useState<ObsStatus>(emptyObsStatus);
   const [error, setError] = React.useState<string | null>(null);
+  // Until the first status lands, `emptyObsStatus` says "disconnected" — which is a
+  // placeholder, not a fact, and must not be reported as OBS being down.
+  const [loaded, setLoaded] = React.useState(false);
 
   React.useEffect(() => {
     getObsStatus()
       .then((status) => {
         setObsStatus(status);
+        setLoaded(true);
         setError(null);
       })
       .catch((caught: unknown) => {
@@ -59,11 +71,12 @@ function useObsStatus() {
     'obs:status',
     React.useCallback((nextStatus) => {
       setObsStatus(nextStatus);
+      setLoaded(true);
       setError(null);
     }, []),
   );
 
-  return { obsStatus, setObsStatus, error };
+  return { obsStatus, setObsStatus, loaded, error };
 }
 
 const HOLDING_PRESETS = [5, 10, 15] as const;
@@ -72,9 +85,10 @@ const HOLDING_SCENES: { scene: HoldingScene; label: string }[] = [
   { scene: 'brb', label: 'Be right back' },
 ];
 
-function HoldingReadout({ endsAt }: { endsAt: string | null }) {
+function HoldingReadout({ endsAt, status }: { endsAt: string | null; status: LiveValueStatus }) {
   const reading = useCountdown(endsAt);
-  return <span className="holding-readout">{reading ? reading.label : 'no countdown'}</span>;
+  // Never "no countdown" off a failed load: the scene may be counting down on stream.
+  return <span className="holding-readout">{holdingReadoutText(status, reading ? reading.label : null, 'no countdown')}</span>;
 }
 
 /**
@@ -82,7 +96,7 @@ function HoldingReadout({ endsAt }: { endsAt: string | null }) {
  * adjustment and the Ending scene's "next stream" line stay on the dashboard.
  */
 function TabletHoldingScenes({ onError }: { onError: (message: string) => void }) {
-  const { state, busy, start, clear } = useHoldingSceneControls(onError);
+  const { state, status, busy, start, clear } = useHoldingSceneControls(onError);
   return (
     <section className="tablet-panel holding-panel">
       <div className="tablet-panel-header">
@@ -95,7 +109,7 @@ function TabletHoldingScenes({ onError }: { onError: (message: string) => void }
         const endsAt = endsAtFor(state, scene);
         return (
           <div className="media-group" key={scene}>
-            <p className="media-group-label">{label} <HoldingReadout endsAt={endsAt} /></p>
+            <p className="media-group-label">{label} <HoldingReadout endsAt={endsAt} status={status} /></p>
             <div className="tablet-button-grid">
               {HOLDING_PRESETS.map(minutes => (
                 <button
@@ -107,7 +121,7 @@ function TabletHoldingScenes({ onError }: { onError: (message: string) => void }
                 </button>
               ))}
               <button
-                disabled={busy || endsAt === null}
+                disabled={busy || !clearOffered(status, endsAt !== null)}
                 onClick={event => { blurIfPointer(event); void clear(scene); }}
               >
                 Clear
@@ -125,7 +139,7 @@ function TabletHoldingScenes({ onError }: { onError: (message: string) => void }
  * chat row (the chat panel is on this surface too); topic entry stays on the dashboard.
  */
 function TabletPinnedCard({ onError }: { onError: (message: string) => void }) {
-  const { card, busy, clear } = usePinnedCardControls(onError);
+  const { card, status, busy, clear } = usePinnedCardControls(onError);
   return (
     <section className="tablet-panel pinned-panel">
       <div className="tablet-panel-header">
@@ -134,10 +148,10 @@ function TabletPinnedCard({ onError }: { onError: (message: string) => void }) {
           <h2>Pinned card</h2>
         </div>
       </div>
-      <p className="media-group-label">{pinnedCardSummary(card)}</p>
+      <p className="media-group-label">{pinnedCardReadout(status, card).text}</p>
       <div className="tablet-button-grid">
         <button
-          disabled={busy || card === null}
+          disabled={busy || !clearOffered(status, card !== null)}
           onClick={event => { blurIfPointer(event); void clear(); }}
         >
           Clear
@@ -147,11 +161,46 @@ function TabletPinnedCard({ onError }: { onError: (message: string) => void }) {
   );
 }
 
+/**
+ * One soundboard group. A failed load is "unavailable" with a Retry, and a load still
+ * in flight says so: both used to fall through to "No sounds yet" (see listFace).
+ */
+function MediaButtons({
+  load,
+  noun,
+  empty,
+  onPlay,
+}: {
+  load: { items: { id: string; label: string }[]; loading: boolean; error: string | null; retry: () => void };
+  noun: string;
+  empty: React.ReactNode;
+  onPlay: (id: string) => void;
+}) {
+  const face = listFace({ loading: load.loading, loadFailed: load.error !== null, count: load.items.length });
+  if (face === 'unavailable') {
+    return <ListUnavailable size="note" title={`${noun} unavailable`} onRetry={load.retry} retrying={load.loading} />;
+  }
+  if (face === 'loading') return <EmptyState size="note" title={`Loading ${noun.toLowerCase()}…`} />;
+  if (face === 'empty') return <>{empty}</>;
+  return (
+    <>
+      {load.items.map(item => (
+        <button key={item.id} onClick={event => { blurIfPointer(event); onPlay(item.id); }}>
+          {item.label}
+        </button>
+      ))}
+    </>
+  );
+}
+
 export function TabletPage() {
-  const { obsStatus, setObsStatus, error: statusError } = useObsStatus();
-  const soundButtons = useSoundButtons();
-  const clipButtons = useClipButtons();
+  const { obsStatus, setObsStatus, loaded: obsLoaded, error: statusError } = useObsStatus();
+  const sounds = useSoundButtons();
+  const clips = useClipButtons();
   const media = useMediaMute();
+  // Until the server has said, the button is neither lit nor dark as if it knew.
+  const muteKnown = media.status === 'loaded';
+  const muteProblem = media.error ?? (media.status === 'failed' ? 'Could not read whether commands are muted.' : null);
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [commandError, setCommandError] = React.useState<string | null>(null);
 
@@ -164,7 +213,11 @@ export function TabletPage() {
   const obsUnavailable = !obsStatus.connected;
   const hasScenes = scenes.length > 0;
   const controlsDisabled = obsUnavailable || Boolean(pendingAction);
-  const connectionClass = obsStatus.connected ? 'tablet-status-dot connected' : 'tablet-status-dot disconnected';
+  // Null until a status has arrived: `emptyObsStatus` says disconnected, which is a
+  // placeholder, not something OBS or Narya reported.
+  const obsConnected = obsLoaded ? obsStatus.connected : null;
+  const connectionClass = 'tablet-status-dot ' + obsConnectionDot(obsConnected);
+  const notice = obsNotice({ obsStatus, loaded: obsLoaded, statusError, commandError });
 
   async function runObsCommand(action: string, command: () => Promise<{ obsStatus?: ObsStatus }>) {
     setPendingAction(action);
@@ -212,16 +265,22 @@ export function TabletPage() {
               <div className="tablet-status-group">
                 <span className="tablet-status">
                   <span className={connectionClass} />
-                  {obsStatus.connected ? 'Connected' : 'Unavailable'}
+                  {obsConnectionLabel(obsConnected)}
                 </span>
-                <span className="tablet-status">
-                  <span className={'tablet-status-dot ' + (obsStatus.studioMode ? 'connected' : 'idle')} />
-                  Studio {obsStatus.studioMode ? 'On' : 'Off'}
-                </span>
+                {/* Studio mode is something OBS reports. While OBS is unreachable the
+                    server zeroes it, so "Studio off" would be a claim nobody made. */}
+                {obsStatus.connected ? (
+                  <span className="tablet-status">
+                    <span className={'tablet-status-dot ' + (obsStatus.studioMode ? 'connected' : 'idle')} />
+                    Studio {obsStatus.studioMode ? 'On' : 'Off'}
+                  </span>
+                ) : null}
               </div>
             </div>
 
-            {programOffList || obsStatus.studioMode ? (
+            {/* Same reasoning for the Program readout: "None" while offline is not
+                what is on stream, it is only what this page does not know. */}
+            {obsStatus.connected && (programOffList || obsStatus.studioMode) ? (
               <div className="obs-scene-summary">
                 {programOffList ? (
                   <div>
@@ -238,32 +297,44 @@ export function TabletPage() {
               </div>
             ) : null}
 
-            {statusError || obsStatus.lastError || commandError ? (
-              <p className="tablet-error">{commandError ?? statusError ?? obsStatus.lastError}</p>
+            {notice ? (
+              <div
+                className={'tablet-error' + (notice.tone === 'offline' ? ' tablet-error--offline' : '')}
+                role="status"
+                title={notice.detail ?? undefined}
+              >
+                <p>{notice.message}</p>
+                {notice.detail ? <p className="tablet-error-detail">{notice.detail}</p> : null}
+              </div>
             ) : null}
 
-            <div className="tablet-button-grid sceneGrid">
-              {hasScenes ? scenes.map(scene => {
-                const isCurrent = scene === obsStatus.currentProgramScene;
-                const className = isCurrent ? 'scene-button current' : 'scene-button';
-                const isPending = pendingAction === `scene:${scene}`;
-                return (
-                  <button
-                    className={className}
-                    disabled={controlsDisabled || isCurrent}
-                    key={scene}
-                    onClick={() => {
-                      void runObsCommand(`scene:${scene}`, () => switchObsScene(scene));
-                    }}
-                  >
-                    <span>{sceneLabel(scene, obsStatus.scenePrefix)}</span>
-                    {isPending ? <small>Switching</small> : null}
-                  </button>
-                );
-              }) : (
-                <p className="muted">No OBS scenes available yet.</p>
-              )}
-            </div>
+            {/* While OBS is offline the notice above already says the buttons come
+                back on reconnect, so an empty grid says nothing more. A connected OBS
+                with no scenes is the only case left to explain. */}
+            {hasScenes ? (
+              <div className="tablet-button-grid sceneGrid">
+                {scenes.map(scene => {
+                  const isCurrent = scene === obsStatus.currentProgramScene;
+                  const className = isCurrent ? 'scene-button current' : 'scene-button';
+                  const isPending = pendingAction === `scene:${scene}`;
+                  return (
+                    <button
+                      className={className}
+                      disabled={controlsDisabled || isCurrent}
+                      key={scene}
+                      onClick={() => {
+                        void runObsCommand(`scene:${scene}`, () => switchObsScene(scene));
+                      }}
+                    >
+                      <span>{sceneLabel(scene, obsStatus.scenePrefix)}</span>
+                      {isPending ? <small>Switching</small> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : obsStatus.connected ? (
+              <EmptyState size="note" title="No scenes">OBS reports no scenes to switch between.</EmptyState>
+            ) : null}
 
             {obsStatus.studioMode ? (
               <button
@@ -293,40 +364,49 @@ export function TabletPage() {
               </div>
               <button
                 type="button"
-                className={'tablet-mute-button' + (media.muted ? ' active' : '')}
-                aria-pressed={media.muted}
-                disabled={media.busy}
+                className={'tablet-mute-button' + (muteKnown && media.muted ? ' active' : '')}
+                aria-pressed={muteKnown ? media.muted : undefined}
+                disabled={media.busy || !muteKnown}
                 onClick={event => { blurIfPointer(event); media.toggle(!media.muted); }}
+                title="Silences sound and video commands. Redemptions on unflagged actions still play."
               >
-                {media.muted ? '🔇 Commands muted' : '🔊 Mute commands'}
+                {/* The words are the button's name; the glyph only repeats them. */}
+                <Icon name={muteKnown && media.muted ? 'speaker-off' : 'speaker'} size={18} aria-hidden="true" focusable="false" />
+                <span>{!muteKnown ? 'Mute state unknown' : media.muted ? 'Commands muted' : 'Mute commands'}</span>
               </button>
             </div>
+
+            <SettingsAnnouncer error={muteProblem} />
+            {muteProblem ? (
+              <div className="tablet-error tablet-error--action">
+                <p aria-hidden="true">{muteProblem}</p>
+                {!media.error ? (
+                  <button type="button" className="modbtn" onClick={media.retry}>Retry</button>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="media-group">
               <p className="media-group-label">Sounds</p>
               <div className="tablet-button-grid">
-                {soundButtons.length > 0 ? soundButtons.map(sound => (
-                  <button
-                    key={sound.id}
-                    onClick={event => { blurIfPointer(event); playSound(sound.id); }}
-                  >
-                    {sound.label}
-                  </button>
-                )) : <p className="muted">No sounds yet — add them in Settings → Content.</p>}
+                <MediaButtons
+                  load={sounds}
+                  noun="Sounds"
+                  empty={<EmptyState size="note" title="No sounds yet">Add sound buttons in Settings → Content.</EmptyState>}
+                  onPlay={playSound}
+                />
               </div>
             </div>
 
             <div className="media-group">
               <p className="media-group-label">Clips</p>
               <div className="tablet-button-grid">
-                {clipButtons.length > 0 ? clipButtons.map(clip => (
-                  <button
-                    key={clip.id}
-                    onClick={event => { blurIfPointer(event); playClip(clip.id); }}
-                  >
-                    {clip.label}
-                  </button>
-                )) : <p className="muted">No clips yet — add them in Settings → Content.</p>}
+                <MediaButtons
+                  load={clips}
+                  noun="Clips"
+                  empty={<EmptyState size="note" title="No clips yet">Add clip buttons in Settings → Content.</EmptyState>}
+                  onPlay={playClip}
+                />
               </div>
             </div>
           </section>

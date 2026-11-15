@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type { App, AppEvent } from '../../../shared/api';
 import {
   createApp,
@@ -10,8 +11,11 @@ import {
   revokeAppToken,
   setAppDisabled,
 } from '../../services/dashboard';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { listFace } from './listState';
 import { errorMessage } from '../../errors';
+import { useDirtyGuard } from '../../ui/dirtyGuard';
+import { EmptyState } from '../../ui/emptyState';
 
 /**
  * An app's declared inbound event names: what a redis_event trigger's event picker
@@ -22,11 +26,16 @@ import { errorMessage } from '../../errors';
  * another row's unsaved edit.
  */
 function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
+  const confirm = useConfirm();
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
+  useDirtyGuard(newName.trim() !== '', `the new event for "${app.name}"`);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not "no events declared" (listState.ts); a later load that works clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const load = useCallback(async () => setEvents(await getAppEvents(app.id)), [app.id]);
 
@@ -34,11 +43,21 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
     let cancelled = false;
     setLoading(true);
     void load()
-      .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load events')); })
+      .then(() => {
+        if (cancelled) return;
+        setError(null);
+        setLoadFailed(false);
+      })
+      .catch(caught => {
+        if (cancelled) return;
+        setError(errorMessage(caught, 'Could not load events'));
+        setLoadFailed(true);
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
+
+  const face = listFace({ loading, loadFailed, count: events.length });
 
   // Include `loading`: Add must stay disabled during the mount fetch, or a fast add before
   // the mount GET resolves lets that stale snapshot overwrite the just-added row.
@@ -51,11 +70,37 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
     setError(null);
     void declareAppEvent(app.id, eventName)
       .then(async () => {
-        await load();
+        // Declared: clear the field first, so a failed reload below is not read as
+        // a failed declare (and the guard stops asking about a name already saved).
         setNewName('');
+        await load().catch(caught => {
+          throw new Error(`Declared, but the list could not be reloaded: ${errorMessage(caught, 'unknown error')}`);
+        });
+        setLoadFailed(false);
       })
       .catch(caught => setError(errorMessage(caught, 'Could not declare event')))
       .finally(() => setBusy(false));
+  };
+
+  /**
+   * Removing an unbound event asks nothing: it is a name the operator can type back in
+   * a second, and the data keys it had learned are only autocomplete hints that fill
+   * in again as the app publishes. Removing one that triggers are bound to does lose
+   * something — those triggers stop firing — so that case confirms, and says how many.
+   */
+  const requestRemove = async (event: AppEvent) => {
+    if (event.boundTriggerCount > 0) {
+      const count = event.boundTriggerCount;
+      const ok = await confirm({
+        title: `Remove the event "${event.eventName}"?`,
+        body: `${count} trigger${count === 1 ? '' : 's'} listen${count === 1 ? 's' : ''} for it and will stop firing `
+          + 'until it is declared again. The triggers themselves are kept.',
+        confirmLabel: 'Remove event',
+        tone: 'danger',
+      });
+      if (!ok) return;
+    }
+    handleRemove(event.eventName);
   };
 
   const handleRemove = (eventName: string) => {
@@ -70,9 +115,16 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
   return (
     <div className="field">
       <span>Declared events</span>
-      {loading ? (
+      {face === 'unavailable' ? (
+        <ListUnavailable
+          size="compact"
+          title="Declared events unavailable"
+          onRetry={() => setLoadAttempt(n => n + 1)}
+          retrying={loading}
+        />
+      ) : face === 'loading' ? (
         <div className="command-empty">Loading events…</div>
-      ) : events.length === 0 ? (
+      ) : face === 'empty' ? (
         <div className="command-empty">
           No events declared yet. Declare the names this app publishes so a redis_event
           trigger can bind to one.
@@ -92,7 +144,7 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
             className="modbtn danger"
             type="button"
             disabled={disabledOverall}
-            onClick={() => handleRemove(event.eventName)}
+            onClick={() => void requestRemove(event)}
           >
             Remove
           </button>
@@ -111,7 +163,7 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
           Add
         </button>
       </div>
-      {error && <small className="action-hint">{error}</small>}
+      <SettingsStatus error={error} />
     </div>
   );
 }
@@ -134,23 +186,52 @@ function AppTokenControls({
   disabled: boolean;
   onChanged: () => Promise<void>;
 }) {
+  const confirm = useConfirm();
   const [revealed, setRevealed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Whether the token on screen has been copied at least once. `copied` only drives the
+  // button's brief "Copied" label and resets after 1.5s; this one stays set.
+  const [secured, setSecured] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const disabledOverall = disabled || busy;
 
+  // A revealed token nobody has copied is the one thing on this page that cannot be
+  // recovered: leaving (the settings rail, the top nav, closing the tab) or Dismiss
+  // would lose it, and the app would need yet another rotation. Not an "unsaved
+  // change", so it asks its own question.
+  const { discardThen } = useDirtyGuard(
+    revealed !== null && !secured,
+    `the new token for "${app.name}"`,
+    {
+      title: 'Leave without copying the token?',
+      body: `It is shown only once. Without a copy, "${app.name}" needs another new token.`,
+      confirmLabel: 'Leave without it',
+      cancelLabel: 'Stay and copy it',
+    },
+  );
+
+  // Rotate occupies the same coordinates as the harmless first Mint, and the server
+  // rotates the hash before returning — one stray click kills a running app's
+  // credential with no way back. Minting the first token destroys nothing, so it asks
+  // for nothing. The confirm is answered before handleMint starts, so nothing is
+  // awaited between the mint landing and its reveal (AppsPage.test.ts).
+  const requestMint = async () => {
+    if (app.tokenConfigured && !(await confirm({
+      title: `Rotate the token for "${app.name}"?`,
+      body: 'The current token stops working immediately and cannot be recovered. The app fails until the new one is deployed.',
+      confirmLabel: 'Rotate token',
+      tone: 'danger',
+    }))) return;
+    handleMint();
+  };
+
   const handleMint = () => {
-    // Rotate occupies the same coordinates as the harmless first Mint, and the server
-    // rotates the hash before returning — one stray click kills a running app's
-    // credential with no way back. Minting the first token destroys nothing, so it asks
-    // for nothing.
-    if (app.tokenConfigured
-      && !window.confirm(`Rotate the token for "${app.name}"? The current one stops working immediately and cannot be recovered.`)) return;
     setBusy(true);
     setError(null);
     setCopied(false);
+    setSecured(false);
     void mintAppToken(app.id)
       .then(result => {
         // FIRST, before anything that can fail. The server has already rotated the
@@ -168,14 +249,21 @@ function AppTokenControls({
       .finally(() => setBusy(false));
   };
 
-  const handleRevoke = () => {
-    if (!window.confirm(`Revoke the token for "${app.name}"? Every call it makes will 401 until a new token is minted and deployed.`)) return;
+  const handleRevoke = async () => {
+    const ok = await confirm({
+      title: `Revoke the token for "${app.name}"?`,
+      body: 'Every call the app makes is refused until a new token is minted and deployed.',
+      confirmLabel: 'Revoke token',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     // Revoking must drop any plaintext still on screen — a revoked token showing as
     // if it still worked would be actively misleading.
     setRevealed(null);
     setCopied(false);
+    setSecured(false);
     void revokeAppToken(app.id)
       .then(() => onChanged())
       .catch(caught => setError(errorMessage(caught, 'Could not revoke the token')))
@@ -187,11 +275,13 @@ function AppTokenControls({
     void navigator.clipboard.writeText(revealed)
       .then(() => {
         setCopied(true);
+        setSecured(true);
         setTimeout(() => setCopied(false), 1500);
       })
       .catch((copyError: unknown) => {
         // The error object from the Clipboard API never carries the token itself.
         console.error('Failed to copy the app token:', copyError);
+        setError('Could not copy the token. Select it and copy it by hand.');
       });
   };
 
@@ -211,7 +301,7 @@ function AppTokenControls({
         </small>
       )}
       <div className="command-row-actions">
-        <button className="modbtn gold" type="button" disabled={disabledOverall} onClick={handleMint}>
+        <button className="modbtn gold" type="button" disabled={disabledOverall} onClick={() => void requestMint()}>
           {app.tokenConfigured ? 'Rotate token' : 'Mint token'}
         </button>
         {app.tokenConfigured && (
@@ -233,13 +323,17 @@ function AppTokenControls({
           </div>
           <div className="counter-row-actions">
             <button className="modbtn" type="button" onClick={handleCopy}>{copied ? 'Copied' : 'Copy'}</button>
-            <button className="modbtn" type="button" onClick={() => { setRevealed(null); setCopied(false); }}>
+            <button
+              className="modbtn"
+              type="button"
+              onClick={() => discardThen(() => { setRevealed(null); setCopied(false); setSecured(false); })}
+            >
               Dismiss
             </button>
           </div>
         </div>
       )}
-      {error && <small className="action-hint">{error}</small>}
+      <SettingsStatus error={error} />
     </div>
   );
 }
@@ -254,22 +348,36 @@ export function AppsPage() {
   const [apps, setApps] = useState<App[]>([]);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(true);
+  useDirtyGuard(name.trim() !== '', 'the new app');
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
-  const load = useCallback(async () => setApps(await getApps()), []);
+  const load = useCallback(async () => {
+    setApps(await getApps());
+    setLoadFailed(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load apps')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load apps'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   const handleCreate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -301,12 +409,13 @@ export function AppsPage() {
   };
 
   const disabledOverall = loading || creating;
+  const face = listFace({ loading, loadFailed, count: apps.length });
 
   return (
-    <div>
+    <>
       <SettingsHeader
         section="apps"
-        meta={<div className="set-sub">{apps.length} {apps.length === 1 ? 'app' : 'apps'} registered</div>}
+        counts={loadFailed ? undefined : [{ value: apps.length, one: 'app registered', other: 'apps registered' }]}
       />
 
       <SettingsStatus message={message} error={error} />
@@ -335,12 +444,12 @@ export function AppsPage() {
       </form>
 
       <div className="counter-list">
-        {loading && <div className="command-empty">Loading apps…</div>}
-        {!loading && apps.length === 0 && (
-          <div className="command-empty">
-            No apps registered yet. Register one above, then tag a reward with it on the Viewer
-            rewards page.
-          </div>
+        {face === 'loading' && <EmptyState title="Loading apps…" />}
+        {face === 'unavailable' && <ListUnavailable title="Apps unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />}
+        {face === 'empty' && (
+          <EmptyState title="No apps registered yet">
+            Register one above, then tag a reward with it on the Viewer rewards page.
+          </EmptyState>
         )}
         {!loading && apps.map(app => (
           <div className="counter-row" key={app.id}>
@@ -363,6 +472,6 @@ export function AppsPage() {
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }

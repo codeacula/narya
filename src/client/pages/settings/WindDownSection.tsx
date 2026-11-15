@@ -1,7 +1,7 @@
 import React from 'react';
 import type { WindDownSettings } from '../../../shared/api';
 import { getWindDownSettings, saveWindDownSettings } from '../../services/dashboard';
-import { SettingsStatus, useSettingsForm } from './shared';
+import { FormUnavailable, SettingsAnnouncer, SettingsStatus, useSettingsForm } from './shared';
 
 const EMPTY_WIND_DOWN_SETTINGS: WindDownSettings = {
   leadMinutes: 15,
@@ -23,6 +23,7 @@ export function WindDownSection() {
       overlayEnabled: settings.overlayEnabled,
     }),
     saveError: 'Could not save wind-down settings',
+    unsavedLabel: 'the wind-down schedule',
   });
   const windDownSettings = windDownForm.value;
   const setWindDownSettings = windDownForm.setValue;
@@ -37,6 +38,15 @@ export function WindDownSection() {
     <div className="set-group">
       <div className="set-group-label">Wind-down schedule</div>
 
+      {/* The form and its unavailable face swap, so neither holds the live regions. */}
+      <SettingsAnnouncer message={windDownMessage} error={windDownError} />
+
+      {windDownForm.face === 'unavailable' ? (
+        <>
+          <SettingsStatus error={windDownError} announce={false} />
+          <FormUnavailable title="Wind-down settings unavailable" onRetry={windDownForm.retry} retrying={windDownLoading} />
+        </>
+      ) : (
       <form className="command-settings-form" onSubmit={handleWindDownSubmit}>
         <label className="field">
           <span>Lead time (minutes)</span>
@@ -83,7 +93,7 @@ export function WindDownSection() {
           <span>Show the countdown overlay</span>
         </label>
 
-        <SettingsStatus message={windDownMessage} error={windDownError} />
+        <SettingsStatus message={windDownMessage} error={windDownError} announce={false} />
 
         <div className="command-settings-actions">
           <button className="modbtn gold" type="submit" disabled={windDownLoading || windDownSaving}>
@@ -91,6 +101,7 @@ export function WindDownSection() {
           </button>
         </div>
       </form>
+      )}
     </div>
   );
 }

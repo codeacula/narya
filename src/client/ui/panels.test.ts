@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { Chatter } from '../../shared/api';
-import { belongsToCurrentSession, mergeRecentChatters, sessionBoundaryIndex } from './panels';
+import { belongsToCurrentSession, chattersFace, mergeRecentChatters, sessionBoundaryIndex } from './panels';
 
 describe('belongsToCurrentSession', () => {
   test('a row from the live session is current', () => {
@@ -126,5 +126,23 @@ describe('sessionBoundaryIndex, events', () => {
 
   test('a wholly-current list has no boundary', () => {
     expect(sessionBoundaryIndex([{ sessionId: 'live' }], 'live', opts)).toBe(-1);
+  });
+});
+
+describe('chattersFace', () => {
+  test('before the first presence poll answers, an empty list is still loading', () => {
+    expect(chattersFace({ loaded: false, error: null, count: 0 })).toBe('loading');
+  });
+
+  test('only an answered poll with nobody in it is empty', () => {
+    expect(chattersFace({ loaded: true, error: null, count: 0 })).toBe('empty');
+  });
+
+  test('someone who just chatted shows before the poll answers', () => {
+    expect(chattersFace({ loaded: false, error: null, count: 1 })).toBe('items');
+  });
+
+  test('an error still wins', () => {
+    expect(chattersFace({ loaded: false, error: 'boom', count: 0 })).toBe('error');
   });
 });

@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Icon } from '../ui/icons';
+import { useConfirm } from '../ui/confirm';
 import type { RewardStreamCategory, SavedStreamCategory, SavedStreamCategoryInput, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
 import {
   addSavedStreamCategory,
@@ -17,9 +19,13 @@ import {
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
 import { errorMessage } from '../errors';
-import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
+import { formatBoxArtUrl, suggestionFace, suggestionFailedText, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
-import { SettingsHeader } from './settings/shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './settings/shared';
+import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
+import { neverLoaded } from './settings/listState';
+import { useDirtyGuard, useDraft } from '../ui/dirtyGuard';
+import { EmptyState } from '../ui/emptyState';
 
 const EMPTY_REWARD: ViewerRewardUpsert = {
   title: '',
@@ -464,7 +470,8 @@ function CategoryGamesEditor({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [showHidden, setShowHidden] = useState(false);
-  const { suggestions } = useDebouncedSuggestions(query, getCategorySuggestions);
+  const { suggestions, loading: searchLoading, error: searchError } = useDebouncedSuggestions(query, getCategorySuggestions);
+  const searchFace = suggestionFace({ loading: searchLoading, error: searchError, count: suggestions.length });
 
   const assignedIds = new Set(category.games.map(game => game.id));
   const savedIds = new Set(saved.map(cat => cat.id));
@@ -492,7 +499,7 @@ function CategoryGamesEditor({
         {category.games.map(game => (
           <span className="reward-game-chip" key={game.id}>
             {game.name}
-            <button type="button" aria-label={`Remove ${game.name}`} disabled={busy} onClick={() => removeGame(game.id)}>×</button>
+            <button type="button" aria-label={`Remove ${game.name}`} disabled={busy} onClick={() => removeGame(game.id)}><Icon name="x" size={12} aria-hidden="true" /></button>
           </span>
         ))}
         <div className="reward-games-add">
@@ -519,8 +526,12 @@ function CategoryGamesEditor({
               />
               <div className="reward-combo-list" onMouseDown={keepFocus}>
                 {searching ? (
-                  suggestions.length === 0 ? (
-                    <div className="suggestion-empty">No matches yet…</div>
+                  searchFace === 'searching' ? (
+                    <div className="suggestion-empty">Searching categories…</div>
+                  ) : searchFace === 'failed' ? (
+                    <div className="suggestion-empty suggestion-empty--error">{suggestionFailedText(searchError ?? '')}</div>
+                  ) : searchFace === 'none' ? (
+                    <div className="suggestion-empty">No matches</div>
                   ) : suggestions.map(suggestion => (
                     <SavedCategoryRow
                       key={suggestion.id}
@@ -577,6 +588,7 @@ function CategoryGamesEditor({
 }
 
 export function ViewerRewardsPage() {
+  const confirm = useConfirm();
   const [data, setData] = useState<ViewerRewardsResponse>({ categories: [], rewards: [] });
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -585,7 +597,13 @@ export function ViewerRewardsPage() {
   const [categoryName, setCategoryName] = useState('');
   const [showEditor, setShowEditor] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [rewardForm, setRewardForm] = useState<ViewerRewardUpsert>(EMPTY_REWARD);
+  const {
+    draft: rewardForm,
+    setDraft: setRewardForm,
+    baseline: rewardBaseline,
+    resetDraft: resetRewardForm,
+    dirty: rewardFormDirty,
+  } = useDraft<ViewerRewardUpsert>(EMPTY_REWARD);
   const [savedCategories, setSavedCategories] = useState<SavedStreamCategory[]>([]);
   // 'narya' and 'manual' are reserved source sentinels (never rows in the apps registry);
   // the rest come from enabled apps registered in Settings → Apps.
@@ -602,15 +620,26 @@ export function ViewerRewardsPage() {
     return groups;
   }, [data.rewards]);
 
+  // Whether the reward list on screen is current; see the rewards:updated refetch.
+  const { health: rewardsHealth, succeeded: rewardsSucceeded, failed: rewardsFailed } = useRefreshHealth();
+  // Every write returns the whole list from Twitch, so a landed write is as good as a
+  // refresh and clears the stale marker too.
+  const applyRewards = (next: ViewerRewardsResponse) => {
+    setData(next);
+    rewardsSucceeded();
+  };
+
   const refresh = async () => {
     setLoading(true);
     setError(null);
     try {
       const [rewards, savedCats, apps] = await Promise.all([getViewerRewards(), getSavedStreamCategories(), getApps()]);
       setData(rewards);
+      rewardsSucceeded();
       setSavedCategories(savedCats);
       setSources(['narya', 'manual', ...apps.filter(app => !app.disabledAt).map(app => app.name)]);
     } catch (loadError) {
+      rewardsFailed();
       setError(errorMessage(loadError, 'Could not load viewer rewards.'));
     } finally {
       setLoading(false);
@@ -620,17 +649,25 @@ export function ViewerRewardsPage() {
   useEffect(() => { void refresh(); }, []);
 
 
-  // A stream-category change can auto-toggle reward groups server-side; refetch silently so the list reflects it.
+  // A stream-category change can auto-toggle reward groups server-side; refetch quietly so
+  // the list reflects it. A failed refetch is not an error the operator caused, so it
+  // gets the stale marker (with a retry, as the next event may be a stream away) rather
+  // than the status line or a toast.
   useSocket<{ at: string }>('rewards:updated', React.useCallback(() => {
-    void getViewerRewards().then(setData).catch(() => undefined);
-  }, []));
+    void getViewerRewards()
+      .then(next => {
+        setData(next);
+        rewardsSucceeded();
+      })
+      .catch(() => rewardsFailed());
+  }, [rewardsSucceeded, rewardsFailed]));
 
   const handlePauseToggle = async (reward: ViewerReward) => {
     setBusyId(reward.id);
     setError(null);
     setMessage(null);
     try {
-      setData(await updateViewerReward(reward.id, { isPaused: !reward.isPaused }));
+      applyRewards(await updateViewerReward(reward.id, { isPaused: !reward.isPaused }));
       setMessage(reward.isPaused ? `"${reward.title}" resumed.` : `"${reward.title}" paused.`);
     } catch (pauseError) {
       setError(errorMessage(pauseError, 'Could not update the reward pause state.'));
@@ -639,23 +676,29 @@ export function ViewerRewardsPage() {
     }
   };
 
-  const startCreate = (categoryId: string | null = null) => {
+  const { discardThen } = useDirtyGuard(
+    showEditor && rewardFormDirty,
+    editingId ? `the reward "${rewardBaseline.title || 'Untitled reward'}"` : 'the new reward',
+  );
+  useDirtyGuard(categoryName.trim() !== '', 'the new reward category');
+
+  const startCreate = (categoryId: string | null = null) => discardThen(() => {
     const category = categoryId ? data.categories.find(c => c.id === categoryId) : null;
     const backgroundColor = category?.defaultBackgroundColor ?? EMPTY_REWARD.backgroundColor;
-    setRewardForm({ ...EMPTY_REWARD, categoryId, backgroundColor });
+    resetRewardForm({ ...EMPTY_REWARD, categoryId, backgroundColor });
     setEditingId(null);
     setShowEditor(true);
     setError(null);
     setMessage(null);
-  };
+  });
 
-  const startEdit = (reward: ViewerReward) => {
-    setRewardForm(formFromReward(reward));
+  const startEdit = (reward: ViewerReward) => discardThen(() => {
+    resetRewardForm(formFromReward(reward));
     setEditingId(reward.id);
     setShowEditor(true);
     setError(null);
     setMessage(null);
-  };
+  });
 
   const handleRewardSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -666,10 +709,10 @@ export function ViewerRewardsPage() {
       const next = editingId
         ? await updateViewerReward(editingId, rewardForm)
         : await createViewerReward(rewardForm);
-      setData(next);
+      applyRewards(next);
       setShowEditor(false);
       setEditingId(null);
-      setRewardForm(EMPTY_REWARD);
+      resetRewardForm(EMPTY_REWARD);
       setMessage(editingId ? 'Reward updated on Twitch.' : 'Reward created on Twitch.');
     } catch (saveError) {
       setError(errorMessage(saveError, 'Could not save reward.'));
@@ -679,7 +722,16 @@ export function ViewerRewardsPage() {
   };
 
   const handleRewardDelete = async (reward: ViewerReward) => {
-    if (!window.confirm(`Delete "${reward.title}" from Twitch? This cannot be undone.`)) return;
+    // Deleting on Twitch cannot be taken back: the reward, its id and any pending
+    // redemptions are gone, and a recreated one is a different reward to every binding.
+    const ok = await confirm({
+      title: `Delete "${reward.title}" from Twitch?`,
+      body: 'Twitch removes the reward and its pending redemptions. Triggers bound to it stop firing. This cannot be undone.',
+      confirmLabel: 'Delete reward',
+      tone: 'danger',
+      requireText: reward.title,
+    });
+    if (!ok) return;
     setBusyId(reward.id);
     setError(null);
     setMessage(null);
@@ -699,7 +751,7 @@ export function ViewerRewardsPage() {
     setError(null);
     setMessage(null);
     try {
-      setData(await updateViewerReward(reward.id, { categoryId }));
+      applyRewards(await updateViewerReward(reward.id, { categoryId }));
       setMessage('Reward category updated.');
     } catch (updateError) {
       setError(errorMessage(updateError, 'Could not update reward category.'));
@@ -713,7 +765,7 @@ export function ViewerRewardsPage() {
     setError(null);
     setMessage(null);
     try {
-      setData(await updateViewerReward(reward.id, { source }));
+      applyRewards(await updateViewerReward(reward.id, { source }));
       setMessage('Reward source updated.');
     } catch (updateError) {
       setError(errorMessage(updateError, 'Could not update reward source.'));
@@ -731,7 +783,7 @@ export function ViewerRewardsPage() {
     setError(null);
     setMessage(null);
     try {
-      setData(await updateViewerRewardCategory(category.id, { games }));
+      applyRewards(await updateViewerRewardCategory(category.id, { games }));
     } catch (updateError) {
       setError(errorMessage(updateError, failureMessage));
     } finally {
@@ -794,7 +846,7 @@ export function ViewerRewardsPage() {
     setMessage(null);
     try {
       const next = await updateViewerRewardCategory(category.id, { enabled: !category.enabled });
-      setData(next);
+      applyRewards(next);
       const skipped = next.skippedReadOnlyCount > 0
         ? ` ${next.skippedReadOnlyCount} Twitch-managed reward${next.skippedReadOnlyCount === 1 ? ' was' : 's were'} left unchanged.`
         : '';
@@ -808,7 +860,13 @@ export function ViewerRewardsPage() {
   };
 
   const handleCategoryDelete = async (category: ViewerRewardCategory) => {
-    if (!window.confirm(`Delete the "${category.name}" category? Its rewards will become uncategorized.`)) return;
+    const ok = await confirm({
+      title: `Delete the "${category.name}" category?`,
+      body: 'Its rewards stay on Twitch and become uncategorized.',
+      confirmLabel: 'Delete category',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusyId(category.id);
     setError(null);
     setMessage(null);
@@ -832,7 +890,7 @@ export function ViewerRewardsPage() {
     setMessage(null);
     try {
       const next = await updateViewerRewardCategory(category.id, { defaultBackgroundColor: color });
-      setData(next);
+      applyRewards(next);
     } catch (updateError) {
       setError(errorMessage(updateError, 'Could not update category color.'));
     } finally {
@@ -845,7 +903,7 @@ export function ViewerRewardsPage() {
     setError(null);
     setMessage(null);
     try {
-      setData(await applyViewerRewardCategoryColor(category.id));
+      applyRewards(await applyViewerRewardCategoryColor(category.id));
       setMessage(`Color applied to all manageable rewards in "${category.name}".`);
     } catch (applyError) {
       setError(errorMessage(applyError, 'Could not apply category color.'));
@@ -853,6 +911,8 @@ export function ViewerRewardsPage() {
       setBusyId(null);
     }
   };
+
+  const rewardsUnavailable = data.categories.length === 0 && data.rewards.length === 0 && neverLoaded(rewardsHealth);
 
   const renderGroup = (category: ViewerRewardCategory | null) => {
     const categoryId = category?.id ?? null;
@@ -907,7 +967,7 @@ export function ViewerRewardsPage() {
         ) : null}
         <div className="reward-list">
           {rewards.length === 0 ? (
-            <div className="reward-empty">No rewards in this category.</div>
+            <EmptyState size="compact" title="No rewards in this category" />
           ) : rewards.map(reward => (
             <RewardRow
               key={reward.id}
@@ -934,8 +994,8 @@ export function ViewerRewardsPage() {
           actions={<button className="btn-primary" type="button" disabled={loading || Boolean(busyId)} onClick={() => startCreate()}>New reward</button>}
         />
 
-        {error ? <div className="set-status error">{error}</div> : null}
-        {message ? <div className="set-status">{message}</div> : null}
+        <SettingsStatus message={message} error={error} />
+        <StaleNotice health={rewardsHealth} onRetry={() => void refresh()} />
 
         <div className="set-group reward-category-manager">
           <div className="set-group-label">Categories</div>
@@ -963,24 +1023,31 @@ export function ViewerRewardsPage() {
               editing={Boolean(editingId)}
               busy={Boolean(busyId)}
               onChange={setRewardForm}
-              onCancel={() => { setShowEditor(false); setEditingId(null); }}
+              // Cancel throws the draft away, so it asks first, as New and Edit do.
+              onCancel={() => discardThen(() => { setShowEditor(false); setEditingId(null); })}
               onSubmit={handleRewardSubmit}
             />
           </div>
         ) : null}
 
-        {loading ? (
-          <div className="reward-loading">Loading rewards from Twitch...</div>
+        {loading && !rewardsUnavailable ? (
+          <EmptyState title="Loading rewards from Twitch…" />
         ) : (
           <>
             {data.categories.map(category => renderGroup(category))}
             {renderGroup(null)}
-            {data.categories.length === 0 && data.rewards.length === 0 ? (
-              <div className="reward-empty-state">
-                <h3>No viewer rewards yet</h3>
-                <p>Create a category for an integration, then add its rewards.</p>
-                <button className="btn-primary" type="button" onClick={() => startCreate()}>Create first reward</button>
-              </div>
+            {rewardsUnavailable ? (
+              // Never loaded: "Create first reward" here would invite duplicating rewards
+              // that are all still on Twitch. Kept mounted through a retry so the
+              // Retry button the operator pressed keeps focus (see listFace).
+              <ListUnavailable title="Viewer rewards unavailable" onRetry={() => void refresh()} retrying={loading} />
+            ) : data.categories.length === 0 && data.rewards.length === 0 ? (
+              <EmptyState
+                title="No viewer rewards yet"
+                action={<button className="btn-primary" type="button" onClick={() => startCreate()}>Create first reward</button>}
+              >
+                Create a category for an integration, then add its rewards.
+              </EmptyState>
             ) : null}
           </>
         )}

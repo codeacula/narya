@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Icon } from '../../ui/icons';
+import { useConfirm } from '../../ui/confirm';
 import type {
   CategoryModule,
   CategoryModuleInput,
@@ -18,10 +20,13 @@ import {
   updateCategoryModule,
 } from '../../services/dashboard';
 import { useSocket } from '../../realtime';
-import { useDebouncedSuggestions } from '../../suggestions';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { suggestionFace, suggestionFailedText, useDebouncedSuggestions } from '../../suggestions';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { asSentence, listFace, PICKER_LOADING, type PickerLoad } from './listState';
+import { moduleDraftDirty } from './moduleDraft';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
-import { CrystalOrb } from '../../crystalOrb';
+import { EmptyState } from '../../ui/emptyState';
 
 const EMPTY_RESPONSE: CategoryModulesResponse = {
   modules: [],
@@ -65,7 +70,8 @@ function GamePicker({
 }) {
   const [query, setQuery] = useState('');
   const fetcher = useCallback((value: string) => getCategorySuggestions(value), []);
-  const { suggestions, loading } = useDebouncedSuggestions<TwitchCategorySuggestion>(query, fetcher);
+  const { suggestions, loading, error: searchError } = useDebouncedSuggestions<TwitchCategorySuggestion>(query, fetcher);
+  const searchFace = suggestionFace({ loading, error: searchError, count: suggestions.length });
 
   const add = (suggestion: TwitchCategorySuggestion) => {
     if (games.some(game => game.id === suggestion.id)) return;
@@ -91,9 +97,10 @@ function GamePicker({
                 type="button"
                 disabled={disabled}
                 title={`Remove ${game.name}`}
+                aria-label={`Remove ${game.name}`}
                 onClick={() => onChange(games.filter(entry => entry.id !== game.id))}
               >
-                ×
+                <Icon name="x" size={12} aria-hidden="true" />
               </button>
             </span>
           );
@@ -107,9 +114,11 @@ function GamePicker({
         onChange={event => setQuery(event.target.value)}
       />
 
-      {(loading || suggestions.length > 0) && (
+      {query.trim().length >= 2 && (
         <div className="module-suggestions">
-          {loading && <div className="command-empty">Searching…</div>}
+          {searchFace === 'searching' && <div className="command-empty">Searching…</div>}
+          {searchFace === 'failed' && <div className="command-empty command-empty--error">{suggestionFailedText(searchError ?? '')}</div>}
+          {searchFace === 'none' && <div className="command-empty">No matches</div>}
           {suggestions.map(suggestion => {
             const owner = claimedElsewhere.get(suggestion.id);
             const already = games.some(game => game.id === suggestion.id);
@@ -148,45 +157,81 @@ function StatusBadge({ module, active }: { module: CategoryModule; active: boole
 }
 
 export function ModulesSettingsPage() {
+  const confirm = useConfirm();
   const [state, setState] = useState<CategoryModulesResponse>(EMPTY_RESPONSE);
   const [groups, setGroups] = useState<ViewerRewardCategory[]>([]);
-  const [draft, setDraft] = useState<CategoryModuleInput | null>(null);
+  const [groupsLoad, setGroupsLoad] = useState<PickerLoad>(PICKER_LOADING);
+  const [groupsAttempt, setGroupsAttempt] = useState(0);
+  const { draft, setDraft, baseline, resetDraft } = useDraft<CategoryModuleInput | null>(null);
+  // Not useDraft's own `dirty`: games and reward groups are sets, and the editor appends
+  // to them, so re-ticking a group must not read as an edit (moduleDraft.ts).
+  const dirty = moduleDraftDirty(draft, baseline);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not "no modules yet" (listState.ts). Any later successful load —
+  // after a save, a delete, a Retry — clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  // Whether `state` came from the server (a load or a push) rather than EMPTY_RESPONSE.
+  // Until it has, the Live state block has nothing to report: "No module active" off a
+  // failed load is a claim about live rewards that nobody read.
+  const [stateKnown, setStateKnown] = useState(false);
 
   const load = useCallback(async () => {
     setState(await getCategoryModules());
+    setStateKnown(true);
+    setLoadFailed(false);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load category modules')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load category modules'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   // Reward groups come from the Viewer rewards categories; without Twitch they are
-  // simply unavailable and the module can still be edited.
+  // unavailable and the module can still be edited — its saved groups ride along in
+  // the draft untouched. A failure must say so rather than read as "no reward groups",
+  // which would send the operator off to create groups that already exist.
   useEffect(() => {
+    let cancelled = false;
+    setGroupsLoad(PICKER_LOADING);
     void getViewerRewards()
-      .then(response => setGroups(response.categories))
-      .catch(() => setGroups([]));
-  }, []);
+      .then(response => {
+        if (cancelled) return;
+        setGroups(response.categories);
+        setGroupsLoad({ status: 'loaded' });
+      })
+      .catch(caught => {
+        if (!cancelled) setGroupsLoad({ status: 'failed', error: errorMessage(caught, 'Could not load reward groups') });
+      });
+    return () => { cancelled = true; };
+  }, [groupsAttempt]);
 
   // Status changes when the category flips mid-stream, so take the push rather than
   // leaving a stale `idle` on screen.
   useSocket<CategoryModulesResponse>('category-modules:updated', useCallback((payload) => {
     setState(payload);
+    setStateKnown(true);
   }, []));
 
   const busy = loading || saving || reconciling;
+  const moduleFace = listFace({ loading, loadFailed, count: state.modules.length });
   const activeModule = state.modules.find(module => module.id === state.activeModuleId) ?? null;
   const degraded = state.modules.filter(module => module.status === 'degraded');
   // Delete and Retry act on the saved module, so they only exist while one is open.
@@ -213,23 +258,28 @@ export function ModulesSettingsPage() {
     return owners;
   }, [state.modules, editingId]);
 
-  const startCreate = () => {
-    setEditingId(null);
-    setDraft({ ...EMPTY_DRAFT });
-    setMessage(null);
-    setError(null);
-  };
+  const { discardThen } = useDirtyGuard(
+    dirty,
+    editingId ? `the module "${baseline?.name || 'Untitled module'}"` : 'the new module',
+  );
 
-  const startEdit = (module: CategoryModule) => {
-    setEditingId(module.id);
-    setDraft(moduleToInput(module));
+  const startCreate = () => discardThen(() => {
+    setEditingId(null);
+    resetDraft({ ...EMPTY_DRAFT });
     setMessage(null);
     setError(null);
-  };
+  });
+
+  const startEdit = (module: CategoryModule) => discardThen(() => {
+    setEditingId(module.id);
+    resetDraft(moduleToInput(module));
+    setMessage(null);
+    setError(null);
+  });
 
   const closeEditor = () => {
     setEditingId(null);
-    setDraft(null);
+    resetDraft(null);
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -246,7 +296,7 @@ export function ModulesSettingsPage() {
         // Stay on the saved module: the editor is the right pane now, and after a create
         // a second Save would otherwise make a duplicate rather than update this one.
         setEditingId(saved.id);
-        setDraft(moduleToInput(saved));
+        resetDraft(moduleToInput(saved));
         setMessage('Module saved');
       })
       // A 409 arrives as a plain sentence from the server ("X is already claimed by
@@ -255,10 +305,16 @@ export function ModulesSettingsPage() {
       .finally(() => setSaving(false));
   };
 
-  const handleDelete = (module: CategoryModule) => {
+  const handleDelete = async (module: CategoryModule) => {
     // The server refuses to delete a module a trigger still scopes to and names the
     // trigger, so this only has to cover the unreferenced case.
-    if (!window.confirm(`Delete "${module.name}"? This cannot be undone.`)) return;
+    const ok = await confirm({
+      title: `Delete "${module.name}"?`,
+      body: 'The module and its category and reward-group assignments are removed. This cannot be undone.',
+      confirmLabel: 'Delete module',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setSaving(true);
     setMessage(null);
     setError(null);
@@ -279,6 +335,7 @@ export function ModulesSettingsPage() {
     void reconcileCategoryModules()
       .then(next => {
         setState(next);
+        setStateKnown(true);
         const stillDegraded = next.modules.some(module => module.status === 'degraded');
         setMessage(stillDegraded ? 'Reconciled, but a module is still degraded.' : 'Reconciled with Twitch.');
       })
@@ -309,6 +366,7 @@ export function ModulesSettingsPage() {
           <div className="set-group-label">Live state</div>
           <div className="settings-editor-section">
             <div className="module-live">
+              {stateKnown ? (
               <div>
                 <div className="set-label">
                   {activeModule ? activeModule.name : 'No module active'}
@@ -324,6 +382,16 @@ export function ModulesSettingsPage() {
                   {state.lastSignalSource && ` (${state.lastSignalSource}).`}
                 </div>
               </div>
+              ) : (
+              <div>
+                <div className="set-label">{loading && !loadFailed ? 'Reading live state…' : 'Live state unknown'}</div>
+                <div className="set-sub">
+                  {loading && !loadFailed
+                    ? 'Asking Narya which module is active.'
+                    : 'Narya could not read the modules, so it cannot say which is active or which triggers are armed. Nothing was changed.'}
+                </div>
+              </div>
+              )}
               <button className="modbtn" type="button" disabled={busy} onClick={handleReconcile}>
                 {reconciling ? 'Reconciling...' : 'Reconcile now'}
               </button>
@@ -331,24 +399,24 @@ export function ModulesSettingsPage() {
 
             {/* A failed category lookup with no module active has nowhere per-module to
                 report itself, and "no module active" from a healthy off-category stream
-                must not look identical to "we could not reach Twitch". */}
-            {state.lookupError && (
-              <SettingsStatus
-                error={<>
-                  Could not establish the live Twitch category, so no reward state was changed:{' '}
-                  {state.lookupError} Modules stay as they were until a Reconcile succeeds.
-                </>}
-              />
-            )}
+                must not look identical to "we could not reach Twitch".
 
-            {degraded.length > 0 && (
-              <SettingsStatus
-                error={<>
-                  {degraded.length} module{degraded.length === 1 ? '' : 's'} degraded. Twitch did not fully accept the
-                  last reward change — retry to re-apply it.
-                </>}
-              />
-            )}
+                Both lines stay mounted with nothing to say, so their live regions exist
+                before the text arrives: a region inserted with its text is often not
+                announced (SettingsAnnouncer). */}
+            <SettingsStatus
+              error={state.lookupError ? <>
+                Could not establish the live Twitch category, so no reward state was changed:{' '}
+                {state.lookupError} Modules stay as they were until a Reconcile succeeds.
+              </> : null}
+            />
+
+            <SettingsStatus
+              error={degraded.length > 0 ? <>
+                {degraded.length} module{degraded.length === 1 ? '' : 's'} degraded. Twitch did not fully accept the
+                last reward change — retry to re-apply it.
+              </> : null}
+            />
           </div>
         </div>
 
@@ -363,10 +431,14 @@ export function ModulesSettingsPage() {
               </div>
 
               <div className="settings-mini-list">
-                {loading ? (
-                  <div className="command-empty">Loading modules...</div>
-                ) : state.modules.length === 0 ? (
-                  <div className="command-empty">No category modules yet.</div>
+                {moduleFace === 'loading' ? (
+                  <EmptyState size="compact" title="Loading modules…" />
+                ) : moduleFace === 'unavailable' ? (
+                  <ListUnavailable size="compact" title="Modules unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
+                ) : moduleFace === 'empty' ? (
+                  <EmptyState size="compact" title="No category modules yet">
+                    New makes one; give it a Twitch category and the reward groups it owns.
+                  </EmptyState>
                 ) : state.modules.map(module => (
                   <button
                     type="button"
@@ -399,14 +471,10 @@ export function ModulesSettingsPage() {
 
             <div className="settings-split-detail">
               {!draft ? (
-                <div className="split-empty">
-                  <CrystalOrb variant="moon" size={40} />
-                  <div className="es-title">Nothing selected</div>
-                  <div className="es-sub">
-                    Pick a module on the left to edit the Twitch categories it claims and the reward
-                    groups it switches. New adds one.
-                  </div>
-                </div>
+                <EmptyState size="pane" title="Nothing selected">
+                  Pick a module on the left to edit the Twitch categories it claims and the reward
+                  groups it switches. New adds one.
+                </EmptyState>
               ) : (
             <form className="settings-editor-section" onSubmit={handleSubmit}>
               <div className="command-editor-head">
@@ -425,7 +493,7 @@ export function ModulesSettingsPage() {
                       Delete
                     </button>
                   )}
-                  <button className="modbtn" type="button" disabled={saving} onClick={closeEditor}>Close</button>
+                  <button className="modbtn" type="button" disabled={saving} onClick={() => discardThen(closeEditor)}>Close</button>
                 </div>
               </div>
 
@@ -460,7 +528,17 @@ export function ModulesSettingsPage() {
                 <div className="field settings-wide-field">
                   <span>Reward groups this module owns</span>
                   <div className="module-group-list">
-                    {groups.length === 0 ? (
+                    {groupsLoad.status === 'loading' && groups.length === 0 ? (
+                      <div className="command-empty">Loading reward groups…</div>
+                    ) : groupsLoad.status === 'failed' && groups.length === 0 ? (
+                      <EmptyState
+                        size="note"
+                        title="Reward groups unavailable"
+                        action={<button className="modbtn" type="button" onClick={() => setGroupsAttempt(n => n + 1)}>Retry</button>}
+                      >
+                        {asSentence(groupsLoad.error)} Saving keeps the groups this module already owns.
+                      </EmptyState>
+                    ) : groups.length === 0 ? (
                       <div className="command-empty">
                         No reward groups. Create them in Viewer rewards, then claim them here.
                       </div>

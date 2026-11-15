@@ -11,7 +11,7 @@ import { errorMessage } from '../../errors';
 import { DEFAULT_TIMEOUT_MINUTES, timeoutSeconds } from '../../timeoutDuration';
 import type { PanelCtx } from './context';
 import { ViewerActionModal, ViewerProfileModal, type ViewerActionKind } from './viewerModals';
-import { CrystalOrb } from '../../crystalOrb';
+import { EmptyState } from '../emptyState';
 
 export function Spotlight({
   ctx,
@@ -35,13 +35,9 @@ export function Spotlight({
 
   if (!viewer) {
     return (
-      <div className="empty-state">
-        <CrystalOrb variant="moon" size={40} />
-        <div className="es-title">No one in focus</div>
-        <div className="es-sub">
-          Click any name in chat to pull up their history, roles, and recent messages here.
-        </div>
-      </div>
+      <EmptyState title="No one in focus">
+        Click any name in chat to pull up their history, roles, and recent messages here.
+      </EmptyState>
     );
   }
 
@@ -106,7 +102,7 @@ export function Spotlight({
                 {viewer.roles.includes('vip') && <span className="rolepill vip">vip</span>}
                 {viewer.roles.includes('sub') && <span className="rolepill sub">subscriber</span>}
                 {viewer.roles.length === 0 && (
-                  <span className="rolepill" style={{ color: 'var(--fg-3)', borderColor: 'var(--border-1)' }}>
+                  <span className="rolepill viewer">
                     viewer
                   </span>
                 )}
@@ -142,7 +138,7 @@ export function Spotlight({
         )}
 
         <div>
-          <div className="spot-section-label" style={{ marginBottom: '9px' }}>Recent in chat</div>
+          <div className="spot-section-label">Recent in chat</div>
           <div className="spot-recent">
             {viewer.recent.map((r, i) => (
               <div className={'rmsg' + (r.kind ? ' ' + r.kind : '')} key={i}>

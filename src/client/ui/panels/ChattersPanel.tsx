@@ -1,6 +1,7 @@
 import type { Viewer, Chatter } from '../../../shared/api';
-import { badgesFor, ROLE_BADGE } from './badges';
-import { CrystalOrb } from '../../crystalOrb';
+import { badgesFor, ROLE_BADGE, ROLE_BADGE_LABEL } from './badges';
+import { Icon } from '../icons';
+import { EmptyState } from '../emptyState';
 
 const ROLE_SORT_ORDER: Record<string, number> = { broadcaster: 0, mod: 1, vip: 2, sub: 3 };
 
@@ -38,39 +39,49 @@ function chatterSortKey(chatter: Chatter, viewers: Record<string, Viewer>): numb
   return 4;
 }
 
+/**
+ * Which face the chatters panel shows. An error wins, as before. Before the first
+ * presence poll has answered, an empty list is still being gathered — "No chatters
+ * yet" there told the operator nobody was in a room the poll had not looked at.
+ */
+export function chattersFace({ loaded, error, count }: { loaded: boolean; error: string | null; count: number }) {
+  if (error) return 'error' as const;
+  if (count > 0) return 'items' as const;
+  return loaded ? 'empty' as const : 'loading' as const;
+}
+
 export function ChattersPanel({
   chatters,
   viewers,
   error,
+  loaded,
   onOpenViewer,
 }: {
   chatters: Chatter[];
   viewers: Record<string, Viewer>;
   error: string | null;
+  loaded: boolean;
   onOpenViewer: (login: string) => void;
 }) {
-  if (error) {
+  const face = chattersFace({ loaded, error, count: chatters.length });
+  if (face === 'error' && error) {
     const isScopeError = error.toLowerCase().includes('scope') || error.toLowerCase().includes('moderator:read:chatters');
     return (
-      <div className="empty-state">
-        <CrystalOrb variant="moon" size={40} />
-        <div className="es-title">{isScopeError ? 'Permission needed' : 'Unavailable'}</div>
-        <div className="es-sub">
-          {isScopeError
-            ? 'Reconnect Twitch and grant the moderator:read:chatters scope to view live chatters.'
-            : error}
-        </div>
-      </div>
+      <EmptyState title={isScopeError ? 'Permission needed' : 'Chatters unavailable'}>
+        {isScopeError
+          ? 'Reconnect Twitch and grant the moderator:read:chatters scope to view live chatters.'
+          : error}
+      </EmptyState>
     );
   }
 
-  if (chatters.length === 0) {
+  if (face === 'loading') {
+    return <EmptyState title="Gathering your viewers…">Asking Twitch who is in your chat room.</EmptyState>;
+  }
+
+  if (face === 'empty') {
     return (
-      <div className="empty-state">
-        <CrystalOrb variant="moon" size={40} />
-        <div className="es-title">No chatters yet</div>
-        <div className="es-sub">People in your chat room will appear here.</div>
-      </div>
+      <EmptyState title="No chatters yet">People in your chat room will appear here.</EmptyState>
     );
   }
 
@@ -96,7 +107,9 @@ export function ChattersPanel({
             {badges.length > 0 && (
               <span className="chatter-badges">
                 {badges.map(b => (
-                  <span className={'cbadge ' + b} key={b} title={b}>{ROLE_BADGE[b]}</span>
+                  <span className={'cbadge ' + b} key={b} title={ROLE_BADGE_LABEL[b]} role="img" aria-label={ROLE_BADGE_LABEL[b]}>
+                    <Icon name={ROLE_BADGE[b] ?? 'star'} size={12} aria-hidden="true" focusable="false" />
+                  </span>
                 ))}
               </span>
             )}

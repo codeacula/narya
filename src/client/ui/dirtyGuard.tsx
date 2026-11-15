@@ -1,0 +1,180 @@
+import React from 'react';
+import { useConfirm } from './confirm';
+import {
+  createDirtyRegistry,
+  draftIsDirty,
+  leavePrompt,
+  runUnlessRefused,
+  type DirtyEntry,
+  type DirtyPrompt,
+} from './dirtyGuardLogic';
+
+/**
+ * The unsaved-edit guard: one place that knows whether any editor on the page holds
+ * work that has not been saved, and asks before that work is thrown away.
+ *
+ * - An editor reports itself with `useDirtyGuard(isDirty, label)`. `label` names what
+ *   would be lost ("the action \"Raid hype\""), and the confirm lists every dirty one.
+ *   The returned `discardThen(fn)` gates the editor's own switches (picking another
+ *   row, New, Close) behind the same confirm, and runs `fn` at once when clean.
+ *   Work that is not an edit passes its own question as a third argument
+ *   (`useDirtyGuard(revealed, label, { title, body })` — a token shown only once);
+ *   it is asked as-is when it is all that is at stake (`leavePrompt`).
+ * - A navigator (the settings rail, the top nav, browser back/forward) calls
+ *   `useLeaveGuard().confirmLeave()` and only moves on a `true`. A page whose switch
+ *   unmounts more than its own editor (a trigger editor that also holds a viewer
+ *   override row) gates it with `useLeaveGuard().discardAllThen(fn)`, which asks about
+ *   every dirty editor rather than only the caller's.
+ * - A filtered list of self-editing cards keeps the open ones mounted with
+ *   `useOpenIds` + `keepOpenInView` (dirtyGuardLogic.ts), since an unmount reports the
+ *   card clean and would drop its draft without asking.
+ * - While anything is dirty a `beforeunload` handler is attached, so closing or
+ *   reloading the tab (or following an OAuth link) gets the browser's own prompt. It
+ *   is removed again as soon as the last editor is clean, which keeps the page
+ *   eligible for the back/forward cache the rest of the time.
+ *
+ * `useDraft` is the usual way to compute `isDirty` honestly: it keeps the value a draft
+ * was opened from (or last saved as) next to the draft, so a draft is dirty only while
+ * it differs — not right after a save, and not after typing back to the saved value.
+ *
+ * Mounted once in `main.tsx`, inside `ConfirmProvider`, around the dashboard.
+ */
+
+type DirtyGuardApi = {
+  setDirty: (id: string, label: string | null, prompt?: DirtyPrompt) => void;
+  isDirty: () => boolean;
+  /** Ask about the given editors. Resolves false without asking if a prompt is already open. */
+  ask: (entries: DirtyEntry[]) => Promise<boolean>;
+  /** Resolves true when nothing is dirty, else asks about everything that is. */
+  confirmLeave: () => Promise<boolean>;
+  /** Runs `fn` at once when nothing is dirty, else after a yes to the same question. */
+  discardAllThen: (fn: () => void) => void;
+};
+
+const DirtyGuardContext = React.createContext<DirtyGuardApi | null>(null);
+
+function holdUnload(event: BeforeUnloadEvent) {
+  event.preventDefault();
+  // Older Chromium only shows the prompt when returnValue is set.
+  event.returnValue = '';
+}
+
+export function DirtyGuardProvider({ children }: { children: React.ReactNode }) {
+  const confirm = useConfirm();
+  const registryRef = React.useRef(createDirtyRegistry());
+  const promptOpenRef = React.useRef(false);
+
+  const api = React.useMemo<DirtyGuardApi>(() => {
+    const registry = registryRef.current;
+    const ask = async (entries: DirtyEntry[]) => {
+      // One question at a time: a browser Back pressed while the confirm is up must
+      // not stack a second prompt behind it.
+      if (promptOpenRef.current) return false;
+      promptOpenRef.current = true;
+      try {
+        return await confirm(leavePrompt(entries));
+      } finally {
+        promptOpenRef.current = false;
+      }
+    };
+    return {
+      setDirty(id, label, prompt) {
+        if (!registry.set(id, label, prompt)) return;
+        if (registry.any()) window.addEventListener('beforeunload', holdUnload);
+        else window.removeEventListener('beforeunload', holdUnload);
+      },
+      isDirty: () => registry.any(),
+      ask,
+      confirmLeave: () => (registry.any() ? ask(registry.entries()) : Promise.resolve(true)),
+      discardAllThen: fn => runUnlessRefused(registry.entries(), ask, fn),
+    };
+  }, [confirm]);
+
+  React.useEffect(() => () => window.removeEventListener('beforeunload', holdUnload), []);
+
+  return <DirtyGuardContext.Provider value={api}>{children}</DirtyGuardContext.Provider>;
+}
+
+function useDirtyGuardApi(): DirtyGuardApi {
+  const api = React.useContext(DirtyGuardContext);
+  if (!api) throw new Error('The unsaved-edit guard needs a <DirtyGuardProvider> above it (see main.tsx).');
+  return api;
+}
+
+/**
+ * Report whether this editor holds unsaved work. Returns guards for the editor's own
+ * in-page switches: `confirmDiscard()` resolves true when clean or when the operator
+ * agrees to discard, and `discardThen(fn)` runs `fn` on that answer.
+ */
+export function useDirtyGuard(isDirty: boolean, label: string, prompt?: DirtyPrompt) {
+  const api = useDirtyGuardApi();
+  const id = React.useId();
+  const dirtyRef = React.useRef(isDirty);
+  const entryRef = React.useRef<DirtyEntry>({ label, prompt });
+  dirtyRef.current = isDirty;
+  entryRef.current = prompt ? { label, prompt } : { label };
+  // Callers pass the prompt inline, so the effect keys on its text, not its identity.
+  const promptKey = prompt ? JSON.stringify(prompt) : '';
+
+  React.useEffect(() => {
+    api.setDirty(id, isDirty ? label : null, entryRef.current.prompt);
+  }, [api, id, isDirty, label, promptKey]);
+  // An editor that unmounts (its section was left, its card removed) is no longer
+  // holding anything, whatever it last reported.
+  React.useEffect(() => () => api.setDirty(id, null), [api, id]);
+
+  const confirmDiscard = React.useCallback(
+    () => (dirtyRef.current ? api.ask([entryRef.current]) : Promise.resolve(true)),
+    [api],
+  );
+  // Clean runs synchronously, so an unguarded click behaves exactly as before.
+  const discardThen = React.useCallback((fn: () => void) => {
+    runUnlessRefused(dirtyRef.current ? [entryRef.current] : [], api.ask, fn);
+  }, [api]);
+
+  return { confirmDiscard, discardThen };
+}
+
+/**
+ * For navigators: whether anything is dirty, the confirm to raise before leaving, and
+ * `discardAllThen(fn)` — `discardThen` over every registered editor, for an in-page
+ * switch that unmounts editors other than the caller's own.
+ */
+export function useLeaveGuard() {
+  const api = useDirtyGuardApi();
+  return { isDirty: api.isDirty, confirmLeave: api.confirmLeave, discardAllThen: api.discardAllThen };
+}
+
+/**
+ * Which cards in a list have an editor open, for `keepOpenInView`. A card reports
+ * itself with `setOpen(id, true/false)`; the returned set changes identity only when
+ * membership does.
+ */
+export function useOpenIds<K>() {
+  const [open, setOpenIds] = React.useState<ReadonlySet<K>>(() => new Set());
+  const setOpen = React.useCallback((id: K, isOpen: boolean) => {
+    setOpenIds(current => {
+      if (current.has(id) === isOpen) return current;
+      const next = new Set(current);
+      if (isOpen) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  return { open, setOpen };
+}
+
+/**
+ * A draft plus the value it was opened from. `resetDraft(value)` sets both — call it
+ * when opening an item, after a save lands, and when closing (`resetDraft(null)` for a
+ * nullable draft) — and `setDraft` for edits. `dirty` is true only while they differ.
+ */
+export function useDraft<T>(initial: T) {
+  const [draft, setDraft] = React.useState<T>(initial);
+  const [baseline, setBaseline] = React.useState<T>(initial);
+  const resetDraft = React.useCallback((value: T) => {
+    setDraft(value);
+    setBaseline(value);
+  }, []);
+  return { draft, setDraft, baseline, resetDraft, dirty: draftIsDirty(draft, baseline) };
+}

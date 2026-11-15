@@ -1,4 +1,5 @@
 import type { Chatter, ViewerRosterEntry } from '../shared/api';
+import { errorMessage } from './errors';
 
 /**
  * One row of the viewer roster, merged from the stored roster and the live Twitch
@@ -110,4 +111,22 @@ export function mergeRoster({ roster, vips, mods, liveLogins, ignoredLogins, ign
 
   // Alphabetical by username so the roster reads like a directory.
   return [...byLogin.values()].sort((a, b) => a.login.localeCompare(b.login));
+}
+
+/**
+ * The roster page's error line after a full refresh, or null when there is nothing to
+ * report. The roster loads without Twitch; only the VIP/mod lists need the scopes, so
+ * their failure wins (it names the fix). Decided once all fetches settle and set in a
+ * single update: clearing the line before the fetches and setting it again after
+ * re-inserted the same alert on every 30-second poll while Twitch was signed out.
+ */
+export function rosterRefreshError(
+  roster: PromiseSettledResult<unknown>,
+  vips: PromiseSettledResult<unknown>,
+  mods: PromiseSettledResult<unknown>,
+): string | null {
+  if (vips.status === 'rejected') return errorMessage(vips.reason, 'Reconnect Twitch to manage VIPs and moderators.');
+  if (mods.status === 'rejected') return errorMessage(mods.reason, 'Reconnect Twitch to manage VIPs and moderators.');
+  if (roster.status === 'rejected') return errorMessage(roster.reason, 'Could not load your viewer roster.');
+  return null;
 }

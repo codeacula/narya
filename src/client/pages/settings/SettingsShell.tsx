@@ -2,6 +2,7 @@ import type { DashboardStatus } from '../../../shared/api';
 import type { SettingsRoute } from '../../routing';
 import { SETTINGS_GROUPS, sectionsInGroup } from './sections';
 import { SettingsHeader } from './shared';
+import { connectionsRailWarning, type ConnectionsFreshness } from './connectionCopy';
 import { ConnectionsSettingsPage } from '../SettingsPage';
 import { AppsPage } from './AppsPage';
 import { GoLiveSection } from './GoLiveSection';
@@ -70,21 +71,21 @@ function SettingsRail({
 function SettingsBody({
   route,
   status,
-  onTwitchLogout,
-  onTwitchBotLogout,
+  freshness,
+  onTwitchDisconnected,
 }: {
   route: SettingsRoute;
   status: DashboardStatus;
-  onTwitchLogout: () => void;
-  onTwitchBotLogout: () => void;
+  freshness: ConnectionsFreshness;
+  onTwitchDisconnected: () => void;
 }) {
   switch (route) {
     case 'settings':
       return (
         <ConnectionsSettingsPage
           status={status}
-          onTwitchLogout={onTwitchLogout}
-          onTwitchBotLogout={onTwitchBotLogout}
+          freshness={freshness}
+          onTwitchDisconnected={onTwitchDisconnected}
         />
       );
     case 'apps':
@@ -119,28 +120,22 @@ function SettingsBody({
 export function SettingsShell({
   route,
   status,
+  freshness,
   onNavigate,
-  onTwitchLogout,
-  onTwitchBotLogout,
+  onTwitchDisconnected,
 }: {
   route: SettingsRoute;
   status: DashboardStatus;
+  /** Whether `status` is something Narya reported, and recently (connectionCopy.ts). */
+  freshness: ConnectionsFreshness;
   onNavigate: (route: SettingsRoute) => void;
-  onTwitchLogout: () => void;
-  onTwitchBotLogout: () => void;
+  onTwitchDisconnected: () => void;
 }) {
   // Twitch auth is the one settings failure the operator can be looking away from: every
   // other section is inert until it works. Flag it on the rail from wherever they are.
   const attention: Partial<Record<SettingsRoute, string>> = {};
-  if (!status.twitchAuthenticated) {
-    attention.settings = 'Twitch is not connected';
-  } else if (status.twitchMissingScopes.length > 0) {
-    attention.settings = `Twitch is missing scopes: ${status.twitchMissingScopes.join(', ')}`;
-  } else if (!status.eventSubConnected) {
-    attention.settings = 'EventSub is not connected';
-  } else if (status.eventSubFailedSubscriptions.length > 0) {
-    attention.settings = `These events are not arriving: ${status.eventSubFailedSubscriptions.join(', ')}`;
-  }
+  const connectionsWarning = connectionsRailWarning(status, freshness);
+  if (connectionsWarning) attention.settings = connectionsWarning;
 
   return (
     <div className="settings-shell">
@@ -152,8 +147,8 @@ export function SettingsShell({
           <SettingsBody
             route={route}
             status={status}
-            onTwitchLogout={onTwitchLogout}
-            onTwitchBotLogout={onTwitchBotLogout}
+            freshness={freshness}
+            onTwitchDisconnected={onTwitchDisconnected}
           />
         </div>
       </div>

@@ -233,38 +233,49 @@ export function useChannel(): string {
   return channel;
 }
 
-export function ChatPanel({ compact = false }: { compact?: boolean }) {
-  const messages = useChat(compact ? overlayChatExpireMs : 0);
+/**
+ * The rows the overlay chat shows, in render order. Moderated messages are dropped
+ * rather than marked — a removed message must vanish from a live scene, not linger
+ * with a reason — and the list is reversed because the column is `column-reverse`,
+ * which puts the newest row at the bottom.
+ */
+export function overlayChatRows(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter(m => !m.deletedAt).reverse();
+}
+
+/** The overlay row's classes: signals are border colours in CSS, keyed off these. */
+export function overlayChatRowClass(message: ChatMessage, isMention: boolean): string {
+  return [
+    'chat-message',
+    message.isFirstTimer ? 'first-time' : '',
+    isMention ? 'mention' : '',
+    message.isExiting ? 'exiting' : '',
+  ].filter(Boolean).join(' ');
+}
+
+/**
+ * The overlay chat: the /overlay frame and the /overlay/chat browser source. Rows
+ * expire after OVERLAY_CHAT_EXPIRE_MS. The dashboard, tablet and viewer pages render
+ * chat through their own components, not this one.
+ */
+export function ChatPanel() {
+  const messages = useChat(overlayChatExpireMs);
   const emoteMap = useEmotes();
   const channel = useChannel();
-  const filtered = compact ? messages.filter(m => !m.deletedAt) : messages;
-  const visibleMessages = compact ? [...filtered].reverse() : filtered;
 
   return (
-    <section className={compact ? 'chat-panel compact' : 'chat-panel'}>
-      {visibleMessages.length === 0 && !compact ? (
-        <p className="muted">Waiting for Twitch chat…</p>
-      ) : null}
-      {visibleMessages.map(message => {
-        const role = getRole(message.badges);
-        const isMention = isMentionOf(message.message, channel);
-        const classes = [
-          'chat-message',
-          message.deletedAt ? 'moderated' : '',
-          message.isFirstTimer ? 'first-time' : '',
-          isMention ? 'mention' : '',
-          message.isExiting ? 'exiting' : '',
-        ].filter(Boolean).join(' ');
-
-        return (
-          <article className={classes} data-role={role} key={message.id}>
-            {/* Overlay rows colour the name by role (CSS), not by the viewer's Twitch colour. */}
-            <strong style={compact ? undefined : { color: message.color ?? 'var(--gold-500)' }}>{message.displayName}</strong>
-            <span>{renderContent(message.message, message.emotes, emoteMap)}</span>
-            {message.deletedAt ? <em>{message.deletedReason ?? 'moderated'}</em> : null}
-          </article>
-        );
-      })}
+    <section className="chat-panel compact">
+      {overlayChatRows(messages).map(message => (
+        <article
+          className={overlayChatRowClass(message, isMentionOf(message.message, channel))}
+          data-role={getRole(message.badges)}
+          key={message.id}
+        >
+          {/* Rows colour the name by role (CSS), not by the viewer's Twitch colour. */}
+          <strong>{message.displayName}</strong>
+          <span>{renderContent(message.message, message.emotes, emoteMap)}</span>
+        </article>
+      ))}
     </section>
   );
 }

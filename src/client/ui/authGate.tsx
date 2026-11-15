@@ -6,7 +6,7 @@ import { isDashboardTokenRejected, onDashboardTokenRejected, setDashboardToken }
  * browser's dashboard token.
  *
  * Without it, a stale token is close to undiagnosable: every panel independently
- * renders "Unauthorized", and the stat bar reports "Twitch login required" —
+ * renders "Unauthorized", and the stat bar says "sign in to Twitch to see ads" —
  * because the Twitch *status* call is 401ing too — so a perfectly good Twitch
  * login looks like the thing that failed. Say what actually happened, and let the
  * operator paste the token rather than having to know about `?token=`.

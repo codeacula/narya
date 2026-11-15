@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { LlmApiFormat, LlmProviderId, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../../../shared/api';
 import { getLlmProviderModels, getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
-import { SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
+import { FormUnavailable, SettingsAnnouncer, SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
 
 /** One provider's editable fields. A stored key is never sent back; `apiKey` is a new one. */
 type ProviderDraft = LlmProviderProfile & {
@@ -118,14 +118,14 @@ export function LlmSection() {
       return updateLlmSettings(update).then(toLlmForm);
     },
     saveError: 'Could not save LLM settings',
+    unsavedLabel: 'the AI settings',
   });
   const llmSettings = llmForm.value;
   const setLlmSettings = llmForm.setValue;
   const { loading: llmLoading, saving: llmSaving, message: llmMessage, error: llmError } = llmForm;
   const busy = llmLoading || llmSaving;
-  // The form starts as a copy of the confirmed value and every edit replaces it, so a
-  // structural comparison is enough to know whether there is anything to reset.
-  const dirty = JSON.stringify(llmSettings) !== JSON.stringify(llmForm.confirmed);
+  // Whether there is anything to reset — the same comparison the unsaved-edit guard uses.
+  const dirty = llmForm.dirty;
 
   const draft = findDraft(llmSettings, llmSettings.selectedProvider);
   // Model loading follows what the server has stored, not unsaved typing: the server
@@ -167,11 +167,13 @@ export function LlmSection() {
     llmForm.submit(llmSettings, 'Saved');
   };
 
-  const handleLlmEnabledToggle = (enabled: boolean) => {
+  // The toggle saves from the confirmed value, which replaces the form — so unsaved
+  // edits would vanish with it. Ask first, as leaving the section would.
+  const handleLlmEnabledToggle = (enabled: boolean) => llmForm.discardThen(() => {
     const next = { ...llmForm.confirmed, enabled };
     setLlmSettings(next);
     llmForm.submit(next, enabled ? 'LLM enabled.' : 'LLM disabled.');
-  };
+  });
 
   const handleLlmReset = () => {
     setLlmSettings(llmForm.confirmed);
@@ -198,21 +200,39 @@ export function LlmSection() {
 
   return (
     <div className="set-group">
-      <SettingsToggleLabel
-        label="LLM settings"
-        toggleLabel="Enable LLM"
-        checked={llmSettings.enabled}
-        disabled={busy}
-        onChange={handleLlmEnabledToggle}
-      />
+      {/* An unchecked switch before the settings load would say "off" — a claim
+          nobody made — and pressing it would save defaults. */}
+      {llmForm.face === 'form' ? (
+        <SettingsToggleLabel
+          label="LLM settings"
+          toggleLabel="Enable LLM"
+          checked={llmSettings.enabled}
+          disabled={busy}
+          onChange={handleLlmEnabledToggle}
+        />
+      ) : (
+        <div className="set-group-label">LLM settings</div>
+      )}
 
-      {!llmSettings.enabled && (llmMessage || llmError) && (
+      {/* The switch swaps the form below in and out, so neither branch can hold the
+          live regions: "disabled." would arrive with the region that announces it.
+          One announcer sits outside both, and each branch only draws its line. */}
+      <SettingsAnnouncer message={llmMessage} error={llmError} />
+
+      {llmForm.face === 'unavailable' ? (
+        <>
+          <SettingsStatus error={llmError} announce={false} />
+          <FormUnavailable title="AI settings unavailable" onRetry={llmForm.retry} retrying={llmLoading} />
+        </>
+      ) : null}
+
+      {llmForm.face === 'form' && !llmSettings.enabled && (llmMessage || llmError) && (
         <div className="set-group-note">
-          <SettingsStatus message={llmMessage} error={llmError} />
+          <SettingsStatus message={llmMessage} error={llmError} announce={false} />
         </div>
       )}
 
-      {llmSettings.enabled && (
+      {llmForm.face === 'form' && llmSettings.enabled && (
       <form className="command-settings-form" onSubmit={handleLlmSubmit}>
         <label className="field">
           <span>Provider</span>
@@ -399,7 +419,7 @@ export function LlmSection() {
           {llmTestReply && <div className="llm-test-reply">{llmTestReply}</div>}
         </div>
 
-        <SettingsStatus message={llmMessage} error={llmError} />
+        <SettingsStatus message={llmMessage} error={llmError} announce={false} />
 
         <div className="command-settings-actions">
           <button className="modbtn" type="button" disabled={busy || !dirty} onClick={handleLlmReset}>

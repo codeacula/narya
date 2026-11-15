@@ -3,20 +3,11 @@ import type { ClipButton, MediaPlayback } from '../shared/api';
 import { advanceHead, enqueueUnique } from './queue';
 import { getClipButtons } from './services/dashboard';
 import { useSocket } from './realtime';
+import { useLoadOnce } from './loadOnce';
 
-/** Curated clip buttons for the tablet Media panel. */
+/** Curated clip buttons for the tablet Media panel, with their load state (see useLoadOnce). */
 export function useClipButtons() {
-  const [clipButtons, setClipButtons] = React.useState<ClipButton[]>([]);
-
-  React.useEffect(() => {
-    getClipButtons()
-      .then(setClipButtons)
-      .catch((error: unknown) => {
-        console.error('Failed to load clip buttons:', error);
-      });
-  }, []);
-
-  return clipButtons;
+  return useLoadOnce<ClipButton>(getClipButtons, 'Could not load clip buttons');
 }
 
 /** Cap so a redeem storm can't grow the queue without bound. */

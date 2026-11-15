@@ -1,0 +1,157 @@
+import type { DashboardStatus } from '../../shared/api';
+import { chatConnectionWord, connectionWord, OBS_OFFLINE } from '../connectionWords';
+
+/**
+ * What the stat bar's gauges say, kept apart from `StatBar` so the wording rule is
+ * written down once and tested.
+ *
+ * The rule: a value the dashboard does not know is an em dash, never "N/A", and the
+ * gauge's sub-line says why in plain words ("OBS offline", "sign in to Twitch to see
+ * ads"). A sub-line never carries a "Status:" prefix — it sits under a labelled gauge
+ * already. Lower case, except names (Twitch, OBS).
+ */
+export const UNKNOWN_VALUE = '—';
+
+/**
+ * Whether the stat bar's values are only last-known: the socket that carries the status
+ * heartbeat is down, or the last full refresh failed and no status has arrived since.
+ * Either way the backend is not answering, and "connected" or "live" is a claim nobody
+ * has made recently.
+ */
+export function statusIsStale({
+  socket,
+  refreshFailed,
+}: {
+  socket: 'connecting' | 'open' | 'closed';
+  /** The last full refresh failed, and no status has arrived since. */
+  refreshFailed: boolean;
+}): boolean {
+  return socket === 'closed' || refreshFailed;
+}
+
+/** What a gauge's sub-line says in place of its reading while the values are stale. */
+export const STALE_SUB = 'last known · Narya not answering';
+
+export type AdCountdownMode = 'active' | 'next' | 'preroll';
+
+function formatShortDuration(sec: number): string {
+  if (sec >= 60) return `${Math.round(sec / 60)}m`;
+  return `${sec}s`;
+}
+
+/**
+ * The Ad break gauge's sub-line, plus a `title` carrying the server's longer
+ * explanation when the schedule could not be read.
+ */
+export function adGaugeSub({
+  mode,
+  adScheduleStatus,
+  adScheduleError,
+  adBreakDurationSeconds,
+  snoozeCount,
+}: {
+  mode: AdCountdownMode | null;
+  adScheduleStatus: DashboardStatus['adScheduleStatus'];
+  adScheduleError: string | null;
+  adBreakDurationSeconds: number | null;
+  snoozeCount: number | null;
+}): { text: string; title?: string } {
+  if (mode === 'active') return { text: 'ads running' };
+  if (mode === 'preroll') return { text: 'pre-roll off' };
+  if (mode === 'next') {
+    return {
+      text: [
+        'next ad scheduled',
+        adBreakDurationSeconds !== null ? `${formatShortDuration(adBreakDurationSeconds)} break` : null,
+        snoozeCount !== null ? `${snoozeCount} snooze${snoozeCount === 1 ? '' : 's'}` : null,
+      ].filter(Boolean).join(' · '),
+    };
+  }
+  switch (adScheduleStatus) {
+    case 'available':
+      return { text: 'no ad scheduled' };
+    case 'not_configured':
+      return { text: 'sign in to Twitch to see ads', title: adScheduleError ?? undefined };
+    case 'missing_scope':
+      return { text: 'reconnect Twitch to see ads', title: adScheduleError ?? undefined };
+    case 'unauthorized':
+      return { text: 'Twitch refused the ad schedule', title: adScheduleError ?? undefined };
+    default:
+      return { text: 'ad schedule unavailable', title: adScheduleError ?? undefined };
+  }
+}
+
+/** The Viewers gauge: the count, or a dash with the reason it is missing. */
+export function viewersGauge(viewerCount: number | null, streamActive: boolean | null): { value: string; sub: string } {
+  if (viewerCount !== null) return { value: String(viewerCount), sub: 'concurrent viewers' };
+  return {
+    value: UNKNOWN_VALUE,
+    sub: streamActive === false ? 'stream offline' : 'Twitch viewer count unavailable',
+  };
+}
+
+/**
+ * The Stream health gauge. OBS down and OBS idle are different reasons and say so;
+ * an unknown lag count inside a known reading is a dash like any other unknown.
+ */
+export function healthGauge({
+  obsConnected,
+  bitrateKbps,
+  totalFrames,
+  droppedFrames,
+  laggedFrames,
+}: {
+  obsConnected: boolean;
+  bitrateKbps: number | null;
+  totalFrames: number | null;
+  droppedFrames: number | null;
+  laggedFrames: number | null;
+}): { value: string; unit: string; sub: string } {
+  const value = bitrateKbps === null ? UNKNOWN_VALUE : String(bitrateKbps);
+  const unit = bitrateKbps === null ? '' : ' kbps';
+  if (!obsConnected) return { value, unit, sub: OBS_OFFLINE };
+  // Throughput, not frame counts, is the idle signal: a connected but idle OBS still
+  // reports skipped/lagged frame numbers, and obs.ts only derives a bitrate while the
+  // output is active (the same rule the stat bar's health meter keys off).
+  if (bitrateKbps === null) return { value, unit, sub: 'not streaming' };
+  const frameBase = totalFrames && totalFrames > 0 ? totalFrames : 1;
+  const dropped = droppedFrames ?? 0;
+  const dropPct = (dropped / frameBase) * 100;
+  const lag = laggedFrames !== null ? `${laggedFrames} frames` : UNKNOWN_VALUE;
+  return { value, unit, sub: `drop: ${dropped} (${dropPct.toFixed(2)}%) · lag: ${lag}` };
+}
+
+/**
+ * The Stream gauge's connection read-out, after the uptime source: "chat connected ·
+ * events offline". Same words as the toasts and the Display panel (connectionWords.ts).
+ * An EventSub failure is still "offline" here; the retry button beside it is what
+ * says it needs a hand.
+ */
+export function connectionsLine({
+  chatConnection,
+  eventSubConnected,
+}: {
+  chatConnection: DashboardStatus['chatConnection'];
+  eventSubConnected: boolean;
+}): string {
+  return `chat ${chatConnectionWord(chatConnection)} · events ${connectionWord(eventSubConnected)}`;
+}
+
+/**
+ * The Display panel's Live Data list. Until the first status arrives every value is a
+ * dash: the placeholder status says "no channel" and "OBS offline", which nobody has
+ * claimed yet. After that, services use the shared connected/offline words, and an
+ * empty channel is one that has not been set in Settings.
+ */
+export function liveDataRows(
+  status: Pick<DashboardStatus, 'channel' | 'chatConnection' | 'eventSubConnected' | 'obsConnected'>,
+  known: boolean,
+): Array<{ label: string; value: string }> {
+  const rows = [
+    { label: 'Channel', value: status.channel || 'not set' },
+    { label: 'Chat', value: chatConnectionWord(status.chatConnection) },
+    { label: 'EventSub', value: connectionWord(status.eventSubConnected) },
+    { label: 'OBS', value: connectionWord(status.obsConnected) },
+  ];
+  return known ? rows : rows.map(row => ({ ...row, value: UNKNOWN_VALUE }));
+}

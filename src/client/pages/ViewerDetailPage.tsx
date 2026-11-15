@@ -15,7 +15,9 @@ import {
   removeVip,
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
-import { CrystalOrb } from '../crystalOrb';
+import { EmptyState } from '../ui/emptyState';
+import { useConfirm } from '../ui/confirm';
+import { SettingsAnnouncer } from './settings/shared';
 
 const PAGE_SIZE = 80;
 
@@ -51,10 +53,14 @@ function viewerFromPerson(person: Person): Viewer {
  * Refresh and Flush: the two actions that operate on Narya's *record* of a viewer
  * rather than on their standing in the channel.
  *
- * Flush is destructive and confirms in place rather than through a dialog — the second
- * click is on a button that has already relabelled itself to say what it will do, so
- * the confirmation cannot be dismissed without reading it. It reverts on blur so a
- * half-pressed Flush does not sit armed.
+ * Flush is destructive and confirms through the shared dialog with the viewer's login
+ * typed in, like a Twitch-side delete. Almost all of it is permanent: `flushViewer`
+ * hard-deletes the roster row, profile and notes, stored and archived messages, AI
+ * reply history and per-viewer overrides, and anonymizes their quotes for good.
+ * `unflushViewer` only lifts the ignore-list entry, so the viewer can be recorded again
+ * from then on — nothing deleted comes back. A stray Enter or a double click must not
+ * be enough, and the dialog says what is lost for good, so it cannot be confirmed
+ * without the consequences in front of the operator.
  */
 function ViewerRecordActions({
   login,
@@ -67,15 +73,22 @@ function ViewerRecordActions({
   /** Messages were deleted, so anything rendering them is now stale. */
   onFlushed?: (login: string) => void;
 }) {
-  const [busy, setBusy] = React.useState(false);
-  const [armed, setArmed] = React.useState(false);
+  const confirm = useConfirm();
+  // Which action is in flight, so its own button can say so; both are locked meanwhile.
+  const [busy, setBusy] = React.useState<'refresh' | 'flush' | null>(null);
   const [note, setNote] = React.useState<string | null>(null);
+  const [failure, setFailure] = React.useState<string | null>(null);
 
-  React.useEffect(() => { setArmed(false); setNote(null); }, [login]);
+  React.useEffect(() => { setNote(null); setFailure(null); }, [login]);
+
+  const begin = (action: 'refresh' | 'flush') => {
+    setBusy(action);
+    setNote(null);
+    setFailure(null);
+  };
 
   const refresh = () => {
-    setBusy(true);
-    setNote(null);
+    begin('refresh');
     refreshViewer(login)
       .then(result => {
         if (!result.found) setNote('Twitch no longer has this account.');
@@ -83,14 +96,25 @@ function ViewerRecordActions({
         else setNote('Profile updated.');
         onRefreshed?.();
       })
-      .catch(caught => setNote(errorMessage(caught, 'Refresh failed')))
-      .finally(() => setBusy(false));
+      .catch(caught => setFailure(errorMessage(caught, 'Refresh failed')))
+      .finally(() => setBusy(null));
   };
 
-  const flush = () => {
-    if (!armed) { setArmed(true); return; }
-    setBusy(true);
-    setArmed(false);
+  const flush = async () => {
+    const ok = await confirm({
+      title: `Flush @${login}?`,
+      body: (
+        <>
+          <p>Narya forgets this viewer for good: their roster entry, profile and notes, stored and archived chat messages, AI reply history and per-viewer trigger overrides are deleted, and quotes they submitted are kept but anonymized. None of that can be undone.</p>
+          <p>Their login also goes on the ignore list so chat and presence do not record them again. Lifting that later only lets Narya start recording them afresh. Nothing changes on Twitch.</p>
+        </>
+      ),
+      confirmLabel: 'Flush viewer',
+      tone: 'danger',
+      requireText: login,
+    });
+    if (!ok) return;
+    begin('flush');
     flushViewerRecord(login)
       .then(result => {
         const quotes = result.quotesAnonymized > 0
@@ -102,26 +126,31 @@ function ViewerRecordActions({
         setNote(`Flushed — ${result.messagesRemoved} message(s) removed${quotes}${overrides}.`);
         onFlushed?.(login);
       })
-      .catch(caught => setNote(errorMessage(caught, 'Flush failed')))
-      .finally(() => setBusy(false));
+      .catch(caught => setFailure(errorMessage(caught, 'Flush failed')))
+      .finally(() => setBusy(null));
   };
 
+  const shown = failure ?? note;
   return (
     <div className="viewer-record-actions">
-      <button className="modbtn" type="button" disabled={busy} onClick={refresh}>
-        {busy ? '…' : 'Refresh'}
+      <button className="modbtn" type="button" disabled={busy !== null} onClick={refresh}>
+        {busy === 'refresh' ? 'Refreshing…' : 'Refresh'}
       </button>
       <button
-        className={'modbtn' + (armed ? ' danger-button' : '')}
+        className="modbtn"
         type="button"
-        disabled={busy}
-        onClick={flush}
-        onBlur={() => setArmed(false)}
+        disabled={busy !== null}
+        onClick={() => void flush()}
         title="Remove this viewer from the roster and ignore them in future"
       >
-        {armed ? 'Confirm flush' : 'Flush'}
+        {busy === 'flush' ? 'Flushing…' : 'Flush'}
       </button>
-      {note && <span className="viewer-record-note" role="status">{note}</span>}
+      {/* The spoken half stays mounted, success and failure in their own regions, so
+          an outcome is announced; a region inserted with its text often is not. */}
+      <SettingsAnnouncer message={note} error={failure} />
+      {shown ? (
+        <span className={'viewer-record-note' + (failure ? ' is-error' : '')} aria-hidden="true">{shown}</span>
+      ) : null}
     </div>
   );
 }
@@ -176,12 +205,20 @@ export function ViewerDetailPane({
   const historyNonceRef = React.useRef(0);
   historyNonceRef.current = historyNonce;
   const [loadingHistory, setLoadingHistory] = React.useState(true);
+  // A failed load is not an empty history: "No chat yet" for a regular whose messages
+  // simply did not arrive would be a false statement about them.
+  const [historyFailed, setHistoryFailed] = React.useState(false);
   const [hasMore, setHasMore] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
+  // A failed "Load older" keeps the button (the older page is still there to fetch)
+  // and says why nothing appeared.
+  const [olderFailed, setOlderFailed] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
     setLoadingHistory(true);
+    setHistoryFailed(false);
+    setOlderFailed(false);
     setMessages([]);
     getViewerMessages(login)
       .then(rows => {
@@ -189,15 +226,20 @@ export function ViewerDetailPane({
         setMessages(rows);
         setHasMore(rows.length === PAGE_SIZE);
       })
-      .catch(() => { if (!cancelled) { setMessages([]); setHasMore(false); } })
+      .catch(() => { if (!cancelled) { setMessages([]); setHasMore(false); setHistoryFailed(true); } })
       .finally(() => { if (!cancelled) setLoadingHistory(false); });
     return () => { cancelled = true; };
   }, [login, historyNonce]);
+
+  // Re-runs the effect above. Bumping the nonce also drops any older page still in
+  // flight, which is right: it belongs to the history being replaced.
+  const retryHistory = () => setHistoryNonce(nonce => nonce + 1);
 
   const loadOlder = () => {
     const oldest = messages[0];
     if (!oldest || loadingMore) return;
     setLoadingMore(true);
+    setOlderFailed(false);
     // Stamped with the generation in flight when the request went out. A flush
     // during pagination bumps the nonce, and without this the in-flight page
     // resolves afterward and appends messages the server has already deleted —
@@ -209,12 +251,31 @@ export function ViewerDetailPane({
         setMessages(current => [...older, ...current]);
         setHasMore(older.length === PAGE_SIZE);
       })
-      .catch(() => { if (generation === historyNonceRef.current) setHasMore(false); })
+      .catch(() => { if (generation === historyNonceRef.current) setOlderFailed(true); })
       .finally(() => setLoadingMore(false));
   };
 
   const isVip = person.roles.has('vip');
   const isMod = person.roles.has('mod');
+
+  // Taking a role away acts on Twitch at once and the viewer feels it mid-chat, so it
+  // confirms; it can be granted back from here, so it is not typed. Granting is
+  // additive and stays one click.
+  const confirm = useConfirm();
+  const revokeRole = async (role: 'vip' | 'mod') => {
+    const vip = role === 'vip';
+    const ok = await confirm({
+      title: vip ? `Remove VIP from @${login}?` : `Remove mod from @${login}?`,
+      body: vip
+        ? 'Twitch takes their VIP badge away now. You can make them a VIP again from here.'
+        : 'Twitch takes their moderator role away now, along with their mod tools in chat. You can make them a mod again from here.',
+      confirmLabel: vip ? 'Remove VIP' : 'Remove mod',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    if (vip) onAction(() => removeVip(login), `remove VIP from @${login}`);
+    else onAction(() => removeModerator(login), `remove mod from @${login}`);
+  };
 
   return (
     <div className="viewer-detail">
@@ -234,10 +295,10 @@ export function ViewerDetailPane({
         </div>
         <div className="viewer-detail-roles">
           {isVip
-            ? <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => removeVip(login), `remove VIP from @${login}`)}>Un-VIP</button>
+            ? <button className="modbtn" type="button" disabled={busy} onClick={() => void revokeRole('vip')}>Un-VIP</button>
             : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantVip(login), `VIP @${login}`)}>VIP</button>}
           {isMod
-            ? <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => removeModerator(login), `remove mod from @${login}`)}>Un-Mod</button>
+            ? <button className="modbtn" type="button" disabled={busy} onClick={() => void revokeRole('mod')}>Un-Mod</button>
             : <button className="modbtn" type="button" disabled={busy} onClick={() => onAction(() => grantModerator(login), `mod @${login}`)}>Mod</button>}
           <ViewerRecordActions
             login={login}
@@ -255,9 +316,16 @@ export function ViewerDetailPane({
       <section className="viewer-history">
         <div className="spot-section-label">Chat history</div>
         {loadingHistory ? (
-          <div className="empty-state"><CrystalOrb variant="moon" size={40} /><div className="es-title">Loading chat history…</div></div>
+          <EmptyState title="Loading chat history…" />
+        ) : historyFailed ? (
+          <EmptyState
+            title="Chat history unavailable"
+            action={<button className="modbtn" type="button" onClick={retryHistory}>Retry</button>}
+          >
+            Narya could not load @{login}'s messages.
+          </EmptyState>
         ) : messages.length === 0 ? (
-          <div className="viewer-history-empty">No chat messages recorded for this viewer yet.</div>
+          <EmptyState title="No chat yet">No chat messages are recorded for this viewer.</EmptyState>
         ) : (
           <div className="viewer-history-chat">
             {/* Newest first: the array is oldest→newest, so render it reversed. */}
@@ -265,9 +333,14 @@ export function ViewerDetailPane({
               <ChatMessageRow key={message.id} m={message} viewer={viewer} emoteMap={emoteMap} />
             ))}
             {hasMore ? (
-              <button className="modbtn viewer-history-more" type="button" disabled={loadingMore} onClick={loadOlder}>
-                {loadingMore ? 'Loading…' : 'Load older'}
-              </button>
+              <div className="viewer-history-more">
+                <button className="modbtn" type="button" disabled={loadingMore} onClick={loadOlder}>
+                  {loadingMore ? 'Loading…' : olderFailed ? 'Retry' : 'Load older'}
+                </button>
+                {olderFailed && !loadingMore ? (
+                  <span className="viewer-history-more-error" role="status">Could not load older messages.</span>
+                ) : null}
+              </div>
             ) : null}
           </div>
         )}

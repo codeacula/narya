@@ -35,6 +35,20 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   check: <path d="M20 6 9 17l-5-5"/>,
+  speaker: (
+    <>
+      <path d="M11 5 6 9H2v6h4l5 4z"/>
+      <path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+      <path d="M19 5a10 10 0 0 1 0 14"/>
+    </>
+  ),
+  'speaker-off': (
+    <>
+      <path d="M11 5 6 9H2v6h4l5 4z"/>
+      <path d="m22 9-6 6"/>
+      <path d="m16 9 6 6"/>
+    </>
+  ),
   heart: <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>,
   star: <path d="M11.5 2.5 14 8l6 .8-4.4 4.1 1.2 5.9-5.3-3-5.3 3 1.2-5.9L3 8.8 9 8z"/>,
   gift: (
@@ -53,6 +67,12 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>
     </>
   ),
+  user: (
+    <>
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+      <circle cx="12" cy="7" r="4"/>
+    </>
+  ),
   users: (
     <>
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
@@ -68,9 +88,18 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M5 14l-2 2 3 3 2-2"/>
     </>
   ),
+  /* A broadcast mast: the broadcaster's role badge. */
+  broadcast: (
+    <>
+      <circle cx="12" cy="12" r="2"/>
+      <path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49"/>
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/>
+    </>
+  ),
   'chevron-down': <path d="m6 9 6 6 6-6"/>,
   'arrow-up': <path d="M12 19V5M6 11l6-6 6 6"/>,
   'arrow-down': <path d="M12 5v14M6 13l6 6 6-6"/>,
+  'arrow-right': <path d="M5 12h14M13 6l6 6-6 6"/>,
   /* The four alert glyphs from the overlay's alert cards (overlayText.tsx ToneIcon),
      so a follow, sub, raid or cheer reads the same on the dashboard as on stream. */
   sparkle: <path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/>,
@@ -97,6 +126,13 @@ const PATHS: Record<string, React.ReactNode> = {
     <>
       <circle cx="12" cy="12" r="10"/>
       <path d="M12 16v-4M12 8h.01"/>
+    </>
+  ),
+  /* A warning: the same circle as `info`, with the mark turned upside down. */
+  alert: (
+    <>
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M12 8v4M12 16h.01"/>
     </>
   ),
   refresh: (

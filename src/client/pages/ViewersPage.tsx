@@ -11,9 +11,12 @@ import {
   getViewerRoster,
   getVips,
 } from '../services/dashboard';
-import { mergeRoster, type Person } from '../viewerRoster';
+import { mergeRoster, rosterRefreshError, type Person } from '../viewerRoster';
 import { errorMessage } from '../errors';
-import { CrystalOrb } from '../crystalOrb';
+import { EmptyState } from '../ui/emptyState';
+import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
+import { ListUnavailable, SettingsAnnouncer } from './settings/shared';
+import { neverLoaded } from './settings/listState';
 
 type Segment = 'all' | 'live' | 'vips' | 'mods';
 
@@ -162,16 +165,26 @@ export function ViewersPage({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
+  // Whether the roster on screen is current. Both the full refresh and the chat-nudged
+  // roster sync feed it, so a dead backend marks the list stale instead of leaving it
+  // looking live.
+  const { health: rosterHealth, succeeded: rosterSucceeded, failed: rosterFailed } = useRefreshHealth();
 
   const refresh = React.useCallback(async () => {
-    setError(null);
+    // The error line is not cleared here: it is replaced once the fetches settle, so an
+    // unchanged error keeps its node and is not re-announced on every poll.
     const generation = ++refreshGeneration.current;
     const [rosterRes, chattersRes, vipsRes, modsRes, ignoredRes] = await Promise.allSettled([
       getViewerRoster(), getChatters(), getVips(), getModerators(), getIgnoredLogins(),
     ]);
     // A slower earlier refresh must not overwrite a newer one's results.
     if (generation !== refreshGeneration.current) return;
-    if (rosterRes.status === 'fulfilled') setRoster(rosterRes.value);
+    if (rosterRes.status === 'fulfilled') {
+      setRoster(rosterRes.value);
+      rosterSucceeded();
+    } else {
+      rosterFailed();
+    }
     if (chattersRes.status === 'fulfilled') setLiveLogins(new Set(chattersRes.value.chatters.map(c => c.userLogin.toLowerCase())));
     if (vipsRes.status === 'fulfilled') setVips(vipsRes.value);
     if (modsRes.status === 'fulfilled') setMods(modsRes.value);
@@ -183,14 +196,8 @@ export function ViewersPage({
       setIgnoredLogins(new Set(ignoredRes.value.map(entry => entry.login.toLowerCase())));
       setIgnoresLoaded(true);
     }
-    // The roster loads without Twitch; only the VIP/mod lists need the new scopes.
-    if (vipsRes.status === 'rejected' || modsRes.status === 'rejected') {
-      const reason = (vipsRes.status === 'rejected' ? vipsRes.reason : (modsRes as PromiseRejectedResult).reason);
-      setError(errorMessage(reason, 'Reconnect Twitch to manage VIPs and moderators.'));
-    } else if (rosterRes.status === 'rejected') {
-      setError(errorMessage(rosterRes.reason, 'Could not load your viewer roster.'));
-    }
-  }, []);
+    setError(rosterRefreshError(rosterRes, vipsRes, modsRes));
+  }, [rosterSucceeded, rosterFailed]);
 
   React.useEffect(() => { void refresh().finally(() => setLoading(false)); }, [refresh]);
 
@@ -203,10 +210,13 @@ export function ViewersPage({
   const syncRoster = React.useCallback(async () => {
     try {
       setRoster(await getViewerRoster());
+      rosterSucceeded();
     } catch {
-      // A dropped background refresh is harmless; the interval or next message retries.
+      // The interval or the next message retries; until then the stale marker says the
+      // list is old rather than a toast every time chat moves.
+      rosterFailed();
     }
-  }, []);
+  }, [rosterSucceeded, rosterFailed]);
 
   const rosterRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const onChatMessage = React.useCallback(() => {
@@ -292,8 +302,8 @@ export function ViewersPage({
     } catch (caught) {
       outcome = { ok: false, text: errorMessage(caught, `Could not ${label}.`) };
     }
-    // Re-sync the roster/role lists first, THEN surface the outcome — refresh() clears
-    // `error` on entry, so setting it afterward keeps the action's feedback from being wiped.
+    // Re-sync the roster/role lists first, THEN surface the outcome — refresh() replaces
+    // `error` with its own result, so setting it afterward keeps the action's feedback.
     await refresh();
     if (outcome.ok) setMessage(outcome.text);
     else setError(outcome.text);
@@ -340,11 +350,15 @@ export function ViewersPage({
           />
         </div>
 
-        {error ? <div className="viewers-status is-error" role="status">{error}</div> : null}
-        {message ? <div className="viewers-status" role="status">{message}</div> : null}
+        {/* The live regions stay mounted (SettingsAnnouncer): one inserted together
+            with its text is often not read out. The drawn notice is only the look. */}
+        <SettingsAnnouncer message={message} error={error} />
+        {error ? <div className="viewers-status is-error" aria-hidden="true">{error}</div> : null}
+        {message ? <div className="viewers-status" aria-hidden="true">{message}</div> : null}
+        <StaleNotice health={rosterHealth} />
 
         {loading ? (
-          <div className="empty-state"><CrystalOrb variant="moon" size={40} /><div className="es-title">Gathering your viewers…</div></div>
+          <EmptyState title="Gathering your viewers…" />
         ) : searchIsNew ? (
           <div className="roster-list">
             <div className="roster-hint">Not in your roster yet — open <b>@{searchLogin}</b> to act on them:</div>
@@ -354,12 +368,14 @@ export function ViewersPage({
               onSelect={onSelectViewer}
             />
           </div>
+        ) : people.length === 0 && neverLoaded(rosterHealth) ? (
+          // The roster never loaded: an empty list here would say "no one has come by"
+          // about a channel whose viewers are all still in the database.
+          <ListUnavailable title="Viewers unavailable" onRetry={() => void refresh()} />
         ) : shown.length === 0 ? (
-          <div className="empty-state">
-            <CrystalOrb variant="moon" size={40} />
-            <div className="es-title">{people.length === 0 ? 'No one’s come by yet' : 'No one here'}</div>
-            <div className="es-sub">{people.length === 0 ? 'Viewers you meet in chat will gather here as stars.' : 'Try a different filter or search.'}</div>
-          </div>
+          <EmptyState title={people.length === 0 ? 'No one’s come by yet' : 'No one here'}>
+            {people.length === 0 ? 'Viewers you meet in chat will gather here as stars.' : 'Try a different filter or search.'}
+          </EmptyState>
         ) : (
           <div className="roster-list">
             {shown.map(person => (
@@ -390,14 +406,10 @@ export function ViewersPage({
             }}
           />
         ) : (
-          <div className="split-empty">
-            <CrystalOrb variant="moon" size={40} />
-            <div className="es-title">No one in focus</div>
-            <div className="es-sub">
-              Pick a viewer on the left. Their profile, roles, chat history, and the actions you can
-              take on them — VIP, mod, shout out, whisper, timeout, ban — all show up here.
-            </div>
-          </div>
+          <EmptyState size="pane" title="No one in focus">
+            Pick a viewer on the left. Their profile, roles, chat history, and the actions you can
+            take on them — VIP, mod, shout out, whisper, timeout, ban — all show up here.
+          </EmptyState>
         )}
       </section>
     </div>

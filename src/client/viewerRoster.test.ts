@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { Chatter, ViewerRosterEntry } from '../shared/api';
-import { mergeRoster } from './viewerRoster';
+import { mergeRoster, rosterRefreshError } from './viewerRoster';
 
 function rosterEntry(overrides: Partial<ViewerRosterEntry> = {}): ViewerRosterEntry {
   return {
@@ -141,5 +141,36 @@ describe('mergeRoster when the ignore list has not loaded', () => {
   test('synthesis resumes once the ignore list loads', () => {
     const people = merge({ vips: [chatter('vippy')], ignoresLoaded: true });
     expect(people.map(p => p.login)).toEqual(['vippy']);
+  });
+});
+
+describe('rosterRefreshError', () => {
+  const ok: PromiseSettledResult<unknown> = { status: 'fulfilled', value: [] };
+  const fail = (message: string): PromiseSettledResult<unknown> => ({ status: 'rejected', reason: new Error(message) });
+
+  test('a full success reports nothing', () => {
+    expect(rosterRefreshError(ok, ok, ok)).toBeNull();
+  });
+
+  test('the same failure on two polls yields the same text, so the line is left alone', () => {
+    const first = rosterRefreshError(ok, fail('Twitch login is required.'), fail('Twitch login is required.'));
+    const second = rosterRefreshError(ok, fail('Twitch login is required.'), fail('Twitch login is required.'));
+    expect(first).toBe('Twitch login is required.');
+    expect(second).toBe(first);
+  });
+
+  test('a VIP/mod failure wins over a roster failure, since it names the fix', () => {
+    expect(rosterRefreshError(fail('db down'), ok, fail('missing scope'))).toBe('missing scope');
+  });
+
+  test('a roster failure alone is reported', () => {
+    expect(rosterRefreshError(fail('db down'), ok, ok)).toBe('db down');
+  });
+
+  test('a non-Error rejection falls back to wording that says what to do', () => {
+    expect(rosterRefreshError(ok, { status: 'rejected', reason: 'nope' }, ok))
+      .toBe('Reconnect Twitch to manage VIPs and moderators.');
+    expect(rosterRefreshError({ status: 'rejected', reason: 'nope' }, ok, ok))
+      .toBe('Could not load your viewer roster.');
   });
 });

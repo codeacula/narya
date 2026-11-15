@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Icon } from '../../ui/icons';
 import type { TtsSettings, TtsVoice } from '../../../shared/api';
 import type { TtsStatus } from '../../services/dashboard';
 import {
@@ -11,7 +12,12 @@ import {
   updateTtsSettings,
 } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
-import { SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
+import { FormUnavailable, SettingsAnnouncer, SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
+import { formFace } from './listState';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
+import { useConfirm } from '../../ui/confirm';
+import { serviceStateTitle } from '../../connectionWords';
+import { emptyVoicesCopy } from './ttsVoiceCopy';
 
 const DEFAULT_TENGWAR_URL = 'http://127.0.0.1:8008';
 
@@ -28,39 +34,59 @@ function TengwarService({
   onSaved,
 }: {
   status: TtsStatus | null;
-  /** Whether the TTS module is on. Off means nothing here has been probed. */
-  enabled: boolean;
+  /**
+   * Whether the TTS module is on. Off means nothing here has been probed; null means
+   * the speech settings did not load, so this cannot say either way.
+   */
+  enabled: boolean | null;
   /** Re-runs the reachability check and reloads the voice list from the new address. */
   onSaved: () => void;
 }) {
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_TENGWAR_URL);
+  const { draft: baseUrl, setDraft: setBaseUrl, resetDraft: resetBaseUrl, dirty: baseUrlDirty } = useDraft(DEFAULT_TENGWAR_URL);
   // Never populated from the server: the key is a secret, so the API reports only
   // whether one is set. Blank means "keep what's stored", matching every other
   // secret field in Settings.
   const [apiKey, setApiKey] = useState('');
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The URL starts as the code default, so a failed load must not leave it on screen
+  // with a live Save (`formFace`).
+  const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const face = formFace({ loaded, loadFailed });
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     void getAppConfig()
       .then(config => {
         if (cancelled) return;
-        setBaseUrl(config.tengwarBaseUrl);
+        resetBaseUrl(config.tengwarBaseUrl);
         setApiKeyConfigured(config.tengwarApiKeyConfigured);
+        setLoaded(true);
+        setLoadFailed(false);
       })
       .catch(caught => {
-        if (!cancelled) setError(errorMessage(caught, 'Could not load the Tengwar URL'));
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load the Tengwar URL'));
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [loadAttempt]);
+
+  // A typed key is unsaved work too: the field is never filled from the server.
+  useDirtyGuard(baseUrlDirty || apiKey !== '', 'the Tengwar service');
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (face !== 'form') return;
     setSaving(true);
     setMessage(null);
     setError(null);
@@ -69,7 +95,7 @@ function TengwarService({
     // stale form overwrite settings this page doesn't show.
     void updateAppConfig({ tengwarBaseUrl: baseUrl, ...(apiKey ? { tengwarApiKey: apiKey } : {}) })
       .then(config => {
-        setBaseUrl(config.tengwarBaseUrl);
+        resetBaseUrl(config.tengwarBaseUrl);
         setApiKeyConfigured(config.tengwarApiKeyConfigured);
         setApiKey('');
         setMessage(enabled ? 'Saved — rechecking the service.' : 'Saved.');
@@ -79,7 +105,17 @@ function TengwarService({
       .finally(() => setSaving(false));
   };
 
-  const handleClearApiKey = () => {
+  // The key is write-only: once cleared there is no showing it again, so it has to be
+  // found and pasted back. Every other secret clears via a checkbox and Save, which
+  // gives a moment to reconsider; this is one press, so it asks.
+  const handleClearApiKey = async () => {
+    const ok = await confirm({
+      title: 'Clear the Tengwar API key?',
+      body: 'Narya stops sending it at once. If Tengwar was started with a key, speech fails until the key is pasted back in.',
+      confirmLabel: 'Clear API key',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setSaving(true);
     setMessage(null);
     setError(null);
@@ -97,19 +133,29 @@ function TengwarService({
     <div className="set-group">
       <div className="set-group-label">Tengwar service</div>
 
+      {/* The form and its unavailable face swap, so neither holds the live regions. */}
+      <SettingsAnnouncer message={message} error={error} />
+
+      {face === 'unavailable' ? (
+        <>
+          <SettingsStatus error={error} announce={false} />
+          <FormUnavailable title="Tengwar service unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
+        </>
+      ) : (
       <form className="command-settings-form" onSubmit={handleSubmit}>
         {/* With TTS off there is no status to show, because nothing was probed —
-            rendering "unavailable" would read as a fault rather than a choice. */}
-        {!enabled ? (
+            rendering "unavailable" would read as a fault rather than a choice. And
+            with the speech settings unread (null) there is nothing to say at all. */}
+        {enabled === null ? null : !enabled ? (
           <div className="settings-alert settings-alert--info">
-            <span className="settings-alert-icon">i</span>
+            <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
             <span>Text-to-Speech is off — Tengwar is not being contacted. Enable it below to check the connection and load voices.</span>
           </div>
         ) : status && (
           <div className={'settings-alert ' + (status.ok ? 'settings-alert--info' : 'settings-alert--warn')}>
-            <span className="settings-alert-icon">{status.ok ? 'i' : '!'}</span>
+            <Icon name={status.ok ? 'info' : 'alert'} className="settings-alert-icon" aria-hidden="true" />
             <span>
-              Tengwar {status.ok ? 'connected' : 'unavailable'}
+              {serviceStateTitle('Tengwar', status.ok)}
               {status.baseUrl ? ` at ${status.baseUrl}` : ''}
               {!status.ok && status.error ? `: ${status.error}` : ''}
             </span>
@@ -139,19 +185,20 @@ function TengwarService({
           <small>Sent as X-Api-Key. Only needed if Tengwar was started with a key configured.</small>
         </label>
 
-        <SettingsStatus message={message} error={error} />
+        <SettingsStatus message={message} error={error} announce={false} />
 
         <div className="command-settings-actions">
           <button className="modbtn gold" type="submit" disabled={loading || saving}>
             {saving ? 'Saving...' : 'Save service'}
           </button>
           {apiKeyConfigured && (
-            <button className="modbtn" type="button" disabled={loading || saving} onClick={handleClearApiKey}>
+            <button className="modbtn" type="button" disabled={loading || saving} onClick={() => void handleClearApiKey()}>
               Clear API key
             </button>
           )}
         </div>
       </form>
+      )}
     </div>
   );
 }
@@ -207,11 +254,14 @@ export function TtsSection() {
       volume: settings.volume,
     }),
     saveError: 'Could not save TTS settings',
+    unsavedLabel: 'the speech settings',
   });
   const ttsSettings = ttsForm.value;
   const setTtsSettings = ttsForm.setValue;
   const { loading: ttsLoading, saving: ttsSaving, message: ttsMessage, error: ttsError } = ttsForm;
   const ttsEnabled = ttsSettings.enabled;
+  const ttsFace = ttsForm.face;
+  const emptyVoices = emptyVoicesCopy(ttsStatus ? ttsStatus.ok : null);
 
   // Called after the service address changes. A no-op while TTS is off: saving the
   // URL must not become a back door to connecting.
@@ -232,7 +282,9 @@ export function TtsSection() {
     ttsForm.submit(ttsSettings, 'TTS settings saved.');
   };
 
-  const handleTtsEnabledToggle = (enabled: boolean) => {
+  // The toggle saves from the confirmed value, which replaces the form — so unsaved
+  // edits would vanish with it. Ask first, as leaving the section would.
+  const handleTtsEnabledToggle = (enabled: boolean) => ttsForm.discardThen(() => {
     const next = { ...ttsForm.confirmed, enabled };
     setTtsSettings(next);
     const saved = ttsForm.submit(next, enabled ? 'Text-to-Speech enabled.' : 'Text-to-Speech disabled.');
@@ -250,7 +302,7 @@ export function TtsSection() {
       setTtsVoices([]);
       setTtsStatus(null);
     }
-  };
+  });
 
   const handleTtsTest = () => {
     setTtsTesting(true);
@@ -268,35 +320,53 @@ export function TtsSection() {
 
   return (
     <>
-    <TengwarService status={ttsStatus} enabled={ttsEnabled} onSaved={refreshService} />
+    <TengwarService status={ttsStatus} enabled={ttsFace === 'form' ? ttsEnabled : null} onSaved={refreshService} />
 
     <div className="set-group">
-      <SettingsToggleLabel
-        label="Text-to-Speech"
-        toggleLabel="Enable Text-to-Speech"
-        checked={ttsEnabled}
-        disabled={ttsLoading || ttsSaving}
-        onChange={handleTtsEnabledToggle}
-      />
+      {/* An unchecked switch before the settings load would say "off" — a claim
+          nobody made — and pressing it would save defaults. */}
+      {ttsFace === 'form' ? (
+        <SettingsToggleLabel
+          label="Text-to-Speech"
+          toggleLabel="Enable Text-to-Speech"
+          checked={ttsEnabled}
+          disabled={ttsLoading || ttsSaving}
+          onChange={handleTtsEnabledToggle}
+        />
+      ) : (
+        <div className="set-group-label">Text-to-Speech</div>
+      )}
 
-      {!ttsEnabled && (ttsMessage || ttsError) && (
+      {/* The switch swaps the form below in and out, so neither branch can hold the
+          live regions: "disabled." would arrive with the region that announces it.
+          One announcer sits outside both, and each branch only draws its line. */}
+      <SettingsAnnouncer message={ttsMessage} error={ttsError} />
+
+      {ttsFace === 'unavailable' ? (
+        <>
+          <SettingsStatus error={ttsError} announce={false} />
+          <FormUnavailable title="Speech settings unavailable" onRetry={ttsForm.retry} retrying={ttsLoading} />
+        </>
+      ) : null}
+
+      {ttsFace === 'form' && !ttsEnabled && (ttsMessage || ttsError) && (
         <div className="set-group-note">
-          <SettingsStatus message={ttsMessage} error={ttsError} />
+          <SettingsStatus message={ttsMessage} error={ttsError} announce={false} />
         </div>
       )}
 
-      {ttsEnabled && (
+      {ttsFace === 'form' && ttsEnabled && (
       <form className="command-settings-form" onSubmit={handleTtsSubmit}>
         <label className="field">
           <span>Voice</span>
-          {/* The list comes from Tengwar, so an empty one means the service is
-              unreachable — not that the operator has no voices to choose from. */}
+          {/* The list comes from Tengwar, so an empty one is about the service, not
+              the operator's choices. It says so in the alert's own words. */}
           {ttsVoices.length === 0 ? (
             <>
               <select value="" disabled>
-                <option value="">No voices — Tengwar unreachable</option>
+                <option value="">{emptyVoices.option}</option>
               </select>
-              <small>Check the Tengwar URL above, then save to retry.</small>
+              <small>{emptyVoices.hint}</small>
             </>
           ) : (
             <select
@@ -352,7 +422,7 @@ export function TtsSection() {
           </div>
         </div>
 
-        <SettingsStatus message={ttsMessage} error={ttsError} />
+        <SettingsStatus message={ttsMessage} error={ttsError} announce={false} />
 
         <div className="command-settings-actions">
           <button className="modbtn gold" type="submit" disabled={ttsLoading || ttsSaving}>

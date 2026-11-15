@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { Viewer, ChatEntry, StreamEvent, ViewerProfileUpdate } from '../../../shared/api';
+import type { RefreshHealth } from '../../refreshHealth';
 
 export type PanelCtx = {
   viewers: Record<string, Viewer>;
@@ -10,6 +11,15 @@ export type PanelCtx = {
   openViewerPopout: (login: string) => void;
   updateViewerProfile: (login: string, profile: ViewerProfileUpdate) => Promise<ViewerProfileUpdate>;
   loadOlderChat: () => Promise<boolean>;
+  /**
+   * How the REST load behind `chat` and `events` stands, on surfaces that load them
+   * and keep them fresh (the dashboard's full refresh, the tablet's chat load). It is
+   * what lets an empty list tell "nothing yet" from "could not load", and marks a list
+   * stale when its refresh starts failing. Left out where the data is always in hand.
+   */
+  feedHealth?: RefreshHealth;
+  /** Re-run that load now, for the Retry on an unavailable or stale list. */
+  onRetryFeed?: () => void;
 };
 
 export type ModuleEntry = {

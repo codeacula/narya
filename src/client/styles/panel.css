@@ -140,6 +140,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .gauge-value small { font-size: 11px; color: var(--fg-2); font-weight: 500; }
 .gauge-sub { font-family: var(--font-mono); font-size: 10px; color: var(--fg-2); letter-spacing: 0.04em; }
+/* The backend is not answering: readings are last-known, so they recede and the
+   sub-lines (which say so) take the warning colour. */
+.statbar.is-stale .gauge-value { opacity: 0.5; }
+.statbar.is-stale .gauge-sub { color: var(--warning-fg); }
+.statbar.is-stale .live-dot { animation: none; opacity: 0.5; }
 
 /* Live uptime is the bar's one gold value, as it is in the overlay's bottom bar. The
    green live dot beside the label still says "on air". */
@@ -222,6 +227,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 
 .health { display: flex; align-items: center; gap: 8px; }
+.health-value { font-size: 15px; }
 .health-dot { width: 9px; height: 9px; border-radius: 50%; }
 .health-dot.good { background: var(--success-base); }
 .health-dot.warn { background: var(--warning-base); }
@@ -239,9 +245,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .stage--cockpit { grid-template-columns: minmax(380px, 1.15fr) minmax(380px, 0.85fr); }
 
 .col-stack { min-height: 0; display: grid; gap: var(--panel-gap); grid-auto-rows: minmax(0, 1fr); }
-.col-stack.s2 { grid-template-rows: 1fr 1fr; }
-.col-stack.s3 { grid-template-rows: auto 1fr 1.1fr; }
-.col-stack.s2-top-auto { grid-template-rows: auto 1fr; }
 
 /* Attention and the tabbed panel share the column, attention slightly smaller.
    Both scroll internally rather than pushing the other off screen. */
@@ -340,10 +343,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   transition: background var(--dur-fast);
 }
 .msg:hover { background: rgba(255,255,255,0.022); }
+/* Keyboard focus, not any focus: Chromium focuses a button on mouse click, so a
+   plain :focus-within kept a row lit after its name was clicked and the pointer had
+   left. Separate rules, so a browser without :has() still keeps the hover rule. */
+.msg:has(:focus-visible) { background: rgba(255,255,255,0.022); }
 /* Messages from an earlier stream recede. Lighter than the activity feed's
    .evt--past because chat is the panel you actually read. */
 .msg--past { opacity: 0.6; }
 .msg--past:hover { opacity: 1; }
+.msg--past:has(:focus-visible) { opacity: 1; }
 .chat-divider {
   display: flex; align-items: center; gap: 8px;
   margin: 4px 0;
@@ -372,8 +380,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   transition: border-color var(--dur-fast);
 }
 .msg-user:hover { border-bottom-color: currentColor; }
+/* The row is already about this viewer, so the name is not a link. */
+span.msg-user { cursor: default; }
 button.msg-user { padding: 0; background: none; border-width: 0 0 1px; border-radius: 0; line-height: inherit; }
-button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offset: 2px; }
+button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offset: 2px; }
 /* overflow-wrap: a pasted URL is one unbroken token and would otherwise push the
    chat column wider than the panel. */
 .msg-text { color: var(--ivory-100); overflow-wrap: anywhere; }
@@ -393,6 +403,7 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   opacity: 0; transition: opacity var(--dur-fast);
 }
 .msg:hover .msg-time { opacity: 1; }
+.msg:has(:focus-visible) .msg-time { opacity: 1; }
 
 /* Inline moderation. Taken out of flow rather than floated: a reserved float box
    would cost every row ~70px of text width forever to buy a no-reflow hover,
@@ -410,8 +421,17 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur-fast);
 }
-.msg:hover .msg-mod,
-.msg-mod:focus-within { opacity: 1; pointer-events: auto; }
+/* Keyboard parity with hover: the row reveals its time and actions as soon as
+   anything in it has keyboard focus — the name button included, which is the row's
+   first tab stop. Scoping this to .msg-mod alone left the actions invisible until
+   focus had already landed on a button the operator could not see, and never showed
+   the time at all. :focus-visible rather than :focus-within, because a mouse click
+   focuses the button too and would leave the actions over the end of the message
+   after the pointer had gone. No extra tab stops: the row itself stays unfocusable.
+   An armed ban stays shown, so a live "sure?" is never hidden. */
+.msg:hover .msg-mod { opacity: 1; pointer-events: auto; }
+.msg:has(:focus-visible) .msg-mod,
+.msg:has(.msg-mod-btn.armed) .msg-mod { opacity: 1; pointer-events: auto; }
 /* Opaque, because the button sits over the tail of a long message. Masking with
    a panel-coloured backing plate behind the whole group instead reads as a patch
    over any row carrying a highlight tint. */
@@ -425,6 +445,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 }
 .msg-mod-btn:hover { color: var(--fg-1); border-color: var(--border-3); background: var(--bg-3); }
 .msg-mod-btn:disabled { opacity: 0.5; cursor: default; }
+/* The browser default ring is near-black on navy; match the name button's gold. */
+.msg-mod-btn:focus-visible { outline: 1px solid var(--gold-400); outline-offset: 1px; }
 .msg-mod-btn.danger { color: var(--danger-fg); border-color: var(--danger-border); }
 .msg-mod-btn.danger:hover { background: var(--danger-bg); }
 /* Armed ban: filled rather than outlined, so the second click lands on a control
@@ -479,17 +501,43 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
    (minmax(320px, 0.8fr)), so it would occlude message text on every row. */
 .tablet-shell .msg-mod {
   position: static;
-  display: flex; gap: 8px;
+  display: flex; gap: 12px;
   margin-top: 7px;
   opacity: 1; pointer-events: auto;
 }
-/* Finger-sized, matching the AutoMod row buttons — the closest existing
-   always-visible row action on this surface. */
+/* 44px is the touch-target floor: these sit in a list that scrolls under the
+   operator's thumb, so a near miss lands on the neighbouring button. */
 .tablet-shell .msg-mod-btn {
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 44px; min-width: 56px;
+  padding: 0 16px;
   font-size: 12px;
   border-radius: var(--radius-2);
+}
+/* Ban is the one row action that cannot be undone from here, so it does not sit
+   in the same cluster as pin and 10m: it is pushed to the far end of the row,
+   behind a hairline, where a tap meant for its neighbours cannot reach it. The
+   arm-then-confirm step (and its timed disarm, in Chat.tsx) is the second guard. */
+.tablet-shell .msg-mod-btn.danger {
+  position: relative;
+  margin-left: auto;
+}
+.tablet-shell .msg-mod-btn.danger::before {
+  content: '';
+  position: absolute; left: -12px; top: 6px; bottom: 6px;
+  border-left: 1px solid var(--border-1);
+}
+/* The tablet's large-button chrome (styles.css) restyles every button on :hover and
+   :active, and a touch screen keeps :hover on whatever was last tapped. Without these
+   the armed ban took that gold hover border and near-transparent fill while keeping its
+   dark armed text — the "sure?" was unreadable exactly when it mattered. */
+.tablet-shell .msg-mod-btn.danger:hover:not(:disabled),
+.tablet-shell .msg-mod-btn.danger:active:not(:disabled) {
+  border-color: var(--danger-border); background: var(--danger-bg);
+}
+.tablet-shell .msg-mod-btn.danger.armed,
+.tablet-shell .msg-mod-btn.danger.armed:hover:not(:disabled),
+.tablet-shell .msg-mod-btn.danger.armed:active:not(:disabled) {
+  color: var(--fg-inverse); background: var(--danger-base); border-color: var(--danger-base);
 }
 /* The tablet's house press feedback, since hover tells a finger nothing. */
 .tablet-shell .msg-mod-btn:active:not(:disabled) { transform: scale(0.97); }
@@ -497,6 +545,16 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   float: none; display: inline-block;
   margin: 7px 0 0; padding: 3px 9px;
   font-size: 10px;
+}
+/* A removed message's reason comes first in the row's DOM (the dashboard floats it
+   to the right edge). Inline on the tablet it ran straight into the username with no
+   gap, and the narrow rail cut the reason at 45%. It gets its own line above the
+   message instead, as wide as the reason needs: overflow: hidden (from the base rule)
+   makes it a block formatting context, so it sits beside the floated time rather than
+   under it, and only ellipsizes when the line runs out. */
+.tablet-shell .msg-mod-status.removed {
+  display: block; width: fit-content; max-width: none;
+  margin: 0 0 6px;
 }
 /* Highlighted rows take their palette's -bg fill and keep the tag chip as the label;
    there is no coloured stripe, matching the overlay's flat cards. */
@@ -508,10 +566,10 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 .msg.hl-sub { background: color-mix(in srgb, var(--warning-bg) 50%, transparent); }
 .msg.hl-mod { background: color-mix(in srgb, var(--success-bg) 60%, transparent); }
 .msg.hl-vip { background: color-mix(in srgb, var(--note-bg) 75%, transparent); }
-/* Someone said your name — the visual half of the ping cue, gold to match the
-   overlay's .chat-message.mention. Placed after the hl- tints deliberately: at equal
-   specificity the later rule wins, so "they're talking to you" outranks the role
-   colour of whoever said it. */
+/* Someone said your name — the visual half of the ping cue: the warm warning fill
+   with a hairline ring, so the row stands out in a fast-moving list. Placed after the
+   hl- tints deliberately: at equal specificity the later rule wins, so "they're
+   talking to you" outranks the role colour of whoever said it. */
 .msg.msg--mention {
   background: var(--warning-bg);
   box-shadow: inset 0 0 0 1px var(--warning-border);
@@ -603,6 +661,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
   padding: 2px 8px; border-radius: var(--radius-1); border: 1px solid;
 }
+/* No role at all: present, but quieter than any role that means something. */
+.rolepill.viewer { color: var(--fg-3); border-color: var(--border-1); }
 .rolepill.mod { color: var(--success-fg); border-color: var(--success-border); background: var(--success-bg); }
 .rolepill.vip { color: var(--note-fg); border-color: var(--note-border); background: var(--note-bg); }
 .rolepill.sub { color: var(--warning-fg); border-color: var(--warning-border); background: var(--warning-bg); }
@@ -635,7 +695,7 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   border-color: var(--danger-border);
   background: var(--danger-bg);
 }
-.spot-section-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-3); }
+.spot-section-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 9px; }
 .spot-recent { display: flex; flex-direction: column; gap: 6px; }
 .spot-recent .rmsg { display: flex; gap: 10px; font-size: 12px; color: var(--ivory-100); }
 /* One line, sized to its text: a fixed 38px wrapped "20m ago" onto two lines. */
@@ -651,8 +711,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
 }
 .modbtn:hover { border-color: var(--silver-400); background: rgba(255,255,255,0.03); }
-.modbtn:disabled { cursor: not-allowed; opacity: 0.5; }
-.modbtn:disabled:hover { border-color: var(--border-2); background: transparent; }
+.modbtn:disabled, .modbtn[aria-disabled="true"] { cursor: not-allowed; opacity: 0.5; }
+.modbtn:disabled:hover, .modbtn[aria-disabled="true"]:hover { border-color: var(--border-2); background: transparent; }
 .modbtn.danger { color: var(--danger-fg); border-color: var(--danger-border); }
 .modbtn.danger:hover { background: var(--danger-bg); border-color: var(--danger-base); }
 .modbtn.gold { color: var(--accent-fg); border-color: var(--border-3); }
@@ -666,6 +726,30 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 }
 .empty-state .es-title { font-family: var(--font-display); font-style: italic; font-size: var(--step-1); color: var(--ivory-200); }
 .empty-state .es-sub { font-size: 12px; max-width: 30ch; line-height: 1.5; }
+/* A list column or a card: no flex fill, tighter, the title a step down. */
+.empty-state--compact { flex: none; gap: 6px; padding: var(--space-5) var(--space-3); }
+.empty-state--compact .es-title { font-size: var(--step-0); }
+.empty-state--compact .es-sub { max-width: 34ch; }
+.empty-state .es-action,
+.split-empty .es-action { margin-top: var(--space-2); }
+.es-action .btn-primary { border: 0; min-height: 34px; }
+.feed-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); }
+/* Note: a two-line note inside a panel that already has a heading (a tablet button
+   grid). Left-aligned with the content around it, and it spans a grid's columns
+   rather than sitting in the first cell. */
+.empty-state--note {
+  flex: 0 0 auto; grid-column: 1 / -1;
+  align-items: flex-start; justify-content: flex-start;
+  gap: 2px; padding: 4px 0; text-align: left;
+}
+.empty-state--note .es-title { font-size: var(--step-0); }
+.empty-state--note .es-sub { max-width: 60ch; }
+/* The tablet is read at arm's length: the same note, one step larger. */
+.tablet-shell .empty-state--note .es-title { font-size: var(--step-1); }
+.tablet-shell .empty-state--note .es-sub { font-size: var(--step--1); }
+.empty-state--note .es-action { margin-top: var(--space-2); }
+/* A Retry in a tablet button grid is a touch target, not a 60px soundboard tile. */
+.tablet-shell .empty-state--note .es-action .modbtn { min-height: 44px; padding: 8px 18px; font-size: 13px; }
 
 /* ================= EVENT FEED ================= */
 .evt-list { display: flex; flex-direction: column; }
@@ -971,7 +1055,20 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 }
 .set-head-main { min-width: 0; }
 .set-head .set-intro { margin-bottom: 0; }
-.set-head .cats-count { margin-top: var(--space-3); }
+/* The count line: mono, the numbers in gold. Data from `counts`, never page markup. */
+.set-head-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  letter-spacing: var(--track-wide);
+  color: var(--fg-2);
+}
+.set-head-meta b { color: var(--fg-accent); font-weight: 600; }
+.set-head-meta-dot { width: 3px; height: 3px; border-radius: var(--radius-pill); background: var(--silver-600); }
 .set-head-actions {
   flex: none;
   display: flex;
@@ -1031,18 +1128,17 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 .set-group-toggle { accent-color: var(--gold-500); cursor: pointer; }
 .set-group-toggle:disabled { cursor: default; opacity: 0.5; }
 .set-group-note { padding: 14px; }
+/* "Waiting for Narya" / "last known" under a settings group's label: a stale-notice
+   laid out as one of the group's rows. */
+.set-group .set-freshness { margin: 0; padding: 9px 14px; border-bottom: 1px solid var(--border-1); }
 .set-row { display: flex; align-items: center; gap: 20px; padding: 11px 14px; border-bottom: 1px solid var(--border-1); }
+.set-row-text { flex: 1; min-width: 0; }
+/* A row label with a help button beside it, and a row control made of several parts. */
+.set-label-help { display: flex; align-items: center; gap: 6px; }
+.set-control-row { display: flex; align-items: center; gap: 8px; }
 .set-row:last-child { border-bottom: none; }
 .set-label { font-size: 14px; color: var(--fg-1); }
 .set-sub { font-size: 12px; color: var(--fg-3); margin-top: 2px; }
-.reward-media-missing {
-  color: var(--warning-fg);
-  border: 1px solid var(--warning-border);
-  background: var(--warning-bg);
-  border-radius: var(--radius-2);
-  padding: 6px 8px;
-  margin-top: 6px;
-}
 .set-control { margin-left: auto; flex: none; }
 .set-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: var(--radius-1); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; }
 .set-badge--ok { background: var(--success-bg); color: var(--success-fg); border: 1px solid var(--success-border); }
@@ -1051,22 +1147,28 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
    active scene button — not a second, violet accent. */
 .btn-primary { display: inline-block; padding: 7px 16px; border: 1px solid var(--gold-400); border-radius: var(--radius-2); background: var(--gold-500); color: var(--navy-950); font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; cursor: pointer; transition: background var(--dur-fast); }
 .btn-primary:hover { background: var(--gold-400); }
+/* A secondary use of the gold button beside a status badge (Discord's Reinstall). */
+.btn-primary--small { font-size: 11px; }
 .btn-primary:disabled { cursor: not-allowed; opacity: 0.5; }
 .command-empty {
   color: var(--fg-3);
   font-size: 13px;
   padding: 8px 0;
 }
+/* The same line when it reports a failure (a category search that did not answer). */
+.command-empty--error { color: var(--danger-fg); }
 
 /* ================= COUNTERS ================= */
 /* The editor is a card rather than loose fields on the page: it appears above the
    list it edits, so it needs an edge to say where the form stops and the rows
    begin. Same border, radius, and surface as .counter-row, one step brighter, so
-   it reads as the same family lifted forward. */
+   it reads as the same family lifted forward.
+   Neither the card nor the list is inset: both start on the SettingsHeader's left
+   edge, as every `.set-group` section does (Counters and Apps used to sit 14px in). */
 .counter-editor {
   display: grid;
   gap: 14px;
-  margin: 14px 14px 0;
+  margin: 0 0 14px;
   padding: 14px;
   border: 1px solid var(--border-2);
   border-radius: var(--radius-2);
@@ -1075,7 +1177,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 .counter-list {
   display: grid;
   gap: 8px;
-  padding: 14px 14px 0;
 }
 .counter-row {
   display: flex;
@@ -1110,13 +1211,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   text-align: right;
 }
 .counter-row-actions { display: flex; gap: 6px; flex: none; }
-.command-action-summary {
-  color: var(--fg-3);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .command-row-actions,
 .command-editor-head {
   display: flex;
@@ -1128,9 +1222,6 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 }
 .command-editor-head {
   justify-content: space-between;
-}
-.settings-inline-status {
-  margin: 14px 14px 0;
 }
 .settings-editor-section {
   display: grid;
@@ -1310,6 +1401,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.settings-item-runs svg { vertical-align: -2px; margin-right: 5px; }
 .media-asset-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1407,22 +1499,12 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .command-enabled input {
   accent-color: var(--gold-500);
 }
+/* "Clear stored secret" under a credential field it belongs to. */
+.secret-clear { margin-top: 8px; }
 .command-example {
   color: var(--fg-3);
   font-size: 12px;
 }
-/* One Twitch event type inside the Alerts section. */
-.alert-kind {
-  min-inline-size: 0;
-  margin: 0;
-  padding: 12px;
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-2);
-  background: var(--bg-1);
-  display: grid;
-  gap: 10px;
-}
-.alert-kind-legend { padding: 0; }
 .command-example code {
   color: var(--accent-fg);
   font-family: var(--font-mono);
@@ -1440,6 +1522,12 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   border-color: var(--danger-border);
   background: var(--danger-bg);
 }
+/* SettingsStatus is laid out by a form's grid gap; where it sits outside one it needs
+   its own spacing: inset under a group label, or above the first group of a page. */
+.set-group > .command-settings-status { margin: 14px 14px 0; }
+.rewards-page > .command-settings-status,
+.cats-page > .command-settings-status,
+.settings-measure > .command-settings-status { margin: 0 0 var(--panel-gap); }
 .command-settings-actions {
   display: flex;
   justify-content: flex-end;
@@ -1526,8 +1614,13 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .ctrl-section { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-1); }
 .ctrl-section:last-child { border-bottom: none; }
 .ctrl-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-3); flex: none; width: 52px; }
-.ctrl-scene-section { align-items: flex-start; }
+.ctrl-scene-section { align-items: flex-start; flex-wrap: wrap; }
 .ctrl-scene-section .ctrl-label { padding-top: 8px; }
+/* Where the scene buttons stand while OBS is offline. */
+.ctrl-scene-note {
+  flex: 1; min-width: 0; margin: 0; padding-top: 7px;
+  color: var(--fg-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.03em; line-height: 1.4;
+}
 .ctrl-scene-grid {
   display: grid;
   /* Column count is set inline (ceil(scenes / 2)) so scenes fill exactly two
@@ -1567,6 +1660,9 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   letter-spacing: 0.03em;
   line-height: 1.4;
 }
+/* A switch whose state could not be read, or whose flip was refused. */
+.ctrl-inline-problem { color: var(--danger-fg); }
+.ctrl-inline-problem .stale-notice-retry { margin-left: 8px; }
 .ctrl-scene-button {
   display: flex;
   align-items: center;
@@ -1601,8 +1697,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   opacity: 1;
 }
 .ctrl-scene-button:disabled { cursor: not-allowed; opacity: 0.5; }
-.ctrl-status { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); }
-.ctrl-status.live { color: var(--success-fg); }
 
 /* ================= CHATTERS LIST ================= */
 .chatter-list { display: flex; flex-direction: column; padding: 6px 0; }
@@ -1637,12 +1731,38 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 
 /* ================= SETTINGS STATUS / HEADER ================= */
-.set-status {
-  border: 1px solid var(--success-border); border-radius: var(--radius-2);
-  padding: 9px 11px; color: var(--success-fg); background: var(--success-bg);
-  font-size: 12px; margin: 14px 14px 0;
+/* StaleNotice: a background refresh is failing and the list below is old. Quiet on
+   purpose (it can sit there for minutes), so a mono eyebrow line, not a banner. */
+.stale-notice {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  color: var(--warning-fg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
-.set-status.error { color: var(--danger-fg); border-color: var(--danger-border); background: var(--danger-bg); }
+.stale-notice-retry {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: none;
+  color: var(--fg-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.stale-notice-retry:hover { color: var(--fg-1); }
+.stale-notice-retry:focus-visible { outline: 2px solid var(--gold-400); outline-offset: 2px; }
+/* A stale marker docked above a dashboard feed (chat, activity, shoutouts). Collapses
+   to nothing while the feed is fresh, because StaleNotice then renders nothing. */
+.feed-stale { flex: none; padding: 6px 12px; border-bottom: 1px solid var(--border-1); }
+.feed-stale:empty { display: none; }
+.feed-stale .stale-notice { margin: 0; }
 .settings-eyebrow {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
   text-transform: uppercase; color: var(--fg-3); margin-bottom: 6px;
@@ -1650,7 +1770,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .settings-title { margin: 0 0 4px; font-family: var(--font-display); font-size: 28px; font-weight: 500; }
 
 /* ================= VIEWER REWARDS SETTINGS ================= */
-.rewards-page > .set-status { margin: 0 0 var(--panel-gap); }
 .reward-category-manager { overflow: visible; }
 .reward-category-form {
   display: grid;
@@ -1677,7 +1796,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 12px;
 }
 .reward-form-prompt { grid-column: 1; }
-.reward-form-enabled { align-self: end; min-height: 38px; }
 /* Editor: grouped sections + one switch-and-value control for limits and cooldown. */
 .reward-fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
 .reward-fieldset + .reward-fieldset { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border-1); }
@@ -1776,8 +1894,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
      opens past the card's bottom edge. The rounded bottom corners are handled on .reward-list. */
 }
 .reward-group-head { padding: 12px 14px; border-bottom: 1px solid var(--border-1); }
-.reward-group-head h3,
-.reward-empty-state h3 {
+.reward-group-head h3 {
   margin: 0;
   color: var(--fg-1);
   font-family: var(--font-display);
@@ -1843,7 +1960,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   border-radius: 50%;
   background: transparent;
   color: var(--fg-3);
-  font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }
@@ -2046,22 +2162,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   padding: 5px 8px;
   font: 11px var(--font-body);
 }
-.reward-empty,
-.reward-loading,
-.reward-empty-state,
 .reward-api-note { color: var(--fg-3); font-size: 12px; }
-.reward-empty { padding: 18px 14px; }
-.reward-loading { padding: 28px 0; text-align: center; }
-.reward-empty-state {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  padding: 42px 20px;
-  border: 1px dashed var(--border-2);
-  border-radius: var(--radius-2);
-  text-align: center;
-}
-.reward-empty-state .btn-primary { border: 0; min-height: 34px; margin-top: 6px; }
 .reward-api-note { max-width: 74ch; margin: var(--space-5) auto 0; text-align: center; line-height: 1.5; }
 .sr-only {
   position: absolute;
@@ -2119,6 +2220,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   place-items: center;
   padding: 24px;
   background: rgba(3, 7, 14, 0.82);
+  /* Modal portals this backdrop into <body>, outside .cockpit, so it has to carry
+     the body typography itself or dialog text falls back to the root's unloaded Inter. */
+  color: var(--fg-1);
+  font-family: var(--font-body);
 }
 .stream-info-modal {
   width: min(520px, 100%);
@@ -2141,6 +2246,35 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   border-radius: var(--radius-2);
   background: var(--bg-2);
   box-shadow: var(--shadow-3);
+}
+/* Modal (ui/modal.tsx) focuses the dialog itself only when nothing inside can take
+   focus; the panel is not a control, so it draws no ring of its own. */
+.modal-backdrop > [role="dialog"]:focus { outline: none; }
+/* ConfirmDialog (ui/confirm.tsx): the same flat panel, narrower, for one question. */
+.confirm-modal {
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-3);
+}
+.confirm-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-1);
+}
+.confirm-body p { margin: 0 0 8px; }
+.confirm-body p:last-child { margin-bottom: 0; }
+/* The text to retype keeps its own case, so it reads as the name it is. */
+.field > span .confirm-require-text {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--fg-1);
 }
 .discord-help-steps {
   margin: 0;
@@ -2332,6 +2466,15 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   text-transform: uppercase;
   color: var(--fg-3);
 }
+/* A search that failed (suggestionFace → failed). The reason is a sentence from the
+   server, so it is set as one rather than shouted in mono capitals. */
+.suggestion-empty--error {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--danger-fg);
+}
 /* Stream-info: saved-category dropdown with an Add button that flips to search. */
 .stream-cat-picker { display: flex; gap: 8px; align-items: stretch; }
 .stream-cat-picker > .suggestion-anchor,
@@ -2522,8 +2665,36 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .att-settings-field input:focus { border-color: var(--border-3); }
 
-.panel-empty { padding: 18px 14px; font-size: 12px; color: var(--fg-3); text-align: center; line-height: 1.5; }
-.att-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+/* position: relative makes the list the rows' offsetParent, so the "more below"
+   cue can read row positions straight off offsetTop in scroll coordinates. */
+.att-list-wrap { position: relative; display: flex; flex-direction: column; min-height: 0; }
+.att-list { position: relative; display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+/* Overflow cue: a hairline footer that says how much is below, with a fade over
+   the clipped edge of the list above it. Both exist only while something is below. */
+.att-more {
+  position: relative; flex: none;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  width: 100%; height: 26px; padding: 0 12px;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--fg-2); background: var(--bg-2);
+  border: 0; border-top: 1px solid var(--border-1); border-radius: 0;
+  cursor: pointer;
+  animation: att-cue-in var(--dur-slow) var(--ease-out);
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.att-more::before {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: calc(100% + 1px); height: 24px;
+  background: linear-gradient(to bottom, transparent, var(--bg-2));
+  pointer-events: none;
+}
+.att-more:hover { color: var(--accent-fg); background: rgba(255,255,255,0.03); }
+.att-more:focus-visible { outline: 1px solid var(--gold-400); outline-offset: -2px; }
+@keyframes att-cue-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .att-more { animation: none; }
+}
 .att-row {
   position: relative;
   display: flex; gap: 10px; align-items: center; text-align: left; width: 100%;
@@ -2533,6 +2704,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .att-row:last-child { border-bottom: none; }
 .att-row:hover { background: rgba(255,255,255,0.03); }
+/* "n more below" hands focus to the first revealed row; the browser's default ring
+   is near-black on navy and half-hidden by the unacked hairline, so match the
+   footer's gold ring, inset like it. */
+.att-row:focus-visible { outline: 1px solid var(--gold-400); outline-offset: -2px; }
 .att-row .evt-detail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-eyebrow {
   display: block;
@@ -2614,10 +2789,11 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   background: none;
   border: none;
   color: var(--fg-3);
-  font-size: 1.1rem;
+  display: inline-grid;
+  place-items: center;
   line-height: 1;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 2px;
 }
 .toast-close:hover { color: var(--fg-1); }
 
@@ -2634,21 +2810,9 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .settings-alert--warn { border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning-fg); }
 .settings-alert--info { border-color: var(--info-border); background: var(--info-bg); color: var(--info-fg); }
-.settings-alert-icon { flex: none; font-weight: 700; }
+.settings-alert-icon { flex: none; margin-top: 1px; }
 
 /* ---------------- Stream categories — "game crests" ---------------- */
-.cats-count {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--step--1);
-  letter-spacing: var(--track-wide);
-  color: var(--fg-2);
-}
-.cats-count b { color: var(--fg-accent); font-weight: 600; }
-.cats-count-dot { width: 3px; height: 3px; border-radius: var(--radius-pill); background: var(--silver-600); }
 .cats-toolbar { margin-bottom: var(--space-4); }
 
 /* Carries `.field` as well, which supplies the column layout, the label typography
@@ -2712,6 +2876,9 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   color: var(--fg-arcane);
   background: var(--note-bg);
   border: 1px solid var(--note-border);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .cat-card-acts { display: flex; flex-direction: column; gap: 6px; flex: none; }
 
@@ -3008,16 +3175,13 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   font-size: 10px;
   letter-spacing: 0.03em;
 }
+.viewer-record-note.is-error { color: var(--danger-fg); }
 
 .viewer-history {
   margin-top: var(--space-5);
 }
 .viewer-history .spot-section-label {
   margin-bottom: var(--space-3);
-}
-.viewer-history-empty {
-  font-size: var(--step--1);
-  color: var(--fg-2);
 }
 /* A recessed, self-scrolling log framed like the dashboard chat panel, so the
    history stops bloating the page. Newest message sits at the top; the rows
@@ -3032,9 +3196,15 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   overflow-y: auto;
   padding: 6px 0;
 }
+/* A viewer's history is a record, read for when each line was said, and its rows have
+   no actions — nothing in them takes focus, so the hover-only time could never be
+   reached from the keyboard. Show it outright, as the tablet does. */
+.viewer-history-chat .msg-time { opacity: 1; }
 .viewer-history-more {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-3);
   margin: var(--space-2) 14px var(--space-1);
 }
+.viewer-history-more-error { font-family: var(--font-mono); font-size: 10px; color: var(--warning-fg); }
 .roster-badge {
   padding: 1px 7px;
   border-radius: var(--radius-1);
@@ -3119,6 +3289,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   gap: 10px;
   flex-wrap: wrap;
 }
+.action-step-name { flex: 1 1 200px; min-width: 0; font-weight: 600; }
 .action-step-index {
   display: inline-flex;
   align-items: center;
@@ -3419,9 +3590,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   background: transparent;
   color: var(--fg-3);
   cursor: pointer;
-  font-size: 14px;
   line-height: 1;
   padding: 2px 4px;
+  display: inline-grid;
+  place-items: center;
 }
 .module-game-remove:hover { color: var(--danger-fg); }
 .module-game-remove:disabled { cursor: not-allowed; opacity: 0.5; }
@@ -3464,63 +3636,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .module-group:hover { background: rgba(255,255,255,0.03); }
 .module-group input { accent-color: var(--gold-500); }
 .module-group--conflict { color: var(--fg-3); }
-
-/* ---- Quick actions panel (dashboard) ---- */
-.quick-actions {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-}
-.quick-actions-error {
-  color: var(--danger-fg);
-  font-size: 12px;
-}
-.quick-actions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
-}
-.quick-action {
-  display: grid;
-  gap: 3px;
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-2);
-  background: rgba(255,255,255,0.02);
-  color: var(--fg-1);
-  font: 13px var(--font-body);
-  padding: 10px;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--dur-fast), background var(--dur-fast);
-}
-.quick-action:hover:not(:disabled) {
-  border-color: var(--border-3);
-  background: var(--accent-soft, rgba(var(--gold-rgb), 0.08));
-}
-.quick-action:disabled { cursor: not-allowed; }
-/* Scoped to an idle module: shown, not firable — hiding it would make the button
-   vanish when the game changes. */
-.quick-action--disarmed { opacity: 0.45; }
-.quick-action--ok { border-color: var(--success-border); }
-.quick-action--warn { border-color: var(--warning-border); }
-.quick-action--error { border-color: var(--danger-border); }
-.quick-action-label {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.quick-action-scope,
-.quick-action-state {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--fg-3);
-}
-.quick-action-state--ok { color: var(--success-fg); }
-.quick-action-state--warn { color: var(--warning-fg); }
-.quick-action-state--error { color: var(--danger-fg); }
 
 @media (max-width: 700px) {
   .action-step-body { grid-template-columns: 1fr; }
@@ -3658,6 +3773,10 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   color: var(--gold-400);
 }
 .ctrl-holding-readout.is-overdue { color: var(--warning-fg); }
+.ctrl-holding-readout.is-unknown { color: var(--fg-3); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+/* The column sections have no label column for the problem line to indent past. */
+.ctrl-holding-section .ctrl-inline-warning,
+.ctrl-pinned-section .ctrl-inline-warning { padding-left: 0; }
 .ctrl-holding-buttons { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .ctrl-holding-row .ctrl-label { width: 66px; }
 .ctrl-holding-row .ctrl-scene-button { min-height: 28px; padding: 4px 8px; }
@@ -3688,3 +3807,8 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   color: var(--fg-2);
 }
 .ctrl-pinned-readout.is-empty { color: var(--fg-3); }
+
+/* ================= VIEWER POPOUT (/viewer) ================= */
+.viewer-window { padding: 12px; background: var(--bg-1); min-height: 100vh; }
+.viewer-window-bar { margin-bottom: 10px; text-align: right; }
+.viewer-window-open { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }

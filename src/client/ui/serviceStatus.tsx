@@ -2,56 +2,32 @@ import React from 'react';
 import type { DashboardStatus, DiscordAnnounceFailedPayload, SettingsUpdatedPayload } from '../../shared/api';
 import { useSocket } from '../realtime';
 import { useToast } from './notifications';
+import { settingsEcho } from '../settingsEcho';
+import { serviceSnapshot, serviceTransitionToasts, type ServiceSnapshot } from './serviceTransitions';
 
 // Watches live service status and settings changes, surfacing transient toasts with
-// guidance when something connects, drops, or needs configuration. Inline, persistent
-// alerts on the Settings page complement these for issues that need operator action.
+// guidance when something connects, drops, or needs configuration. Titles use the one
+// "connected"/"offline" vocabulary from connectionWords.ts, so a toast says the same
+// word as the stat bar and the tablet chip (see serviceTransitions.ts). Inline,
+// persistent alerts on the Settings page complement these for issues that need operator action.
 export function ServiceStatusToasts() {
   const { pushToast } = useToast();
-  const previous = React.useRef<{ obs: boolean; eventSub: boolean; redis: boolean } | null>(null);
+  const previous = React.useRef<ServiceSnapshot | null>(null);
 
   const onStatus = React.useCallback((status: DashboardStatus) => {
-    const prev = previous.current;
-    previous.current = { obs: status.obsConnected, eventSub: status.eventSubConnected, redis: status.redisConnected };
-    if (!prev) return; // Skip the first snapshot so we only report transitions.
-
-    if (prev.obs && !status.obsConnected) {
-      pushToast({
-        kind: 'error',
-        title: 'OBS disconnected',
-        message: 'Check the OBS WebSocket URL and password in Settings → Connections.',
-      });
-    } else if (!prev.obs && status.obsConnected) {
-      pushToast({ kind: 'success', title: 'OBS connected' });
-    }
-
-    if (prev.eventSub && !status.eventSubConnected) {
-      pushToast({
-        kind: 'error',
-        title: 'Twitch EventSub disconnected',
-        message: status.eventSubError
-          ?? 'Reconnect Twitch or check the client ID/secret in Settings → Connections.',
-      });
-    } else if (!prev.eventSub && status.eventSubConnected) {
-      pushToast({ kind: 'success', title: 'Twitch EventSub connected' });
-    }
-
-    if (prev.redis && !status.redisConnected) {
-      pushToast({
-        kind: 'error',
-        title: 'Redis disconnected',
-        message: status.lastPublishError ?? 'Check the Redis URL in Settings → Connections.',
-      });
-    } else if (!prev.redis && status.redisConnected) {
-      pushToast({ kind: 'success', title: 'Redis connected' });
-    }
+    const toasts = serviceTransitionToasts(previous.current, status);
+    previous.current = serviceSnapshot(status);
+    for (const toast of toasts) pushToast(toast);
   }, [pushToast]);
 
-  const onSettings = React.useCallback((_payload: SettingsUpdatedPayload) => {
+  // A save made in this window is already reported beside its form, so only a save
+  // made elsewhere (another dashboard window) is worth a toast here (settingsEcho.ts).
+  const onSettings = React.useCallback((payload: SettingsUpdatedPayload) => {
+    if (settingsEcho.isOwnEcho(payload.updatedAt)) return;
     pushToast({
       kind: 'info',
-      title: 'Settings saved',
-      message: 'Reconnecting affected services…',
+      title: 'Settings saved elsewhere',
+      message: 'Another window changed the settings. Reconnecting affected services…',
       durationMs: 4000,
     });
   }, [pushToast]);

@@ -2,6 +2,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Icon } from './icons';
 import { CrystalOrb } from '../crystalOrb';
 import { isSettingsRoute, type DashboardRoute } from '../routing';
+import { adGaugeSub, connectionsLine, healthGauge, STALE_SUB, UNKNOWN_VALUE, viewersGauge } from './statBarText';
+import type { DashboardStatus } from '../../shared/api';
 
 type DragPos = { x: number; y: number; w: number; h: number };
 type DragMemo = { sx: number; sy: number; ox: number; oy: number };
@@ -99,7 +101,11 @@ export function NavBar({
       >
         <Icon name="grid" size={15} />
       </button>
-      <div className="nav-avatar">{channelName ? channelName.charAt(0).toUpperCase() : '?'}</div>
+      {/* The channel's initial; with no channel set yet (a fresh install), a person
+          outline rather than a "?" glyph standing in for an icon. */}
+      <div className="nav-avatar" title={channelName ? undefined : 'No channel set'}>
+        {channelName ? channelName.charAt(0).toUpperCase() : <Icon name="user" size={15} aria-hidden="true" />}
+      </div>
     </div>
   );
 }
@@ -155,6 +161,7 @@ export function StatBar({
   eventSubConnected,
   eventSubError,
   onReconnectEventSub,
+  stale,
 }: {
   clock24: boolean;
   starfield: boolean;
@@ -181,11 +188,16 @@ export function StatBar({
   adBreakDurationSeconds: number | null;
   prerollFreeTimeSeconds: number | null;
   snoozeCount: number | null;
-  chatConnection: string;
+  chatConnection: DashboardStatus['chatConnection'];
   obsConnected: boolean;
   eventSubConnected: boolean;
   eventSubError: string | null;
   onReconnectEventSub: () => void;
+  /**
+   * The backend is not answering (statusIsStale): every reading is last-known, so the
+   * values dim and the sub-lines say so instead of claiming connected, live or a count.
+   */
+  stale: boolean;
 }) {
   const [currentTime, setCurrentTime] = useState('');
   const [displaySeconds, setDisplaySeconds] = useState(uptimeSeconds ?? 0);
@@ -273,15 +285,9 @@ export function StatBar({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const formatShortDuration = (sec: number) => {
-    if (sec >= 60) return `${Math.round(sec / 60)}m`;
-    return `${sec}s`;
-  };
-
-  const streamLabel = streamActive === null ? '—' : streamActive ? formatDuration(displaySeconds) : 'OFFLINE';
-  const uptimeSourceLabel = uptimeSource === 'twitch' ? 'twitch uptime' : uptimeSource === 'obs' ? 'obs uptime' : 'uptime unavailable';
+  const streamLabel = streamActive === null ? UNKNOWN_VALUE : streamActive ? formatDuration(displaySeconds) : 'OFFLINE';
+  const uptimeSourceLabel = uptimeSource === 'twitch' ? 'Twitch uptime' : uptimeSource === 'obs' ? 'OBS uptime' : 'uptime unavailable';
   const streamClass = streamActive ? 'live' : 'offline';
-  const hasObsStats = obsConnected && (bitrateKbps !== null || droppedFrames !== null);
   const frameBase = totalFrames && totalFrames > 0 ? totalFrames : 1;
   const droppedFrameCount = droppedFrames ?? 0;
   const dropPct = (droppedFrameCount / frameBase) * 100;
@@ -294,37 +300,27 @@ export function StatBar({
       : 0;
   // Bitrate is the truest "actually streaming" signal — a connected but idle OBS
   // still reports dropped/lagged frame counts, so keying off those would light the
-  // health meter green while the value reads "N/A" and the stream is offline.
+  // health meter green while the value reads a dash and the stream is offline.
   const hasThroughput = obsConnected && bitrateKbps !== null;
   const barCount = hasThroughput ? Math.max(1, Math.round(healthScore * 5)) : 0;
   const barHeights = ['7px', '10px', '13px', '16px', '12px'];
   const healthDotClass = !hasThroughput ? 'bad' : healthScore > 0.7 ? 'good' : healthScore > 0.4 ? 'warn' : 'bad';
   // Green only when an ad is actually scheduled/counting down — not merely because
-  // the ad system is reachable, which would tint an idle "N/A" green.
+  // the ad system is reachable, which would tint an idle dash green.
   const adClass = adCountdown?.mode === 'active'
     ? 'ad-warn'
     : adCountdown !== null
       ? 'ad-safe'
       : '';
-  const adSub = adCountdown?.mode === 'active'
-    ? 'Status: ads running'
-    : adCountdown?.mode === 'preroll'
-      ? 'Status: pre-roll off'
-    : adCountdown?.mode === 'next'
-      ? [
-          'Status: next ad scheduled',
-          adBreakDurationSeconds !== null ? `${formatShortDuration(adBreakDurationSeconds)} break` : null,
-          snoozeCount !== null ? `${snoozeCount} snooze${snoozeCount === 1 ? '' : 's'}` : null,
-        ].filter(Boolean).join(' · ')
-      : adScheduleStatus === 'missing_scope'
-        ? 'Status: reconnect Twitch for ads'
-        : adScheduleStatus === 'unauthorized'
-          ? 'Status: Twitch cannot read ads'
-          : adScheduleStatus === 'not_configured'
-            ? 'Status: Twitch login required'
-            : adScheduleStatus === 'available'
-              ? 'Status: no ad scheduled'
-            : `Status: ${adScheduleError ?? 'ad status unavailable'}`;
+  const adSub = adGaugeSub({
+    mode: adCountdown?.mode ?? null,
+    adScheduleStatus,
+    adScheduleError,
+    adBreakDurationSeconds,
+    snoozeCount,
+  });
+  const viewers = viewersGauge(viewerCount, streamActive);
+  const health = healthGauge({ obsConnected, bitrateKbps, totalFrames, droppedFrames, laggedFrames });
   const activeAdBreak = (() => {
     if (!adBreakEndsAt) return false;
     const timestamp = new Date(adBreakEndsAt).getTime();
@@ -349,12 +345,14 @@ export function StatBar({
           : 'Run 3 minute ad break';
 
   return (
-    <div className={'statbar' + (starfield ? ' starfield' : '')}>
+    <div className={'statbar' + (starfield ? ' starfield' : '') + (stale ? ' is-stale' : '')}>
       <Gauge label="Stream" className={'stream-gauge ' + streamClass} icon={<span className={'live-dot' + (streamActive ? '' : ' offline')} />}>
         <div className="gauge-value">{streamLabel}</div>
+        {/* Always mounted, so going stale is announced (a region inserted with its text often is not). */}
+        <span className="sr-only" role="status">{stale ? 'Narya is not answering. The stat bar shows last known values.' : ''}</span>
         <div className="gauge-sub">
-          {uptimeSourceLabel} · chat {chatConnection.toLowerCase()} · events {eventSubConnected ? 'open' : eventSubError ? 'error' : 'closed'}
-          {eventSubError && !eventSubConnected && (
+          {stale ? STALE_SUB : `${uptimeSourceLabel} · ${connectionsLine({ chatConnection, eventSubConnected })}`}
+          {!stale && eventSubError && !eventSubConnected && (
             <button
               className="eventsub-retry-btn"
               title="Re-authorize Twitch, then click to retry EventSub"
@@ -369,8 +367,8 @@ export function StatBar({
         <div className="gauge-value">{currentTime}</div>
       </Gauge>
       <Gauge label="Ad break" className={adClass}>
-        <div className="gauge-value">{adCountdown !== null ? formatMM(adCountdown.seconds) : 'N/A'}</div>
-        <div className="gauge-sub">{adSub}</div>
+        <div className="gauge-value">{adCountdown !== null ? formatMM(adCountdown.seconds) : UNKNOWN_VALUE}</div>
+        <div className="gauge-sub" title={stale ? undefined : adSub.title}>{stale ? STALE_SUB : adSub.text}</div>
       </Gauge>
       <Gauge label="Actions">
         <div className="stat-actions">
@@ -407,14 +405,14 @@ export function StatBar({
         <div className="gauge-sub">{actionMessage ?? 'Twitch controls'}</div>
       </Gauge>
       <Gauge label="Viewers" icon={<Icon name="users" size={11} />}>
-        <div className="gauge-value">{viewerCount ?? '—'}</div>
-        <div className="gauge-sub">{viewerCount === null ? 'Twitch viewer count' : 'concurrent viewers'}</div>
+        <div className="gauge-value">{viewers.value}</div>
+        <div className="gauge-sub">{stale ? STALE_SUB : viewers.sub}</div>
       </Gauge>
       <Gauge label="Stream health">
         <div className="gauge-value health">
           <span className={'health-dot ' + healthDotClass} />
-          <span style={{ fontSize: '15px' }}>
-            {bitrateKbps === null ? 'N/A' : bitrateKbps}<small>{bitrateKbps === null ? '' : ' kbps'}</small>
+          <span className="health-value">
+            {health.value}<small>{health.unit}</small>
           </span>
           <span className="health-bars">
             {barHeights.map((h, i) => (
@@ -422,11 +420,7 @@ export function StatBar({
             ))}
           </span>
         </div>
-        <div className="gauge-sub">
-          {hasObsStats
-            ? `drop: ${droppedFrameCount} (${dropPct.toFixed(2)}%) · lag: ${laggedFrames !== null ? `${laggedFrames} frames` : 'N/A'}`
-            : 'OBS unavailable'}
-        </div>
+        <div className="gauge-sub">{stale ? STALE_SUB : health.sub}</div>
       </Gauge>
     </div>
   );
@@ -562,7 +556,7 @@ export function PopWindow({
           <i /><i /><i /><i /><i /><i />
         </span>
         <span className="popwin-title">{title}</span>
-        <span className="panel-actions" style={{ marginLeft: 'auto' }}>
+        <span className="panel-actions">
           <button className="icon-btn" title="Re-dock" aria-label="Re-dock" onClick={() => onClose(id)}>
             <Icon name="dock" />
           </button>

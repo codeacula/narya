@@ -2,31 +2,49 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { SettingsRoute } from '../../routing';
 import { settingsSection } from './sections';
 import { errorMessage } from '../../errors';
+import { useDirtyGuard } from '../../ui/dirtyGuard';
+import { draftsDiffer } from '../../ui/dirtyGuardLogic';
+import { headerCountParts, type HeaderCount } from './headerCounts';
+import { EmptyState, type EmptyStateSize } from '../../ui/emptyState';
+import { formFace } from './listState';
 
 /**
- * The header every settings section shares. Eyebrow, title, and intro come from the
- * section registry rather than each page, so the rail entry and the page it opens can
- * never disagree about what the section is called.
+ * The header every settings section shares — the only header a section renders.
+ * Eyebrow, title, and intro come from the section registry rather than each page, so the
+ * rail entry and the page it opens can never disagree about what the section is called.
+ *
+ * What a section may add is data, not markup, so every header is set the same way:
+ * - `counts` — the mono count line under the intro ("3 counters", "12 saved · 2 hidden").
+ * - `actions` — the section's one primary control, top right. Pass a `btn-primary`; a
+ *   split editor's "New" belongs in its list column, not here.
  */
 export function SettingsHeader({
   section,
-  meta,
+  counts,
   actions,
 }: {
   section: SettingsRoute;
-  /** A line of live detail under the intro — a count, a state. Optional. */
-  meta?: React.ReactNode;
-  /** The section's primary control, e.g. "New action". Optional. */
+  counts?: ReadonlyArray<HeaderCount>;
   actions?: React.ReactNode;
 }) {
   const { group, title, blurb } = settingsSection(section);
+  const parts = counts ? headerCountParts(counts) : [];
   return (
     <header className="set-head">
       <div className="set-head-main">
         <div className="settings-eyebrow">{group}</div>
         <h2 className="settings-title">{title}</h2>
         <p className="set-intro">{blurb}</p>
-        {meta}
+        {parts.length > 0 ? (
+          <p className="set-head-meta">
+            {parts.map((part, index) => (
+              <React.Fragment key={part.label}>
+                {index > 0 ? <span className="set-head-meta-dot" aria-hidden="true" /> : null}
+                <span><b>{part.value}</b> {part.label}</span>
+              </React.Fragment>
+            ))}
+          </p>
+        ) : null}
       </div>
       {actions ? <div className="set-head-actions">{actions}</div> : null}
     </header>
@@ -35,21 +53,145 @@ export function SettingsHeader({
 
 /**
  * The one line of feedback a settings form gives after a load or a save. An error wins
- * over a message, and takes the `error` modifier with it; with neither, nothing renders.
+ * over a message, and takes the `error` modifier with it; with neither, nothing shows.
+ *
+ * The feedback rule, so the next page does not grow a sixth pattern:
+ * - A save, delete or load on a settings page reports here, beside the form that did
+ *   it. Do not hand-roll a banner class for it.
+ * - Toasts are for global or background events nobody is looking at a form for
+ *   (a service dropped, a broadcast arrived, an announcement failed).
+ * - The viewers roster (`viewers-status`) and a viewer's record actions
+ *   (`viewer-record-note`) keep their own quieter styling, tuned to the roster. They
+ *   are live regions too.
+ * - A background refresh that fails says so with `StaleNotice`, not here: this line
+ *   is about what the operator just did.
  */
 export function SettingsStatus({
+  message,
+  error,
+  announce = true,
+}: {
+  message?: React.ReactNode;
+  error?: React.ReactNode;
+  /**
+   * False when a `SettingsAnnouncer` elsewhere in the section already speaks for this
+   * line — for a status drawn in a branch that mounts and unmounts (see there).
+   */
+  announce?: boolean;
+}) {
+  const shown = error || message || null;
+  // The drawn line is `aria-hidden` so the outcome is read once, not twice.
+  return (
+    <>
+      {announce ? <SettingsAnnouncer message={message} error={error} /> : null}
+      {shown ? (
+        <div className={'command-settings-status' + (error ? ' error' : '')} aria-hidden="true">
+          {shown}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The spoken half of `SettingsStatus` on its own: two live regions and nothing drawn.
+ *
+ * They must be ALWAYS mounted, even with nothing to say. A region inserted together
+ * with its text is often not announced at all — screen readers watch regions that
+ * already exist for changes — so returning null when empty silently swallowed every
+ * "Saved". Both are `sr-only`, which takes them out of flow: an empty one adds no gap
+ * to the grid or flex column it sits in.
+ *
+ * A section whose enable switch swaps its whole form out (LLM, TTS) cannot keep a
+ * `SettingsStatus` mounted inside either branch: "LLM disabled." lands in the same
+ * render that mounts the disabled branch's line. Such a section renders one of these
+ * outside the branches and draws its lines with `announce={false}`.
+ */
+export function SettingsAnnouncer({
   message,
   error,
 }: {
   message?: React.ReactNode;
   error?: React.ReactNode;
 }) {
-  if (!message && !error) return null;
-  // A live region, so a save's outcome is announced rather than only drawn.
   return (
-    <div className={'command-settings-status' + (error ? ' error' : '')} role={error ? 'alert' : 'status'}>
-      {error ?? message}
-    </div>
+    <>
+      <div className="sr-only" role="status">{error ? null : message}</div>
+      <div className="sr-only" role="alert">{error}</div>
+    </>
+  );
+}
+
+/**
+ * What a settings list shows when it could not be loaded (`listFace` → `unavailable`,
+ * listState.ts) — never the list's own empty state, which would invite the operator
+ * to recreate what is already there. `title` names the state ("Triggers
+ * unavailable"); the error itself is already on the page's `SettingsStatus` line, so
+ * it is not repeated here. `onRetry` adds the one control that can end the state.
+ */
+export function ListUnavailable({
+  title,
+  size = 'panel',
+  onRetry,
+  retrying = false,
+  children = 'Narya could not load them, so this is not an empty list. Nothing was changed.',
+}: {
+  title: string;
+  size?: EmptyStateSize;
+  onRetry?: () => void;
+  /** The sentence under the title. Defaults to the list wording; `FormUnavailable` swaps it. */
+  children?: React.ReactNode;
+  /**
+   * A retry is in flight. The face stays mounted through it (`listFace`) so the button
+   * keeps keyboard focus; it says "Retrying…" and ignores presses until the load
+   * settles. `aria-disabled` rather than `disabled`, because disabling a focused
+   * button drops focus to the page body, which is the bug this avoids.
+   */
+  retrying?: boolean;
+}) {
+  return (
+    <EmptyState
+      size={size}
+      title={title}
+      action={onRetry ? (
+        <button
+          className="modbtn"
+          type="button"
+          aria-disabled={retrying || undefined}
+          onClick={retrying ? undefined : onRetry}
+        >
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
+      ) : undefined}
+    >
+      {children}
+    </EmptyState>
+  );
+}
+
+/**
+ * What a settings form shows in place of its fields when its first load failed
+ * (`formFace` → `unavailable`, listState.ts). The fields are not drawn at all: their
+ * starting values are code defaults, and showing them read as the stored
+ * configuration — with a live Save that would write them over it.
+ */
+export function FormUnavailable({
+  title,
+  size = 'compact',
+  onRetry,
+  retrying = false,
+}: {
+  /** Names the state: "Wind-down settings unavailable". */
+  title: string;
+  size?: EmptyStateSize;
+  onRetry: () => void;
+  retrying?: boolean;
+}) {
+  return (
+    <ListUnavailable title={title} size={size} onRetry={onRetry} retrying={retrying}>
+      Narya could not load the current values, so it is not showing defaults in their place.
+      Nothing was changed.
+    </ListUnavailable>
   );
 }
 
@@ -94,7 +236,7 @@ export function SettingsRow({
 }) {
   return (
     <div className="set-row">
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="set-row-text">
         <div className="set-label">{label}</div>
         {sub && <div className="set-sub">{sub}</div>}
       </div>
@@ -116,8 +258,14 @@ export function useSettingsForm<T>({
   loadError,
   save,
   saveError,
+  unsavedLabel,
 }: {
   initial: T;
+  /**
+   * What the unsaved-edit guard calls this form ("the wind-down schedule"). Required
+   * so no section built on this hook can lose an edit silently.
+   */
+  unsavedLabel: string;
   /**
    * Resolves the value to show. `cancelled()` reports whether the section has unmounted —
    * check it before any setState of your own, as the hook does for its own state.
@@ -135,26 +283,39 @@ export function useSettingsForm<T>({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not a form of defaults (`formFace`, listState.ts).
+  const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load(() => cancelled)
-      .then(loaded => {
+      .then(next => {
         if (!cancelled) {
-          confirmed.current = loaded;
-          setValue(loaded);
+          confirmed.current = next;
+          setValue(next);
+          setLoaded(true);
+          setLoadFailed(false);
           setError(null);
         }
       })
       .catch(caught => {
-        if (!cancelled) setError(errorMessage(caught, loadError));
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, loadError));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [loadAttempt]);
+
+  const face = formFace({ loaded, loadFailed });
 
   /**
    * Returns the in-flight save so a caller can sequence work after the server has
@@ -164,6 +325,9 @@ export function useSettingsForm<T>({
    * fire-and-forget callers are unaffected by the added return.
    */
   const submit = (next: T, successMessage: string): Promise<void> => {
+    // Nothing has loaded, so `next` is built on code defaults. The sections offer no
+    // Save in that state; this is the backstop that keeps defaults off the server.
+    if (confirmed.current === null) return Promise.resolve();
     setSaving(true);
     setMessage(null);
     setError(null);
@@ -180,11 +344,27 @@ export function useSettingsForm<T>({
       .finally(() => setSaving(false));
   };
 
+  // Dirty only once something has loaded: before that the form shows `initial`, and an
+  // edit cannot have happened because every field is disabled while loading.
+  const dirty = confirmed.current !== null && draftsDiffer(value, confirmed.current);
+  const { discardThen } = useDirtyGuard(dirty, unsavedLabel);
+
   return {
     value,
     setValue,
+    /** True while the form differs from the last value the server confirmed. */
+    dirty,
+    /** Runs `fn` now when clean, or after the operator agrees to discard the edits. */
+    discardThen,
     /** The last server-confirmed value, or the current form value before the first load. */
     confirmed: confirmed.current ?? value,
+    /**
+     * `form` once a load has succeeded; `unavailable` after a failed first load, when
+     * the section draws `FormUnavailable` instead of its fields. Only `form` may save.
+     */
+    face,
+    /** Runs the load again — the Retry on `FormUnavailable`. */
+    retry: () => setLoadAttempt(n => n + 1),
     loading,
     saving,
     message,

@@ -6,8 +6,11 @@ import type {
   GoLiveSettings,
 } from '../../../shared/api';
 import { Icon } from '../../ui/icons';
+import { Modal, ModalTitle } from '../../ui/modal';
 import { withToken } from '../../auth';
-import { SettingsRow } from './shared';
+import { FormUnavailable, SettingsRow, SettingsStatus } from './shared';
+import { formFace } from './listState';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import {
   clearDiscordGoLiveSettings,
   getDiscordChannels,
@@ -45,7 +48,12 @@ export function GoLiveSection() {
   const [discordStatus, setDiscordStatus] = useState<DiscordStatus>(EMPTY_DISCORD_STATUS);
   const [discordGuilds, setDiscordGuilds] = useState<DiscordGuild[]>([]);
   const [discordChannels, setDiscordChannels] = useState<DiscordChannel[]>([]);
-  const [goLiveSettings, setGoLiveSettings] = useState<GoLiveSettingsForm>(EMPTY_GO_LIVE_SETTINGS);
+  const {
+    draft: goLiveSettings,
+    setDraft: setGoLiveSettings,
+    resetDraft: resetGoLiveSettings,
+    dirty: goLiveDirty,
+  } = useDraft<GoLiveSettingsForm>(EMPTY_GO_LIVE_SETTINGS);
   const [goLiveLoading, setGoLiveLoading] = useState(true);
   const [goLiveSaving, setGoLiveSaving] = useState(false);
   const [goLiveMessage, setGoLiveMessage] = useState<string | null>(null);
@@ -55,8 +63,18 @@ export function GoLiveSection() {
   const [discordDisconnecting, setDiscordDisconnecting] = useState(false);
   const [discordRefreshing, setDiscordRefreshing] = useState(false);
   const [obsScenes, setObsScenes] = useState<string[]>([]);
+  // The form starts blank and Save PUTs every field, so a failed load must not leave
+  // the blanks on screen with a live Save — nor the placeholder Discord status, which
+  // reads "Not configured" (`formFace`).
+  const [goLiveLoaded, setGoLiveLoaded] = useState(false);
+  const [goLiveLoadFailed, setGoLiveLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const face = formFace({ loaded: goLiveLoaded, loadFailed: goLiveLoadFailed });
 
-  const discordConnectionSub = !discordStatus.clientIdConfigured
+  // Until the first load lands, `discordStatus` is a placeholder of all-false.
+  const discordConnectionSub = face !== 'form'
+    ? 'Checking the Discord bot…'
+    : !discordStatus.clientIdConfigured
     ? 'Set the Discord client ID under Connections to enable bot install'
     : !discordStatus.botTokenConfigured
       ? 'Set the Discord bot token under Connections after creating the bot'
@@ -78,6 +96,8 @@ export function GoLiveSection() {
   useEffect(() => {
     let cancelled = false;
     setGoLiveLoading(true);
+    // Cleared so a retry that fails the same way is announced again.
+    setGoLiveError(null);
     void Promise.all([getDiscordStatus(), getGoLiveSettings()])
       .then(async ([nextDiscordStatus, nextGoLiveSettings]) => {
         let nextGuilds: DiscordGuild[] = [];
@@ -95,14 +115,18 @@ export function GoLiveSection() {
         }
         if (!cancelled) {
           setDiscordStatus(nextDiscordStatus);
-          setGoLiveSettings(nextGoLiveSettings);
+          resetGoLiveSettings(nextGoLiveSettings);
           setDiscordGuilds(nextGuilds);
           setDiscordChannels(nextChannels);
+          setGoLiveLoaded(true);
+          setGoLiveLoadFailed(false);
           setGoLiveError(discordListError);
         }
       })
       .catch(error => {
-        if (!cancelled) setGoLiveError(errorMessage(error, 'Could not load Discord settings'));
+        if (cancelled) return;
+        setGoLiveLoadFailed(true);
+        setGoLiveError(errorMessage(error, 'Could not load Discord settings'));
       })
       .finally(() => {
         if (!cancelled) setGoLiveLoading(false);
@@ -111,7 +135,7 @@ export function GoLiveSection() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
 
   const handleDiscordGuildChange = (guildId: string) => {
     const guild = discordGuilds.find(item => item.id === guildId);
@@ -172,22 +196,27 @@ export function GoLiveSection() {
       .finally(() => setDiscordRefreshing(false));
   };
 
-  const handleDiscordDisconnect = () => {
+  const { discardThen } = useDirtyGuard(goLiveDirty, 'the go-live announcement');
+
+  // Disconnecting replaces the form with what the server now holds, so it would take
+  // any unsaved scene or message edit with it — ask first.
+  const handleDiscordDisconnect = () => discardThen(() => {
     setDiscordDisconnecting(true);
     setGoLiveMessage(null);
     setGoLiveError(null);
     void clearDiscordGoLiveSettings()
       .then(saved => {
-        setGoLiveSettings(saved);
+        resetGoLiveSettings(saved);
         setDiscordChannels([]);
         setGoLiveMessage('Discord channel disconnected');
       })
       .catch(error => setGoLiveError(errorMessage(error, 'Could not disconnect Discord')))
       .finally(() => setDiscordDisconnecting(false));
-  };
+  });
 
   const handleGoLiveSettingsSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (face !== 'form') return;
     setGoLiveSaving(true);
     setGoLiveMessage(null);
     setGoLiveError(null);
@@ -200,7 +229,7 @@ export function GoLiveSection() {
       discordMessage: goLiveSettings.discordMessage,
     })
       .then(saved => {
-        setGoLiveSettings(saved);
+        resetGoLiveSettings(saved);
         setGoLiveMessage('Go Live settings saved');
       })
       .catch(error => setGoLiveError(errorMessage(error, 'Could not save Go Live settings')))
@@ -210,15 +239,15 @@ export function GoLiveSection() {
   return (
     <div className="set-group">
       <div className="set-group-label">Twitch live announcement</div>
-      {(goLiveMessage || goLiveError) && (
-        <div className={'set-status' + (goLiveError ? ' error' : '')}>
-          {goLiveError ?? goLiveMessage}
-        </div>
-      )}
+      <SettingsStatus message={goLiveMessage} error={goLiveError} />
 
+      {face === 'unavailable' ? (
+        <FormUnavailable title="Live announcement unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={goLiveLoading} />
+      ) : (
+      <>
       <SettingsRow
         label={
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className="set-label-help">
             Discord bot
             <button
               className="icon-btn"
@@ -226,7 +255,6 @@ export function GoLiveSection() {
               title="Discord bot setup instructions"
               aria-label="Discord bot setup instructions"
               onClick={() => setDiscordHelpOpen(true)}
-              style={{ color: 'var(--fg-3)' }}
             >
               <Icon name="info" size={13} />
             </button>
@@ -234,12 +262,12 @@ export function GoLiveSection() {
         }
         sub={discordConnectionSub}
       >
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {discordStatus.ready ? (
+        <div className="set-control-row">
+          {face !== 'form' ? null : discordStatus.ready ? (
             <>
               <span className="set-badge set-badge--ok">Connected</span>
               {discordStatus.installUrl && (
-                <a className="btn-primary" href={withToken("/api/auth/discord")} style={{ fontSize: '11px' }}>
+                <a className="btn-primary btn-primary--small" href={withToken("/api/auth/discord")}>
                   Reinstall
                 </a>
               )}
@@ -251,7 +279,7 @@ export function GoLiveSection() {
           ) : (
             <span className="set-badge">Not configured</span>
           )}
-          {(discordStatus.clientIdConfigured || discordStatus.botTokenConfigured) && (
+          {face === 'form' && (discordStatus.clientIdConfigured || discordStatus.botTokenConfigured) && (
             <button
               className="icon-btn"
               type="button"
@@ -259,7 +287,6 @@ export function GoLiveSection() {
               aria-label="Re-check Discord connection"
               disabled={discordRefreshing}
               onClick={handleDiscordRefresh}
-              style={{ color: 'var(--fg-3)' }}
             >
               <Icon name="refresh" size={13} />
             </button>
@@ -268,47 +295,43 @@ export function GoLiveSection() {
       </SettingsRow>
 
       {discordHelpOpen && (
-        <div className="modal-backdrop" onMouseDown={event => {
-          if (event.target === event.currentTarget) setDiscordHelpOpen(false);
-        }}>
-          <div className="discord-help-modal">
-            <div className="modal-head">
-              <h2>Discord bot setup</h2>
-              <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={() => setDiscordHelpOpen(false)}>
-                <Icon name="x" />
-              </button>
-            </div>
-            <ol className="discord-help-steps">
-              <li>
-                Go to{' '}
-                <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer">
-                  discord.com/developers/applications
-                </a>{' '}
-                and create a new application.
-              </li>
-              <li>
-                Under <b>Bot</b>, click <b>Add Bot</b>, then copy the token.
-                Paste it into <b>Discord bot token</b> under Connections &amp; credentials.
-              </li>
-              <li>
-                Copy the <b>Application ID</b> from the General Information page.
-                Paste it into <b>Discord client ID</b> under Connections &amp; credentials.
-              </li>
-              <li>
-                Under <b>OAuth2 → Redirects</b>, add the redirect URI that matches your setup:
-                <ul className="discord-help-uris">
-                  <li><b>Local dev (Vite):</b> <code>http://localhost:5173/api/auth/discord/callback</code></li>
-                  <li><b>Production (served by backend):</b> <code>http://localhost:4317/api/auth/discord/callback</code></li>
-                </ul>
-                Set <code>DISCORD_REDIRECT_URI</code> in your <code>.env</code> to match (deploy-specific).
-              </li>
-              <li>Click <b>Install Bot</b> here to add it to your server.</li>
-            </ol>
-            <div className="modal-actions">
-              <button className="modbtn gold" type="button" onClick={() => setDiscordHelpOpen(false)}>Got it</button>
-            </div>
+        <Modal className="discord-help-modal" onClose={() => setDiscordHelpOpen(false)}>
+          <div className="modal-head">
+            <ModalTitle>Discord bot setup</ModalTitle>
+            <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={() => setDiscordHelpOpen(false)}>
+              <Icon name="x" />
+            </button>
           </div>
-        </div>
+          <ol className="discord-help-steps">
+            <li>
+              Go to{' '}
+              <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer">
+                discord.com/developers/applications
+              </a>{' '}
+              and create a new application.
+            </li>
+            <li>
+              Under <b>Bot</b>, click <b>Add Bot</b>, then copy the token.
+              Paste it into <b>Discord bot token</b> under Connections &amp; credentials.
+            </li>
+            <li>
+              Copy the <b>Application ID</b> from the General Information page.
+              Paste it into <b>Discord client ID</b> under Connections &amp; credentials.
+            </li>
+            <li>
+              Under <b>OAuth2 → Redirects</b>, add the redirect URI that matches your setup:
+              <ul className="discord-help-uris">
+                <li><b>Local dev (Vite):</b> <code>http://localhost:5173/api/auth/discord/callback</code></li>
+                <li><b>Production (served by backend):</b> <code>http://localhost:4317/api/auth/discord/callback</code></li>
+              </ul>
+              Set <code>DISCORD_REDIRECT_URI</code> in your <code>.env</code> to match (deploy-specific).
+            </li>
+            <li>Click <b>Install Bot</b> here to add it to your server.</li>
+          </ol>
+          <div className="modal-actions">
+            <button className="modbtn gold" type="button" onClick={() => setDiscordHelpOpen(false)}>Got it</button>
+          </div>
+        </Modal>
       )}
 
       <div className="settings-editor-section">
@@ -399,6 +422,8 @@ export function GoLiveSection() {
         </div>
       </form>
       </div>
+      </>
+      )}
     </div>
   );
 }

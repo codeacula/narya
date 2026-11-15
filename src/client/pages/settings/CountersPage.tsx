@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type { Counter, CounterInput, CounterUpdate, CountersResponse } from '../../../shared/api';
 import {
   adjustCounter,
@@ -8,8 +9,11 @@ import {
   updateCounter,
 } from '../../services/dashboard';
 import { useSocket } from '../../realtime';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { listFace } from './listState';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
+import { EmptyState } from '../../ui/emptyState';
 
 /**
  * The draft holds the value as TEXT. Parsing on every keystroke made a negative
@@ -68,29 +72,41 @@ export function previewCounterKey(value: string): string {
 }
 
 export function CountersPage() {
+  const confirm = useConfirm();
   const [counters, setCounters] = useState<Counter[]>([]);
-  const [draft, setDraft] = useState<CounterDraft | null>(null);
+  const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<CounterDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const load = useCallback(async () => {
     const response = await getCounters();
     setCounters(response.counters);
+    setLoadFailed(false);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load counters')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load counters'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   // An Action step or the /counter command can move a counter at any moment, so the
   // page follows the broadcast rather than only what this tab did. useCallback because
@@ -102,31 +118,37 @@ export function CountersPage() {
 
   const busy = loading || saving;
 
-  const startCreate = () => {
+  const { discardThen } = useDirtyGuard(
+    dirty,
+    editingId ? `the counter "${baseline?.label || baseline?.key || 'Untitled counter'}"` : 'the new counter',
+  );
+
+  const startCreate = () => discardThen(() => {
     setEditingId(null);
-    setDraft({ ...EMPTY_DRAFT });
+    resetDraft({ ...EMPTY_DRAFT });
     setMessage(null);
     setError(null);
-  };
+  });
 
-  const startEdit = (counter: Counter) => {
+  const startEdit = (counter: Counter) => discardThen(() => {
     setEditingId(counter.id);
     const value = String(counter.value);
-    setDraft({ key: counter.key, label: counter.label, value, originalValue: value });
+    resetDraft({ key: counter.key, label: counter.label, value, originalValue: value });
     setMessage(null);
     setError(null);
-  };
+  });
 
-  const cancel = () => {
-    setDraft(null);
+  // Cancel throws the draft away, so it asks first, as New and picking a row do.
+  const cancel = () => discardThen(() => {
+    resetDraft(null);
     setEditingId(null);
-  };
+  });
 
   const finish = (request: Promise<unknown>, note: string) =>
     request
       .then(async () => {
         await load();
-        setDraft(null);
+        resetDraft(null);
         setEditingId(null);
         setMessage(note);
       })
@@ -177,10 +199,16 @@ export function CountersPage() {
       .finally(() => setBusyId(null));
   };
 
-  const remove = (counter: Counter) => {
+  const remove = async (counter: Counter) => {
     // The tally is the whole value of a counter — "deaths: 47" is not re-derivable.
     // A referenced counter is refused server-side (409), so this covers the rest.
-    if (!window.confirm(`Delete "${counter.label}"? Its current count of ${counter.value} is lost.`)) return;
+    const ok = await confirm({
+      title: `Delete "${counter.label}"?`,
+      body: `Its current count of ${counter.value} is lost.`,
+      confirmLabel: 'Delete counter',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusyId(counter.id);
     setMessage(null);
     setError(null);
@@ -194,14 +222,15 @@ export function CountersPage() {
   };
 
   const keyPreview = draft ? previewCounterKey(draft.key) : '';
+  const face = listFace({ loading, loadFailed, count: counters.length });
 
   return (
     <>
       <SettingsHeader
         section="counters"
-        meta={<div className="set-sub">{counters.length} {counters.length === 1 ? 'counter' : 'counters'}</div>}
+        counts={loadFailed ? undefined : [{ value: counters.length, one: 'counter' }]}
         actions={
-          <button className="modbtn" type="button" disabled={busy || draft !== null} onClick={startCreate}>
+          <button className="btn-primary" type="button" disabled={busy || draft !== null} onClick={startCreate}>
             New counter
           </button>
         }
@@ -324,10 +353,11 @@ export function CountersPage() {
           </div>
         ))}
 
-        {!loading && counters.length === 0 && (
-          <div className="command-empty">
-            No counters yet. Create one, then add an “Adjust counter” step to an action.
-          </div>
+        {face === 'unavailable' && <ListUnavailable title="Counters unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />}
+        {face === 'empty' && (
+          <EmptyState title="No counters yet">
+            Create one with New counter, then add an “Adjust counter” step to an action.
+          </EmptyState>
         )}
       </div>
     </>

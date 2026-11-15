@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type {
   Action,
   ActionRunResult,
@@ -23,7 +24,8 @@ import {
   updateAction,
 } from '../../services/dashboard';
 import { LlmStepFields } from './LlmStepFields';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { asSentence, listFace, PICKER_LOADING, type PickerLoad } from './listState';
 import { errorMessage } from '../../errors';
 import {
   MAX_ASSETS_PER_STEP,
@@ -36,11 +38,14 @@ import {
   moveStep,
   newStep,
   removeStep,
+  obsSceneHint,
   summarizeActionRunResult,
   unplayableAssetIds,
   validateAction,
+  counterReference,
 } from './automation';
-import { CrystalOrb } from '../../crystalOrb';
+import { EmptyState } from '../../ui/emptyState';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { Icon } from '../../ui/icons';
 
 const EMPTY_DRAFT: ActionUpsert = { name: '', description: '', enabled: true, quickDisable: false, steps: [] };
@@ -120,10 +125,14 @@ function AssetPicker({
  * missing case returns undefined and React renders nothing — the operator gets a
  * step row with a type dropdown and no fields at all, and nothing errors.
  */
+/** The counter list for adjust_counter steps, with how its load went. */
+type CounterPicker = { list: Counter[]; load: PickerLoad; retry: () => void };
+
 function StepPayloadFields({
   step,
   assets,
   scenes,
+  sceneHint,
   counters,
   disabled,
   onChange,
@@ -131,7 +140,9 @@ function StepPayloadFields({
   step: ActionStepInput;
   assets: MediaAsset[];
   scenes: string[];
-  counters: Counter[];
+  /** The line under the scene field (obsSceneHint). */
+  sceneHint: string;
+  counters: CounterPicker;
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
 }): React.ReactElement {
@@ -304,7 +315,7 @@ function StepPayloadFields({
             {scenes.map(scene => <option key={scene} value={scene} />)}
           </datalist>
           <small className="action-hint">
-            {scenes.length > 0 ? 'Scenes read from the connected OBS.' : 'OBS is not connected — the name is saved as typed.'}
+            {sceneHint}
           </small>
         </label>
       );
@@ -462,7 +473,8 @@ function StepPayloadFields({
     case 'clear_pinned_card':
       return <p className="action-hint">Takes down the pinned card, whether it is a question or a topic.</p>;
 
-    case 'adjust_counter':
+    case 'adjust_counter': {
+      const counterRef = counterReference(step.payload.counterId, counters.list, counters.load);
       return (
         <>
           <label className="field">
@@ -473,14 +485,26 @@ function StepPayloadFields({
               onChange={event => onChange({ ...step, payload: { ...step.payload, counterId: event.target.value } })}
             >
               <option value="">Pick a counter…</option>
-              {counters.map(counter => (
+              {/* While the list is unknown the saved choice stays selected and visible,
+                  so saving the action keeps it. */}
+              {counterRef === 'unknown' && (
+                <option value={step.payload.counterId}>Saved counter (list not loaded)</option>
+              )}
+              {counters.list.map(counter => (
                 <option key={counter.id} value={counter.id}>{counter.label}</option>
               ))}
             </select>
             {/* A counter referenced by a saved step but since deleted would otherwise
-                show as an empty select that silently reverts on the next save. */}
-            {step.payload.counterId && !counters.some(entry => entry.id === step.payload.counterId) && (
+                show as an empty select that silently reverts on the next save. Only a
+                list that loaded can say so (counterReference). */}
+            {counterRef === 'deleted' && (
               <span className="media-asset-tag media-asset-tag--broken">deleted counter</span>
+            )}
+            {counters.load.status === 'failed' && (
+              <small className="error">
+                {asSentence(counters.load.error)}{' '}
+                <button type="button" className="stale-notice-retry" onClick={counters.retry}>Retry</button>
+              </small>
             )}
           </label>
           <label className="field">
@@ -515,6 +539,7 @@ function StepPayloadFields({
           </label>
         </>
       );
+    }
 
     case 'quote_add':
       return (
@@ -597,6 +622,7 @@ function StepRow({
   total,
   assets,
   scenes,
+  sceneHint,
   counters,
   disabled,
   onChange,
@@ -608,7 +634,8 @@ function StepRow({
   total: number;
   assets: MediaAsset[];
   scenes: string[];
-  counters: Counter[];
+  sceneHint: string;
+  counters: CounterPicker;
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
   onMove: (to: number) => void;
@@ -689,7 +716,7 @@ function StepRow({
       </div>
 
       <div className="action-step-body">
-        <StepPayloadFields step={step} assets={assets} scenes={scenes} counters={counters} disabled={disabled} onChange={onChange} />
+        <StepPayloadFields step={step} assets={assets} scenes={scenes} sceneHint={sceneHint} counters={counters} disabled={disabled} onChange={onChange} />
       </div>
 
       <div className="action-step-foot">
@@ -734,71 +761,109 @@ function RunResult({ result }: { result: ActionRunResult }) {
 // --- Page ---------------------------------------------------------------------
 
 export function ActionsSettingsPage() {
+  const confirm = useConfirm();
   const [actions, setActions] = useState<Action[]>([]);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [scenes, setScenes] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<ActionUpsert | null>(null);
+  const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<ActionUpsert | null>(null);
   const [counters, setCounters] = useState<Counter[]>([]);
+  const [countersLoad, setCountersLoad] = useState<PickerLoad>(PICKER_LOADING);
+  const [countersAttempt, setCountersAttempt] = useState(0);
   const [runs, setRuns] = useState<Record<string, ActionRunResult>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const load = useCallback(async () => {
     const [nextActions, nextAssets] = await Promise.all([getActions(), getMediaAssets()]);
     setActions(nextActions);
     setAssets(nextAssets);
+    setLoadFailed(false);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load actions')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load actions'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
-  // OBS may be down; a scene list is a convenience, not a requirement.
+  // OBS may be down; a scene list is a convenience, not a requirement. `obsConnected`
+  // stays null when Narya did not answer, so the hint does not claim OBS is offline.
+  const [obsConnected, setObsConnected] = useState<boolean | null>(null);
   useEffect(() => {
     void getObsStatus()
-      .then(status => setScenes(status.scenes))
+      .then(status => {
+        setScenes(status.scenes);
+        setObsConnected(status.connected);
+      })
       .catch(() => setScenes([]));
   }, []);
 
   // Its own tolerant effect rather than part of `load`: a counters fetch that fails
   // should cost the operator the counter dropdown, not the whole Actions page.
   useEffect(() => {
+    let cancelled = false;
+    setCountersLoad(PICKER_LOADING);
     void getCounters()
-      .then(response => setCounters(response.counters))
-      .catch(() => setCounters([]));
-  }, []);
+      .then(response => {
+        if (cancelled) return;
+        setCounters(response.counters);
+        setCountersLoad({ status: 'loaded' });
+      })
+      .catch(caught => {
+        if (!cancelled) setCountersLoad({ status: 'failed', error: errorMessage(caught, 'Could not load counters') });
+      });
+    return () => { cancelled = true; };
+  }, [countersAttempt]);
+  const counterPicker = useMemo<CounterPicker>(
+    () => ({ list: counters, load: countersLoad, retry: () => setCountersAttempt(n => n + 1) }),
+    [counters, countersLoad],
+  );
 
 
   const busy = loading || saving;
+  const actionFace = listFace({ loading, loadFailed, count: actions.length });
   const problem = useMemo(() => (draft ? validateAction(draft) : null), [draft]);
 
-  const startCreate = () => {
-    setEditingId(null);
-    setDraft({ ...EMPTY_DRAFT, steps: [newStep('show_text')] });
-    setMessage(null);
-    setError(null);
-  };
+  const { discardThen } = useDirtyGuard(
+    dirty,
+    editingId ? `the action "${baseline?.name || 'Untitled action'}"` : 'the new action',
+  );
 
-  const startEdit = (action: Action) => {
-    setEditingId(action.id);
-    setDraft(actionToUpsert(action));
+  const startCreate = () => discardThen(() => {
+    setEditingId(null);
+    resetDraft({ ...EMPTY_DRAFT, steps: [newStep('show_text')] });
     setMessage(null);
     setError(null);
-  };
+  });
+
+  const startEdit = (action: Action) => discardThen(() => {
+    setEditingId(action.id);
+    resetDraft(actionToUpsert(action));
+    setMessage(null);
+    setError(null);
+  });
 
   const closeEditor = () => {
     setEditingId(null);
-    setDraft(null);
+    resetDraft(null);
   };
 
   const handleSave = (event: React.FormEvent<HTMLFormElement>) => {
@@ -814,17 +879,23 @@ export function ActionsSettingsPage() {
         await load();
         // Stay on the saved action so a follow-up Run targets what was just written.
         setEditingId(saved.id);
-        setDraft(actionToUpsert(saved));
+        resetDraft(actionToUpsert(saved));
         setMessage('Action saved');
       })
       .catch(caught => setError(errorMessage(caught, 'Could not save the action')))
       .finally(() => setSaving(false));
   };
 
-  const handleDelete = (action: Action) => {
+  const handleDelete = async (action: Action) => {
     // The server refuses to delete an Action a trigger still runs and names the trigger,
     // so this only has to cover the unreferenced case.
-    if (!window.confirm(`Delete "${action.name}"? This cannot be undone.`)) return;
+    const ok = await confirm({
+      title: `Delete "${action.name}"?`,
+      body: 'The action and all of its steps are removed. This cannot be undone.',
+      confirmLabel: 'Delete action',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setSaving(true);
     setMessage(null);
     setError(null);
@@ -871,10 +942,12 @@ export function ActionsSettingsPage() {
               </div>
 
               <div className="settings-mini-list">
-                {loading ? (
-                  <div className="command-empty">Loading actions...</div>
-                ) : actions.length === 0 ? (
-                  <div className="command-empty">No actions yet. Create one, then point a trigger at it.</div>
+                {actionFace === 'loading' ? (
+                  <EmptyState size="compact" title="Loading actions…" />
+                ) : actionFace === 'unavailable' ? (
+                  <ListUnavailable size="compact" title="Actions unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
+                ) : actionFace === 'empty' ? (
+                  <EmptyState size="compact" title="No actions yet">Create one with New, then point a trigger at it.</EmptyState>
                 ) : actions.map(action => (
                   <button
                     type="button"
@@ -902,14 +975,10 @@ export function ActionsSettingsPage() {
 
             <div className="settings-split-detail">
               {!draft ? (
-                <div className="split-empty">
-                  <CrystalOrb variant="moon" size={40} />
-                  <div className="es-title">Nothing selected</div>
-                  <div className="es-sub">
-                    Pick an action on the left to edit its steps, run it as a test, or delete it. New
-                    builds one from scratch.
-                  </div>
-                </div>
+                <EmptyState size="pane" title="Nothing selected">
+                  Pick an action on the left to edit its steps, run it as a test, or delete it. New
+                  builds one from scratch.
+                </EmptyState>
               ) : (
             <form className="settings-editor-section" onSubmit={handleSave}>
               <div className="command-editor-head">
@@ -940,7 +1009,7 @@ export function ActionsSettingsPage() {
                       Delete
                     </button>
                   )}
-                  <button className="modbtn" type="button" disabled={saving} onClick={closeEditor}>Close</button>
+                  <button className="modbtn" type="button" disabled={saving} onClick={() => discardThen(closeEditor)}>Close</button>
                 </div>
               </div>
 
@@ -999,7 +1068,8 @@ export function ActionsSettingsPage() {
                     total={draft.steps.length}
                     assets={assets}
                     scenes={scenes}
-                    counters={counters}
+                    sceneHint={obsSceneHint(scenes.length, obsConnected)}
+                    counters={counterPicker}
                     disabled={busy}
                     onChange={next => updateStep(index, next)}
                     onMove={to => setDraft(current => (current ? { ...current, steps: moveStep(current.steps, index, to) } : current))}

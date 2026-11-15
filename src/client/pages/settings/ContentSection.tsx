@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type { MediaAsset, MediaFile, MediaKind } from '../../../shared/api';
-import { useToast } from '../../ui/notifications';
 import { errorMessage } from '../../errors';
-import { SettingsStatus } from './shared';
+import { ListUnavailable, SettingsStatus } from './shared';
+import { asSentence, listFace, PICKER_LOADING, type PickerLoad } from './listState';
 import {
   createClipButton,
   createMediaAsset,
@@ -19,7 +20,8 @@ import {
   updateMediaAsset,
   updateSoundButton,
 } from '../../services/dashboard';
-import { CrystalOrb } from '../../crystalOrb';
+import { EmptyState } from '../../ui/emptyState';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 
 const DEFAULT_VOLUME = 0.8;
 
@@ -63,34 +65,61 @@ function volumePercent(volume: number): string {
   return `${Math.round(volume * 100)}%`;
 }
 
+/**
+ * The New form's file picker's first line. Only a file list that loaded may be called
+ * empty: "No files found under public/" off a failed load sent the operator looking
+ * for files that are there.
+ */
+export function newFilePlaceholder(filesLoaded: boolean, count: number): string {
+  if (!filesLoaded) return 'File list unavailable';
+  return count === 0 ? 'No files found under public/' : 'Select a file…';
+}
+
 function MediaLibrary() {
-  const { pushToast } = useToast();
+  const confirm = useConfirm();
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [discovered, setDiscovered] = useState<MediaFile[]>([]);
   const [configuredSrcs, setConfiguredSrcs] = useState<string[]>([]);
   const [selection, setSelection] = useState<Selection>({ mode: 'none' });
-  const [edit, setEdit] = useState<AssetForm | null>(null);
-  const [newForm, setNewForm] = useState<NewForm>(EMPTY_NEW);
+  const { draft: edit, setDraft: setEdit, baseline: editBaseline, resetDraft: resetEdit, dirty: editDirty } = useDraft<AssetForm | null>(null);
+  const { draft: newForm, setDraft: setNewForm, resetDraft: resetNewForm, dirty: newFormDirty } = useDraft<NewForm>(EMPTY_NEW);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  // Whether `discovered` is a list the server sent. New needs it — its picker is the
+  // only way to name a local file — so New waits for it rather than offering an
+  // empty picker that reads as "no files".
+  const [filesLoaded, setFilesLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const [nextAssets, nextDiscovered] = await Promise.all([getMediaAssets(), getDiscoveredMedia()]);
     setAssets(sortAssets(nextAssets));
     setDiscovered(nextDiscovered.files);
     setConfiguredSrcs(nextDiscovered.configuredSrcs);
+    setFilesLoaded(true);
+    setLoadFailed(false);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load the media library')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load the media library'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   const claimed = useMemo(() => new Set(configuredSrcs), [configuredSrcs]);
   const busy = loading || saving;
@@ -100,40 +129,48 @@ function MediaLibrary() {
   const pickedFile = discovered.find(file => file.src === newForm.src) ?? null;
 
   /**
-   * Every write goes through here, so every write reports itself the same way: a toast
-   * that outlives the re-render, and the error kept in the pane you were working in. The
-   * old inline-only "Asset saved" line sat above a list you had already scrolled past.
+   * Every write goes through here, so every write reports itself the same way: one
+   * `SettingsStatus` line at the top of the editor pane (the feedback rule in shared.tsx).
+   * It sits in the same place whatever the pane shows, so a delete that empties the pane
+   * still says it worked, and its live region is the same node before and after.
    */
   const run = <T,>(work: Promise<T>, done: string, failed: string): Promise<T> => {
     setSaving(true);
+    setMessage(null);
     setError(null);
     return work
       .then(async result => {
         await load();
-        pushToast({ kind: 'success', title: done });
+        setMessage(done);
         return result;
       })
       .catch(caught => {
-        const message = errorMessage(caught, failed);
-        setError(message);
-        pushToast({ kind: 'error', title: failed, message });
+        setError(errorMessage(caught, failed));
         throw caught;
       })
       .finally(() => setSaving(false));
   };
 
-  const openNew = () => {
-    setSelection({ mode: 'new' });
-    setNewForm(EMPTY_NEW);
-    setEdit(null);
-    setError(null);
-  };
+  // The pane shows one form at a time, so only the visible one can hold unsaved work.
+  const { discardThen } = useDirtyGuard(
+    selection.mode === 'edit' ? editDirty : selection.mode === 'new' ? newFormDirty : false,
+    selection.mode === 'new' ? 'the new asset' : `the asset "${editBaseline?.label || 'Asset'}"`,
+  );
 
-  const openAsset = (asset: MediaAsset) => {
-    setSelection({ mode: 'edit', id: asset.id });
-    setEdit(formFromAsset(asset));
+  const openNew = () => discardThen(() => {
+    setSelection({ mode: 'new' });
+    resetNewForm(EMPTY_NEW);
+    resetEdit(null);
+    setMessage(null);
     setError(null);
-  };
+  });
+
+  const openAsset = (asset: MediaAsset) => discardThen(() => {
+    setSelection({ mode: 'edit', id: asset.id });
+    resetEdit(formFromAsset(asset));
+    setMessage(null);
+    setError(null);
+  });
 
   const handleCreate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -154,8 +191,8 @@ function MediaLibrary() {
       // Land on the asset just made: it is what the operator wants to tune next, and it
       // is the clearest possible signal that the Add actually did something.
       setSelection({ mode: 'edit', id: asset.id });
-      setEdit(formFromAsset(asset));
-      setNewForm(EMPTY_NEW);
+      resetEdit(formFromAsset(asset));
+      resetNewForm(EMPTY_NEW);
     }).catch(() => undefined);
   };
 
@@ -172,24 +209,32 @@ function MediaLibrary() {
       }),
       'Asset saved',
       'Could not save the asset',
-    ).then(saved => setEdit(formFromAsset(saved))).catch(() => undefined);
+    ).then(saved => resetEdit(formFromAsset(saved))).catch(() => undefined);
   };
 
-  const handleToggle = (asset: MediaAsset) => {
+  // The toggle saves and then reloads the form from the server, which would take an
+  // unsaved rename or volume change with it — ask first.
+  const handleToggle = (asset: MediaAsset) => discardThen(() => {
     void run(
       updateMediaAsset(asset.id, { enabled: !asset.enabled }),
       asset.enabled ? 'Asset disabled' : 'Asset enabled',
       'Could not update the asset',
-    ).then(saved => setEdit(formFromAsset(saved))).catch(() => undefined);
-  };
+    ).then(saved => resetEdit(formFromAsset(saved))).catch(() => undefined);
+  });
 
   // A referenced asset comes back 409; the message tells the operator to disable it.
-  const handleDelete = (asset: MediaAsset) => {
-    if (!window.confirm(`Delete ${asset.label}?`)) return;
+  const handleDelete = async (asset: MediaAsset) => {
+    const ok = await confirm({
+      title: `Delete ${asset.label}?`,
+      body: 'It leaves the media catalog. The file on disk is not touched.',
+      confirmLabel: 'Delete asset',
+      tone: 'danger',
+    });
+    if (!ok) return;
     void run(deleteMediaAsset(asset.id), 'Asset deleted', 'Could not delete the asset')
       .then(() => {
         setSelection({ mode: 'none' });
-        setEdit(null);
+        resetEdit(null);
       })
       .catch(() => undefined);
   };
@@ -197,6 +242,7 @@ function MediaLibrary() {
   const editing = selection.mode === 'edit' ? assets.find(asset => asset.id === selection.id) ?? null : null;
   /** Repair targets for a broken local asset: the files actually on disk. */
   const repairOptions = discovered.filter(file => edit !== null && file.kind === edit.kind);
+  const assetFace = listFace({ loading, loadFailed, count: assets.length });
 
   return (
     <div className="set-group">
@@ -212,14 +258,16 @@ function MediaLibrary() {
                 a file straight off disk.
               </div>
             </div>
-            <button className="modbtn gold" type="button" disabled={busy} onClick={openNew}>New</button>
+            <button className="modbtn gold" type="button" disabled={busy || !filesLoaded} onClick={openNew}>New</button>
           </div>
 
           <div className="settings-mini-list">
-            {loading ? (
-              <div className="command-empty">Loading media library...</div>
-            ) : assets.length === 0 ? (
-              <div className="command-empty">No media assets configured. Add one with New.</div>
+            {assetFace === 'unavailable' ? (
+              <ListUnavailable size="compact" title="Media library unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
+            ) : assetFace === 'loading' ? (
+              <EmptyState size="compact" title="Loading the media library…" />
+            ) : assetFace === 'empty' ? (
+              <EmptyState size="compact" title="No media yet">Add a clip or sound with New.</EmptyState>
             ) : assets.map(asset => (
               <button
                 type="button"
@@ -248,211 +296,203 @@ function MediaLibrary() {
 
         <div className="settings-split-detail">
           {selection.mode === 'none' ? (
-            <div className="split-empty">
-              <CrystalOrb variant="moon" size={40} />
-              <div className="es-title">Nothing selected</div>
-              <div className="es-sub">
-                Pick an asset to rename it, re-point it, or set its playback volume. New adds a file
-                from public/clips and public/sounds, or a remote URL.
+            <EmptyState size="pane" title="Nothing selected">
+              Pick an asset to rename it, re-point it, or set its playback volume. New adds a file
+              from public/clips and public/sounds, or a remote URL.
+            </EmptyState>
+          ) : selection.mode === 'new' ? (
+            <div className="command-editor-head">
+              <div>
+                <div className="set-label">New asset</div>
+                <div className="set-sub">
+                  {newForm.sourceType === 'local'
+                    ? 'The only place raw files from public/clips and public/sounds appear.'
+                    : 'An http(s) URL hosted elsewhere. Nothing else is accepted.'}
+                </div>
+              </div>
+              <button className="modbtn" type="button" disabled={saving} onClick={() => setSelection({ mode: 'none' })}>
+                Cancel
+              </button>
+            </div>
+          ) : !edit ? null : (
+            <div className="command-editor-head">
+              <div>
+                <div className="set-label">{edit.label || 'Asset'}</div>
+                <div className="set-sub">
+                  {editing && !editing.available
+                    ? 'This asset’s file is missing. Point it at a file that exists, or disable it.'
+                    : 'Rename, re-point, or set the playback volume.'}
+                </div>
+              </div>
+              <div className="command-row-actions">
+                {editing && (
+                  <button className="modbtn" type="button" disabled={busy} onClick={() => handleToggle(editing)}>
+                    {editing.enabled ? 'Disable' : 'Enable'}
+                  </button>
+                )}
+                {editing && (
+                  <button className="modbtn danger" type="button" disabled={busy} onClick={() => handleDelete(editing)}>
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
-          ) : selection.mode === 'new' ? (
-            <>
-              <div className="command-editor-head">
-                <div>
-                  <div className="set-label">New asset</div>
-                  <div className="set-sub">
-                    {newForm.sourceType === 'local'
-                      ? 'The only place raw files from public/clips and public/sounds appear.'
-                      : 'An http(s) URL hosted elsewhere. Nothing else is accepted.'}
-                  </div>
-                </div>
-                <button className="modbtn" type="button" disabled={saving} onClick={() => setSelection({ mode: 'none' })}>
-                  Cancel
-                </button>
-              </div>
+          )}
 
-              <SettingsStatus error={error} />
+          <SettingsStatus message={message} error={error} />
 
-              <form className="settings-mini-form" onSubmit={handleCreate}>
+          {selection.mode === 'new' ? (
+            <form className="settings-mini-form" onSubmit={handleCreate}>
+              <label className="field">
+                <span>Source</span>
+                <select
+                  value={newForm.sourceType}
+                  disabled={busy}
+                  onChange={event => setNewForm({ ...EMPTY_NEW, sourceType: event.target.value as 'local' | 'remote' })}
+                >
+                  <option value="local">A file in public/</option>
+                  <option value="remote">A remote URL</option>
+                </select>
+              </label>
+
+              {newForm.sourceType === 'local' ? (
                 <label className="field">
-                  <span>Source</span>
+                  <span>File</span>
                   <select
-                    value={newForm.sourceType}
-                    disabled={busy}
-                    onChange={event => setNewForm({ ...EMPTY_NEW, sourceType: event.target.value as 'local' | 'remote' })}
+                    value={newForm.src}
+                    disabled={busy || discovered.length === 0}
+                    onChange={event => setNewForm(current => ({ ...current, src: event.target.value, label: '' }))}
                   >
-                    <option value="local">A file in public/</option>
-                    <option value="remote">A remote URL</option>
+                    <option value="">
+                      {newFilePlaceholder(filesLoaded, discovered.length)}
+                    </option>
+                    {discovered.map(file => (
+                      <option key={file.src} value={file.src}>
+                        {file.label} ({file.kind}){claimed.has(file.src) ? ' — already in library' : ''}
+                      </option>
+                    ))}
                   </select>
                 </label>
-
-                {newForm.sourceType === 'local' ? (
+              ) : (
+                <>
                   <label className="field">
-                    <span>File</span>
-                    <select
-                      value={newForm.src}
-                      disabled={busy || discovered.length === 0}
-                      onChange={event => setNewForm(current => ({ ...current, src: event.target.value, label: '' }))}
-                    >
-                      <option value="">
-                        {discovered.length === 0 ? 'No files found under public/' : 'Select a file…'}
-                      </option>
-                      {discovered.map(file => (
-                        <option key={file.src} value={file.src}>
-                          {file.label} ({file.kind}){claimed.has(file.src) ? ' — already in library' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <>
-                    <label className="field">
-                      <span>URL</span>
-                      <input
-                        value={newForm.src}
-                        disabled={busy}
-                        maxLength={500}
-                        placeholder="https://cdn.example/horn.mp3"
-                        onChange={event => setNewForm(current => ({ ...current, src: event.target.value }))}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Kind</span>
-                      <select
-                        value={newForm.kind}
-                        disabled={busy}
-                        onChange={event => setNewForm(current => ({ ...current, kind: event.target.value as MediaKind }))}
-                      >
-                        <option value="audio">Audio</option>
-                        <option value="video">Video</option>
-                      </select>
-                    </label>
-                  </>
-                )}
-
-                <label className="field">
-                  <span>Label</span>
-                  <input
-                    value={newForm.label}
-                    disabled={busy || (newForm.sourceType === 'local' && !pickedFile)}
-                    maxLength={60}
-                    placeholder={newForm.sourceType === 'local'
-                      ? (pickedFile ? pickedFile.label : 'Pick a file first')
-                      : 'Air horn'}
-                    onChange={event => setNewForm(current => ({ ...current, label: event.target.value }))}
-                  />
-                </label>
-
-                <div className="command-settings-actions">
-                  <button
-                    className="modbtn gold"
-                    type="submit"
-                    disabled={busy || (newForm.sourceType === 'local'
-                      ? !pickedFile
-                      : !newForm.label.trim() || !newForm.src.trim())}
-                  >
-                    {saving ? 'Adding...' : 'Add to library'}
-                  </button>
-                </div>
-              </form>
-            </>
-          ) : !edit ? null : (
-            <>
-              <div className="command-editor-head">
-                <div>
-                  <div className="set-label">{edit.label || 'Asset'}</div>
-                  <div className="set-sub">
-                    {editing && !editing.available
-                      ? 'This asset’s file is missing. Point it at a file that exists, or disable it.'
-                      : 'Rename, re-point, or set the playback volume.'}
-                  </div>
-                </div>
-                <div className="command-row-actions">
-                  {editing && (
-                    <button className="modbtn" type="button" disabled={busy} onClick={() => handleToggle(editing)}>
-                      {editing.enabled ? 'Disable' : 'Enable'}
-                    </button>
-                  )}
-                  {editing && (
-                    <button className="modbtn danger" type="button" disabled={busy} onClick={() => handleDelete(editing)}>
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <SettingsStatus error={error} />
-
-              <form className="settings-mini-form" onSubmit={handleSaveEdit}>
-                <label className="command-enabled">
-                  <input
-                    type="checkbox"
-                    checked={edit.enabled}
-                    disabled={busy}
-                    onChange={event => setEdit(current => (current ? { ...current, enabled: event.target.checked } : current))}
-                  />
-                  <span>Enabled</span>
-                </label>
-
-                <label className="field">
-                  <span>Label</span>
-                  <input
-                    value={edit.label}
-                    disabled={busy}
-                    maxLength={60}
-                    onChange={event => setEdit(current => (current ? { ...current, label: event.target.value } : current))}
-                  />
-                </label>
-
-                <label className="field">
-                  <span>{editing?.sourceType === 'remote' ? 'URL' : 'File'}</span>
-                  {editing?.sourceType === 'remote' ? (
+                    <span>URL</span>
                     <input
-                      value={edit.src}
+                      value={newForm.src}
                       disabled={busy}
                       maxLength={500}
                       placeholder="https://cdn.example/horn.mp3"
-                      onChange={event => setEdit(current => (current ? { ...current, src: event.target.value } : current))}
+                      onChange={event => setNewForm(current => ({ ...current, src: event.target.value }))}
                     />
-                  ) : (
+                  </label>
+                  <label className="field">
+                    <span>Kind</span>
                     <select
-                      value={edit.src}
+                      value={newForm.kind}
                       disabled={busy}
-                      onChange={event => setEdit(current => (current ? { ...current, src: event.target.value } : current))}
+                      onChange={event => setNewForm(current => ({ ...current, kind: event.target.value as MediaKind }))}
                     >
-                      {/* Keep the missing src selected so saving other fields doesn't silently re-point it. */}
-                      {!repairOptions.some(file => file.src === edit.src) && (
-                        <option value={edit.src}>{edit.src} (missing)</option>
-                      )}
-                      {repairOptions.map(file => (
-                        <option key={file.src} value={file.src}>{file.label}</option>
-                      ))}
+                      <option value="audio">Audio</option>
+                      <option value="video">Video</option>
                     </select>
-                  )}
-                </label>
+                  </label>
+                </>
+              )}
 
-                <label className="field">
-                  <span>Volume ({volumePercent(edit.volume)})</span>
+              <label className="field">
+                <span>Label</span>
+                <input
+                  value={newForm.label}
+                  disabled={busy || (newForm.sourceType === 'local' && !pickedFile)}
+                  maxLength={60}
+                  placeholder={newForm.sourceType === 'local'
+                    ? (pickedFile ? pickedFile.label : 'Pick a file first')
+                    : 'Air horn'}
+                  onChange={event => setNewForm(current => ({ ...current, label: event.target.value }))}
+                />
+              </label>
+
+              <div className="command-settings-actions">
+                <button
+                  className="modbtn gold"
+                  type="submit"
+                  disabled={busy || (newForm.sourceType === 'local'
+                    ? !pickedFile
+                    : !newForm.label.trim() || !newForm.src.trim())}
+                >
+                  {saving ? 'Adding...' : 'Add to library'}
+                </button>
+              </div>
+            </form>
+          ) : selection.mode === 'edit' && edit ? (
+            <form className="settings-mini-form" onSubmit={handleSaveEdit}>
+              <label className="command-enabled">
+                <input
+                  type="checkbox"
+                  checked={edit.enabled}
+                  disabled={busy}
+                  onChange={event => setEdit(current => (current ? { ...current, enabled: event.target.checked } : current))}
+                />
+                <span>Enabled</span>
+              </label>
+
+              <label className="field">
+                <span>Label</span>
+                <input
+                  value={edit.label}
+                  disabled={busy}
+                  maxLength={60}
+                  onChange={event => setEdit(current => (current ? { ...current, label: event.target.value } : current))}
+                />
+              </label>
+
+              <label className="field">
+                <span>{editing?.sourceType === 'remote' ? 'URL' : 'File'}</span>
+                {editing?.sourceType === 'remote' ? (
                   <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={edit.volume}
+                    value={edit.src}
                     disabled={busy}
-                    onChange={event => setEdit(current => (current ? { ...current, volume: Number(event.target.value) } : current))}
+                    maxLength={500}
+                    placeholder="https://cdn.example/horn.mp3"
+                    onChange={event => setEdit(current => (current ? { ...current, src: event.target.value } : current))}
                   />
-                </label>
+                ) : (
+                  <select
+                    value={edit.src}
+                    disabled={busy}
+                    onChange={event => setEdit(current => (current ? { ...current, src: event.target.value } : current))}
+                  >
+                    {/* Keep the missing src selected so saving other fields doesn't silently re-point it. */}
+                    {!repairOptions.some(file => file.src === edit.src) && (
+                      <option value={edit.src}>{edit.src} (missing)</option>
+                    )}
+                    {repairOptions.map(file => (
+                      <option key={file.src} value={file.src}>{file.label}</option>
+                    ))}
+                  </select>
+                )}
+              </label>
 
-                <div className="command-settings-actions">
-                  <button className="modbtn gold" type="submit" disabled={busy}>
-                    {saving ? 'Saving...' : 'Save asset'}
-                  </button>
-                </div>
-              </form>
-            </>
-          )}
+              <label className="field">
+                <span>Volume ({volumePercent(edit.volume)})</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={edit.volume}
+                  disabled={busy}
+                  onChange={event => setEdit(current => (current ? { ...current, volume: Number(event.target.value) } : current))}
+                />
+              </label>
+
+              <div className="command-settings-actions">
+                <button className="modbtn gold" type="submit" disabled={busy}>
+                  {saving ? 'Saving...' : 'Save asset'}
+                </button>
+              </div>
+            </form>
+          ) : null}
         </div>
       </div>
     </div>
@@ -495,49 +535,81 @@ function formFrom(item: MediaButtonItem): Form {
   return { id: item.id, label: item.label, filename: item.filename };
 }
 
+/**
+ * Where a button's saved file stands against the file list. Only a list that loaded can
+ * call a file off-catalog: a failed or pending load used to mark every saved clip
+ * "(missing)", switch every saved sound to its custom-path field, and disable the
+ * picker for clips.
+ */
+export function fileBinding(filename: string, files: readonly MediaFile[], load: PickerLoad): 'none' | 'catalog' | 'off-catalog' | 'unknown' {
+  if (!filename) return 'none';
+  if (files.some(file => file.src === filename)) return 'catalog';
+  return load.status === 'loaded' ? 'off-catalog' : 'unknown';
+}
+
 function MediaButtonManager({
   api,
   copy,
   mediaFiles,
+  filesLoad,
+  onRetryFiles,
 }: {
   api: MediaButtonApi;
   copy: ManagerCopy;
   mediaFiles: MediaFile[];
+  filesLoad: PickerLoad;
+  onRetryFiles: () => void;
 }) {
-  const { pushToast } = useToast();
+  const confirm = useConfirm();
   const [items, setItems] = useState<MediaButtonItem[]>([]);
-  const [form, setForm] = useState<Form | null>(null);
+  const { draft: form, setDraft: setForm, baseline: formBaseline, resetDraft: resetForm, dirty: formDirty } = useDraft<Form | null>(null);
   // True once the operator picks "Custom…" so the text field shows even before
   // they type anything. Editing an existing off-catalog value shows it anyway.
   const [customMode, setCustomMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void api.list()
       .then(next => {
         if (!cancelled) {
           setItems(sortItems(next));
+          setLoadFailed(false);
           setError(null);
         }
       })
       .catch(caught => {
-        if (!cancelled) setError(errorMessage(caught, `Could not load ${copy.noun}s`));
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, `Could not load ${copy.noun}s`));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [api, copy.noun]);
+  }, [api, copy.noun, loadAttempt]);
 
   const noun = `${copy.noun.charAt(0).toUpperCase()}${copy.noun.slice(1)}`;
 
+  const { discardThen } = useDirtyGuard(
+    formDirty,
+    formBaseline?.id ? `the ${copy.noun} button "${formBaseline.label || copy.noun}"` : `the new ${copy.noun} button`,
+  );
+
   const loadForm = (next: Form | null) => {
-    setForm(next);
+    resetForm(next);
     setCustomMode(false);
+    setMessage(null);
     setError(null);
   };
 
@@ -545,6 +617,7 @@ function MediaButtonManager({
     event.preventDefault();
     if (!form) return;
     setSaving(true);
+    setMessage(null);
     setError(null);
     const payload = { label: form.label, filename: form.filename };
     const request = form.id ? api.update(form.id, payload) : api.create(payload);
@@ -554,41 +627,47 @@ function MediaButtonManager({
         setItems(current => sortItems([...current.filter(item => item.id !== saved.id), saved]));
         // Stay on what was just saved — including a brand-new one, so the next Save
         // edits it rather than silently adding a second copy.
-        setForm(formFrom(saved));
+        resetForm(formFrom(saved));
         setCustomMode(false);
-        pushToast({ kind: 'success', title: `${noun} saved` });
+        setMessage(`${noun} saved`);
       })
       .catch(caught => {
-        const message = errorMessage(caught, `Could not save ${copy.noun}`);
-        setError(message);
-        pushToast({ kind: 'error', title: `Could not save ${copy.noun}`, message });
+        setError(errorMessage(caught, `Could not save ${copy.noun}`));
       })
       .finally(() => setSaving(false));
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const item = items.find(entry => entry.id === id);
-    if (!item || !window.confirm(`Delete ${item.label}?`)) return;
+    if (!item) return;
+    const ok = await confirm({
+      title: `Delete ${item.label}?`,
+      body: `The ${copy.noun} is removed. The file on disk is not touched.`,
+      confirmLabel: `Delete ${copy.noun}`,
+      tone: 'danger',
+    });
+    if (!ok) return;
     setSaving(true);
+    setMessage(null);
     setError(null);
     void api.remove(id)
       .then(() => {
         setItems(current => current.filter(entry => entry.id !== id));
         loadForm(null);
-        pushToast({ kind: 'success', title: `${noun} deleted` });
+        // After loadForm, which clears the line: the pane is empty now, and this is
+        // what says the delete went through.
+        setMessage(`${noun} deleted`);
       })
       .catch(caught => {
-        const message = errorMessage(caught, `Could not delete ${copy.noun}`);
-        setError(message);
-        pushToast({ kind: 'error', title: `Could not delete ${copy.noun}`, message });
+        setError(errorMessage(caught, `Could not delete ${copy.noun}`));
       })
       .finally(() => setSaving(false));
   };
 
-  const inCatalog = form !== null && mediaFiles.some(file => file.src === form.filename);
+  const binding = form !== null ? fileBinding(form.filename, mediaFiles, filesLoad) : 'none';
   // Off-catalog values (a custom URL, or a file deleted from public/) still need
   // to show. Sounds reveal the text field; clips just flag the value as missing.
-  const offCatalog = form !== null && form.filename !== '' && !inCatalog;
+  const offCatalog = binding === 'off-catalog';
   const showCustomInput = copy.allowCustomPath && (customMode || offCatalog);
   const selectValue = showCustomInput ? CUSTOM_VALUE : form?.filename ?? '';
 
@@ -601,6 +680,8 @@ function MediaButtonManager({
     setForm(current => (current ? { ...current, filename: value } : current));
   };
 
+  const itemFace = listFace({ loading, loadFailed, count: items.length });
+
   return (
     <div className="set-group">
       <div className="set-group-label">{copy.heading}</div>
@@ -609,23 +690,25 @@ function MediaButtonManager({
         <div className="settings-split-list">
           <div className="split-list-head">
             <div className="set-sub">{copy.sub}</div>
-            <button className="modbtn gold" type="button" disabled={saving} onClick={() => loadForm(EMPTY_FORM)}>
+            <button className="modbtn gold" type="button" disabled={saving} onClick={() => discardThen(() => loadForm(EMPTY_FORM))}>
               New
             </button>
           </div>
 
           <div className="settings-mini-list">
-            {loading ? (
-              <div className="command-empty">Loading {copy.noun}s...</div>
-            ) : items.length === 0 ? (
-              <div className="command-empty">No {copy.noun} buttons configured.</div>
+            {itemFace === 'unavailable' ? (
+              <ListUnavailable size="compact" title={`${noun} buttons unavailable`} onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
+            ) : itemFace === 'loading' ? (
+              <EmptyState size="compact" title={`Loading ${copy.noun} buttons…`} />
+            ) : itemFace === 'empty' ? (
+              <EmptyState size="compact" title={`No ${copy.noun} buttons yet`}>Add one with New.</EmptyState>
             ) : items.map(item => (
               <button
                 type="button"
                 className={'settings-item-row' + (form?.id === item.id ? ' is-selected' : '')}
                 key={item.id}
                 aria-current={form?.id === item.id ? 'true' : undefined}
-                onClick={() => loadForm(formFrom(item))}
+                onClick={() => discardThen(() => loadForm(formFrom(item)))}
               >
                 <div className="settings-item-main">
                   <b>{item.label}</b>
@@ -638,83 +721,89 @@ function MediaButtonManager({
 
         <div className="settings-split-detail">
           {!form ? (
-            <div className="split-empty">
-              <CrystalOrb variant="moon" size={40} />
-              <div className="es-title">Nothing selected</div>
-              <div className="es-sub">
-                Pick a {copy.noun} button to rename it or re-point it, or hit New to add one.
+            <EmptyState size="pane" title="Nothing selected">
+              Pick a {copy.noun} button to rename it or re-point it, or hit New to add one.
+            </EmptyState>
+          ) : (
+            <div className="command-editor-head">
+              <div>
+                <div className="set-label">{form.id ? (form.label || noun) : `New ${copy.noun} button`}</div>
+                <div className="set-sub">{copy.sub}</div>
+              </div>
+              <div className="command-row-actions">
+                {form.id && (
+                  <button className="modbtn danger" type="button" disabled={saving} onClick={() => handleDelete(form.id!)}>
+                    Delete
+                  </button>
+                )}
+                <button className="modbtn" type="button" disabled={saving} onClick={() => discardThen(() => loadForm(null))}>
+                  Close
+                </button>
               </div>
             </div>
-          ) : (
-            <>
-              <div className="command-editor-head">
-                <div>
-                  <div className="set-label">{form.id ? (form.label || noun) : `New ${copy.noun} button`}</div>
-                  <div className="set-sub">{copy.sub}</div>
-                </div>
-                <div className="command-row-actions">
-                  {form.id && (
-                    <button className="modbtn danger" type="button" disabled={saving} onClick={() => handleDelete(form.id!)}>
-                      Delete
-                    </button>
+          )}
+
+          {/* One status node in one slot whatever the pane shows, so a delete that
+              empties the pane still reports, through the same live region. */}
+          <SettingsStatus message={message} error={error} />
+
+          {form ? (
+            <form className="settings-mini-form" onSubmit={handleSubmit}>
+              <label className="field">
+                <span>Label</span>
+                <input
+                  value={form.label}
+                  disabled={loading || saving}
+                  maxLength={60}
+                  placeholder={copy.labelPlaceholder}
+                  onChange={event => setForm(current => (current ? { ...current, label: event.target.value } : current))}
+                />
+              </label>
+              <label className="field">
+                <span>File</span>
+                <select
+                  value={selectValue}
+                  disabled={loading || saving || (filesLoad.status === 'loaded' && mediaFiles.length === 0 && !copy.allowCustomPath && !offCatalog)}
+                  onChange={event => onSelectFile(event.target.value)}
+                >
+                  <option value="">Select a file…</option>
+                  {/* The file list is not known: keep the saved file selected, unjudged. */}
+                  {binding === 'unknown' && <option value={form.filename}>{form.filename}</option>}
+                  {/* Keep a deleted/off-catalog binding visible for catalog-only managers. */}
+                  {!copy.allowCustomPath && offCatalog && (
+                    <option value={form.filename}>{form.filename} (missing)</option>
                   )}
-                  <button className="modbtn" type="button" disabled={saving} onClick={() => loadForm(null)}>
-                    Close
-                  </button>
-                </div>
-              </div>
-
-              <SettingsStatus error={error} />
-
-              <form className="settings-mini-form" onSubmit={handleSubmit}>
+                  {mediaFiles.map(file => (
+                    <option key={file.src} value={file.src}>{file.label}</option>
+                  ))}
+                  {copy.allowCustomPath && <option value={CUSTOM_VALUE}>Custom path or URL…</option>}
+                </select>
+                {filesLoad.status === 'failed' && (
+                  <small className="error">
+                    {asSentence(filesLoad.error)} The saved file is kept.{' '}
+                    <button type="button" className="stale-notice-retry" onClick={onRetryFiles}>Retry</button>
+                  </small>
+                )}
+              </label>
+              {showCustomInput && (
                 <label className="field">
-                  <span>Label</span>
+                  <span>Custom path or URL</span>
                   <input
-                    value={form.label}
+                    value={form.filename}
                     disabled={loading || saving}
-                    maxLength={60}
-                    placeholder={copy.labelPlaceholder}
-                    onChange={event => setForm(current => (current ? { ...current, label: event.target.value } : current))}
+                    maxLength={240}
+                    placeholder={copy.filePlaceholder}
+                    onChange={event => setForm(current => (current ? { ...current, filename: event.target.value } : current))}
                   />
                 </label>
-                <label className="field">
-                  <span>File</span>
-                  <select
-                    value={selectValue}
-                    disabled={loading || saving || (mediaFiles.length === 0 && !copy.allowCustomPath && !offCatalog)}
-                    onChange={event => onSelectFile(event.target.value)}
-                  >
-                    <option value="">Select a file…</option>
-                    {/* Keep a deleted/off-catalog binding visible for catalog-only managers. */}
-                    {!copy.allowCustomPath && offCatalog && (
-                      <option value={form.filename}>{form.filename} (missing)</option>
-                    )}
-                    {mediaFiles.map(file => (
-                      <option key={file.src} value={file.src}>{file.label}</option>
-                    ))}
-                    {copy.allowCustomPath && <option value={CUSTOM_VALUE}>Custom path or URL…</option>}
-                  </select>
-                </label>
-                {showCustomInput && (
-                  <label className="field">
-                    <span>Custom path or URL</span>
-                    <input
-                      value={form.filename}
-                      disabled={loading || saving}
-                      maxLength={240}
-                      placeholder={copy.filePlaceholder}
-                      onChange={event => setForm(current => (current ? { ...current, filename: event.target.value } : current))}
-                    />
-                  </label>
-                )}
-                <div className="command-settings-actions">
-                  <button className="modbtn gold" type="submit" disabled={loading || saving}>
-                    {saving ? 'Saving...' : `Save ${copy.noun}`}
-                  </button>
-                </div>
-              </form>
-            </>
-          )}
+              )}
+              <div className="command-settings-actions">
+                <button className="modbtn gold" type="submit" disabled={loading || saving}>
+                  {saving ? 'Saving...' : `Save ${copy.noun}`}
+                </button>
+              </div>
+            </form>
+          ) : null}
         </div>
       </div>
     </div>
@@ -737,10 +826,25 @@ const CLIP_API: MediaButtonApi = {
 
 export function ContentSection() {
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  // `[]` cannot say whether there are no files or the list failed (fileBinding).
+  const [filesLoad, setFilesLoad] = useState<PickerLoad>(PICKER_LOADING);
+  const [filesAttempt, setFilesAttempt] = useState(0);
 
   useEffect(() => {
-    void getMediaFiles().then(setMediaFiles).catch(() => setMediaFiles([]));
-  }, []);
+    let cancelled = false;
+    setFilesLoad(PICKER_LOADING);
+    void getMediaFiles()
+      .then(next => {
+        if (cancelled) return;
+        setMediaFiles(next);
+        setFilesLoad({ status: 'loaded' });
+      })
+      .catch(caught => {
+        if (!cancelled) setFilesLoad({ status: 'failed', error: errorMessage(caught, 'Could not load the media files') });
+      });
+    return () => { cancelled = true; };
+  }, [filesAttempt]);
+  const retryFiles = useCallback(() => setFilesAttempt(n => n + 1), []);
 
   const byKind = (kind: MediaKind) => mediaFiles.filter(file => file.kind === kind);
   const soundFiles = useMemo(() => byKind('audio'), [mediaFiles]);
@@ -755,6 +859,8 @@ export function ContentSection() {
       <MediaButtonManager
         api={SOUND_API}
         mediaFiles={soundFiles}
+        filesLoad={filesLoad}
+        onRetryFiles={retryFiles}
         copy={{
           noun: 'sound',
           heading: 'Sound buttons',
@@ -768,6 +874,8 @@ export function ContentSection() {
       <MediaButtonManager
         api={CLIP_API}
         mediaFiles={clipFiles}
+        filesLoad={filesLoad}
+        onRetryFiles={retryFiles}
         copy={{
           noun: 'clip',
           heading: 'Clip buttons',

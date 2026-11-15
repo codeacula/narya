@@ -1,13 +1,17 @@
-// Manual automation triggers, rendered as buttons for the dashboard and the tablet.
-// Both surfaces share useQuickActions; only the chrome differs (the dashboard's
-// panel.css uses BEM-style `quick-action--tone` modifiers, the tablet's styles.css
-// uses `quick-action-tone-x` classes).
+// Manual automation triggers, rendered as buttons on the tablet. The dashboard has no
+// quick-actions panel: one was written and registered in MODULES (622a5ff) but no
+// dashboard layout ever mounted it, so it was removed rather than left as dead code.
+// useQuickActions stays separate from the tablet chrome so a dashboard panel can be
+// added back on top of it.
 import React from 'react';
 import type { AutomationTrigger, CategoryModulesResponse, TriggerRunResult } from '../shared/api';
 import { getAutomationTriggers, getCategoryModules, runAutomationTrigger } from './services/dashboard';
 import { useSocket } from './realtime';
-import { runResultTone, summarizeRunResult } from './pages/settings/automation';
+import { runResultTone } from './pages/settings/automation';
 import { errorMessage } from './errors';
+import { EmptyState } from './ui/emptyState';
+import { ListUnavailable, SettingsAnnouncer } from './pages/settings/shared';
+import { listFace } from './pages/settings/listState';
 
 export type QuickAction = {
   id: string;
@@ -22,7 +26,11 @@ export type QuickAction = {
 export type QuickActionsState = {
   actions: QuickAction[];
   loading: boolean;
-  error: string | null;
+  /** The trigger list could not be loaded: `actions` is not "none", it is unknown. */
+  loadError: string | null;
+  /** The last run that failed to start. Says nothing about the list. */
+  runError: string | null;
+  retry: () => void;
   /** The most recent run, keyed by trigger id, so a partial run stays visible on the button. */
   runs: Record<string, TriggerRunResult>;
   runningId: string | null;
@@ -38,27 +46,32 @@ export function useQuickActions(): QuickActionsState {
   const [triggers, setTriggers] = React.useState<AutomationTrigger[]>([]);
   const [modules, setModules] = React.useState<CategoryModulesResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [runError, setRunError] = React.useState<string | null>(null);
+  const [attempt, setAttempt] = React.useState(0);
   const [runs, setRuns] = React.useState<Record<string, TriggerRunResult>>({});
   const [runningId, setRunningId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     Promise.all([getAutomationTriggers(), getCategoryModules()])
       .then(([nextTriggers, nextModules]) => {
         if (cancelled) return;
         setTriggers(nextTriggers);
         setModules(nextModules);
-        setError(null);
+        setLoadError(null);
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setError(errorMessage(caught, 'Could not load quick actions'));
+        if (!cancelled) setLoadError(errorMessage(caught, 'Could not load quick actions'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [attempt]);
+
+  const retry = React.useCallback(() => setAttempt(n => n + 1), []);
 
   useSocket<CategoryModulesResponse>('category-modules:updated', React.useCallback((payload) => {
     setModules(payload);
@@ -66,10 +79,11 @@ export function useQuickActions(): QuickActionsState {
 
   const run = React.useCallback((id: string) => {
     setRunningId(id);
+    setRunError(null);
     void runAutomationTrigger(id)
       .then(result => setRuns(current => ({ ...current, [id]: result })))
       .catch((caught: unknown) => {
-        setError(errorMessage(caught, 'Could not run the action'));
+        setRunError(errorMessage(caught, 'Could not run the action'));
       })
       .finally(() => setRunningId(null));
   }, []);
@@ -91,57 +105,13 @@ export function useQuickActions(): QuickActionsState {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [triggers, modules]);
 
-  return { actions, loading, error, runs, runningId, run };
-}
-
-/** Dashboard panel. Registered in the MODULES registry by the integrator. */
-export function QuickActionsPanel() {
-  const { actions, loading, error, runs, runningId, run } = useQuickActions();
-
-  return (
-    <div className="quick-actions">
-      {error && <div className="quick-actions-error">{error}</div>}
-
-      {loading ? (
-        <div className="command-empty">Loading quick actions...</div>
-      ) : actions.length === 0 ? (
-        <div className="command-empty">
-          No manual triggers. Add one in Settings → Automation → Manual button.
-        </div>
-      ) : (
-        <div className="quick-actions-grid">
-          {actions.map(action => {
-            const result = runs[action.id];
-            const tone = result ? runResultTone(result) : null;
-            return (
-              <button
-                className={'quick-action' + (tone ? ` quick-action--${tone}` : '') + (action.armed ? '' : ' quick-action--disarmed')}
-                type="button"
-                key={action.id}
-                disabled={runningId === action.id || !action.armed}
-                title={action.armed
-                  ? (result ? summarizeRunResult(result) : action.moduleName ?? 'Global')
-                  : `Only fires while ${action.moduleName} is the active module.`}
-                onClick={() => run(action.id)}
-              >
-                <span className="quick-action-label">{action.label}</span>
-                <span className="quick-action-scope">{action.moduleName ?? 'global'}</span>
-                {runningId === action.id && <span className="quick-action-state">running…</span>}
-                {runningId !== action.id && result && (
-                  <span className={`quick-action-state quick-action-state--${tone}`}>{result.status}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+  return { actions, loading, loadError, runError, retry, runs, runningId, run };
 }
 
 /** Tablet variant: reuses the tablet's own button chrome from styles.css. */
 export function TabletQuickActions() {
-  const { actions, loading, error, runs, runningId, run } = useQuickActions();
+  const { actions, loading, loadError, runError, retry, runs, runningId, run } = useQuickActions();
+  const face = listFace({ loading, loadFailed: loadError !== null, count: actions.length });
 
   return (
     <section className="tablet-panel quick-actions-panel">
@@ -152,13 +122,20 @@ export function TabletQuickActions() {
         </div>
       </div>
 
-      {error && <p className="tablet-error">{error}</p>}
+      {/* The load error is the unavailable face below, not this line: drawing both
+          put "No quick actions" under "Could not load quick actions". */}
+      <SettingsAnnouncer error={runError} />
+      {runError && <p className="tablet-error" aria-hidden="true">{runError}</p>}
 
       <div className="tablet-button-grid">
-        {loading ? (
-          <p className="muted">Loading…</p>
-        ) : actions.length === 0 ? (
-          <p className="muted">No manual triggers — add them in Settings → Automation.</p>
+        {face === 'unavailable' ? (
+          <ListUnavailable size="note" title="Quick actions unavailable" onRetry={retry} retrying={loading} />
+        ) : face === 'loading' ? (
+          <EmptyState size="note" title="Loading quick actions…" />
+        ) : face === 'empty' ? (
+          <EmptyState size="note" title="No quick actions">
+            Add a Manual button trigger in Settings → Automation.
+          </EmptyState>
         ) : actions.map(action => {
           const result = runs[action.id];
           const tone = result ? runResultTone(result) : null;

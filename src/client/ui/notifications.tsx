@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from './icons';
 
 export type ToastKind = 'info' | 'success' | 'error';
 
@@ -52,7 +53,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               {toast.message ? <div className="toast-message">{toast.message}</div> : null}
             </div>
             <button type="button" className="toast-close" aria-label="Dismiss" onClick={() => dismissToast(toast.id)}>
-              ×
+              <Icon name="x" size={14} aria-hidden="true" focusable="false" />
             </button>
           </div>
         ))}

@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { Icon } from '../../ui/icons';
 import type { AppConfig } from '../../../shared/api';
-import { useToast } from '../../ui/notifications';
 import { getAppConfig, updateAppConfig } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
-import { SettingsStatus } from './shared';
+import { FormUnavailable, SettingsAnnouncer, SettingsStatus } from './shared';
+import { formFace } from './listState';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 
 type AppConfigForm = {
   twitchChannel: string;
@@ -81,35 +83,69 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   clearRedisUrl: false,
 };
 
-export function ConnectionsSection({ eventSubConnected, redisConnected }: { eventSubConnected: boolean; redisConnected: boolean }) {
-  const { pushToast } = useToast();
-  const [appConfigForm, setAppConfigForm] = useState<AppConfigForm>(EMPTY_APP_CONFIG_FORM);
+export function ConnectionsSection({
+  statusKnown,
+  eventSubConnected,
+  redisConnected,
+}: {
+  /**
+   * False until the dashboard has heard a status. Before then `eventSubConnected` and
+   * `redisConnected` are placeholders, and the "offline" alerts would state them as fact.
+   */
+  statusKnown: boolean;
+  eventSubConnected: boolean;
+  redisConnected: boolean;
+}) {
+  const {
+    draft: appConfigForm,
+    setDraft: setAppConfigForm,
+    resetDraft: resetAppConfigForm,
+    dirty: appConfigDirty,
+  } = useDraft<AppConfigForm>(EMPTY_APP_CONFIG_FORM);
   const [appConfigLoading, setAppConfigLoading] = useState(true);
   const [appConfigSaving, setAppConfigSaving] = useState(false);
   const [appConfigMessage, setAppConfigMessage] = useState<string | null>(null);
   const [appConfigError, setAppConfigError] = useState<string | null>(null);
+  // The form starts empty, and every field is PUT on save — so a failed load must not
+  // leave blanks on screen with a live Save, or it clears the channel, client ID and
+  // OBS URL (`formFace`).
+  const [appConfigLoaded, setAppConfigLoaded] = useState(false);
+  const [appConfigLoadFailed, setAppConfigLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const face = formFace({ loaded: appConfigLoaded, loadFailed: appConfigLoadFailed });
 
   useEffect(() => {
     let cancelled = false;
     setAppConfigLoading(true);
+    // Cleared so a retry that fails the same way is announced again.
+    setAppConfigError(null);
     void getAppConfig()
       .then(config => {
         if (!cancelled) {
-          setAppConfigForm(appConfigToForm(config));
+          resetAppConfigForm(appConfigToForm(config));
+          setAppConfigLoaded(true);
+          setAppConfigLoadFailed(false);
           setAppConfigError(null);
         }
       })
       .catch(error => {
-        if (!cancelled) setAppConfigError(errorMessage(error, 'Could not load configuration'));
+        if (cancelled) return;
+        setAppConfigLoadFailed(true);
+        setAppConfigError(errorMessage(error, 'Could not load configuration'));
       })
       .finally(() => {
         if (!cancelled) setAppConfigLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [loadAttempt]);
+
+  // Secrets are write-only fields that start blank, so typing one makes the form dirty
+  // exactly like any other edit.
+  useDirtyGuard(appConfigDirty, 'Connections & credentials');
 
   const handleAppConfigSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (face !== 'form') return;
     setAppConfigSaving(true);
     setAppConfigMessage(null);
     setAppConfigError(null);
@@ -132,15 +168,15 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
       clearRedisUrl: appConfigForm.clearRedisUrl,
     })
       .then(config => {
-        setAppConfigForm(appConfigToForm(config));
+        resetAppConfigForm(appConfigToForm(config));
+        // Reported here only: the settings:updated broadcast this save causes raises
+        // no toast in this window (settingsEcho.ts), so it is not said twice.
         setAppConfigMessage('Saved — reconnecting affected services.');
-        // No success toast here: the settings:updated broadcast handler
-        // (serviceStatus.tsx) already shows one in this same browser.
       })
       .catch(error => {
-        const message = errorMessage(error, 'Could not save configuration');
-        setAppConfigError(message);
-        pushToast({ kind: 'error', title: 'Could not save connections', message });
+        // Reported once, beside the Save button (the settings feedback rule in
+        // shared.tsx) — a toast as well said the same thing twice.
+        setAppConfigError(errorMessage(error, 'Could not save configuration'));
       })
       .finally(() => setAppConfigSaving(false));
   };
@@ -149,9 +185,20 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
     <div className="set-group">
       <div className="set-group-label">Connections &amp; credentials</div>
 
-      {!appConfigLoading && (!appConfigForm.twitchClientId || !appConfigForm.twitchClientSecretConfigured) && (
+      {/* The form and its unavailable face swap, so neither holds the live regions. */}
+      <SettingsAnnouncer message={appConfigMessage} error={appConfigError} />
+
+      {face === 'unavailable' ? (
+        <>
+          <SettingsStatus error={appConfigError} announce={false} />
+          <FormUnavailable title="Connections unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={appConfigLoading} />
+        </>
+      ) : (
+      <>
+
+      {face === 'form' && (!appConfigForm.twitchClientId || !appConfigForm.twitchClientSecretConfigured) && (
         <div className="settings-alert settings-alert--warn">
-          <span className="settings-alert-icon">!</span>
+          <Icon name="alert" className="settings-alert-icon" aria-hidden="true" />
           <span>
             Twitch app credentials are required for EventSub, uptime, and the ad schedule.
             Create an application at{' '}
@@ -162,19 +209,19 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
           </span>
         </div>
       )}
-      {!appConfigLoading && appConfigForm.twitchClientId && appConfigForm.twitchClientSecretConfigured
+      {face === 'form' && statusKnown && appConfigForm.twitchClientId && appConfigForm.twitchClientSecretConfigured
         && !eventSubConnected && (
         <div className="settings-alert settings-alert--info">
-          <span className="settings-alert-icon">i</span>
+          <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
           <span>
-            Twitch app credentials are set but EventSub is not connected. Use “Login with Twitch”
+            Twitch app credentials are set but Twitch EventSub is offline. Use “Login with Twitch”
             above to authorize, then events will start flowing.
           </span>
         </div>
       )}
-      {!appConfigLoading && !appConfigForm.redisConfigured && (
+      {face === 'form' && !appConfigForm.redisConfigured && (
         <div className="settings-alert settings-alert--info">
-          <span className="settings-alert-icon">i</span>
+          <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
           <span>
             Redis is optional. Set a Redis URL below to publish redeems and other events onto a
             stream for external apps (see Settings → Apps) to consume — Narya works exactly the
@@ -182,11 +229,11 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
           </span>
         </div>
       )}
-      {!appConfigLoading && appConfigForm.redisConfigured && !redisConnected && (
+      {face === 'form' && statusKnown && appConfigForm.redisConfigured && !redisConnected && (
         <div className="settings-alert settings-alert--warn">
-          <span className="settings-alert-icon">!</span>
+          <Icon name="alert" className="settings-alert-icon" aria-hidden="true" />
           <span>
-            Redis is configured but not connected — check the URL and credentials. Events are not
+            Redis is configured but offline — check the URL and credentials. Events are not
             being published until the connection recovers.
           </span>
         </div>
@@ -232,7 +279,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
               />
             </label>
             {appConfigForm.twitchClientSecretConfigured && (
-              <label className="command-enabled" style={{ marginTop: 8 }}>
+              <label className="command-enabled secret-clear">
                 <input
                   type="checkbox"
                   checked={appConfigForm.clearTwitchClientSecret}
@@ -267,7 +314,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
               />
             </label>
             {appConfigForm.obsPasswordConfigured && (
-              <label className="command-enabled" style={{ marginTop: 8 }}>
+              <label className="command-enabled secret-clear">
                 <input
                   type="checkbox"
                   checked={appConfigForm.clearObsPassword}
@@ -317,7 +364,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
               />
             </label>
             {appConfigForm.discordBotTokenConfigured && (
-              <label className="command-enabled" style={{ marginTop: 8 }}>
+              <label className="command-enabled secret-clear">
                 <input
                   type="checkbox"
                   checked={appConfigForm.clearDiscordBotToken}
@@ -346,7 +393,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
             </small>
           </label>
           {appConfigForm.redisConfigured && (
-            <label className="command-enabled" style={{ marginTop: 8 }}>
+            <label className="command-enabled secret-clear">
               <input
                 type="checkbox"
                 checked={appConfigForm.clearRedisUrl}
@@ -395,7 +442,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
           </label>
         </div>
 
-        <SettingsStatus message={appConfigMessage} error={appConfigError} />
+        <SettingsStatus message={appConfigMessage} error={appConfigError} announce={false} />
 
         <div className="command-settings-actions">
           <button className="modbtn gold" type="submit" disabled={appConfigLoading || appConfigSaving}>
@@ -403,6 +450,8 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
           </button>
         </div>
       </form>
+      </>
+      )}
     </div>
   );
 }

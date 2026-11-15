@@ -1,4 +1,5 @@
 import React from 'react';
+import { useConfirm } from '../ui/confirm';
 import type { SavedStreamCategory, TwitchCategorySuggestion } from '../../shared/api';
 import {
   addSavedStreamCategory,
@@ -9,12 +10,15 @@ import {
   setSavedStreamCategoryHidden,
   setStreamCategoryTags,
 } from '../services/dashboard';
-import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
+import { formatBoxArtUrl, suggestionFace, suggestionFailedText, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { Icon } from '../ui/icons';
-import { SettingsHeader } from './settings/shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './settings/shared';
+import { listFace } from './settings/listState';
 import { errorMessage } from '../errors';
-import { CrystalOrb } from '../crystalOrb';
+import { EmptyState } from '../ui/emptyState';
+import { useDirtyGuard, useOpenIds } from '../ui/dirtyGuard';
+import { keepOpenInView } from '../ui/dirtyGuardLogic';
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -23,12 +27,14 @@ function normalizeTagInput(value: string): string {
 function CategoryCard({
   category,
   busy,
+  setOpen,
   onSaveTags,
   onToggleHidden,
   onDelete,
 }: {
   category: SavedStreamCategory;
   busy: boolean;
+  setOpen: (id: string, open: boolean) => void;
   onSaveTags: (tags: string[]) => void;
   onToggleHidden: () => void;
   onDelete: () => void;
@@ -37,6 +43,11 @@ function CategoryCard({
   const [tagInput, setTagInput] = React.useState('');
   const [tagFocused, setTagFocused] = React.useState(false);
   const dirty = tags.join(' ') !== category.tags.join(' ');
+  useDirtyGuard(dirty, `the tags for ${category.name}`);
+  // Unsaved tags keep this card listed past "Show hidden" (keepOpenInView): hiding it,
+  // or turning the filter off, would otherwise unmount it and drop the tags unasked.
+  React.useEffect(() => { setOpen(category.id, dirty); }, [setOpen, category.id, dirty]);
+  React.useEffect(() => () => setOpen(category.id, false), [setOpen, category.id]);
 
   // Any save/hide/delete replaces the whole category list, handing every card a
   // fresh `tags` array. Sync local state only when THIS card's persisted value
@@ -58,8 +69,10 @@ function CategoryCard({
     }),
     [tags],
   );
-  const { suggestions, loading } = useDebouncedSuggestions(tagInput, tagFetcher, { minLength: 1 });
-  const showSuggestions = tagFocused && (loading || suggestions.length > 0);
+  const { suggestions, loading, error: tagSearchError } = useDebouncedSuggestions(tagInput, tagFetcher, { minLength: 1 });
+  const tagFace = suggestionFace({ loading, error: tagSearchError, count: suggestions.length });
+  // An empty answer shows nothing (a tag is typed freely); a failed one says so.
+  const showSuggestions = tagFocused && tagFace !== 'none';
 
   const addTag = (value: string) => {
     const tag = normalizeTagInput(value);
@@ -81,7 +94,7 @@ function CategoryCard({
           {category.rewardGroups.length > 0 ? (
             <div className="cat-groups">
               {category.rewardGroups.map(group => (
-                <span className="cat-group" key={group.id} title="Reward group that switches on with this category">◆ {group.name}</span>
+                <span className="cat-group" key={group.id} title="Reward group that switches on with this category"><Icon name="gem" size={10} aria-hidden="true" />{group.name}</span>
               ))}
             </div>
           ) : (
@@ -120,8 +133,10 @@ function CategoryCard({
             />
             {showSuggestions && (
               <div className="suggestion-list">
-                {loading ? (
+                {tagFace === 'searching' ? (
                   <div className="suggestion-empty">Searching tags...</div>
+                ) : tagFace === 'failed' ? (
+                  <div className="suggestion-empty suggestion-empty--error">{suggestionFailedText(tagSearchError ?? '')}</div>
                 ) : suggestions.map(tag => (
                   <button
                     key={tag}
@@ -157,7 +172,8 @@ function AddCategoryControl({
 }) {
   const [search, setSearch] = React.useState('');
   const [focused, setFocused] = React.useState(false);
-  const { suggestions, loading } = useDebouncedSuggestions(search, getCategorySuggestions, { enabled: !busy });
+  const { suggestions, loading, error: searchError } = useDebouncedSuggestions(search, getCategorySuggestions, { enabled: !busy });
+  const face = suggestionFace({ loading, error: searchError, count: suggestions.length });
   const showSuggestions = focused && (loading || suggestions.length > 0 || search.trim().length >= 2);
 
   const pick = (suggestion: TwitchCategorySuggestion) => {
@@ -196,9 +212,11 @@ function AddCategoryControl({
           />
           {showSuggestions && (
             <div className="suggestion-list">
-              {loading ? (
+              {face === 'searching' ? (
                 <div className="suggestion-empty">Searching categories...</div>
-              ) : suggestions.length === 0 ? (
+              ) : face === 'failed' ? (
+                <div className="suggestion-empty suggestion-empty--error">{suggestionFailedText(searchError ?? '')}</div>
+              ) : face === 'none' ? (
                 <div className="suggestion-empty">No matches</div>
               ) : suggestions.map(category => (
                 <button
@@ -220,61 +238,92 @@ function AddCategoryControl({
 }
 
 export function StreamCategoriesPage() {
+  const confirm = useConfirm();
   const [categories, setCategories] = React.useState<SavedStreamCategory[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [message, setMessage] = React.useState<string | null>(null);
+  // A failed load is not "no saved categories" — see listFace. Cleared by any call
+  // that hands back the whole list, since each mutation returns it.
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [loadAttempt, setLoadAttempt] = React.useState(0);
   const [showHidden, setShowHidden] = React.useState(false);
 
   React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     getSavedStreamCategories()
-      .then(setCategories)
-      .catch((caught: unknown) => setError(errorMessage(caught, 'Could not load stream categories.')))
-      .finally(() => setLoading(false));
-  }, []);
+      .then(next => {
+        if (cancelled) return;
+        setCategories(next);
+        setLoadFailed(false);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load stream categories.'));
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [loadAttempt]);
 
-  const run = async (action: () => Promise<SavedStreamCategory[]>) => {
+  /**
+   * Every write goes through here and reports itself on the page's one
+   * `SettingsStatus` line — the outcome when it worked as well as when it failed (the
+   * feedback rule in settings/shared.tsx).
+   */
+  const run = async (action: () => Promise<SavedStreamCategory[]>, done: string, failed: string) => {
     setBusy(true);
     setError(null);
+    setMessage(null);
     try {
       setCategories(await action());
+      setLoadFailed(false);
+      setMessage(done);
     } catch (caught) {
-      setError(errorMessage(caught, 'Action failed.'));
+      setError(errorMessage(caught, failed));
     } finally {
       setBusy(false);
     }
   };
 
-  const visible = categories.filter(cat => showHidden || !cat.hidden);
+  const { open: dirtyIds, setOpen } = useOpenIds<string>();
+  const visible = keepOpenInView(categories, cat => showHidden || !cat.hidden, dirtyIds, cat => cat.id);
   const hiddenCount = categories.filter(cat => cat.hidden).length;
+  const face = listFace({ loading, loadFailed, count: categories.length });
 
   return (
     <div className="cats-page">
         <SettingsHeader
           section="categories"
-          meta={
-            <p className="cats-count">
-              <b>{categories.length}</b> saved
-              {hiddenCount > 0 ? <><span className="cats-count-dot" /><b>{hiddenCount}</b> hidden</> : null}
-            </p>
-          }
+          counts={loadFailed ? undefined : [
+            { value: categories.length, one: 'saved', other: 'saved' },
+            { value: hiddenCount, one: 'hidden', other: 'hidden', hideWhenZero: true },
+          ]}
         />
 
         <AddCategoryControl
           busy={busy}
-          onAdd={suggestion => void run(() => addSavedStreamCategory({ id: suggestion.id, name: suggestion.name, boxArtUrl: suggestion.boxArtUrl }))}
+          onAdd={suggestion => void run(
+            () => addSavedStreamCategory({ id: suggestion.id, name: suggestion.name, boxArtUrl: suggestion.boxArtUrl }),
+            `Added ${suggestion.name}.`,
+            `Could not add ${suggestion.name}.`,
+          )}
         />
 
-        {error ? <div className="viewers-status is-error" role="status">{error}</div> : null}
+        <SettingsStatus message={message} error={error} />
 
-        {loading ? (
-          <div className="empty-state"><CrystalOrb variant="moon" size={40} /><div className="es-title">Charting your categories…</div></div>
-        ) : categories.length === 0 ? (
-          <div className="empty-state">
-            <CrystalOrb variant="moon" size={40} />
-            <div className="es-title">No saved categories yet</div>
-            <div className="es-sub">Search for a category above to add your first one — or pick one in Stream Info and it lands here.</div>
-          </div>
+        {face === 'loading' ? (
+          <EmptyState title="Charting your categories…" />
+        ) : face === 'unavailable' ? (
+          <ListUnavailable title="Saved categories unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
+        ) : face === 'empty' ? (
+          <EmptyState title="No saved categories yet">Search for a category above to add your first one — or pick one in Stream Info and it lands here.</EmptyState>
         ) : (
           <>
             {hiddenCount > 0 && (
@@ -295,12 +344,29 @@ export function StreamCategoriesPage() {
                   key={category.id}
                   category={category}
                   busy={busy}
-                  onSaveTags={tags => void run(() => setStreamCategoryTags(category.id, tags))}
-                  onToggleHidden={() => void run(() => setSavedStreamCategoryHidden(category.id, !category.hidden))}
-                  onDelete={() => {
-                    if (window.confirm(`Remove "${category.name}" from saved categories? Its tag mappings are deleted.`)) {
-                      void run(() => deleteStreamCategory(category.id));
-                    }
+                  setOpen={setOpen}
+                  onSaveTags={tags => void run(
+                    () => setStreamCategoryTags(category.id, tags),
+                    `Tags saved for ${category.name}.`,
+                    `Could not save the tags for ${category.name}.`,
+                  )}
+                  onToggleHidden={() => void run(
+                    () => setSavedStreamCategoryHidden(category.id, !category.hidden),
+                    category.hidden ? `${category.name} is shown in pickers again.` : `${category.name} is hidden from pickers.`,
+                    `Could not ${category.hidden ? 'show' : 'hide'} ${category.name}.`,
+                  )}
+                  onDelete={async () => {
+                    const ok = await confirm({
+                      title: `Remove "${category.name}"?`,
+                      body: 'It leaves your saved categories, and its tag mappings are deleted with it.',
+                      confirmLabel: 'Remove category',
+                      tone: 'danger',
+                    });
+                    if (ok) void run(
+                      () => deleteStreamCategory(category.id),
+                      `Removed ${category.name}.`,
+                      `Could not remove ${category.name}.`,
+                    );
                   }}
                 />
               ))}
