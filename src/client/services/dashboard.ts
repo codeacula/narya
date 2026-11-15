@@ -1,3 +1,4 @@
+import { settingsEcho } from '../settingsEcho';
 import type {
   Action,
   ActionRunResult,
@@ -160,7 +161,8 @@ export async function getAppConfig(): Promise<AppConfig> {
 }
 
 export async function updateAppConfig(update: AppConfigUpdate): Promise<AppConfig> {
-  return sendJson<AppConfig>('/api/config', 'PUT', update);
+  // Tracked so this window's own settings:updated echo raises no toast (settingsEcho.ts).
+  return settingsEcho.track(sendJson<AppConfig>('/api/config', 'PUT', update));
 }
 
 // --- App registry --------------------------------------------------------------

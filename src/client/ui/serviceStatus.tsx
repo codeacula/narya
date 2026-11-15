@@ -2,6 +2,7 @@ import React from 'react';
 import type { DashboardStatus, DiscordAnnounceFailedPayload, SettingsUpdatedPayload } from '../../shared/api';
 import { useSocket } from '../realtime';
 import { useToast } from './notifications';
+import { settingsEcho } from '../settingsEcho';
 import { serviceSnapshot, serviceTransitionToasts, type ServiceSnapshot } from './serviceTransitions';
 
 // Watches live service status and settings changes, surfacing transient toasts with
@@ -19,11 +20,14 @@ export function ServiceStatusToasts() {
     for (const toast of toasts) pushToast(toast);
   }, [pushToast]);
 
-  const onSettings = React.useCallback((_payload: SettingsUpdatedPayload) => {
+  // A save made in this window is already reported beside its form, so only a save
+  // made elsewhere (another dashboard window) is worth a toast here (settingsEcho.ts).
+  const onSettings = React.useCallback((payload: SettingsUpdatedPayload) => {
+    if (settingsEcho.isOwnEcho(payload.updatedAt)) return;
     pushToast({
       kind: 'info',
-      title: 'Settings saved',
-      message: 'Reconnecting affected services…',
+      title: 'Settings saved elsewhere',
+      message: 'Another window changed the settings. Reconnecting affected services…',
       durationMs: 4000,
     });
   }, [pushToast]);

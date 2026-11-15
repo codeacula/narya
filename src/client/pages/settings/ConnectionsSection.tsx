@@ -142,9 +142,9 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
     })
       .then(config => {
         resetAppConfigForm(appConfigToForm(config));
+        // Reported here only: the settings:updated broadcast this save causes raises
+        // no toast in this window (settingsEcho.ts), so it is not said twice.
         setAppConfigMessage('Saved — reconnecting affected services.');
-        // No success toast here: the settings:updated broadcast handler
-        // (serviceStatus.tsx) already shows one in this same browser.
       })
       .catch(error => {
         // Reported once, beside the Save button (the settings feedback rule in
