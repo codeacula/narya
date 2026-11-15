@@ -390,14 +390,21 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const handleTwitchLogout = React.useCallback(() => void disconnectTwitchAccount('user'), [disconnectTwitchAccount]);
   const handleTwitchBotLogout = React.useCallback(() => void disconnectTwitchAccount('bot'), [disconnectTwitchAccount]);
 
+  // The stat bar's retry is the only place this is asked for, and a refusal used to go
+  // to the console alone: the button just did nothing.
   const handleReconnectEventSub = React.useCallback(() => {
     void reconnectEventSub()
       .then(() => getDashboardStatus())
       .then(setStatus)
       .catch((error: unknown) => {
         console.error('Failed to reconnect EventSub:', error);
+        pushToast({
+          kind: 'error',
+          title: 'Could not reconnect Twitch EventSub',
+          message: errorMessage(error, 'The server did not respond.'),
+        });
       });
-  }, []);
+  }, [pushToast]);
 
   const refreshDashboardStatus = React.useCallback(() => {
     void getDashboardStatus().then(setStatus).catch((error: unknown) => {
