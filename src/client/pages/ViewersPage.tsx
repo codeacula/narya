@@ -11,7 +11,7 @@ import {
   getViewerRoster,
   getVips,
 } from '../services/dashboard';
-import { mergeRoster, type Person } from '../viewerRoster';
+import { mergeRoster, rosterRefreshError, type Person } from '../viewerRoster';
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
 import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
@@ -169,7 +169,8 @@ export function ViewersPage({
   const { health: rosterHealth, succeeded: rosterSucceeded, failed: rosterFailed } = useRefreshHealth();
 
   const refresh = React.useCallback(async () => {
-    setError(null);
+    // The error line is not cleared here: it is replaced once the fetches settle, so an
+    // unchanged error keeps its node and is not re-announced on every poll.
     const generation = ++refreshGeneration.current;
     const [rosterRes, chattersRes, vipsRes, modsRes, ignoredRes] = await Promise.allSettled([
       getViewerRoster(), getChatters(), getVips(), getModerators(), getIgnoredLogins(),
@@ -193,13 +194,7 @@ export function ViewersPage({
       setIgnoredLogins(new Set(ignoredRes.value.map(entry => entry.login.toLowerCase())));
       setIgnoresLoaded(true);
     }
-    // The roster loads without Twitch; only the VIP/mod lists need the new scopes.
-    if (vipsRes.status === 'rejected' || modsRes.status === 'rejected') {
-      const reason = (vipsRes.status === 'rejected' ? vipsRes.reason : (modsRes as PromiseRejectedResult).reason);
-      setError(errorMessage(reason, 'Reconnect Twitch to manage VIPs and moderators.'));
-    } else if (rosterRes.status === 'rejected') {
-      setError(errorMessage(rosterRes.reason, 'Could not load your viewer roster.'));
-    }
+    setError(rosterRefreshError(rosterRes, vipsRes, modsRes));
   }, [rosterSucceeded, rosterFailed]);
 
   React.useEffect(() => { void refresh().finally(() => setLoading(false)); }, [refresh]);
@@ -305,8 +300,8 @@ export function ViewersPage({
     } catch (caught) {
       outcome = { ok: false, text: errorMessage(caught, `Could not ${label}.`) };
     }
-    // Re-sync the roster/role lists first, THEN surface the outcome — refresh() clears
-    // `error` on entry, so setting it afterward keeps the action's feedback from being wiped.
+    // Re-sync the roster/role lists first, THEN surface the outcome — refresh() replaces
+    // `error` with its own result, so setting it afterward keeps the action's feedback.
     await refresh();
     if (outcome.ok) setMessage(outcome.text);
     else setError(outcome.text);
