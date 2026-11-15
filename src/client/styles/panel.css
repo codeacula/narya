@@ -479,17 +479,43 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
    (minmax(320px, 0.8fr)), so it would occlude message text on every row. */
 .tablet-shell .msg-mod {
   position: static;
-  display: flex; gap: 8px;
+  display: flex; gap: 12px;
   margin-top: 7px;
   opacity: 1; pointer-events: auto;
 }
-/* Finger-sized, matching the AutoMod row buttons — the closest existing
-   always-visible row action on this surface. */
+/* 44px is the touch-target floor: these sit in a list that scrolls under the
+   operator's thumb, so a near miss lands on the neighbouring button. */
 .tablet-shell .msg-mod-btn {
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 44px; min-width: 56px;
+  padding: 0 16px;
   font-size: 12px;
   border-radius: var(--radius-2);
+}
+/* Ban is the one row action that cannot be undone from here, so it does not sit
+   in the same cluster as pin and 10m: it is pushed to the far end of the row,
+   behind a hairline, where a tap meant for its neighbours cannot reach it. The
+   arm-then-confirm step (and its timed disarm, in Chat.tsx) is the second guard. */
+.tablet-shell .msg-mod-btn.danger {
+  position: relative;
+  margin-left: auto;
+}
+.tablet-shell .msg-mod-btn.danger::before {
+  content: '';
+  position: absolute; left: -12px; top: 6px; bottom: 6px;
+  border-left: 1px solid var(--border-1);
+}
+/* The tablet's large-button chrome (styles.css) restyles every button on :hover and
+   :active, and a touch screen keeps :hover on whatever was last tapped. Without these
+   the armed ban took that gold hover border and near-transparent fill while keeping its
+   dark armed text — the "sure?" was unreadable exactly when it mattered. */
+.tablet-shell .msg-mod-btn.danger:hover:not(:disabled),
+.tablet-shell .msg-mod-btn.danger:active:not(:disabled) {
+  border-color: var(--danger-border); background: var(--danger-bg);
+}
+.tablet-shell .msg-mod-btn.danger.armed,
+.tablet-shell .msg-mod-btn.danger.armed:hover:not(:disabled),
+.tablet-shell .msg-mod-btn.danger.armed:active:not(:disabled) {
+  color: var(--fg-inverse); background: var(--danger-base); border-color: var(--danger-base);
 }
 /* The tablet's house press feedback, since hover tells a finger nothing. */
 .tablet-shell .msg-mod-btn:active:not(:disabled) { transform: scale(0.97); }
