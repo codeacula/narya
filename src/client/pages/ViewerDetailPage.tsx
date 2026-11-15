@@ -53,9 +53,12 @@ function viewerFromPerson(person: Person): Viewer {
  * rather than on their standing in the channel.
  *
  * Flush is destructive and confirms through the shared dialog with the viewer's login
- * typed in, like a Twitch-side delete: the quote anonymization it does cannot be undone
- * (`unflushViewer` has no login left to restore from), so a stray Enter or a double
- * click must not be enough. The dialog lists what will go, so it cannot be confirmed
+ * typed in, like a Twitch-side delete. Almost all of it is permanent: `flushViewer`
+ * hard-deletes the roster row, profile and notes, stored and archived messages, AI
+ * reply history and per-viewer overrides, and anonymizes their quotes for good.
+ * `unflushViewer` only lifts the ignore-list entry, so the viewer can be recorded again
+ * from then on — nothing deleted comes back. A stray Enter or a double click must not
+ * be enough, and the dialog says what is lost for good, so it cannot be confirmed
  * without the consequences in front of the operator.
  */
 function ViewerRecordActions({
@@ -94,8 +97,8 @@ function ViewerRecordActions({
       title: `Flush @${login}?`,
       body: (
         <>
-          <p>Narya forgets this viewer: their roster entry, profile, stored and archived chat messages and AI reply history are removed, their per-viewer trigger overrides are deleted, and their login goes on the ignore list so chat and presence do not bring them back.</p>
-          <p>Quotes they submitted are kept but anonymized, and that part cannot be undone. Nothing changes on Twitch.</p>
+          <p>Narya forgets this viewer for good: their roster entry, profile and notes, stored and archived chat messages, AI reply history and per-viewer trigger overrides are deleted, and quotes they submitted are kept but anonymized. None of that can be undone.</p>
+          <p>Their login also goes on the ignore list so chat and presence do not record them again. Lifting that later only lets Narya start recording them afresh. Nothing changes on Twitch.</p>
         </>
       ),
       confirmLabel: 'Flush viewer',
