@@ -1014,7 +1014,20 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 }
 .set-head-main { min-width: 0; }
 .set-head .set-intro { margin-bottom: 0; }
-.set-head .cats-count { margin-top: var(--space-3); }
+/* The count line: mono, the numbers in gold. Data from `counts`, never page markup. */
+.set-head-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  letter-spacing: var(--track-wide);
+  color: var(--fg-2);
+}
+.set-head-meta b { color: var(--fg-accent); font-weight: 600; }
+.set-head-meta-dot { width: 3px; height: 3px; border-radius: var(--radius-pill); background: var(--silver-600); }
 .set-head-actions {
   flex: none;
   display: flex;
@@ -2771,18 +2784,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 .settings-alert-icon { flex: none; font-weight: 700; }
 
 /* ---------------- Stream categories — "game crests" ---------------- */
-.cats-count {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--step--1);
-  letter-spacing: var(--track-wide);
-  color: var(--fg-2);
-}
-.cats-count b { color: var(--fg-accent); font-weight: 600; }
-.cats-count-dot { width: 3px; height: 3px; border-radius: var(--radius-pill); background: var(--silver-600); }
 .cats-toolbar { margin-bottom: var(--space-4); }
 
 /* Carries `.field` as well, which supplies the column layout, the label typography

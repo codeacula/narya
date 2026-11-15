@@ -174,105 +174,109 @@ export function QuotesPage() {
   const disabled = loading || busy;
 
   return (
-    <div className="quotes-page">
+    <>
       <SettingsHeader
         section="quotes"
-        meta={<div className="set-sub">{quotes.length === 0 ? 'No quotes yet' : `${quotes.length} quote${quotes.length === 1 ? '' : 's'}`}</div>}
+        counts={[{ value: quotes.length, one: 'quote' }]}
       />
 
-      <SettingsStatus message={message} error={error} />
+      {/* The header sits outside the column so its spacing is the shell's, not this
+          column's gap — every section's header has to measure the same. */}
+      <div className="quotes-page">
+        <SettingsStatus message={message} error={error} />
 
-      <div className="quote-add">
-        <label className="field settings-wide-field">
-          <span>New quote</span>
-          <input
-            value={draft.text}
-            disabled={disabled}
-            maxLength={MAX_QUOTE_LENGTH}
-            placeholder="I'm hungry for pizza!"
-            onChange={event => setDraft({ ...draft, text: event.target.value })}
-          />
-        </label>
-        <label className="field">
-          <span>Keyword (optional)</span>
-          <input
-            value={draft.slug}
-            disabled={disabled}
-            maxLength={MAX_QUOTE_SLUG_LENGTH}
-            placeholder="pizza"
-            onChange={event => setDraft({ ...draft, slug: event.target.value })}
-          />
-        </label>
-        <label className="field">
-          <span>Submitted by</span>
-          <input
-            value={draft.submittedBy}
-            disabled={disabled}
-            maxLength={60}
-            placeholder="operator"
-            onChange={event => setDraft({ ...draft, submittedBy: event.target.value })}
-          />
-        </label>
-        <button className="modbtn gold" type="button" disabled={disabled || !draft.text.trim()} onClick={add}>
-          Add quote
-        </button>
-      </div>
+        <div className="quote-add">
+          <label className="field settings-wide-field">
+            <span>New quote</span>
+            <input
+              value={draft.text}
+              disabled={disabled}
+              maxLength={MAX_QUOTE_LENGTH}
+              placeholder="I'm hungry for pizza!"
+              onChange={event => setDraft({ ...draft, text: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>Keyword (optional)</span>
+            <input
+              value={draft.slug}
+              disabled={disabled}
+              maxLength={MAX_QUOTE_SLUG_LENGTH}
+              placeholder="pizza"
+              onChange={event => setDraft({ ...draft, slug: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>Submitted by</span>
+            <input
+              value={draft.submittedBy}
+              disabled={disabled}
+              maxLength={60}
+              placeholder="operator"
+              onChange={event => setDraft({ ...draft, submittedBy: event.target.value })}
+            />
+          </label>
+          <button className="modbtn gold" type="button" disabled={disabled || !draft.text.trim()} onClick={add}>
+            Add quote
+          </button>
+        </div>
 
-      {quotes.length > 0 && (
-        <label className="field quote-search">
-          <span>Find</span>
-          <input
-            value={search}
-            disabled={loading}
-            placeholder="Number, keyword, or text"
-            onChange={event => setSearch(event.target.value)}
-          />
-        </label>
-      )}
-
-      <div className="quote-list">
-        {loading && <div className="command-empty">Loading quotes…</div>}
-        {!loading && quotes.length === 0 && (
-          <div className="command-empty">
-            No quotes yet. Add one above, or wire a viewer command to a “Save a quote” step in Settings → Actions.
-          </div>
+        {quotes.length > 0 && (
+          <label className="field quote-search">
+            <span>Find</span>
+            <input
+              value={search}
+              disabled={loading}
+              placeholder="Number, keyword, or text"
+              onChange={event => setSearch(event.target.value)}
+            />
+          </label>
         )}
-        {!loading && quotes.length > 0 && visible.length === 0 && (
-          <div className="command-empty">No quote matches “{search}”.</div>
-        )}
-        {visible.map(quote => (
-          <QuoteCard
-            key={quote.id}
-            quote={quote}
-            busy={disabled}
-            onSave={next => act(
-              () => updateQuote(quote.id, {
-                text: next.text,
-                slug: next.slug.trim() || null,
-                submittedBy: next.submittedBy,
-              }),
-              `Quote ${quote.number} saved.`,
-              'Could not save the quote',
-            )}
-            onDelete={async () => {
-              // quote_sequence never reuses a number, so removing quote 12 retires 12
-              // for good while it is still circulating in Discord and screenshots.
-              const ok = await confirm({
-                title: `Remove quote ${quote.number}?`,
-                body: `Number ${quote.number} is retired for good and cannot be reissued.`,
-                confirmLabel: 'Remove quote',
-                tone: 'danger',
-              });
-              if (!ok) return;
-              act(
-                () => deleteQuote(quote.id),
-                `Quote ${quote.number} removed.`,
-                'Could not remove the quote',
-              );
-            }}
-          />
-        ))}
+
+        <div className="quote-list">
+          {loading && <div className="command-empty">Loading quotes…</div>}
+          {!loading && quotes.length === 0 && (
+            <div className="command-empty">
+              No quotes yet. Add one above, or wire a viewer command to a “Save a quote” step in Settings → Actions.
+            </div>
+          )}
+          {!loading && quotes.length > 0 && visible.length === 0 && (
+            <div className="command-empty">No quote matches “{search}”.</div>
+          )}
+          {visible.map(quote => (
+            <QuoteCard
+              key={quote.id}
+              quote={quote}
+              busy={disabled}
+              onSave={next => act(
+                () => updateQuote(quote.id, {
+                  text: next.text,
+                  slug: next.slug.trim() || null,
+                  submittedBy: next.submittedBy,
+                }),
+                `Quote ${quote.number} saved.`,
+                'Could not save the quote',
+              )}
+              onDelete={async () => {
+                // quote_sequence never reuses a number, so removing quote 12 retires 12
+                // for good while it is still circulating in Discord and screenshots.
+                const ok = await confirm({
+                  title: `Remove quote ${quote.number}?`,
+                  body: `Number ${quote.number} is retired for good and cannot be reissued.`,
+                  confirmLabel: 'Remove quote',
+                  tone: 'danger',
+                });
+                if (!ok) return;
+                act(
+                  () => deleteQuote(quote.id),
+                  `Quote ${quote.number} removed.`,
+                  'Could not remove the quote',
+                );
+              }}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

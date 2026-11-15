@@ -213,9 +213,9 @@ export function CountersPage() {
     <>
       <SettingsHeader
         section="counters"
-        meta={<div className="set-sub">{counters.length} {counters.length === 1 ? 'counter' : 'counters'}</div>}
+        counts={[{ value: counters.length, one: 'counter' }]}
         actions={
-          <button className="modbtn" type="button" disabled={busy || draft !== null} onClick={startCreate}>
+          <button className="btn-primary" type="button" disabled={busy || draft !== null} onClick={startCreate}>
             New counter
           </button>
         }

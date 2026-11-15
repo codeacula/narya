@@ -4,31 +4,45 @@ import { settingsSection } from './sections';
 import { errorMessage } from '../../errors';
 import { useDirtyGuard } from '../../ui/dirtyGuard';
 import { draftsDiffer } from '../../ui/dirtyGuardLogic';
+import { headerCountParts, type HeaderCount } from './headerCounts';
 
 /**
- * The header every settings section shares. Eyebrow, title, and intro come from the
- * section registry rather than each page, so the rail entry and the page it opens can
- * never disagree about what the section is called.
+ * The header every settings section shares — the only header a section renders.
+ * Eyebrow, title, and intro come from the section registry rather than each page, so the
+ * rail entry and the page it opens can never disagree about what the section is called.
+ *
+ * What a section may add is data, not markup, so every header is set the same way:
+ * - `counts` — the mono count line under the intro ("3 counters", "12 saved · 2 hidden").
+ * - `actions` — the section's one primary control, top right. Pass a `btn-primary`; a
+ *   split editor's "New" belongs in its list column, not here.
  */
 export function SettingsHeader({
   section,
-  meta,
+  counts,
   actions,
 }: {
   section: SettingsRoute;
-  /** A line of live detail under the intro — a count, a state. Optional. */
-  meta?: React.ReactNode;
-  /** The section's primary control, e.g. "New action". Optional. */
+  counts?: ReadonlyArray<HeaderCount>;
   actions?: React.ReactNode;
 }) {
   const { group, title, blurb } = settingsSection(section);
+  const parts = counts ? headerCountParts(counts) : [];
   return (
     <header className="set-head">
       <div className="set-head-main">
         <div className="settings-eyebrow">{group}</div>
         <h2 className="settings-title">{title}</h2>
         <p className="set-intro">{blurb}</p>
-        {meta}
+        {parts.length > 0 ? (
+          <p className="set-head-meta">
+            {parts.map((part, index) => (
+              <React.Fragment key={part.label}>
+                {index > 0 ? <span className="set-head-meta-dot" aria-hidden="true" /> : null}
+                <span><b>{part.value}</b> {part.label}</span>
+              </React.Fragment>
+            ))}
+          </p>
+        ) : null}
       </div>
       {actions ? <div className="set-head-actions">{actions}</div> : null}
     </header>

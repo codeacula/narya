@@ -256,12 +256,10 @@ export function StreamCategoriesPage() {
     <div className="cats-page">
         <SettingsHeader
           section="categories"
-          meta={
-            <p className="cats-count">
-              <b>{categories.length}</b> saved
-              {hiddenCount > 0 ? <><span className="cats-count-dot" /><b>{hiddenCount}</b> hidden</> : null}
-            </p>
-          }
+          counts={[
+            { value: categories.length, one: 'saved', other: 'saved' },
+            { value: hiddenCount, one: 'hidden', other: 'hidden', hideWhenZero: true },
+          ]}
         />
 
         <AddCategoryControl

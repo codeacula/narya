@@ -323,10 +323,10 @@ export function AppsPage() {
   const disabledOverall = loading || creating;
 
   return (
-    <div>
+    <>
       <SettingsHeader
         section="apps"
-        meta={<div className="set-sub">{apps.length} {apps.length === 1 ? 'app' : 'apps'} registered</div>}
+        counts={[{ value: apps.length, one: 'app registered', other: 'apps registered' }]}
       />
 
       <SettingsStatus message={message} error={error} />
@@ -383,6 +383,6 @@ export function AppsPage() {
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }
