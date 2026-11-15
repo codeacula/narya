@@ -75,6 +75,11 @@ describe('projectAttentionItems', () => {
     expect(projectAttentionItems({ events: [], chat, viewers, tag: '   ', currentSessionId: 'live' })).toEqual([]);
   });
 
+  test('a tagged viewer\'s removed message does not route into the feed', () => {
+    const chat: ChatEntry[] = [{ ...chatEntry('m1', 'tagged', 'oops', '2026-07-09T10:00:00Z'), deletedAt: '2026-07-09T10:00:05Z' }];
+    expect(projectAttentionItems({ events: [], chat, viewers, tag: 'notify', currentSessionId: 'live' })).toEqual([]);
+  });
+
   test('whispers never route into the feed', () => {
     const chat: ChatEntry[] = [{ ...chatEntry('w1', 'tagged', 'psst', '2026-07-09T10:00:00Z'), kind: 'whisper' }];
     expect(projectAttentionItems({ events: [], chat, viewers, tag: 'notify', currentSessionId: 'live' })).toEqual([]);

@@ -45,7 +45,12 @@ export function SettingsStatus({
   error?: React.ReactNode;
 }) {
   if (!message && !error) return null;
-  return <div className={'command-settings-status' + (error ? ' error' : '')}>{error ?? message}</div>;
+  // A live region, so a save's outcome is announced rather than only drawn.
+  return (
+    <div className={'command-settings-status' + (error ? ' error' : '')} role={error ? 'alert' : 'status'}>
+      {error ?? message}
+    </div>
+  );
 }
 
 /** A section header whose title carries the switch that enables the whole section. */

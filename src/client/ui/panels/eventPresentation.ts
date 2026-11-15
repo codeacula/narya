@@ -1,19 +1,15 @@
 import { loadStoredJson, saveStoredJson } from '../../storage';
 
+/* follow/sub/raid/cheer use the overlay alert cards' glyphs. */
 export const EVT_ICON: Record<string, string> = {
-  follow: 'heart',
-  sub: 'star',
+  follow: 'sparkle',
+  sub: 'planet',
   gift: 'gift',
-  cheer: 'bits',
-  raid: 'swords',
+  cheer: 'gem',
+  raid: 'raid',
   redeem: 'star',
   ad_break: 'play',
   chat: 'chat',
-};
-
-export const EVT_TONE_OVERRIDE: Partial<Record<string, string>> = {
-  follow: 'note',
-  raid: 'note',
 };
 
 export const EVT_KIND_LABEL: Record<string, string> = {

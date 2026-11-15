@@ -69,6 +69,30 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   'chevron-down': <path d="m6 9 6 6 6-6"/>,
+  'arrow-up': <path d="M12 19V5M6 11l6-6 6 6"/>,
+  'arrow-down': <path d="M12 5v14M6 13l6 6 6-6"/>,
+  /* The four alert glyphs from the overlay's alert cards (overlayText.tsx ToneIcon),
+     so a follow, sub, raid or cheer reads the same on the dashboard as on stream. */
+  sparkle: <path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/>,
+  planet: (
+    <>
+      <circle cx="12" cy="12" r="6"/>
+      <ellipse cx="12" cy="12" rx="10" ry="3" transform="rotate(-22 12 12)"/>
+    </>
+  ),
+  raid: (
+    <>
+      <path d="M4 20L20 4"/>
+      <path d="M13 4h7v7"/>
+      <path d="M4 12v8h8"/>
+    </>
+  ),
+  gem: (
+    <>
+      <path d="M12 3l7 9-7 9-7-9z"/>
+      <path d="M5 12h14"/>
+    </>
+  ),
   info: (
     <>
       <circle cx="12" cy="12" r="10"/>
@@ -99,7 +123,7 @@ export function Icon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       {...rest}

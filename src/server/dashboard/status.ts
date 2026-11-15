@@ -6,7 +6,7 @@ import {
   TWITCH_AD_SCHEDULE_CACHE_MS,
   TWITCH_STREAM_STATUS_CACHE_MS,
 } from '../../shared/constants';
-import type { SessionShoutout, ViewerRosterEntry } from '../../shared/api';
+import type { ChatEntry, SessionShoutout, ViewerRosterEntry } from '../../shared/api';
 import { chatHighlight, getViewerRolesFromBadges } from '../../shared/roles';
 import { formatAgo } from '../../shared/time';
 import { twitchClient } from '../chat';
@@ -32,7 +32,36 @@ type ChatMessageRow = {
   isFirstThisSession: number;
   isFirstEver: number;
   sessionId: string | null;
+  deletedAt: string | null;
+  deletedReason: string | null;
 };
+
+/** Every chat_messages column a ChatEntry is built from — one list, so the dashboard
+ *  feed and a viewer's history page can't disagree about what a row carries. */
+const CHAT_ENTRY_COLUMNS = `
+  id, username, message, received_at as receivedAt,
+  badges_json as badgesJson, emotes_json as emotesJson,
+  is_first_in_session as isFirstThisSession,
+  is_first_ever as isFirstEver, stream_session_id as sessionId,
+  deleted_at as deletedAt, deleted_reason as deletedReason`;
+
+function toChatEntry(row: ChatMessageRow): ChatEntry {
+  const badges = parseBadgesJson(row.badgesJson);
+  return {
+    id: row.id,
+    user: row.username.toLowerCase(),
+    text: row.message,
+    time: formatClockTime(row.receivedAt),
+    at: row.receivedAt,
+    sessionId: row.sessionId,
+    highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
+    emotes: parseEmotesJson(row.emotesJson),
+    // A message Twitch or a moderator removed stays visible to the operator, marked —
+    // the overlay hides it; the dashboard must not show it as if it were live.
+    deletedAt: row.deletedAt,
+    deletedReason: row.deletedReason,
+  };
+}
 
 function formatClockTime(receivedAt: string): string {
   return new Date(receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -535,70 +564,20 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
 
     const rows = beforeId
       ? db.prepare(`
-          select
-            id,
-            username,
-            message,
-            received_at as receivedAt,
-            badges_json as badgesJson,
-            emotes_json as emotesJson,
-            is_first_in_session as isFirstThisSession,
-            is_first_ever as isFirstEver,
-            stream_session_id as sessionId
+          select ${CHAT_ENTRY_COLUMNS}
           from chat_messages
           where (received_at, id) < (select received_at, id from chat_messages where id = ?)
           order by received_at desc, id desc
           limit 80
-        `).all(beforeId) as Array<{
-          id: string;
-          username: string;
-          message: string;
-          receivedAt: string;
-          badgesJson: string | null;
-          emotesJson: string | null;
-          isFirstThisSession: number;
-          isFirstEver: number;
-          sessionId: string | null;
-        }>
+        `).all(beforeId) as ChatMessageRow[]
       : db.prepare(`
-          select
-            id,
-            username,
-            message,
-            received_at as receivedAt,
-            badges_json as badgesJson,
-            emotes_json as emotesJson,
-            is_first_in_session as isFirstThisSession,
-            is_first_ever as isFirstEver,
-            stream_session_id as sessionId
+          select ${CHAT_ENTRY_COLUMNS}
           from chat_messages
           order by received_at desc, id desc
           limit 80
-        `).all() as Array<{
-          id: string;
-          username: string;
-          message: string;
-          receivedAt: string;
-          badgesJson: string | null;
-          emotesJson: string | null;
-          isFirstThisSession: number;
-          isFirstEver: number;
-          sessionId: string | null;
-        }>;
+        `).all() as ChatMessageRow[];
 
-    response.json(rows.reverse().map((row) => {
-      const badges = parseBadgesJson(row.badgesJson);
-      return {
-        id: row.id,
-        user: row.username.toLowerCase(),
-        text: row.message,
-        time: formatClockTime(row.receivedAt),
-        at: row.receivedAt,
-        sessionId: row.sessionId,
-        highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
-        emotes: parseEmotesJson(row.emotesJson),
-      };
-    }));
+    response.json(rows.reverse().map(toChatEntry));
   });
 
   // A single viewer's full chat history, newest-first with keyset pagination
@@ -614,11 +593,7 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
 
     const rows = beforeId
       ? db.prepare(`
-          select
-            id, username, message, received_at as receivedAt,
-            badges_json as badgesJson, emotes_json as emotesJson,
-            is_first_in_session as isFirstThisSession,
-            is_first_ever as isFirstEver, stream_session_id as sessionId
+          select ${CHAT_ENTRY_COLUMNS}
           from chat_messages
           where username = ?
             and (received_at, id) < (select received_at, id from chat_messages where id = ?)
@@ -626,30 +601,14 @@ export function registerDashboardRoutes(app: express.Express, state: RuntimeStat
           limit 80
         `).all(login, beforeId) as ChatMessageRow[]
       : db.prepare(`
-          select
-            id, username, message, received_at as receivedAt,
-            badges_json as badgesJson, emotes_json as emotesJson,
-            is_first_in_session as isFirstThisSession,
-            is_first_ever as isFirstEver, stream_session_id as sessionId
+          select ${CHAT_ENTRY_COLUMNS}
           from chat_messages
           where username = ?
           order by received_at desc, id desc
           limit 80
         `).all(login) as ChatMessageRow[];
 
-    response.json(rows.reverse().map((row) => {
-      const badges = parseBadgesJson(row.badgesJson);
-      return {
-        id: row.id,
-        user: row.username.toLowerCase(),
-        text: row.message,
-        time: formatClockTime(row.receivedAt),
-        at: row.receivedAt,
-        sessionId: row.sessionId,
-        highlight: chatHighlight(badges, Boolean(row.isFirstEver), Boolean(row.isFirstThisSession)),
-        emotes: parseEmotesJson(row.emotesJson),
-      };
-    }));
+    response.json(rows.reverse().map(toChatEntry));
   });
 
   // Live Twitch facts (follow date, subscription, account age) for one viewer,

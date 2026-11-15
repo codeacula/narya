@@ -78,6 +78,8 @@ export function projectAttentionItems(input: {
   if (tag !== '') {
     for (const entry of chat) {
       if (entry.kind === 'whisper') continue;
+      // Removed by a moderator: nothing to thank or answer.
+      if (entry.deletedAt) continue;
       // The chat backlog spans previous streams, so a tagged viewer's day-old
       // message would otherwise pulse as something waiting on you right now.
       // Off-stream (`currentSessionId` null) only off-stream chat matches.

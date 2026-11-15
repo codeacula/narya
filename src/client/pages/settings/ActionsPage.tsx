@@ -40,6 +40,8 @@ import {
   unplayableAssetIds,
   validateAction,
 } from './automation';
+import { CrystalOrb } from '../../crystalOrb';
+import { Icon } from '../../ui/icons';
 
 const EMPTY_DRAFT: ActionUpsert = { name: '', description: '', enabled: true, quickDisable: false, steps: [] };
 
@@ -664,19 +666,21 @@ function StepRow({
             className="modbtn"
             type="button"
             title="Move up"
+            aria-label="Move up"
             disabled={disabled || index === 0}
             onClick={() => onMove(index - 1)}
           >
-            ↑
+            <Icon name="arrow-up" size={13} />
           </button>
           <button
             className="modbtn"
             type="button"
             title="Move down"
+            aria-label="Move down"
             disabled={disabled || index === total - 1}
             onClick={() => onMove(index + 1)}
           >
-            ↓
+            <Icon name="arrow-down" size={13} />
           </button>
           <button className="modbtn danger" type="button" disabled={disabled} onClick={onRemove}>
             Remove
@@ -899,7 +903,7 @@ export function ActionsSettingsPage() {
             <div className="settings-split-detail">
               {!draft ? (
                 <div className="split-empty">
-                  <div className="es-orb" />
+                  <CrystalOrb variant="moon" size={40} />
                   <div className="es-title">Nothing selected</div>
                   <div className="es-sub">
                     Pick an action on the left to edit its steps, run it as a test, or delete it. New

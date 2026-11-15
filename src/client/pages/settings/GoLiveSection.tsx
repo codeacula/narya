@@ -224,6 +224,7 @@ export function GoLiveSection() {
               className="icon-btn"
               type="button"
               title="Discord bot setup instructions"
+              aria-label="Discord bot setup instructions"
               onClick={() => setDiscordHelpOpen(true)}
               style={{ color: 'var(--fg-3)' }}
             >
@@ -255,6 +256,7 @@ export function GoLiveSection() {
               className="icon-btn"
               type="button"
               title="Re-check Discord connection"
+              aria-label="Re-check Discord connection"
               disabled={discordRefreshing}
               onClick={handleDiscordRefresh}
               style={{ color: 'var(--fg-3)' }}
@@ -272,7 +274,7 @@ export function GoLiveSection() {
           <div className="discord-help-modal">
             <div className="modal-head">
               <h2>Discord bot setup</h2>
-              <button className="icon-btn" type="button" title="Close" onClick={() => setDiscordHelpOpen(false)}>
+              <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={() => setDiscordHelpOpen(false)}>
                 <Icon name="x" />
               </button>
             </div>

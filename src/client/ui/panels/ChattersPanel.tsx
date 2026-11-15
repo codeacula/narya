@@ -1,5 +1,6 @@
 import type { Viewer, Chatter } from '../../../shared/api';
 import { badgesFor, ROLE_BADGE } from './badges';
+import { CrystalOrb } from '../../crystalOrb';
 
 const ROLE_SORT_ORDER: Record<string, number> = { broadcaster: 0, mod: 1, vip: 2, sub: 3 };
 
@@ -52,7 +53,7 @@ export function ChattersPanel({
     const isScopeError = error.toLowerCase().includes('scope') || error.toLowerCase().includes('moderator:read:chatters');
     return (
       <div className="empty-state">
-        <div className="es-orb" />
+        <CrystalOrb variant="moon" size={40} />
         <div className="es-title">{isScopeError ? 'Permission needed' : 'Unavailable'}</div>
         <div className="es-sub">
           {isScopeError
@@ -66,7 +67,7 @@ export function ChattersPanel({
   if (chatters.length === 0) {
     return (
       <div className="empty-state">
-        <div className="es-orb" />
+        <CrystalOrb variant="moon" size={40} />
         <div className="es-title">No chatters yet</div>
         <div className="es-sub">People in your chat room will appear here.</div>
       </div>

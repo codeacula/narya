@@ -80,7 +80,7 @@ export function ViewerProfileModal({
             <h2>Viewer Profile</h2>
             <div className="viewer-profile-login">@{viewer.login}</div>
           </div>
-          <button className="icon-btn" type="button" title="Close" onClick={onClose}>
+          <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>
@@ -208,7 +208,7 @@ export function ViewerActionModal({
             <h2>{title}</h2>
             <div className="viewer-profile-login">@{viewer.login}</div>
           </div>
-          <button className="icon-btn" type="button" title="Close" onClick={onClose}>
+          <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>

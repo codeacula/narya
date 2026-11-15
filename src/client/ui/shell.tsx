@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Icon } from './icons';
+import { CrystalOrb } from '../crystalOrb';
 import { isSettingsRoute, type DashboardRoute } from '../routing';
 
 type DragPos = { x: number; y: number; w: number; h: number };
@@ -61,11 +62,8 @@ export function NavBar({
   return (
     <div className="navbar">
       <div className="brand">
-        <img
-          src="/assets/mark.svg"
-          alt=""
-          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-        />
+        {/* The overlay's crystal orb; the mark.svg this replaced was never shipped and 404'd. */}
+        <CrystalOrb variant="arcane" size={18} />
         <span className="wm">Narya</span>
       </div>
       <div className="navlinks">
@@ -96,6 +94,7 @@ export function NavBar({
       <button
         className={'nav-icon' + (tweaksOpen ? ' active' : '')}
         title="Dev Menu"
+        aria-label="Dev menu"
         onClick={onTweaksToggle}
       >
         <Icon name="grid" size={15} />
@@ -506,7 +505,7 @@ export function Panel({
         {count != null && <span className="panel-count">{count}</span>}
         <span className="panel-actions">
           {headerActions}
-          <button className="icon-btn" title="Pop out" onClick={() => onPop(id, true)}>
+          <button className="icon-btn" title="Pop out" aria-label="Pop out" onClick={() => onPop(id, true)}>
             <Icon name="popout" />
           </button>
         </span>
@@ -564,7 +563,7 @@ export function PopWindow({
         </span>
         <span className="popwin-title">{title}</span>
         <span className="panel-actions" style={{ marginLeft: 'auto' }}>
-          <button className="icon-btn" title="Re-dock" onClick={() => onClose(id)}>
+          <button className="icon-btn" title="Re-dock" aria-label="Re-dock" onClick={() => onClose(id)}>
             <Icon name="dock" />
           </button>
         </span>

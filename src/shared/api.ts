@@ -160,6 +160,10 @@ export type ChatEntry = {
   kind?: 'whisper';
   /** Twitch emote positions (emoteId → ["start-end", …]) for inline emote rendering. */
   emotes?: Record<string, string[]> | null;
+  /** Set once the message was deleted on Twitch or its author timed out/banned. The
+   *  dashboard keeps showing it, marked, with the reason; the overlay hides it. */
+  deletedAt?: string | null;
+  deletedReason?: string | null;
 };
 
 export type WhisperMessage = {

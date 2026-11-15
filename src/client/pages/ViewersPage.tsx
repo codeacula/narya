@@ -13,6 +13,7 @@ import {
 } from '../services/dashboard';
 import { mergeRoster, type Person } from '../viewerRoster';
 import { errorMessage } from '../errors';
+import { CrystalOrb } from '../crystalOrb';
 
 type Segment = 'all' | 'live' | 'vips' | 'mods';
 
@@ -343,7 +344,7 @@ export function ViewersPage({
         {message ? <div className="viewers-status" role="status">{message}</div> : null}
 
         {loading ? (
-          <div className="empty-state"><div className="es-orb" /><div className="es-title">Gathering your viewers…</div></div>
+          <div className="empty-state"><CrystalOrb variant="moon" size={40} /><div className="es-title">Gathering your viewers…</div></div>
         ) : searchIsNew ? (
           <div className="roster-list">
             <div className="roster-hint">Not in your roster yet — open <b>@{searchLogin}</b> to act on them:</div>
@@ -355,7 +356,7 @@ export function ViewersPage({
           </div>
         ) : shown.length === 0 ? (
           <div className="empty-state">
-            <div className="es-orb" />
+            <CrystalOrb variant="moon" size={40} />
             <div className="es-title">{people.length === 0 ? 'No one’s come by yet' : 'No one here'}</div>
             <div className="es-sub">{people.length === 0 ? 'Viewers you meet in chat will gather here as stars.' : 'Try a different filter or search.'}</div>
           </div>
@@ -390,7 +391,7 @@ export function ViewersPage({
           />
         ) : (
           <div className="split-empty">
-            <div className="es-orb" />
+            <CrystalOrb variant="moon" size={40} />
             <div className="es-title">No one in focus</div>
             <div className="es-sub">
               Pick a viewer on the left. Their profile, roles, chat history, and the actions you can

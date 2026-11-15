@@ -151,7 +151,7 @@ export function StreamInfoModal({
           <div>
             <h2>Stream Info</h2>
           </div>
-          <button className="icon-btn" type="button" title="Close" onClick={onClose}>
+          <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>
@@ -263,7 +263,8 @@ export function StreamInfoModal({
           </div>
           <div className="suggestion-anchor">
             <input
-              aria-label="Tag suggestion"
+              aria-label="Add a tag"
+              placeholder={form.tags.length >= 10 ? 'Ten tags is the Twitch limit' : 'Add a tag…'}
               value={tagInput}
               disabled={loading || saving || form.tags.length >= 10}
               onFocus={() => setTagFocused(true)}

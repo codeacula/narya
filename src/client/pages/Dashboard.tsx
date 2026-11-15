@@ -46,6 +46,7 @@ import { useAutomodQueue, AutomodPanel } from '../automod';
 import type { ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMessage as LiveChatMessage, WhisperMessage, ObsStatus } from '../../shared/api';
 import { NO_ACTIVE_SESSION_FOR_PLANNED_END } from '../../shared/api';
 import { errorMessage } from '../errors';
+import { useToast } from '../ui/notifications';
 
 /* ---------------- constants ---------------- */
 
@@ -130,6 +131,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [popped, setPopped] = useState<Record<string, PoppedState>>({});
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
+  const { pushToast } = useToast();
   const [streamInfoOpen, setStreamInfoOpen] = useState(false);
   const [streamInfoForm, setStreamInfoForm] = useState<StreamInfoForm>({ title: '', category: '', tags: [], status: '', plannedEndAt: '' });
   const [streamInfoLoading, setStreamInfoLoading] = useState(false);
@@ -294,23 +296,24 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setObsStatus(nextStatus);
   }, []));
 
-  const handleTwitchLogout = React.useCallback(() => {
-    void disconnectTwitch()
+  // Disconnecting drops EventSub, alerts and the ad schedule until the next sign-in, so
+  // it confirms first and reports a failure where the operator is looking.
+  const disconnectTwitchAccount = React.useCallback((account: 'user' | 'bot') => {
+    const what = account === 'bot' ? 'the bot account' : 'your Twitch account';
+    const consequence = account === 'bot'
+      ? 'Dashboard chat messages will stop sending as the bot until you sign it in again.'
+      : 'Alerts, EventSub and the ad schedule stop until you sign in again.';
+    if (!window.confirm(`Disconnect ${what}? ${consequence}`)) return;
+    void disconnectTwitch(account)
       .then(() => getDashboardStatus())
       .then(setStatus)
       .catch((error: unknown) => {
-        console.error('Failed to disconnect Twitch:', error);
+        console.error(`Failed to disconnect ${what}:`, error);
+        pushToast({ kind: 'error', title: `Could not disconnect ${what}`, message: errorMessage(error, 'The server did not respond.') });
       });
-  }, []);
-
-  const handleTwitchBotLogout = React.useCallback(() => {
-    void disconnectTwitch('bot')
-      .then(() => getDashboardStatus())
-      .then(setStatus)
-      .catch((error: unknown) => {
-        console.error('Failed to disconnect Twitch bot:', error);
-      });
-  }, []);
+  }, [pushToast]);
+  const handleTwitchLogout = React.useCallback(() => disconnectTwitchAccount('user'), [disconnectTwitchAccount]);
+  const handleTwitchBotLogout = React.useCallback(() => disconnectTwitchAccount('bot'), [disconnectTwitchAccount]);
 
   const handleReconnectEventSub = React.useCallback(() => {
     void reconnectEventSub()

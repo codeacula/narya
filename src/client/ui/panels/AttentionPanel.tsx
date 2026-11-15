@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from '../icons';
 import { formatAgo } from '../../../shared/time';
-import { kindTone } from '../../eventKinds';
+import { kindEyebrow, kindTone } from '../../eventKinds';
 import { DEFAULT_ATTENTION_TAG, type AttentionItem, type AttentionSettings } from '../../attention';
 import { EVT_ICON } from './eventPresentation';
 
@@ -113,8 +113,10 @@ export function AttentionPanel({
                 <span className="evt-icon">
                   <Icon name={EVT_ICON[item.kind] ?? 'star'} />
                 </span>
+                {/* Read like the overlay's alert cards: mono eyebrow, italic name, detail. */}
                 <span className="evt-body">
-                  <span className="evt-actor">{item.actor}</span>
+                  <span className="att-eyebrow">{item.kind === 'chat' ? 'tagged chat' : kindEyebrow(item.kind)}</span>
+                  <span className="att-actor">{item.actor}</span>
                   <span className="evt-detail">{item.detail}</span>
                 </span>
                 <span className="evt-ago">{item.at ? formatAgo(item.at) : ''}</span>
