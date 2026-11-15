@@ -6,6 +6,7 @@ import { useDirtyGuard } from '../../ui/dirtyGuard';
 import { draftsDiffer } from '../../ui/dirtyGuardLogic';
 import { headerCountParts, type HeaderCount } from './headerCounts';
 import { EmptyState, type EmptyStateSize } from '../../ui/emptyState';
+import { formFace } from './listState';
 
 /**
  * The header every settings section shares — the only header a section renders.
@@ -133,10 +134,13 @@ export function ListUnavailable({
   size = 'panel',
   onRetry,
   retrying = false,
+  children = 'Narya could not load them, so this is not an empty list. Nothing was changed.',
 }: {
   title: string;
   size?: EmptyStateSize;
   onRetry?: () => void;
+  /** The sentence under the title. Defaults to the list wording; `FormUnavailable` swaps it. */
+  children?: React.ReactNode;
   /**
    * A retry is in flight. The face stays mounted through it (`listFace`) so the button
    * keeps keyboard focus; it says "Retrying…" and ignores presses until the load
@@ -160,8 +164,34 @@ export function ListUnavailable({
         </button>
       ) : undefined}
     >
-      Narya could not load them, so this is not an empty list. Nothing was changed.
+      {children}
     </EmptyState>
+  );
+}
+
+/**
+ * What a settings form shows in place of its fields when its first load failed
+ * (`formFace` → `unavailable`, listState.ts). The fields are not drawn at all: their
+ * starting values are code defaults, and showing them read as the stored
+ * configuration — with a live Save that would write them over it.
+ */
+export function FormUnavailable({
+  title,
+  size = 'compact',
+  onRetry,
+  retrying = false,
+}: {
+  /** Names the state: "Wind-down settings unavailable". */
+  title: string;
+  size?: EmptyStateSize;
+  onRetry: () => void;
+  retrying?: boolean;
+}) {
+  return (
+    <ListUnavailable title={title} size={size} onRetry={onRetry} retrying={retrying}>
+      Narya could not load the saved values, so it is not showing defaults in their place.
+      Nothing was changed.
+    </ListUnavailable>
   );
 }
 
@@ -253,26 +283,39 @@ export function useSettingsForm<T>({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not a form of defaults (`formFace`, listState.ts).
+  const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load(() => cancelled)
-      .then(loaded => {
+      .then(next => {
         if (!cancelled) {
-          confirmed.current = loaded;
-          setValue(loaded);
+          confirmed.current = next;
+          setValue(next);
+          setLoaded(true);
+          setLoadFailed(false);
           setError(null);
         }
       })
       .catch(caught => {
-        if (!cancelled) setError(errorMessage(caught, loadError));
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, loadError));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [loadAttempt]);
+
+  const face = formFace({ loaded, loadFailed });
 
   /**
    * Returns the in-flight save so a caller can sequence work after the server has
@@ -282,6 +325,9 @@ export function useSettingsForm<T>({
    * fire-and-forget callers are unaffected by the added return.
    */
   const submit = (next: T, successMessage: string): Promise<void> => {
+    // Nothing has loaded, so `next` is built on code defaults. The sections offer no
+    // Save in that state; this is the backstop that keeps defaults off the server.
+    if (confirmed.current === null) return Promise.resolve();
     setSaving(true);
     setMessage(null);
     setError(null);
@@ -312,6 +358,13 @@ export function useSettingsForm<T>({
     discardThen,
     /** The last server-confirmed value, or the current form value before the first load. */
     confirmed: confirmed.current ?? value,
+    /**
+     * `form` once a load has succeeded; `unavailable` after a failed first load, when
+     * the section draws `FormUnavailable` instead of its fields. Only `form` may save.
+     */
+    face,
+    /** Runs the load again — the Retry on `FormUnavailable`. */
+    retry: () => setLoadAttempt(n => n + 1),
     loading,
     saving,
     message,

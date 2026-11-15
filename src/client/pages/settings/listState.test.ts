@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { asSentence, listFace, neverLoaded, pickerConfirmedEmpty } from './listState';
+import { asSentence, formFace, listFace, neverLoaded, pickerConfirmedEmpty } from './listState';
 
 describe('listFace', () => {
   test('a failed load with nothing on screen is unavailable, never empty', () => {
@@ -54,5 +54,20 @@ describe('asSentence', () => {
     expect(asSentence('Twitch login is required.')).toBe('Twitch login is required.');
     expect(asSentence('  Not found!  ')).toBe('Not found!');
     expect(asSentence('')).toBe('');
+  });
+});
+
+describe('formFace', () => {
+  test('a form whose first load failed is unavailable, never a form of defaults', () => {
+    expect(formFace({ loaded: false, loadFailed: true })).toBe('unavailable');
+  });
+
+  test('before any load has answered the form is loading, not editable', () => {
+    expect(formFace({ loaded: false, loadFailed: false })).toBe('loading');
+  });
+
+  test('a loaded form stays shown even if a later load failed', () => {
+    expect(formFace({ loaded: true, loadFailed: false })).toBe('form');
+    expect(formFace({ loaded: true, loadFailed: true })).toBe('form');
   });
 });

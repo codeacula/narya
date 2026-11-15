@@ -3,7 +3,8 @@ import { Icon } from '../../ui/icons';
 import type { AppConfig } from '../../../shared/api';
 import { getAppConfig, updateAppConfig } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
-import { SettingsStatus } from './shared';
+import { FormUnavailable, SettingsAnnouncer, SettingsStatus } from './shared';
+import { formFace } from './listState';
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 
 type AppConfigForm = {
@@ -105,25 +106,38 @@ export function ConnectionsSection({
   const [appConfigSaving, setAppConfigSaving] = useState(false);
   const [appConfigMessage, setAppConfigMessage] = useState<string | null>(null);
   const [appConfigError, setAppConfigError] = useState<string | null>(null);
+  // The form starts empty, and every field is PUT on save — so a failed load must not
+  // leave blanks on screen with a live Save, or it clears the channel, client ID and
+  // OBS URL (`formFace`).
+  const [appConfigLoaded, setAppConfigLoaded] = useState(false);
+  const [appConfigLoadFailed, setAppConfigLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const face = formFace({ loaded: appConfigLoaded, loadFailed: appConfigLoadFailed });
 
   useEffect(() => {
     let cancelled = false;
     setAppConfigLoading(true);
+    // Cleared so a retry that fails the same way is announced again.
+    setAppConfigError(null);
     void getAppConfig()
       .then(config => {
         if (!cancelled) {
           resetAppConfigForm(appConfigToForm(config));
+          setAppConfigLoaded(true);
+          setAppConfigLoadFailed(false);
           setAppConfigError(null);
         }
       })
       .catch(error => {
-        if (!cancelled) setAppConfigError(errorMessage(error, 'Could not load configuration'));
+        if (cancelled) return;
+        setAppConfigLoadFailed(true);
+        setAppConfigError(errorMessage(error, 'Could not load configuration'));
       })
       .finally(() => {
         if (!cancelled) setAppConfigLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [loadAttempt]);
 
   // Secrets are write-only fields that start blank, so typing one makes the form dirty
   // exactly like any other edit.
@@ -131,6 +145,7 @@ export function ConnectionsSection({
 
   const handleAppConfigSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (face !== 'form') return;
     setAppConfigSaving(true);
     setAppConfigMessage(null);
     setAppConfigError(null);
@@ -170,7 +185,18 @@ export function ConnectionsSection({
     <div className="set-group">
       <div className="set-group-label">Connections &amp; credentials</div>
 
-      {!appConfigLoading && (!appConfigForm.twitchClientId || !appConfigForm.twitchClientSecretConfigured) && (
+      {/* The form and its unavailable face swap, so neither holds the live regions. */}
+      <SettingsAnnouncer message={appConfigMessage} error={appConfigError} />
+
+      {face === 'unavailable' ? (
+        <>
+          <SettingsStatus error={appConfigError} announce={false} />
+          <FormUnavailable title="Connections unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={appConfigLoading} />
+        </>
+      ) : (
+      <>
+
+      {face === 'form' && (!appConfigForm.twitchClientId || !appConfigForm.twitchClientSecretConfigured) && (
         <div className="settings-alert settings-alert--warn">
           <Icon name="alert" className="settings-alert-icon" aria-hidden="true" />
           <span>
@@ -183,7 +209,7 @@ export function ConnectionsSection({
           </span>
         </div>
       )}
-      {!appConfigLoading && statusKnown && appConfigForm.twitchClientId && appConfigForm.twitchClientSecretConfigured
+      {face === 'form' && statusKnown && appConfigForm.twitchClientId && appConfigForm.twitchClientSecretConfigured
         && !eventSubConnected && (
         <div className="settings-alert settings-alert--info">
           <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
@@ -193,7 +219,7 @@ export function ConnectionsSection({
           </span>
         </div>
       )}
-      {!appConfigLoading && !appConfigForm.redisConfigured && (
+      {face === 'form' && !appConfigForm.redisConfigured && (
         <div className="settings-alert settings-alert--info">
           <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
           <span>
@@ -203,7 +229,7 @@ export function ConnectionsSection({
           </span>
         </div>
       )}
-      {!appConfigLoading && statusKnown && appConfigForm.redisConfigured && !redisConnected && (
+      {face === 'form' && statusKnown && appConfigForm.redisConfigured && !redisConnected && (
         <div className="settings-alert settings-alert--warn">
           <Icon name="alert" className="settings-alert-icon" aria-hidden="true" />
           <span>
@@ -416,7 +442,7 @@ export function ConnectionsSection({
           </label>
         </div>
 
-        <SettingsStatus message={appConfigMessage} error={appConfigError} />
+        <SettingsStatus message={appConfigMessage} error={appConfigError} announce={false} />
 
         <div className="command-settings-actions">
           <button className="modbtn gold" type="submit" disabled={appConfigLoading || appConfigSaving}>
@@ -424,6 +450,8 @@ export function ConnectionsSection({
           </button>
         </div>
       </form>
+      </>
+      )}
     </div>
   );
 }

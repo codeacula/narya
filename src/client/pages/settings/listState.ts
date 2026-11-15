@@ -69,3 +69,35 @@ export function asSentence(text: string): string {
 export function neverLoaded(health: RefreshHealth): boolean {
   return health.lastSuccessAt === null && health.consecutiveFailures > 0;
 }
+
+/**
+ * Which face a settings form shows: the same rule as `listFace`, for a form. **A form
+ * that failed to load is not a form of defaults.** Every section starts from code
+ * literals (an empty channel, the default Tengwar URL, the wind-down's 15 minutes), so a
+ * failed GET left those on screen as if the server had said them — and Save then PUT
+ * them over the real configuration.
+ *
+ * - Once a load has succeeded the form shows (`form`), and stays shown: a later failure
+ *   is reported beside real values, not by hiding them.
+ * - Before that, a failed load is `unavailable` — Retry instead of fields, and nothing
+ *   that can save. It stays so while the Retry is in flight, so the button keeps focus
+ *   (see `listFace`).
+ * - Otherwise the first load is in flight (`loading`): the form may render, but every
+ *   field and Save is disabled.
+ *
+ * Only `form` may save.
+ */
+export type FormFace = 'loading' | 'unavailable' | 'form';
+
+export function formFace({
+  loaded,
+  loadFailed,
+}: {
+  /** True once any load has succeeded. */
+  loaded: boolean;
+  /** True from a failed load until the next successful one. */
+  loadFailed: boolean;
+}): FormFace {
+  if (loaded) return 'form';
+  return loadFailed ? 'unavailable' : 'loading';
+}

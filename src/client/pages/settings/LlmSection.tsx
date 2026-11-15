@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { LlmApiFormat, LlmProviderId, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../../../shared/api';
 import { getLlmProviderModels, getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
-import { SettingsAnnouncer, SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
+import { FormUnavailable, SettingsAnnouncer, SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
 
 /** One provider's editable fields. A stored key is never sent back; `apiKey` is a new one. */
 type ProviderDraft = LlmProviderProfile & {
@@ -200,26 +200,39 @@ export function LlmSection() {
 
   return (
     <div className="set-group">
-      <SettingsToggleLabel
-        label="LLM settings"
-        toggleLabel="Enable LLM"
-        checked={llmSettings.enabled}
-        disabled={busy}
-        onChange={handleLlmEnabledToggle}
-      />
+      {/* An unchecked switch before the settings load would say "off" — a claim
+          nobody made — and pressing it would save defaults. */}
+      {llmForm.face === 'form' ? (
+        <SettingsToggleLabel
+          label="LLM settings"
+          toggleLabel="Enable LLM"
+          checked={llmSettings.enabled}
+          disabled={busy}
+          onChange={handleLlmEnabledToggle}
+        />
+      ) : (
+        <div className="set-group-label">LLM settings</div>
+      )}
 
       {/* The switch swaps the form below in and out, so neither branch can hold the
           live regions: "disabled." would arrive with the region that announces it.
           One announcer sits outside both, and each branch only draws its line. */}
       <SettingsAnnouncer message={llmMessage} error={llmError} />
 
-      {!llmSettings.enabled && (llmMessage || llmError) && (
+      {llmForm.face === 'unavailable' ? (
+        <>
+          <SettingsStatus error={llmError} announce={false} />
+          <FormUnavailable title="AI settings unavailable" onRetry={llmForm.retry} retrying={llmLoading} />
+        </>
+      ) : null}
+
+      {llmForm.face === 'form' && !llmSettings.enabled && (llmMessage || llmError) && (
         <div className="set-group-note">
           <SettingsStatus message={llmMessage} error={llmError} announce={false} />
         </div>
       )}
 
-      {llmSettings.enabled && (
+      {llmForm.face === 'form' && llmSettings.enabled && (
       <form className="command-settings-form" onSubmit={handleLlmSubmit}>
         <label className="field">
           <span>Provider</span>
