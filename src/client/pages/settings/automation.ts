@@ -1,5 +1,6 @@
 // Pure helpers behind the Actions, Automation, and Modules settings pages.
 // Kept free of React and fetch so the step/trigger rules can be tested directly.
+import { OBS_OFFLINE } from '../../obsNotice';
 import type {
   Action,
   ActionRunResult,
@@ -971,4 +972,17 @@ export function triggerToInput(trigger: AutomationTrigger): AutomationTriggerInp
     } as AutomationTriggerInput;
   }
   return input as AutomationTriggerInput;
+}
+
+/**
+ * The line under an "OBS scene" step's name field. It says "offline" in the words
+ * every other surface uses (OBS_OFFLINE) and only when OBS is known to be offline:
+ * a connected OBS with no scenes, or a status Narya never got, is not "offline".
+ * `connected` is null while the status is loading or after it failed.
+ */
+export function obsSceneHint(sceneCount: number, connected: boolean | null): string {
+  if (sceneCount > 0) return 'Scenes read from the connected OBS.';
+  if (connected === true) return 'OBS has no scenes to offer — the name is saved as typed.';
+  if (connected === false) return `${OBS_OFFLINE} — the name is saved as typed.`;
+  return 'The name is saved as typed.';
 }

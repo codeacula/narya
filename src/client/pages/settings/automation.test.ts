@@ -17,6 +17,7 @@ import type {
   TriggerRunResult,
 } from '../../../shared/api';
 import {
+  obsSceneHint,
   CONDITION_FIELDS_BY_KIND,
   MAX_ACTIONS_PER_TRIGGER,
   MAX_CONDITIONS,
@@ -1440,5 +1441,24 @@ describe('listInertReason', () => {
 
   test('loaded + healthy: no badge', () => {
     expect(listInertReason({ config, apps, appsLoaded: true, events })).toBeNull();
+  });
+});
+
+describe('obsSceneHint', () => {
+  test('says "OBS offline" only when OBS is known to be offline', () => {
+    expect(obsSceneHint(0, false)).toBe('OBS offline — the name is saved as typed.');
+    expect(obsSceneHint(0, true)).toBe('OBS has no scenes to offer — the name is saved as typed.');
+    // The status never arrived: nothing is known about OBS, so nothing is claimed.
+    expect(obsSceneHint(0, null)).toBe('The name is saved as typed.');
+  });
+
+  test('scenes on hand read as from the connected OBS', () => {
+    expect(obsSceneHint(3, true)).toBe('Scenes read from the connected OBS.');
+  });
+
+  test('never the old "not connected" wording', () => {
+    for (const connected of [true, false, null]) {
+      expect(obsSceneHint(0, connected)).not.toContain('not connected');
+    }
   });
 });

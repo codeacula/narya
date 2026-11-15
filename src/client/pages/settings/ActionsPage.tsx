@@ -38,6 +38,7 @@ import {
   moveStep,
   newStep,
   removeStep,
+  obsSceneHint,
   summarizeActionRunResult,
   unplayableAssetIds,
   validateAction,
@@ -127,6 +128,7 @@ function StepPayloadFields({
   step,
   assets,
   scenes,
+  sceneHint,
   counters,
   disabled,
   onChange,
@@ -134,6 +136,8 @@ function StepPayloadFields({
   step: ActionStepInput;
   assets: MediaAsset[];
   scenes: string[];
+  /** The line under the scene field (obsSceneHint). */
+  sceneHint: string;
   counters: Counter[];
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
@@ -307,7 +311,7 @@ function StepPayloadFields({
             {scenes.map(scene => <option key={scene} value={scene} />)}
           </datalist>
           <small className="action-hint">
-            {scenes.length > 0 ? 'Scenes read from the connected OBS.' : 'OBS is not connected — the name is saved as typed.'}
+            {sceneHint}
           </small>
         </label>
       );
@@ -600,6 +604,7 @@ function StepRow({
   total,
   assets,
   scenes,
+  sceneHint,
   counters,
   disabled,
   onChange,
@@ -611,6 +616,7 @@ function StepRow({
   total: number;
   assets: MediaAsset[];
   scenes: string[];
+  sceneHint: string;
   counters: Counter[];
   disabled: boolean;
   onChange: (next: ActionStepInput) => void;
@@ -692,7 +698,7 @@ function StepRow({
       </div>
 
       <div className="action-step-body">
-        <StepPayloadFields step={step} assets={assets} scenes={scenes} counters={counters} disabled={disabled} onChange={onChange} />
+        <StepPayloadFields step={step} assets={assets} scenes={scenes} sceneHint={sceneHint} counters={counters} disabled={disabled} onChange={onChange} />
       </div>
 
       <div className="action-step-foot">
@@ -775,10 +781,15 @@ export function ActionsSettingsPage() {
     return () => { cancelled = true; };
   }, [load, loadAttempt]);
 
-  // OBS may be down; a scene list is a convenience, not a requirement.
+  // OBS may be down; a scene list is a convenience, not a requirement. `obsConnected`
+  // stays null when Narya did not answer, so the hint does not claim OBS is offline.
+  const [obsConnected, setObsConnected] = useState<boolean | null>(null);
   useEffect(() => {
     void getObsStatus()
-      .then(status => setScenes(status.scenes))
+      .then(status => {
+        setScenes(status.scenes);
+        setObsConnected(status.connected);
+      })
       .catch(() => setScenes([]));
   }, []);
 
@@ -1021,6 +1032,7 @@ export function ActionsSettingsPage() {
                     total={draft.steps.length}
                     assets={assets}
                     scenes={scenes}
+                    sceneHint={obsSceneHint(scenes.length, obsConnected)}
                     counters={counters}
                     disabled={busy}
                     onChange={next => updateStep(index, next)}
