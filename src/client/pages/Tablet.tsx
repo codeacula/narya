@@ -19,6 +19,7 @@ import {
   triggerObsTransition,
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
+import { obsNotice } from '../obsNotice';
 
 // Dropping focus after a tap keeps a tablet's on-screen button from staying
 // visually "stuck" highlighted. Keyboard activation (Enter/Space) also fires
@@ -43,11 +44,15 @@ const emptyObsStatus: ObsStatus = {
 function useObsStatus() {
   const [obsStatus, setObsStatus] = React.useState<ObsStatus>(emptyObsStatus);
   const [error, setError] = React.useState<string | null>(null);
+  // Until the first status lands, `emptyObsStatus` says "disconnected" — which is a
+  // placeholder, not a fact, and must not be reported as OBS being down.
+  const [loaded, setLoaded] = React.useState(false);
 
   React.useEffect(() => {
     getObsStatus()
       .then((status) => {
         setObsStatus(status);
+        setLoaded(true);
         setError(null);
       })
       .catch((caught: unknown) => {
@@ -59,11 +64,12 @@ function useObsStatus() {
     'obs:status',
     React.useCallback((nextStatus) => {
       setObsStatus(nextStatus);
+      setLoaded(true);
       setError(null);
     }, []),
   );
 
-  return { obsStatus, setObsStatus, error };
+  return { obsStatus, setObsStatus, loaded, error };
 }
 
 const HOLDING_PRESETS = [5, 10, 15] as const;
@@ -148,7 +154,7 @@ function TabletPinnedCard({ onError }: { onError: (message: string) => void }) {
 }
 
 export function TabletPage() {
-  const { obsStatus, setObsStatus, error: statusError } = useObsStatus();
+  const { obsStatus, setObsStatus, loaded: obsLoaded, error: statusError } = useObsStatus();
   const soundButtons = useSoundButtons();
   const clipButtons = useClipButtons();
   const media = useMediaMute();
@@ -165,6 +171,7 @@ export function TabletPage() {
   const hasScenes = scenes.length > 0;
   const controlsDisabled = obsUnavailable || Boolean(pendingAction);
   const connectionClass = obsStatus.connected ? 'tablet-status-dot connected' : 'tablet-status-dot disconnected';
+  const notice = obsNotice({ obsStatus, loaded: obsLoaded, statusError, commandError });
 
   async function runObsCommand(action: string, command: () => Promise<{ obsStatus?: ObsStatus }>) {
     setPendingAction(action);
@@ -212,16 +219,22 @@ export function TabletPage() {
               <div className="tablet-status-group">
                 <span className="tablet-status">
                   <span className={connectionClass} />
-                  {obsStatus.connected ? 'Connected' : 'Unavailable'}
+                  {obsStatus.connected ? 'Connected' : 'Offline'}
                 </span>
-                <span className="tablet-status">
-                  <span className={'tablet-status-dot ' + (obsStatus.studioMode ? 'connected' : 'idle')} />
-                  Studio {obsStatus.studioMode ? 'On' : 'Off'}
-                </span>
+                {/* Studio mode is something OBS reports. While OBS is unreachable the
+                    server zeroes it, so "Studio off" would be a claim nobody made. */}
+                {obsStatus.connected ? (
+                  <span className="tablet-status">
+                    <span className={'tablet-status-dot ' + (obsStatus.studioMode ? 'connected' : 'idle')} />
+                    Studio {obsStatus.studioMode ? 'On' : 'Off'}
+                  </span>
+                ) : null}
               </div>
             </div>
 
-            {programOffList || obsStatus.studioMode ? (
+            {/* Same reasoning for the Program readout: "None" while offline is not
+                what is on stream, it is only what this page does not know. */}
+            {obsStatus.connected && (programOffList || obsStatus.studioMode) ? (
               <div className="obs-scene-summary">
                 {programOffList ? (
                   <div>
@@ -238,8 +251,15 @@ export function TabletPage() {
               </div>
             ) : null}
 
-            {statusError || obsStatus.lastError || commandError ? (
-              <p className="tablet-error">{commandError ?? statusError ?? obsStatus.lastError}</p>
+            {notice ? (
+              <div
+                className={'tablet-error' + (notice.tone === 'offline' ? ' tablet-error--offline' : '')}
+                role="status"
+                title={notice.detail ?? undefined}
+              >
+                <p>{notice.message}</p>
+                {notice.detail ? <p className="tablet-error-detail">{notice.detail}</p> : null}
+              </div>
             ) : null}
 
             <div className="tablet-button-grid sceneGrid">
