@@ -146,7 +146,7 @@ src/
     overlayPlaceholders.tsx # useOverlayPlaceholders hook + OverlayPlaceholder outline
     overlayText.tsx     # overlay text queue helpers + useOverlayTextQueue + OverlayTextStage
     queue.ts            # enqueueUnique / advanceHead: dedup-append/pop primitives for overlay queues
-    quickActions.tsx    # useQuickActions hook + QuickActionsPanel + TabletQuickActions
+    quickActions.tsx    # useQuickActions hook + TabletQuickActions
     scenes.ts           # switchableScenes / sceneLabel (OBS scene prefix filtering + ordering)
     shoutouts.tsx       # useSessionShoutouts hook + ShoutoutTicker (overlay)
     sounds.ts           # useSoundEvents hook + preloaded quack sources + playTone/playAttentionChime
