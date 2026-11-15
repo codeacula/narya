@@ -14,6 +14,7 @@ import {
 import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
 import { useDirtyGuard } from '../../ui/dirtyGuard';
+import { EmptyState } from '../../ui/emptyState';
 
 /**
  * An app's declared inbound event names: what a redis_event trigger's event picker
@@ -355,12 +356,11 @@ export function AppsPage() {
       </form>
 
       <div className="counter-list">
-        {loading && <div className="command-empty">Loading apps…</div>}
+        {loading && <EmptyState title="Loading apps…" />}
         {!loading && apps.length === 0 && (
-          <div className="command-empty">
-            No apps registered yet. Register one above, then tag a reward with it on the Viewer
-            rewards page.
-          </div>
+          <EmptyState title="No apps registered yet">
+            Register one above, then tag a reward with it on the Viewer rewards page.
+          </EmptyState>
         )}
         {!loading && apps.map(app => (
           <div className="counter-row" key={app.id}>

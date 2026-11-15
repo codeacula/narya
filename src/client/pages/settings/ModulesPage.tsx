@@ -378,9 +378,11 @@ export function ModulesSettingsPage() {
 
               <div className="settings-mini-list">
                 {loading ? (
-                  <div className="command-empty">Loading modules...</div>
+                  <EmptyState size="compact" title="Loading modules…" />
                 ) : state.modules.length === 0 ? (
-                  <div className="command-empty">No category modules yet.</div>
+                  <EmptyState size="compact" title="No category modules yet">
+                    New makes one; give it a Twitch category and the reward groups it owns.
+                  </EmptyState>
                 ) : state.modules.map(module => (
                   <button
                     type="button"

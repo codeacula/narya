@@ -8,6 +8,7 @@ import { errorMessage } from '../../errors';
 import { formatAgo } from '../../../shared/time';
 import { useDirtyGuard } from '../../ui/dirtyGuard';
 import { draftsDiffer } from '../../ui/dirtyGuardLogic';
+import { EmptyState } from '../../ui/emptyState';
 
 type Draft = { text: string; slug: string; submittedBy: string };
 
@@ -234,14 +235,14 @@ export function QuotesPage() {
         )}
 
         <div className="quote-list">
-          {loading && <div className="command-empty">Loading quotes…</div>}
+          {loading && <EmptyState title="Loading quotes…" />}
           {!loading && quotes.length === 0 && (
-            <div className="command-empty">
-              No quotes yet. Add one above, or wire a viewer command to a “Save a quote” step in Settings → Actions.
-            </div>
+            <EmptyState title="No quotes yet">
+              Add one above, or wire a viewer command to a “Save a quote” step in Settings → Actions.
+            </EmptyState>
           )}
           {!loading && quotes.length > 0 && visible.length === 0 && (
-            <div className="command-empty">No quote matches “{search}”.</div>
+            <EmptyState title="No matching quotes">Nothing matches “{search}”.</EmptyState>
           )}
           {visible.map(quote => (
             <QuoteCard

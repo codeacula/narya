@@ -23,6 +23,7 @@ import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { SettingsHeader, SettingsStatus } from './settings/shared';
 import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
 import { useDirtyGuard, useDraft } from '../ui/dirtyGuard';
+import { EmptyState } from '../ui/emptyState';
 
 const EMPTY_REWARD: ViewerRewardUpsert = {
   title: '',
@@ -957,7 +958,7 @@ export function ViewerRewardsPage() {
         ) : null}
         <div className="reward-list">
           {rewards.length === 0 ? (
-            <div className="reward-empty">No rewards in this category.</div>
+            <EmptyState size="compact" title="No rewards in this category" />
           ) : rewards.map(reward => (
             <RewardRow
               key={reward.id}
@@ -1020,17 +1021,18 @@ export function ViewerRewardsPage() {
         ) : null}
 
         {loading ? (
-          <div className="reward-loading">Loading rewards from Twitch...</div>
+          <EmptyState title="Loading rewards from Twitch…" />
         ) : (
           <>
             {data.categories.map(category => renderGroup(category))}
             {renderGroup(null)}
             {data.categories.length === 0 && data.rewards.length === 0 ? (
-              <div className="reward-empty-state">
-                <h3>No viewer rewards yet</h3>
-                <p>Create a category for an integration, then add its rewards.</p>
-                <button className="btn-primary" type="button" onClick={() => startCreate()}>Create first reward</button>
-              </div>
+              <EmptyState
+                title="No viewer rewards yet"
+                action={<button className="btn-primary" type="button" onClick={() => startCreate()}>Create first reward</button>}
+              >
+                Create a category for an integration, then add its rewards.
+              </EmptyState>
             ) : null}
           </>
         )}

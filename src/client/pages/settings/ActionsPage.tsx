@@ -886,9 +886,9 @@ export function ActionsSettingsPage() {
 
               <div className="settings-mini-list">
                 {loading ? (
-                  <div className="command-empty">Loading actions...</div>
+                  <EmptyState size="compact" title="Loading actions…" />
                 ) : actions.length === 0 ? (
-                  <div className="command-empty">No actions yet. Create one, then point a trigger at it.</div>
+                  <EmptyState size="compact" title="No actions yet">Create one with New, then point a trigger at it.</EmptyState>
                 ) : actions.map(action => (
                   <button
                     type="button"

@@ -714,6 +714,13 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 }
 .empty-state .es-title { font-family: var(--font-display); font-style: italic; font-size: var(--step-1); color: var(--ivory-200); }
 .empty-state .es-sub { font-size: 12px; max-width: 30ch; line-height: 1.5; }
+/* A list column or a card: no flex fill, tighter, the title a step down. */
+.empty-state--compact { flex: none; gap: 6px; padding: var(--space-5) var(--space-3); }
+.empty-state--compact .es-title { font-size: var(--step-0); }
+.empty-state--compact .es-sub { max-width: 34ch; }
+.empty-state .es-action,
+.split-empty .es-action { margin-top: var(--space-2); }
+.es-action .btn-primary { border: 0; min-height: 34px; }
 
 /* ================= EVENT FEED ================= */
 .evt-list { display: flex; flex-direction: column; }
@@ -1870,8 +1877,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
      opens past the card's bottom edge. The rounded bottom corners are handled on .reward-list. */
 }
 .reward-group-head { padding: 12px 14px; border-bottom: 1px solid var(--border-1); }
-.reward-group-head h3,
-.reward-empty-state h3 {
+.reward-group-head h3 {
   margin: 0;
   color: var(--fg-1);
   font-family: var(--font-display);
@@ -2140,22 +2146,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   padding: 5px 8px;
   font: 11px var(--font-body);
 }
-.reward-empty,
-.reward-loading,
-.reward-empty-state,
 .reward-api-note { color: var(--fg-3); font-size: 12px; }
-.reward-empty { padding: 18px 14px; }
-.reward-loading { padding: 28px 0; text-align: center; }
-.reward-empty-state {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  padding: 42px 20px;
-  border: 1px dashed var(--border-2);
-  border-radius: var(--radius-2);
-  text-align: center;
-}
-.reward-empty-state .btn-primary { border: 0; min-height: 34px; margin-top: 6px; }
 .reward-api-note { max-width: 74ch; margin: var(--space-5) auto 0; text-align: center; line-height: 1.5; }
 .sr-only {
   position: absolute;

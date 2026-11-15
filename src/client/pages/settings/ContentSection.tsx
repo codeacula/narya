@@ -234,9 +234,9 @@ function MediaLibrary() {
 
           <div className="settings-mini-list">
             {loading ? (
-              <div className="command-empty">Loading media library...</div>
+              <EmptyState size="compact" title="Loading the media library…" />
             ) : assets.length === 0 ? (
-              <div className="command-empty">No media assets configured. Add one with New.</div>
+              <EmptyState size="compact" title="No media yet">Add a clip or sound with New.</EmptyState>
             ) : assets.map(asset => (
               <button
                 type="button"
@@ -642,9 +642,9 @@ function MediaButtonManager({
 
           <div className="settings-mini-list">
             {loading ? (
-              <div className="command-empty">Loading {copy.noun}s...</div>
+              <EmptyState size="compact" title={`Loading ${copy.noun} buttons…`} />
             ) : items.length === 0 ? (
-              <div className="command-empty">No {copy.noun} buttons configured.</div>
+              <EmptyState size="compact" title={`No ${copy.noun} buttons yet`}>Add one with New.</EmptyState>
             ) : items.map(item => (
               <button
                 type="button"

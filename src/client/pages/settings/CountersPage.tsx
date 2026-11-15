@@ -12,6 +12,7 @@ import { useSocket } from '../../realtime';
 import { SettingsHeader, SettingsStatus } from './shared';
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
+import { EmptyState } from '../../ui/emptyState';
 
 /**
  * The draft holds the value as TEXT. Parsing on every keystroke made a negative
@@ -339,9 +340,9 @@ export function CountersPage() {
         ))}
 
         {!loading && counters.length === 0 && (
-          <div className="command-empty">
-            No counters yet. Create one, then add an “Adjust counter” step to an action.
-          </div>
+          <EmptyState title="No counters yet">
+            Create one with New counter, then add an “Adjust counter” step to an action.
+          </EmptyState>
         )}
       </div>
     </>

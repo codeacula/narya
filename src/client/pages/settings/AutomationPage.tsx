@@ -1605,9 +1605,9 @@ export function AutomationSettingsPage() {
 
               <div className="settings-mini-list">
                 {loading ? (
-                  <div className="command-empty">Loading...</div>
+                  <EmptyState size="compact" title="Loading triggers…" />
                 ) : triggers.length === 0 ? (
-                  <div className="command-empty">No triggers configured. Add one with New.</div>
+                  <EmptyState size="compact" title="No triggers yet">Pick a kind from New trigger to add one.</EmptyState>
                 ) : TRIGGER_KINDS.map(kind => {
                   const kindTriggers = byKind.get(kind) ?? [];
                   if (kindTriggers.length === 0) return null;
