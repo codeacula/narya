@@ -1181,6 +1181,9 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
    scrollbar and let a long row (an action's `/ban <user> [reason]` usage chip) push
    the scroll width out instead of ellipsizing inside the column. `hidden` rather than
    `clip` because a `clip` paired with a non-clip axis computes to `hidden` anyway. */
+/* A kind picker is as wide as its longest option; beside the hint it squeezed the
+   sentence into a ~110px column. Stack the two instead. */
+.split-list-head:has(> .split-new-select) { flex-direction: column; align-items: stretch; }
 .settings-split-list .settings-mini-list {
   max-height: min(56vh, 540px);
   overflow-y: auto;
@@ -2345,6 +2348,8 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   color: var(--fg-3);
 }
 /* Stream-info: saved-category dropdown with an Add button that flips to search. */
+/* With no tags the empty well read as a second, unusable text box above the real one. */
+.tag-chip-list:empty { display: none; }
 .stream-cat-picker { display: flex; gap: 8px; align-items: stretch; }
 .stream-cat-picker > .suggestion-anchor,
 .stream-cat-picker > select { flex: 1; min-width: 0; }

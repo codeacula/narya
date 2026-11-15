@@ -322,7 +322,7 @@ export function AppsPage() {
             onChange={event => setName(event.target.value)}
           />
           <small className="action-hint">
-            Lowercase letters, numbers, underscores, or hyphens. This is the exact <code>source</code>
+            Lowercase letters, numbers, underscores, or hyphens. This is the exact <code>source</code>{' '}
             value the app publishes under on the Redis bus, and the value you pick per reward on the
             Viewer rewards page.
           </small>

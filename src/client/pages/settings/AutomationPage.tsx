@@ -1474,7 +1474,7 @@ export function AutomationSettingsPage() {
   };
 
   const handleDelete = (trigger: AutomationTrigger) => {
-    if (!window.confirm('Delete this trigger?')) return;
+    if (!window.confirm(`Delete the trigger "${trigger.name}"? This cannot be undone.`)) return;
     setSaving(true);
     setMessage(null);
     setError(null);

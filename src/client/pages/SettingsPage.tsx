@@ -56,7 +56,7 @@ export function ConnectionsSettingsPage({
           {missingTwitchScopes ? (
             <a className="btn-primary" href={withToken("/api/auth/twitch?force=1")}>Reconnect</a>
           ) : status.twitchAuthenticated && status.twitchAuthSource === 'oauth' ? (
-            <button className="btn-primary" onClick={onTwitchLogout}>Disconnect</button>
+            <button className="modbtn danger" type="button" onClick={onTwitchLogout}>Disconnect</button>
           ) : status.twitchAuthenticated ? (
             <span className="set-badge set-badge--ok">Configured</span>
           ) : (
@@ -72,7 +72,7 @@ export function ConnectionsSettingsPage({
           {missingTwitchBotScopes ? (
             <a className="btn-primary" href={withToken("/api/auth/twitch/bot?force=1")}>Reconnect bot</a>
           ) : status.twitchBotAuthenticated && status.twitchBotAuthSource === 'oauth' ? (
-            <button className="btn-primary" onClick={onTwitchBotLogout}>Disconnect</button>
+            <button className="modbtn danger" type="button" onClick={onTwitchBotLogout}>Disconnect</button>
           ) : status.twitchBotAuthenticated ? (
             <span className="set-badge set-badge--ok">Configured</span>
           ) : (
