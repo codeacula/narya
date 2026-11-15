@@ -709,8 +709,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
   transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
 }
 .modbtn:hover { border-color: var(--silver-400); background: rgba(255,255,255,0.03); }
-.modbtn:disabled { cursor: not-allowed; opacity: 0.5; }
-.modbtn:disabled:hover { border-color: var(--border-2); background: transparent; }
+.modbtn:disabled, .modbtn[aria-disabled="true"] { cursor: not-allowed; opacity: 0.5; }
+.modbtn:disabled:hover, .modbtn[aria-disabled="true"]:hover { border-color: var(--border-2); background: transparent; }
 .modbtn.danger { color: var(--danger-fg); border-color: var(--danger-border); }
 .modbtn.danger:hover { background: var(--danger-bg); border-color: var(--danger-base); }
 .modbtn.gold { color: var(--accent-fg); border-color: var(--border-3); }

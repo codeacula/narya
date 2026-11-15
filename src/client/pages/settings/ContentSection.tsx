@@ -3,6 +3,7 @@ import { useConfirm } from '../../ui/confirm';
 import type { MediaAsset, MediaFile, MediaKind } from '../../../shared/api';
 import { errorMessage } from '../../errors';
 import { ListUnavailable, SettingsStatus } from './shared';
+import { listFace } from './listState';
 import {
   createClipButton,
   createMediaAsset,
@@ -91,6 +92,9 @@ function MediaLibrary() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
       .catch(caught => {
@@ -223,6 +227,7 @@ function MediaLibrary() {
   const editing = selection.mode === 'edit' ? assets.find(asset => asset.id === selection.id) ?? null : null;
   /** Repair targets for a broken local asset: the files actually on disk. */
   const repairOptions = discovered.filter(file => edit !== null && file.kind === edit.kind);
+  const assetFace = listFace({ loading, loadFailed, count: assets.length });
 
   return (
     <div className="set-group">
@@ -242,11 +247,11 @@ function MediaLibrary() {
           </div>
 
           <div className="settings-mini-list">
-            {loading ? (
+            {assetFace === 'unavailable' ? (
+              <ListUnavailable size="compact" title="Media library unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
+            ) : assetFace === 'loading' ? (
               <EmptyState size="compact" title="Loading the media library…" />
-            ) : loadFailed && assets.length === 0 ? (
-              <ListUnavailable size="compact" title="Media library unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
-            ) : assets.length === 0 ? (
+            ) : assetFace === 'empty' ? (
               <EmptyState size="compact" title="No media yet">Add a clip or sound with New.</EmptyState>
             ) : assets.map(asset => (
               <button
@@ -541,6 +546,9 @@ function MediaButtonManager({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void api.list()
       .then(next => {
         if (!cancelled) {
@@ -641,6 +649,8 @@ function MediaButtonManager({
     setForm(current => (current ? { ...current, filename: value } : current));
   };
 
+  const itemFace = listFace({ loading, loadFailed, count: items.length });
+
   return (
     <div className="set-group">
       <div className="set-group-label">{copy.heading}</div>
@@ -655,11 +665,11 @@ function MediaButtonManager({
           </div>
 
           <div className="settings-mini-list">
-            {loading ? (
+            {itemFace === 'unavailable' ? (
+              <ListUnavailable size="compact" title={`${noun} buttons unavailable`} onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
+            ) : itemFace === 'loading' ? (
               <EmptyState size="compact" title={`Loading ${copy.noun} buttons…`} />
-            ) : loadFailed && items.length === 0 ? (
-              <ListUnavailable size="compact" title={`${noun} buttons unavailable`} onRetry={() => setLoadAttempt(n => n + 1)} />
-            ) : items.length === 0 ? (
+            ) : itemFace === 'empty' ? (
               <EmptyState size="compact" title={`No ${copy.noun} buttons yet`}>Add one with New.</EmptyState>
             ) : items.map(item => (
               <button

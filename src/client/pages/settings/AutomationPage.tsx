@@ -1415,6 +1415,9 @@ export function AutomationSettingsPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
       .catch(caught => {
@@ -1697,7 +1700,7 @@ export function AutomationSettingsPage() {
                 {triggerFace === 'loading' ? (
                   <EmptyState size="compact" title="Loading triggers…" />
                 ) : triggerFace === 'unavailable' ? (
-                  <ListUnavailable size="compact" title="Triggers unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
+                  <ListUnavailable size="compact" title="Triggers unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
                 ) : triggerFace === 'empty' ? (
                   <EmptyState size="compact" title="No triggers yet">Pick a kind from New trigger to add one.</EmptyState>
                 ) : TRIGGER_KINDS.map(kind => {

@@ -906,6 +906,8 @@ export function ViewerRewardsPage() {
     }
   };
 
+  const rewardsUnavailable = data.categories.length === 0 && data.rewards.length === 0 && neverLoaded(rewardsHealth);
+
   const renderGroup = (category: ViewerRewardCategory | null) => {
     const categoryId = category?.id ?? null;
     const rewards = groupedRewards.get(categoryId) ?? [];
@@ -1021,16 +1023,17 @@ export function ViewerRewardsPage() {
           </div>
         ) : null}
 
-        {loading ? (
+        {loading && !rewardsUnavailable ? (
           <EmptyState title="Loading rewards from Twitch…" />
         ) : (
           <>
             {data.categories.map(category => renderGroup(category))}
             {renderGroup(null)}
-            {data.categories.length === 0 && data.rewards.length === 0 && neverLoaded(rewardsHealth) ? (
+            {rewardsUnavailable ? (
               // Never loaded: "Create first reward" here would invite duplicating rewards
-              // that are all still on Twitch.
-              <ListUnavailable title="Viewer rewards unavailable" onRetry={() => void refresh()} />
+              // that are all still on Twitch. Kept mounted through a retry so the
+              // Retry button the operator pressed keeps focus (see listFace).
+              <ListUnavailable title="Viewer rewards unavailable" onRetry={() => void refresh()} retrying={loading} />
             ) : data.categories.length === 0 && data.rewards.length === 0 ? (
               <EmptyState
                 title="No viewer rewards yet"

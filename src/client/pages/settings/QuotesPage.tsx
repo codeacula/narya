@@ -141,6 +141,9 @@ export function QuotesPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
       .catch(caught => {
@@ -255,7 +258,7 @@ export function QuotesPage() {
 
         <div className="quote-list">
           {loading && <EmptyState title="Loading quotes…" />}
-          {face === 'unavailable' && <ListUnavailable title="Quotes unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />}
+          {face === 'unavailable' && <ListUnavailable title="Quotes unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />}
           {face === 'empty' && (
             <EmptyState title="No quotes yet">
               Add one above, or wire a viewer command to a “Save a quote” step in Settings → Actions.

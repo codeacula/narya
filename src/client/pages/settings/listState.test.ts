@@ -11,8 +11,15 @@ describe('listFace', () => {
   });
 
   test('loading wins, as it did before', () => {
-    expect(listFace({ loading: true, loadFailed: true, count: 0 })).toBe('loading');
+    expect(listFace({ loading: true, loadFailed: false, count: 0 })).toBe('loading');
     expect(listFace({ loading: true, loadFailed: false, count: 3 })).toBe('loading');
+    expect(listFace({ loading: true, loadFailed: true, count: 3 })).toBe('loading');
+  });
+
+  test('a retry in flight keeps the unavailable face, so its Retry button stays mounted', () => {
+    // Swapping to "loading" unmounted the button the operator had just pressed and
+    // dropped keyboard focus to the page body.
+    expect(listFace({ loading: true, loadFailed: true, count: 0 })).toBe('unavailable');
   });
 
   test('rows on screen still show after a later load failed', () => {

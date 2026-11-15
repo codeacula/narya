@@ -94,6 +94,9 @@ export function CountersPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
       .catch(caught => {
@@ -349,7 +352,7 @@ export function CountersPage() {
           </div>
         ))}
 
-        {face === 'unavailable' && <ListUnavailable title="Counters unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />}
+        {face === 'unavailable' && <ListUnavailable title="Counters unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />}
         {face === 'empty' && (
           <EmptyState title="No counters yet">
             Create one with New counter, then add an “Adjust counter” step to an action.

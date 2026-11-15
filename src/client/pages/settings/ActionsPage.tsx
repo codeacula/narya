@@ -770,6 +770,9 @@ export function ActionsSettingsPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
       .catch(caught => {
@@ -909,7 +912,7 @@ export function ActionsSettingsPage() {
                 {loading ? (
                   <EmptyState size="compact" title="Loading actions…" />
                 ) : actionFace === 'unavailable' ? (
-                  <ListUnavailable size="compact" title="Actions unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
+                  <ListUnavailable size="compact" title="Actions unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
                 ) : actionFace === 'empty' ? (
                   <EmptyState size="compact" title="No actions yet">Create one with New, then point a trigger at it.</EmptyState>
                 ) : actions.map(action => (

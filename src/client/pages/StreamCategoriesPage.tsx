@@ -245,6 +245,9 @@ export function StreamCategoriesPage() {
   React.useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     getSavedStreamCategories()
       .then(next => {
         if (cancelled) return;
@@ -299,7 +302,7 @@ export function StreamCategoriesPage() {
         {face === 'loading' ? (
           <EmptyState title="Charting your categories…" />
         ) : face === 'unavailable' ? (
-          <ListUnavailable title="Saved categories unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
+          <ListUnavailable title="Saved categories unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
         ) : face === 'empty' ? (
           <EmptyState title="No saved categories yet">Search for a category above to add your first one — or pick one in Stream Info and it lands here.</EmptyState>
         ) : (

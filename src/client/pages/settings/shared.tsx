@@ -103,16 +103,33 @@ export function ListUnavailable({
   title,
   size = 'panel',
   onRetry,
+  retrying = false,
 }: {
   title: string;
   size?: EmptyStateSize;
   onRetry?: () => void;
+  /**
+   * A retry is in flight. The face stays mounted through it (`listFace`) so the button
+   * keeps keyboard focus; it says "Retrying…" and ignores presses until the load
+   * settles. `aria-disabled` rather than `disabled`, because disabling a focused
+   * button drops focus to the page body, which is the bug this avoids.
+   */
+  retrying?: boolean;
 }) {
   return (
     <EmptyState
       size={size}
       title={title}
-      action={onRetry ? <button className="modbtn" type="button" onClick={onRetry}>Retry</button> : undefined}
+      action={onRetry ? (
+        <button
+          className="modbtn"
+          type="button"
+          aria-disabled={retrying || undefined}
+          onClick={retrying ? undefined : onRetry}
+        >
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
+      ) : undefined}
     >
       Narya could not load them, so this is not an empty list. Nothing was changed.
     </EmptyState>

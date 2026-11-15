@@ -10,10 +10,14 @@ import type { RefreshHealth } from '../../refreshHealth';
  * was there all along. A failed load now shows `ListUnavailable` (shared.tsx) instead,
  * and the empty face is kept for a list the server actually returned empty.
  *
- * - `loading` wins, as it already did on every page: nothing is known yet.
+ * - With no rows, a failed load is `unavailable` — and stays so while its Retry is in
+ *   flight. Swapping to `loading` there unmounted the Retry button the operator had
+ *   just pressed, dropping keyboard focus to the page body; `ListUnavailable` shows the
+ *   retry in progress on that same button instead.
+ * - Otherwise `loading` wins, as it already did on every page: nothing is known yet.
  * - Rows on screen always show (`items`), even after a later refresh failed — those
  *   are real rows, and the failure is reported beside them.
- * - With no rows, a failed load is `unavailable`; only a successful one is `empty`.
+ * - With no rows, only a successful load is `empty`.
  */
 export type ListFace = 'loading' | 'items' | 'unavailable' | 'empty';
 
@@ -27,9 +31,9 @@ export function listFace({
   loadFailed: boolean;
   count: number;
 }): ListFace {
+  if (loadFailed && count === 0) return 'unavailable';
   if (loading) return 'loading';
-  if (count > 0) return 'items';
-  return loadFailed ? 'unavailable' : 'empty';
+  return count > 0 ? 'items' : 'empty';
 }
 
 /**

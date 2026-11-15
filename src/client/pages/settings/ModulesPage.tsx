@@ -180,6 +180,9 @@ export function ModulesSettingsPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
       .catch(caught => {
@@ -408,7 +411,7 @@ export function ModulesSettingsPage() {
                 {moduleFace === 'loading' ? (
                   <EmptyState size="compact" title="Loading modules…" />
                 ) : moduleFace === 'unavailable' ? (
-                  <ListUnavailable size="compact" title="Modules unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
+                  <ListUnavailable size="compact" title="Modules unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
                 ) : moduleFace === 'empty' ? (
                   <EmptyState size="compact" title="No category modules yet">
                     New makes one; give it a Twitch category and the reward groups it owns.

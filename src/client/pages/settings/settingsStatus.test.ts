@@ -3,7 +3,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SettingsStatus } from './shared';
+import { ListUnavailable, SettingsStatus } from './shared';
 
 const render = (props: React.ComponentProps<typeof SettingsStatus>) =>
   renderToStaticMarkup(React.createElement(SettingsStatus, props));
@@ -44,5 +44,24 @@ describe('the settings feedback rule (shared.tsx)', () => {
       .filter(name => name.endsWith('.tsx'))
       .filter(name => /useToast|pushToast/.test(readFileSync(join(dir, name), 'utf8')));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('ListUnavailable', () => {
+  const render = (props: React.ComponentProps<typeof ListUnavailable>) =>
+    renderToStaticMarkup(React.createElement(ListUnavailable, props));
+
+  test('offers Retry while idle', () => {
+    const html = render({ title: 'Counters unavailable', onRetry: () => {} });
+    expect(html).toContain('>Retry</button>');
+    expect(html).not.toContain('aria-disabled');
+  });
+
+  test('a retry in flight keeps the same button, marked busy but still focusable', () => {
+    // `disabled` would drop keyboard focus to the page body; aria-disabled keeps it.
+    const html = render({ title: 'Counters unavailable', onRetry: () => {}, retrying: true });
+    expect(html).toContain('aria-disabled="true"');
+    expect(html).toContain('>Retrying…</button>');
+    expect(html).not.toMatch(/<button[^>]*\sdisabled/);
   });
 });

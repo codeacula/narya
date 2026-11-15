@@ -339,6 +339,9 @@ export function AppsPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Cleared so a retry that fails the same way still changes the alert, and is
+    // announced again rather than leaving the reader with nothing.
+    setError(null);
     void load()
       .then(() => { if (!cancelled) setError(null); })
       .catch(caught => {
@@ -416,7 +419,7 @@ export function AppsPage() {
 
       <div className="counter-list">
         {face === 'loading' && <EmptyState title="Loading apps…" />}
-        {face === 'unavailable' && <ListUnavailable title="Apps unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />}
+        {face === 'unavailable' && <ListUnavailable title="Apps unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />}
         {face === 'empty' && (
           <EmptyState title="No apps registered yet">
             Register one above, then tag a reward with it on the Viewer rewards page.
