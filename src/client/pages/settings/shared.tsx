@@ -189,7 +189,7 @@ export function FormUnavailable({
 }) {
   return (
     <ListUnavailable title={title} size={size} onRetry={onRetry} retrying={retrying}>
-      Narya could not load the saved values, so it is not showing defaults in their place.
+      Narya could not load the current values, so it is not showing defaults in their place.
       Nothing was changed.
     </ListUnavailable>
   );

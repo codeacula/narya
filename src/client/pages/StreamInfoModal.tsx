@@ -3,10 +3,11 @@ import { Icon } from '../ui/icons';
 import { Modal, ModalTitle } from '../ui/modal';
 import { useDirtyGuard } from '../ui/dirtyGuard';
 import { errorMessage } from '../errors';
-import { asSentence, PICKER_LOADING, pickerConfirmedEmpty, type PickerLoad } from './settings/listState';
+import { asSentence, formFace, PICKER_LOADING, pickerConfirmedEmpty, type PickerLoad } from './settings/listState';
+import { FormUnavailable } from './settings/shared';
 import { draftsDiffer } from '../ui/dirtyGuardLogic';
 import { addSavedStreamCategory, getCategorySuggestions, getSavedStreamCategories, getTagSuggestions } from '../services/dashboard';
-import { useDebouncedSuggestions } from '../suggestions';
+import { suggestionFace, suggestionFailedText, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import type { SavedStreamCategory, TwitchCategorySuggestion } from '../../shared/api';
 
@@ -35,6 +36,9 @@ function normalizeTagInput(value: string): string {
 export function StreamInfoModal({
   form,
   loading,
+  loaded,
+  loadFailed,
+  onRetry,
   saving,
   message,
   error,
@@ -44,6 +48,12 @@ export function StreamInfoModal({
 }: {
   form: StreamInfoForm;
   loading: boolean;
+  /** The fields came from the server. Until then Save would PUT blanks over the live title. */
+  loaded: boolean;
+  /** The last load failed and nothing has loaded since. */
+  loadFailed: boolean;
+  /** Reads the stream info again. */
+  onRetry: () => void;
   saving: boolean;
   message: string | null;
   error: string | null;
@@ -67,6 +77,9 @@ export function StreamInfoModal({
     setBaseline(loading ? null : form);
     // Only the end of a load re-baselines; edits must not.
   }, [loading]);
+  // A failed load shows Retry instead of the fields: blanks there are not the live
+  // title, and Save would publish them (`formFace`).
+  const face = formFace({ loaded, loadFailed });
   const dirty = baseline !== null && draftsDiffer(form, baseline);
   const { discardThen } = useDirtyGuard(dirty, 'the stream info');
   // Escape, the backdrop, the close button and Cancel all ask before dropping an edit.
@@ -100,7 +113,7 @@ export function StreamInfoModal({
     }
   }, [form.categoryId, form.category]);
 
-  const { suggestions: categorySuggestions, loading: categoryLoading } = useDebouncedSuggestions(
+  const { suggestions: categorySuggestions, loading: categoryLoading, error: categorySearchError } = useDebouncedSuggestions(
     categorySearch,
     getCategorySuggestions,
     { enabled: !loading },
@@ -113,7 +126,7 @@ export function StreamInfoModal({
     }),
     [form.tags],
   );
-  const { suggestions: tagSuggestions, loading: tagLoading } = useDebouncedSuggestions(
+  const { suggestions: tagSuggestions, loading: tagLoading, error: tagSearchError } = useDebouncedSuggestions(
     tagInput,
     tagFetcher,
     { minLength: 1, enabled: !loading },
@@ -155,7 +168,10 @@ export function StreamInfoModal({
 
   const showCategorySuggestions = categoryFocused
     && (categoryLoading || categorySuggestions.length > 0 || categorySearch.trim().length >= 2);
-  const showTagSuggestions = tagFocused && (tagLoading || tagSuggestions.length > 0);
+  const categoryFace = suggestionFace({ loading: categoryLoading, error: categorySearchError, count: categorySuggestions.length });
+  const tagFace = suggestionFace({ loading: tagLoading, error: tagSearchError, count: tagSuggestions.length });
+  // An empty tag answer shows nothing (a tag is typed freely); a failed one says so.
+  const showTagSuggestions = tagFocused && tagFace !== 'none';
 
   // Saved categories to choose from; keep the current + previously-selected ones even when unsaved/hidden.
   const visibleSaved = savedCategories.filter(cat => !cat.hidden);
@@ -185,7 +201,7 @@ export function StreamInfoModal({
   };
 
   return (
-    <Modal as="form" className="stream-info-modal" onSubmit={onSubmit} onClose={requestClose} initialFocusRef={titleInputRef} initialFocusReady={!loading && !saving}>
+    <Modal as="form" className="stream-info-modal" onSubmit={onSubmit} onClose={requestClose} initialFocusRef={titleInputRef} initialFocusReady={face === 'form' && !loading && !saving}>
       <div className="modal-head">
         <div>
           <ModalTitle>Stream Info</ModalTitle>
@@ -195,6 +211,10 @@ export function StreamInfoModal({
         </button>
       </div>
 
+      {face === 'unavailable' ? (
+        <FormUnavailable title="Stream info unavailable" onRetry={onRetry} retrying={loading} />
+      ) : (
+      <>
       <label className="field">
         <span>Title</span>
         <input
@@ -234,9 +254,11 @@ export function StreamInfoModal({
               />
               {showCategorySuggestions && (
                 <div className="suggestion-list">
-                  {categoryLoading ? (
+                  {categoryFace === 'searching' ? (
                     <div className="suggestion-empty">Searching categories...</div>
-                  ) : categorySuggestions.length === 0 ? (
+                  ) : categoryFace === 'failed' ? (
+                    <div className="suggestion-empty suggestion-empty--error">{suggestionFailedText(categorySearchError ?? '')}</div>
+                  ) : categoryFace === 'none' ? (
                     <div className="suggestion-empty">No matches</div>
                   ) : categorySuggestions.map(category => (
                     <button
@@ -325,8 +347,10 @@ export function StreamInfoModal({
           />
           {showTagSuggestions && (
             <div className="suggestion-list">
-              {tagLoading ? (
+              {tagFace === 'searching' ? (
                 <div className="suggestion-empty">Searching tags...</div>
+              ) : tagFace === 'failed' ? (
+                <div className="suggestion-empty suggestion-empty--error">{suggestionFailedText(tagSearchError ?? '')}</div>
               ) : tagSuggestions.map(tag => (
                 <button
                   key={tag}
@@ -369,6 +393,8 @@ export function StreamInfoModal({
         />
         <small>Shown on your overlay. Leave blank to hide it. {form.status.length}/280</small>
       </label>
+      </>
+      )}
 
       {(loading || message || error) && (
         <div className={'modal-status' + (error ? ' error' : '')}>
@@ -378,7 +404,7 @@ export function StreamInfoModal({
 
       <div className="modal-actions">
         <button className="modbtn" type="button" onClick={requestClose} disabled={saving}>Cancel</button>
-        <button className="modbtn gold" type="submit" disabled={loading || saving}>
+        <button className="modbtn gold" type="submit" disabled={face !== 'form' || loading || saving}>
           {saving ? 'Saving...' : 'Save'}
         </button>
       </div>

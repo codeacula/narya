@@ -148,6 +148,14 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   const [streamInfoSaving, setStreamInfoSaving] = useState(false);
   const [streamInfoMessage, setStreamInfoMessage] = useState<string | null>(null);
   const [streamInfoError, setStreamInfoError] = useState<string | null>(null);
+  // Whether the open modal's fields came from the server. Save PUTs every one of them —
+  // title, tags, status line, planned end — so blanks (or the last open's values) left by
+  // a failed load must never be savable (`formFace`).
+  const [streamInfoLoaded, setStreamInfoLoaded] = useState(false);
+  const [streamInfoLoadFailed, setStreamInfoLoadFailed] = useState(false);
+  // Only the latest load may fill the form: a slow one from a closed modal, or from
+  // before a Retry, must not land over a newer one.
+  const streamInfoLoadSeq = React.useRef(0);
   const [prerollBusy, setPrerollBusy] = useState(false);
   const [goLiveBusy, setGoLiveBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -484,8 +492,8 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     return Number.isNaN(date.getTime()) ? null : date.toISOString();
   };
 
-  const handleOpenStreamInfo = React.useCallback(() => {
-    setStreamInfoOpen(true);
+  const loadStreamInfo = React.useCallback(() => {
+    const seq = ++streamInfoLoadSeq.current;
     setStreamInfoLoading(true);
     setStreamInfoMessage(null);
     setStreamInfoError(null);
@@ -495,6 +503,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     // touched the status field.
     void Promise.all([getStreamInfo(), getStreamStatusRaw(), getPlannedStreamEnd()])
       .then(([info, status, planned]) => {
+        if (seq !== streamInfoLoadSeq.current) return;
+        setStreamInfoLoaded(true);
+        setStreamInfoLoadFailed(false);
         setStreamInfoForm({
           title: info.title,
           category: info.category,
@@ -505,13 +516,25 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         });
       })
       .catch(error => {
+        if (seq !== streamInfoLoadSeq.current) return;
+        setStreamInfoLoadFailed(true);
         setStreamInfoError(errorMessage(error, 'Could not load stream info'));
       })
-      .finally(() => setStreamInfoLoading(false));
+      .finally(() => { if (seq === streamInfoLoadSeq.current) setStreamInfoLoading(false); });
   }, []);
+
+  const handleOpenStreamInfo = React.useCallback(() => {
+    setStreamInfoOpen(true);
+    // Every open reads afresh; what the last open loaded is not what is live now.
+    setStreamInfoLoaded(false);
+    setStreamInfoLoadFailed(false);
+    loadStreamInfo();
+  }, [loadStreamInfo]);
 
   const handleStreamInfoSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // The modal offers no Save until the fields have loaded; this is the backstop.
+    if (!streamInfoLoaded) return;
     setStreamInfoSaving(true);
     setStreamInfoMessage(null);
     setStreamInfoError(null);
@@ -546,7 +569,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         setStreamInfoError(errorMessage(error, 'Could not save stream info'));
       })
       .finally(() => setStreamInfoSaving(false));
-  }, [refreshDashboardStatus, streamInfoForm]);
+  }, [refreshDashboardStatus, streamInfoForm, streamInfoLoaded]);
 
   const attention = useAttention({
     events,
@@ -842,6 +865,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         <StreamInfoModal
           form={streamInfoForm}
           loading={streamInfoLoading}
+          loaded={streamInfoLoaded}
+          loadFailed={streamInfoLoadFailed}
+          onRetry={loadStreamInfo}
           saving={streamInfoSaving}
           message={streamInfoMessage}
           error={streamInfoError}
