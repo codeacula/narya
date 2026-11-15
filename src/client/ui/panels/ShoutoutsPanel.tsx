@@ -1,6 +1,7 @@
 import React from 'react';
 import type { SessionShoutout } from '../../../shared/api';
 import { kindChip, kindTone } from '../../eventKinds';
+import { EmptyState } from '../emptyState';
 
 export function ShoutoutsPanel({
   shoutouts,
@@ -24,10 +25,10 @@ export function ShoutoutsPanel({
   }, [shoutouts]);
 
   if (!streamActive) {
-    return <div className="panel-empty">No stream session is active. Shoutouts collect once you go live.</div>;
+    return <EmptyState title="Not streaming">Shoutouts collect once you go live.</EmptyState>;
   }
   if (shoutouts.length === 0) {
-    return <div className="panel-empty">Nobody to shout out yet. Follows, subs, cheers, and raids collect here.</div>;
+    return <EmptyState title="Nobody to shout out yet">Follows, subs, cheers, and raids collect here.</EmptyState>;
   }
 
   return (

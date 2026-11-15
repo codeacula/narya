@@ -544,6 +544,16 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
   margin: 7px 0 0; padding: 3px 9px;
   font-size: 10px;
 }
+/* A removed message's reason comes first in the row's DOM (the dashboard floats it
+   to the right edge). Inline on the tablet it ran straight into the username with no
+   gap, and the narrow rail cut the reason at 45%. It gets its own line above the
+   message instead, as wide as the reason needs: overflow: hidden (from the base rule)
+   makes it a block formatting context, so it sits beside the floated time rather than
+   under it, and only ellipsizes when the line runs out. */
+.tablet-shell .msg-mod-status.removed {
+  display: block; width: fit-content; max-width: none;
+  margin: 0 0 6px;
+}
 /* Highlighted rows take their palette's -bg fill and keep the tag chip as the label;
    there is no coloured stripe, matching the overlay's flat cards. */
 .msg.hl-first,
@@ -554,10 +564,10 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 .msg.hl-sub { background: color-mix(in srgb, var(--warning-bg) 50%, transparent); }
 .msg.hl-mod { background: color-mix(in srgb, var(--success-bg) 60%, transparent); }
 .msg.hl-vip { background: color-mix(in srgb, var(--note-bg) 75%, transparent); }
-/* Someone said your name — the visual half of the ping cue, gold to match the
-   overlay's .chat-message.mention. Placed after the hl- tints deliberately: at equal
-   specificity the later rule wins, so "they're talking to you" outranks the role
-   colour of whoever said it. */
+/* Someone said your name — the visual half of the ping cue: the warm warning fill
+   with a hairline ring, so the row stands out in a fast-moving list. Placed after the
+   hl- tints deliberately: at equal specificity the later rule wins, so "they're
+   talking to you" outranks the role colour of whoever said it. */
 .msg.msg--mention {
   background: var(--warning-bg);
   box-shadow: inset 0 0 0 1px var(--warning-border);
@@ -721,6 +731,19 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 .empty-state .es-action,
 .split-empty .es-action { margin-top: var(--space-2); }
 .es-action .btn-primary { border: 0; min-height: 34px; }
+/* Note: a two-line note inside a panel that already has a heading (a tablet button
+   grid). Left-aligned with the content around it, and it spans a grid's columns
+   rather than sitting in the first cell. */
+.empty-state--note {
+  flex: 0 0 auto; grid-column: 1 / -1;
+  align-items: flex-start; justify-content: flex-start;
+  gap: 2px; padding: 4px 0; text-align: left;
+}
+.empty-state--note .es-title { font-size: var(--step-0); }
+.empty-state--note .es-sub { max-width: 60ch; }
+/* The tablet is read at arm's length: the same note, one step larger. */
+.tablet-shell .empty-state--note .es-title { font-size: var(--step-1); }
+.tablet-shell .empty-state--note .es-sub { font-size: var(--step--1); }
 
 /* ================= EVENT FEED ================= */
 .evt-list { display: flex; flex-direction: column; }
@@ -2640,7 +2663,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .att-settings-field input:focus { border-color: var(--border-3); }
 
-.panel-empty { padding: 18px 14px; font-size: 12px; color: var(--fg-3); text-align: center; line-height: 1.5; }
 /* position: relative makes the list the rows' offsetParent, so the "more below"
    cue can read row positions straight off offsetTop in scroll coordinates. */
 .att-list-wrap { position: relative; display: flex; flex-direction: column; min-height: 0; }
@@ -3153,10 +3175,6 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 .viewer-history .spot-section-label {
   margin-bottom: var(--space-3);
-}
-.viewer-history-empty {
-  font-size: var(--step--1);
-  color: var(--fg-2);
 }
 /* A recessed, self-scrolling log framed like the dashboard chat panel, so the
    history stops bloating the page. Newest message sits at the top; the rows

@@ -5,6 +5,7 @@ import { useSocket, useSocketReconnect } from './realtime';
 import { playAutomodAlert } from './sounds';
 import { allowAutomodHold, denyAutomodHold, getAutomodQueue } from './services/dashboard';
 import { errorMessage } from './errors';
+import { EmptyState } from './ui/emptyState';
 
 // Mirrors the server-side pending cap so the two agree on how many holds a
 // spam wave can accumulate before the oldest overflow is dropped.
@@ -189,7 +190,7 @@ export function AutomodPanel({
       {error ? (
         <p className="automod-error">{error}</p>
       ) : pending.length === 0 ? (
-        <div className="panel-empty">No messages currently held.</div>
+        <EmptyState title="Nothing held">Messages AutoMod holds for review appear here.</EmptyState>
       ) : (
         pending.map(hold => <AutomodItem key={hold.id} hold={hold} onAllow={allow} onDeny={deny} />)
       )}

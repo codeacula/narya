@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '../icons';
+import { EmptyState } from '../emptyState';
 import { formatAgo } from '../../../shared/time';
 import { kindEyebrow, kindTone } from '../../eventKinds';
 import { DEFAULT_ATTENTION_TAG, type AttentionItem, type AttentionSettings } from '../../attention';
@@ -177,7 +178,7 @@ export function AttentionPanel({
         </div>
       </div>
       {items.length === 0 ? (
-        <div className="panel-empty">Follows, subs, cheers, raids, and tagged chat land here.</div>
+        <EmptyState title="Nothing to thank yet">Follows, subs, cheers, raids, and tagged chat land here.</EmptyState>
       ) : (
         <div className="att-list-wrap">
           <div className="att-list" ref={listRef} onScroll={onListScroll}>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { createModalStack, trapTabTarget } from './modalLogic';
+import { createModalStack, shouldApplyDeferredFocus, trapTabTarget } from './modalLogic';
 
 /**
  * The one modal dialog. It owns the behaviour every modal needs and none of the look:
@@ -11,6 +11,9 @@ import { createModalStack, trapTabTarget } from './modalLogic';
  * - focus moves in on open (`initialFocusRef`, else the first tabbable element, else
  *   the dialog itself), Tab and Shift+Tab wrap inside it, and focus goes back to
  *   whatever had it before the dialog opened;
+ * - if the `initialFocusRef` target is disabled at open (a form still loading), the
+ *   caller passes `initialFocusReady={false}` and flips it once the target is usable:
+ *   focus then moves there, unless the operator has moved it off the fallback;
  * - a mousedown on the backdrop closes it, as every modal here has always done.
  *
  * Only the topmost open modal answers the keyboard, so a confirm raised over another
@@ -71,6 +74,12 @@ export type ModalProps = {
   closeOnBackdrop?: boolean;
   /** Where focus lands on open. Falls back to the first tabbable element. */
   initialFocusRef?: React.RefObject<HTMLElement | null>;
+  /**
+   * False while the `initialFocusRef` target cannot take focus yet (disabled while
+   * loading). When it turns true, focus moves to the target if it is still parked on
+   * the fallback the dialog chose. Defaults to true.
+   */
+  initialFocusReady?: boolean;
   /** Id of an element that describes the dialog (a confirm's body text). */
   describedBy?: string;
   children: React.ReactNode;
@@ -83,6 +92,7 @@ export function Modal({
   onSubmit,
   closeOnBackdrop = true,
   initialFocusRef,
+  initialFocusReady = true,
   describedBy,
   children,
 }: ModalProps) {
@@ -99,6 +109,10 @@ export function Modal({
     onCloseRef.current = onClose;
   });
   const initialFocusRefRef = React.useRef(initialFocusRef);
+  // Where focus was parked because the initial-focus target could not take it, and
+  // whether the operator has moved it since. Read by the deferred-focus effect.
+  const parkedOnRef = React.useRef<Element | null>(null);
+  const operatorMovedRef = React.useRef(false);
 
   React.useEffect(() => {
     const dialog = dialogRef.current;
@@ -107,11 +121,22 @@ export function Modal({
 
     // A child with autoFocus has already taken focus by now; leave it there.
     if (!dialog.contains(document.activeElement)) {
-      initialFocusRefRef.current?.current?.focus();
+      const target = initialFocusRefRef.current?.current ?? null;
+      target?.focus();
       if (!dialog.contains(document.activeElement)) {
         (tabbableIn(dialog)[0] ?? dialog).focus();
+        if (target) parkedOnRef.current = document.activeElement;
       }
     }
+    // Any focus change after parking (Tab, a click into a field) is the operator's.
+    const onFocusIn = () => {
+      if (document.activeElement !== parkedOnRef.current) operatorMovedRef.current = true;
+    };
+    const onPointerDown = () => {
+      operatorMovedRef.current = true;
+    };
+    dialog.addEventListener('focusin', onFocusIn);
+    dialog.addEventListener('pointerdown', onPointerDown);
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (!modalStack.isTop(modalId)) return;
@@ -132,6 +157,8 @@ export function Modal({
     document.addEventListener('keydown', onKeyDown);
 
     return () => {
+      dialog.removeEventListener('focusin', onFocusIn);
+      dialog.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
       modalStack.remove(modalId);
       if (returnFocusTo && returnFocusTo.isConnected && typeof returnFocusTo.focus === 'function') {
@@ -139,6 +166,22 @@ export function Modal({
       }
     };
   }, [modalId, returnFocusTo]);
+
+  // Runs after the mount effect above (declaration order), and again whenever the
+  // caller reports the target usable. Once applied, or once the operator has moved
+  // focus, it never fires again for this dialog.
+  React.useEffect(() => {
+    if (!shouldApplyDeferredFocus({
+      ready: initialFocusReady,
+      parkedOn: parkedOnRef.current,
+      active: document.activeElement,
+      operatorMoved: operatorMovedRef.current,
+    })) return;
+    const target = initialFocusRefRef.current?.current;
+    if (!target) return;
+    target.focus();
+    if (document.activeElement === target) parkedOnRef.current = null;
+  }, [initialFocusReady]);
 
   const dialogProps = {
     role: 'dialog',

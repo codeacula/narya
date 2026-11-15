@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { confirmTextMatches, createModalStack, trapTabTarget } from './modalLogic';
+import { confirmTextMatches, createModalStack, shouldApplyDeferredFocus, trapTabTarget } from './modalLogic';
 
 describe('trapTabTarget', () => {
   test('Tab on the last element wraps to the first', () => {
@@ -90,5 +90,35 @@ describe('confirmTextMatches', () => {
 
   test('a blank requirement needs no typing', () => {
     expect(confirmTextMatches('', '   ')).toBe(true);
+  });
+});
+
+describe('shouldApplyDeferredFocus', () => {
+  const close = { name: 'close button' };
+  const field = { name: 'another field' };
+  const base = { ready: true, parkedOn: close, active: close, operatorMoved: false };
+
+  test('focus moves to the target once it is ready, while still parked on the fallback', () => {
+    expect(shouldApplyDeferredFocus(base)).toBe(true);
+  });
+
+  test('not before the target is ready', () => {
+    expect(shouldApplyDeferredFocus({ ...base, ready: false })).toBe(false);
+  });
+
+  test('never when the target took focus on open (nothing was parked)', () => {
+    expect(shouldApplyDeferredFocus({ ...base, parkedOn: null })).toBe(false);
+  });
+
+  test('never steals focus the operator moved elsewhere', () => {
+    expect(shouldApplyDeferredFocus({ ...base, active: field, operatorMoved: true })).toBe(false);
+  });
+
+  test('tabbing away and back onto the fallback still counts as the operator moving it', () => {
+    expect(shouldApplyDeferredFocus({ ...base, operatorMoved: true })).toBe(false);
+  });
+
+  test('focus that left without a focusin in the dialog (to the page behind) is left alone', () => {
+    expect(shouldApplyDeferredFocus({ ...base, active: field })).toBe(false);
   });
 });

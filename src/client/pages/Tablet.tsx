@@ -19,7 +19,9 @@ import {
   triggerObsTransition,
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
-import { obsNotice } from '../obsNotice';
+import { obsConnectionLabel, obsNotice } from '../obsNotice';
+import { EmptyState } from '../ui/emptyState';
+import { Icon } from '../ui/icons';
 
 // Dropping focus after a tap keeps a tablet's on-screen button from staying
 // visually "stuck" highlighted. Keyboard activation (Enter/Space) also fires
@@ -219,7 +221,7 @@ export function TabletPage() {
               <div className="tablet-status-group">
                 <span className="tablet-status">
                   <span className={connectionClass} />
-                  {obsStatus.connected ? 'Connected' : 'Offline'}
+                  {obsConnectionLabel(obsStatus.connected)}
                 </span>
                 {/* Studio mode is something OBS reports. While OBS is unreachable the
                     server zeroes it, so "Studio off" would be a claim nobody made. */}
@@ -262,28 +264,33 @@ export function TabletPage() {
               </div>
             ) : null}
 
-            <div className="tablet-button-grid sceneGrid">
-              {hasScenes ? scenes.map(scene => {
-                const isCurrent = scene === obsStatus.currentProgramScene;
-                const className = isCurrent ? 'scene-button current' : 'scene-button';
-                const isPending = pendingAction === `scene:${scene}`;
-                return (
-                  <button
-                    className={className}
-                    disabled={controlsDisabled || isCurrent}
-                    key={scene}
-                    onClick={() => {
-                      void runObsCommand(`scene:${scene}`, () => switchObsScene(scene));
-                    }}
-                  >
-                    <span>{sceneLabel(scene, obsStatus.scenePrefix)}</span>
-                    {isPending ? <small>Switching</small> : null}
-                  </button>
-                );
-              }) : (
-                <p className="muted">No OBS scenes available yet.</p>
-              )}
-            </div>
+            {/* While OBS is offline the notice above already says the buttons come
+                back on reconnect, so an empty grid says nothing more. A connected OBS
+                with no scenes is the only case left to explain. */}
+            {hasScenes ? (
+              <div className="tablet-button-grid sceneGrid">
+                {scenes.map(scene => {
+                  const isCurrent = scene === obsStatus.currentProgramScene;
+                  const className = isCurrent ? 'scene-button current' : 'scene-button';
+                  const isPending = pendingAction === `scene:${scene}`;
+                  return (
+                    <button
+                      className={className}
+                      disabled={controlsDisabled || isCurrent}
+                      key={scene}
+                      onClick={() => {
+                        void runObsCommand(`scene:${scene}`, () => switchObsScene(scene));
+                      }}
+                    >
+                      <span>{sceneLabel(scene, obsStatus.scenePrefix)}</span>
+                      {isPending ? <small>Switching</small> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : obsStatus.connected ? (
+              <EmptyState size="note" title="No scenes">OBS reports no scenes to switch between.</EmptyState>
+            ) : null}
 
             {obsStatus.studioMode ? (
               <button
@@ -317,8 +324,11 @@ export function TabletPage() {
                 aria-pressed={media.muted}
                 disabled={media.busy}
                 onClick={event => { blurIfPointer(event); media.toggle(!media.muted); }}
+                title="Silences sound and video commands. Redemptions on unflagged actions still play."
               >
-                {media.muted ? '🔇 Commands muted' : '🔊 Mute commands'}
+                {/* The words are the button's name; the glyph only repeats them. */}
+                <Icon name={media.muted ? 'speaker-off' : 'speaker'} size={18} aria-hidden="true" focusable="false" />
+                <span>{media.muted ? 'Commands muted' : 'Mute commands'}</span>
               </button>
             </div>
 
@@ -332,7 +342,9 @@ export function TabletPage() {
                   >
                     {sound.label}
                   </button>
-                )) : <p className="muted">No sounds yet — add them in Settings → Content.</p>}
+                )) : (
+                  <EmptyState size="note" title="No sounds yet">Add sound buttons in Settings → Content.</EmptyState>
+                )}
               </div>
             </div>
 
@@ -346,7 +358,9 @@ export function TabletPage() {
                   >
                     {clip.label}
                   </button>
-                )) : <p className="muted">No clips yet — add them in Settings → Content.</p>}
+                )) : (
+                  <EmptyState size="note" title="No clips yet">Add clip buttons in Settings → Content.</EmptyState>
+                )}
               </div>
             </div>
           </section>

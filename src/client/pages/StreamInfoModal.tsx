@@ -145,7 +145,7 @@ export function StreamInfoModal({
   };
 
   return (
-    <Modal as="form" className="stream-info-modal" onSubmit={onSubmit} onClose={onClose} initialFocusRef={titleInputRef}>
+    <Modal as="form" className="stream-info-modal" onSubmit={onSubmit} onClose={onClose} initialFocusRef={titleInputRef} initialFocusReady={!loading && !saving}>
       <div className="modal-head">
         <div>
           <ModalTitle>Stream Info</ModalTitle>
