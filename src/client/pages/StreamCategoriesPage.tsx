@@ -243,6 +243,7 @@ export function StreamCategoriesPage() {
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [message, setMessage] = React.useState<string | null>(null);
   // A failed load is not "no saved categories" — see listFace. Cleared by any call
   // that hands back the whole list, since each mutation returns it.
   const [loadFailed, setLoadFailed] = React.useState(false);
@@ -271,14 +272,21 @@ export function StreamCategoriesPage() {
     return () => { cancelled = true; };
   }, [loadAttempt]);
 
-  const run = async (action: () => Promise<SavedStreamCategory[]>) => {
+  /**
+   * Every write goes through here and reports itself on the page's one
+   * `SettingsStatus` line — the outcome when it worked as well as when it failed (the
+   * feedback rule in settings/shared.tsx).
+   */
+  const run = async (action: () => Promise<SavedStreamCategory[]>, done: string, failed: string) => {
     setBusy(true);
     setError(null);
+    setMessage(null);
     try {
       setCategories(await action());
       setLoadFailed(false);
+      setMessage(done);
     } catch (caught) {
-      setError(errorMessage(caught, 'Action failed.'));
+      setError(errorMessage(caught, failed));
     } finally {
       setBusy(false);
     }
@@ -301,10 +309,14 @@ export function StreamCategoriesPage() {
 
         <AddCategoryControl
           busy={busy}
-          onAdd={suggestion => void run(() => addSavedStreamCategory({ id: suggestion.id, name: suggestion.name, boxArtUrl: suggestion.boxArtUrl }))}
+          onAdd={suggestion => void run(
+            () => addSavedStreamCategory({ id: suggestion.id, name: suggestion.name, boxArtUrl: suggestion.boxArtUrl }),
+            `Added ${suggestion.name}.`,
+            `Could not add ${suggestion.name}.`,
+          )}
         />
 
-        <SettingsStatus error={error} />
+        <SettingsStatus message={message} error={error} />
 
         {face === 'loading' ? (
           <EmptyState title="Charting your categories…" />
@@ -333,8 +345,16 @@ export function StreamCategoriesPage() {
                   category={category}
                   busy={busy}
                   setOpen={setOpen}
-                  onSaveTags={tags => void run(() => setStreamCategoryTags(category.id, tags))}
-                  onToggleHidden={() => void run(() => setSavedStreamCategoryHidden(category.id, !category.hidden))}
+                  onSaveTags={tags => void run(
+                    () => setStreamCategoryTags(category.id, tags),
+                    `Tags saved for ${category.name}.`,
+                    `Could not save the tags for ${category.name}.`,
+                  )}
+                  onToggleHidden={() => void run(
+                    () => setSavedStreamCategoryHidden(category.id, !category.hidden),
+                    category.hidden ? `${category.name} is shown in pickers again.` : `${category.name} is hidden from pickers.`,
+                    `Could not ${category.hidden ? 'show' : 'hide'} ${category.name}.`,
+                  )}
                   onDelete={async () => {
                     const ok = await confirm({
                       title: `Remove "${category.name}"?`,
@@ -342,7 +362,11 @@ export function StreamCategoriesPage() {
                       confirmLabel: 'Remove category',
                       tone: 'danger',
                     });
-                    if (ok) void run(() => deleteStreamCategory(category.id));
+                    if (ok) void run(
+                      () => deleteStreamCategory(category.id),
+                      `Removed ${category.name}.`,
+                      `Could not remove ${category.name}.`,
+                    );
                   }}
                 />
               ))}
