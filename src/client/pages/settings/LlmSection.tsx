@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { LlmApiFormat, LlmProviderId, LlmProviderProfile, LlmSettings, LlmSettingsUpdate } from '../../../shared/api';
 import { getLlmProviderModels, getLlmSettings, testLlm, updateLlmSettings } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
-import { SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
+import { SettingsAnnouncer, SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
 
 /** One provider's editable fields. A stored key is never sent back; `apiKey` is a new one. */
 type ProviderDraft = LlmProviderProfile & {
@@ -208,9 +208,14 @@ export function LlmSection() {
         onChange={handleLlmEnabledToggle}
       />
 
+      {/* The switch swaps the form below in and out, so neither branch can hold the
+          live regions: "disabled." would arrive with the region that announces it.
+          One announcer sits outside both, and each branch only draws its line. */}
+      <SettingsAnnouncer message={llmMessage} error={llmError} />
+
       {!llmSettings.enabled && (llmMessage || llmError) && (
         <div className="set-group-note">
-          <SettingsStatus message={llmMessage} error={llmError} />
+          <SettingsStatus message={llmMessage} error={llmError} announce={false} />
         </div>
       )}
 
@@ -401,7 +406,7 @@ export function LlmSection() {
           {llmTestReply && <div className="llm-test-reply">{llmTestReply}</div>}
         </div>
 
-        <SettingsStatus message={llmMessage} error={llmError} />
+        <SettingsStatus message={llmMessage} error={llmError} announce={false} />
 
         <div className="command-settings-actions">
           <button className="modbtn" type="button" disabled={busy || !dirty} onClick={handleLlmReset}>

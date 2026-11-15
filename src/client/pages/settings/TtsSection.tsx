@@ -11,7 +11,7 @@ import {
   updateTtsSettings,
 } from '../../services/dashboard';
 import { errorMessage } from '../../errors';
-import { SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
+import { SettingsAnnouncer, SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 
 const DEFAULT_TENGWAR_URL = 'http://127.0.0.1:8008';
@@ -286,9 +286,14 @@ export function TtsSection() {
         onChange={handleTtsEnabledToggle}
       />
 
+      {/* The switch swaps the form below in and out, so neither branch can hold the
+          live regions: "disabled." would arrive with the region that announces it.
+          One announcer sits outside both, and each branch only draws its line. */}
+      <SettingsAnnouncer message={ttsMessage} error={ttsError} />
+
       {!ttsEnabled && (ttsMessage || ttsError) && (
         <div className="set-group-note">
-          <SettingsStatus message={ttsMessage} error={ttsError} />
+          <SettingsStatus message={ttsMessage} error={ttsError} announce={false} />
         </div>
       )}
 
@@ -359,7 +364,7 @@ export function TtsSection() {
           </div>
         </div>
 
-        <SettingsStatus message={ttsMessage} error={ttsError} />
+        <SettingsStatus message={ttsMessage} error={ttsError} announce={false} />
 
         <div className="command-settings-actions">
           <button className="modbtn gold" type="submit" disabled={ttsLoading || ttsSaving}>

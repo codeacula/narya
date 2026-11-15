@@ -68,26 +68,55 @@ export function SettingsHeader({
 export function SettingsStatus({
   message,
   error,
+  announce = true,
 }: {
   message?: React.ReactNode;
   error?: React.ReactNode;
+  /**
+   * False when a `SettingsAnnouncer` elsewhere in the section already speaks for this
+   * line — for a status drawn in a branch that mounts and unmounts (see there).
+   */
+  announce?: boolean;
 }) {
   const shown = error || message || null;
-  // Announced through two live regions that are ALWAYS mounted, even with nothing to
-  // say. A region inserted together with its text is often not announced at all —
-  // screen readers watch regions that already exist for changes — so returning null
-  // when empty silently swallowed every "Saved". Both are `sr-only`, which takes them
-  // out of flow: an empty one adds no gap to the grid or flex column it sits in.
   // The drawn line is `aria-hidden` so the outcome is read once, not twice.
   return (
     <>
-      <div className="sr-only" role="status">{error ? null : message}</div>
-      <div className="sr-only" role="alert">{error}</div>
+      {announce ? <SettingsAnnouncer message={message} error={error} /> : null}
       {shown ? (
         <div className={'command-settings-status' + (error ? ' error' : '')} aria-hidden="true">
           {shown}
         </div>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * The spoken half of `SettingsStatus` on its own: two live regions and nothing drawn.
+ *
+ * They must be ALWAYS mounted, even with nothing to say. A region inserted together
+ * with its text is often not announced at all — screen readers watch regions that
+ * already exist for changes — so returning null when empty silently swallowed every
+ * "Saved". Both are `sr-only`, which takes them out of flow: an empty one adds no gap
+ * to the grid or flex column it sits in.
+ *
+ * A section whose enable switch swaps its whole form out (LLM, TTS) cannot keep a
+ * `SettingsStatus` mounted inside either branch: "LLM disabled." lands in the same
+ * render that mounts the disabled branch's line. Such a section renders one of these
+ * outside the branches and draws its lines with `announce={false}`.
+ */
+export function SettingsAnnouncer({
+  message,
+  error,
+}: {
+  message?: React.ReactNode;
+  error?: React.ReactNode;
+}) {
+  return (
+    <>
+      <div className="sr-only" role="status">{error ? null : message}</div>
+      <div className="sr-only" role="alert">{error}</div>
     </>
   );
 }

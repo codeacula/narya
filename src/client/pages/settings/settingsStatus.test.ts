@@ -3,7 +3,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ListUnavailable, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsAnnouncer, SettingsStatus } from './shared';
 
 const render = (props: React.ComponentProps<typeof SettingsStatus>) =>
   renderToStaticMarkup(React.createElement(SettingsStatus, props));
@@ -31,6 +31,37 @@ describe('SettingsStatus', () => {
     expect(html).toContain('<div class="sr-only" role="status"></div>');
     expect(html).toContain('<div class="sr-only" role="alert">Could not save</div>');
     expect(html).toContain('<div class="command-settings-status error" aria-hidden="true">Could not save</div>');
+  });
+});
+
+describe('SettingsAnnouncer', () => {
+  test('speaks without drawing, and exists while idle', () => {
+    const idle = renderToStaticMarkup(React.createElement(SettingsAnnouncer, {}));
+    expect(idle).toContain('role="status"');
+    expect(idle).toContain('role="alert"');
+    const html = renderToStaticMarkup(React.createElement(SettingsAnnouncer, { message: 'LLM disabled.' }));
+    expect(html).toContain('<div class="sr-only" role="status">LLM disabled.</div>');
+    expect(html).not.toContain('command-settings-status');
+  });
+
+  test('a line drawn with announce={false} is not spoken a second time', () => {
+    const html = render({ message: 'LLM disabled.', announce: false });
+    expect(html).not.toContain('role=');
+    expect(html).toContain('<div class="command-settings-status" aria-hidden="true">LLM disabled.</div>');
+  });
+
+  // LLM and TTS swap their whole form out on the enable switch, so a SettingsStatus
+  // inside either branch mounted in the same render as "LLM disabled." and was likely
+  // never announced. Their live regions sit outside the branches instead.
+  test('a section with an enable switch announces from outside its swapped branches', () => {
+    for (const name of ['LlmSection.tsx', 'TtsSection.tsx']) {
+      const source = readFileSync(join(import.meta.dir, name), 'utf8');
+      const section = source.slice(source.indexOf('<SettingsToggleLabel'));
+      expect(section).toContain('<SettingsAnnouncer');
+      const statuses = section.match(/<SettingsStatus\b[^>]*\/>/g) ?? [];
+      expect(statuses.length).toBeGreaterThan(0);
+      for (const status of statuses) expect(status).toContain('announce={false}');
+    }
   });
 });
 
