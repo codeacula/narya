@@ -14,6 +14,8 @@ import {
 import { errorMessage } from '../../errors';
 import { SettingsAnnouncer, SettingsStatus, SettingsToggleLabel, useSettingsForm } from './shared';
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
+import { useConfirm } from '../../ui/confirm';
+import { serviceStateTitle } from '../../connectionWords';
 
 const DEFAULT_TENGWAR_URL = 'http://127.0.0.1:8008';
 
@@ -41,6 +43,7 @@ function TengwarService({
   // secret field in Settings.
   const [apiKey, setApiKey] = useState('');
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -84,7 +87,17 @@ function TengwarService({
       .finally(() => setSaving(false));
   };
 
-  const handleClearApiKey = () => {
+  // The key is write-only: once cleared there is no showing it again, so it has to be
+  // found and pasted back. Every other secret clears via a checkbox and Save, which
+  // gives a moment to reconsider; this is one press, so it asks.
+  const handleClearApiKey = async () => {
+    const ok = await confirm({
+      title: 'Clear the Tengwar API key?',
+      body: 'Narya stops sending it at once. If Tengwar was started with a key, speech fails until the key is pasted back in.',
+      confirmLabel: 'Clear API key',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setSaving(true);
     setMessage(null);
     setError(null);
@@ -114,7 +127,7 @@ function TengwarService({
           <div className={'settings-alert ' + (status.ok ? 'settings-alert--info' : 'settings-alert--warn')}>
             <Icon name={status.ok ? 'info' : 'alert'} className="settings-alert-icon" aria-hidden="true" />
             <span>
-              Tengwar {status.ok ? 'connected' : 'unavailable'}
+              {serviceStateTitle('Tengwar', status.ok)}
               {status.baseUrl ? ` at ${status.baseUrl}` : ''}
               {!status.ok && status.error ? `: ${status.error}` : ''}
             </span>
@@ -151,7 +164,7 @@ function TengwarService({
             {saving ? 'Saving...' : 'Save service'}
           </button>
           {apiKeyConfigured && (
-            <button className="modbtn" type="button" disabled={loading || saving} onClick={handleClearApiKey}>
+            <button className="modbtn" type="button" disabled={loading || saving} onClick={() => void handleClearApiKey()}>
               Clear API key
             </button>
           )}
