@@ -81,42 +81,111 @@ against the code.
 | Apps hint | JSX whitespace dropped the space: "sourcevalue". | `{' '}`. |
 | Accessibility | Icon-only buttons had only `title`. `↑`/`↓` glyphs were read as "up arrow". The chat name was a clickable `<span>`. `SettingsStatus` was not announced. | `aria-label`s, `Icon` arrows, the name is a `<button>`, `role=status`/`alert`. |
 
-### Still open, most important first
+### Follow-up (closed)
 
-1. **Unsaved edits are lost silently.** No settings editor has a dirty guard or a
-   `beforeunload` handler (only `LlmSection` and `StreamCategoriesPage` track dirty at
-   all). A rail click mid-way through a multi-step Action or a trigger's conditions
-   throws the draft away. Fix: a shared `useDirtyGuard` that confirms on navigation.
-2. **The tablet's ban is one small gap from pin and 10m.** The row buttons are the
-   36px minimum with 8px gaps, and the first tap arms "sure?", which any other touch
-   disarms. Raise them to 44px and set ban apart (`panel.css` `.tablet-shell .msg-mod-btn`).
-3. **Dashboard row actions and times are hover-only.** `.msg-mod` and `.msg-time` reveal
-   on `:hover`. The name button is now focusable, but the actions still need the row to
-   be focusable to reach them from the keyboard.
-4. **Five feedback patterns** for "saved" and "failed": `SettingsStatus` in 12 files,
-   `set-status` in GoLive and Rewards, `viewers-status`, `viewer-record-note`, and
-   toasts. Converge on `SettingsStatus`; it now has the live-region role.
-5. **Three confirm patterns** for destructive actions: `window.confirm` at 13 sites,
-   Flush's in-place two-step, and the ban/timeout modal. Irreversible Twitch-side deletes
-   (a reward) get the same one-click browser confirm as local ones.
-6. **Modals are not dialogs.** The Discord help, viewer profile/action and Stream Info
-   modals have no `role="dialog"`, Escape handling or focus management. Write one shared
-   `Modal`.
-7. **Raw errors on the tablet.** OBS down shows `connect ECONNREFUSED 127.0.0.1:4455`
-   beside "STUDIO OFF", which is not true while OBS is unreachable. Say "OBS offline" and
-   hide the studio state.
-8. **Empty and unavailable wording drifts.** The stat bar says `N/A`, `—` and "Twitch
-   login required"; panels say "Unavailable" in italic; the tablet uses plain sentences.
-   One `EmptyState` component (orb, italic title, sentence) would settle it.
-9. **Attention list overflow gives no cue.** The last row is cut at the panel edge with
-   no fade or count of what is below.
-10. **Silent background refreshes.** The viewer roster poll (`ViewersPage`) and the
-    `rewards:updated` refetch (`ViewerRewardsPage`) swallow errors, so a dead backend
-    leaves a stale list with no marker.
-11. **Settings headers have two paths.** `SettingsHeader` covers five sections; the
-    other eight render their own. About 18 inline `style={{}}` remain, about 8 of them
-    layout (`ConnectionsSection`, `GoLiveSection`, `shared.tsx` `SettingsRow`).
-12. **Dead overlay-era CSS.** `styles.css`'s base `.chat-message` rules (4px stripe,
-    8px radius, drop shadow, role stripe colours) are overridden everywhere they render:
-    `ChatPanel` is only mounted with `compact`, and `.chat-panel.compact .chat-message`
-    resets border, radius and shadow. Worth deleting in an overlay-side pass, not here.
+The twelve items below were open when the walkthrough ended. A follow-up on
+`fix/open-settings` closed them; each was checked against the code first, and two
+premises turned out to be wrong (#2, #3). Shared pieces live in `ui/` and
+`pages/settings/shared.tsx` and are documented in their own comments.
+
+1. **Unsaved edits are lost silently.** `ui/dirtyGuard.tsx` (logic in
+   `dirtyGuardLogic.ts`) gives `useDirtyGuard`/`useDraft` and a `beforeunload` handler
+   while anything is dirty. Every settings editor reports to it, as do Stream Info, both
+   viewer modals, the Controls panel drafts, and the `/viewer` popout (`main.tsx`). The
+   nav and Back/Forward ask before leaving (`Dashboard.tsx`, `leaveThen` and the
+   popstate handler). Cancel and Close in the reward, counter, quote, Action and module
+   editors go through `discardThen`, and a clean one closes at once. A freshly minted
+   app token asks its own question, because it cannot be recovered
+   (`AppsPage.tsx`). Reward groups compare as a set, so re-ticking one is not an edit.
+   The single-object forms cannot be edited before they have loaded (#8), so a failed
+   load can no longer leave an unguarded draft.
+2. **Tablet ban targets.** The premise was half wrong: the arm already disarmed after
+   4 seconds as well as on blur (`ARM_TIMEOUT_MS` in `ui/panels/Chat.tsx`), not only on
+   another touch. The size was real. Tablet `.msg-mod-btn` is now 44px tall and at least
+   56px wide with 12px gaps, and ban sits at the far end behind a hairline. Checking the
+   armed state found a worse fault: touch leaves `:hover` on the last button tapped, and
+   the tablet's button chrome then overrode the armed fill, so "sure?" was unreadable.
+   The armed colours are restated for `:hover`/`:active` (`panel.css`).
+3. **Keyboard reach of row actions and times.** The premise was wrong: the actions were
+   already in the tab order and `.msg-mod:focus-within` revealed them, so the row did
+   not need to be focusable. What failed was focus on the name button (each row's first
+   stop) revealing nothing, the time never appearing from the keyboard, and Chromium's
+   near-black default focus ring on the actions. `.msg:has(:focus-visible)` now reveals
+   time and actions, a click does not, an armed ban stays visible, and name and action
+   buttons share the gold focus ring. The tablet and viewer history show times
+   outright. No other hover-only reveal is left in `panel.css` or `styles.css`.
+4. **One feedback pattern.** `SettingsStatus` is the only saved/failed line in settings,
+   with its live regions always mounted; `SettingsAnnouncer` holds those regions where
+   the drawn line sits inside a swapped branch (LLM and TTS enable, the viewer roster,
+   the viewer record). The rule is written down in `shared.tsx`. Apps events and
+   tokens, Content, Connections errors, the Twitch Disconnect and Categories (which
+   reported only failures) all follow it. Settings saves raise no toast; the one
+   settings toast is "Settings saved elsewhere", when another window saved
+   (`settingsEcho.ts`).
+5. **One confirm pattern.** `useConfirm`/`ConfirmDialog` (`ui/confirm.tsx`) replace
+   every `window.confirm`. Irreversible deletes take `requireText`: the reward delete
+   and the viewer flush. VIP/mod revokes, override and app-event removals, token
+   rotate/revoke and the Tengwar key clear now confirm too.
+6. **Modals are dialogs.** `ui/modal.tsx` (logic in `modalLogic.ts`) gives role
+   `dialog`, `aria-modal`, a focus trap and Escape. Stream Info, the Discord help,
+   both viewer modals and `ConfirmDialog` render through it.
+7. **One word for a service that is not connected.** `connectionWords.ts` says
+   connected, connecting, offline or unknown, and the stat bar (`statBarText.ts`), service
+   toasts (`serviceTransitions.ts`), the tablet, Live Data, Connections
+   (`connectionCopy.ts`), the voice picker (`ttsVoiceCopy.ts`) and the AutoMod notice use
+   it. The tablet shows "OBS offline" (`obsNotice.ts`) instead of the raw socket error,
+   hides the studio state while OBS is unreachable, and its chip reads "Unknown" until a
+   status has arrived. A missing channel reads "not set".
+8. **No false empty states.** `EmptyState` (`ui/emptyState.tsx`) draws every true empty
+   state. `listFace` (`pages/settings/listState.ts`) keeps a failed list apart from an
+   empty one, with `ListUnavailable` and a Retry that keeps focus while it runs.
+   `formFace` does the same for Connections, Go live, Wind-down, Speech and AI:
+   `FormUnavailable` replaces the fields until a load succeeds, so a failed load can no
+   longer save code defaults over stored config. Stream Info stays unsavable until its
+   live values have loaded. `suggestionFace` (`suggestions.ts`) makes a failed category
+   or tag search say so instead of "No matches". Values read once (mute, wind-down,
+   holding scene, pinned card, overlay bounds) carry a known/unknown status
+   (`liveValue.ts`, `controlFaces.ts`), and the modules' live state, the tablet
+   soundboard, AutoMod, chatters and the media New form wait for a real answer.
+9. **Attention overflow.** A fade and "n more below", measured on scroll, resize and
+   row changes (`attentionOverflow.ts`, `AttentionPanel.tsx`).
+10. **Silent background refreshes.** `refreshHealth.ts` and `StaleNotice` mark the
+    roster, rewards, feeds and shoutouts last-known when a refresh fails. The stat bar
+    dims and reads "last known · Narya not answering" while the socket is closed or the
+    last refresh failed (`statusIsStale`, `useSocketState` in `realtime.ts`).
+    `latestOnly.ts` stops a slow failed refresh landing over a newer good one.
+11. **One header path.** Every settings route renders `SettingsHeader`, with counts and
+    actions passed as data (`headerCounts.ts`). The static inline styles moved into
+    classes; what remains is dynamic (role colours, drag positions, orb sizes, scene
+    column count).
+12. **Dead CSS.** Done here after all rather than in an overlay pass. `ChatPanel` is now
+    the compact overlay chat it always was, the overlay-era `.chat-message` rules and
+    13 other unused selectors are gone, and the overlay still renders
+    `chat-panel compact` with the same output. The unused `QuickActionsPanel` was
+    removed (`quickActions.tsx` says why), and the last text glyphs used as icons
+    (`×`, `◆`, `!`, `i`, `→`, the `?` nav avatar) are line icons.
+
+### Deliberate exceptions and remaining notes
+
+- **Chat-row ban arms in place.** First tap shows "sure?", second bans, blur or 4
+  seconds disarms. A modal would cover the message being acted on mid-stream. It is the
+  one exception to `useConfirm`, recorded in `ui/confirm.tsx`; do not copy it.
+- **AI's Reset discards without asking.** It is the explicit "throw away my edits"
+  button and is disabled while the form is clean. Every Cancel and Close asks.
+- **Back/Forward re-pushes.** With a dirty draft the browser has already moved the URL,
+  so the handler pushes the shown page back and, on agreement, pushes the target. The
+  entry being left becomes the newest one rather than history stepping cleanly.
+- **Floating panels are not modals.** `PopWindow` and the Tweaks panel float beside
+  live content without trapping focus.
+- **Inline editor notes stay `.command-empty`.** "No steps yet", "No categories
+  claimed" and "No reward groups" sit beside the control that fills them, per
+  `ui/emptyState.tsx`; they are not empty states.
+- **A few quiet catches remain, all decorative.** The debounced `refreshViewers` in
+  `chatFeed.ts`, and emotes and channel on the overlay.
+- **Overlay sources read a failed overlay-bounds GET as off.** Only the dashboard switch
+  shows it as unknown; boxes over a live stream are the bad state.
+- **A successful Retry drops focus to the page.** The list replaces the unavailable
+  face. Focus is kept only while the retry is in flight.
+- **Not browser-checked.** The chatters "Gathering your viewers…" and AutoMod "Loading
+  held messages…" faces are transient on a scratch instance and are covered by unit
+  tests only.
