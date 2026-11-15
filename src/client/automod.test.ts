@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { AutomodHold } from '../shared/api';
-import { appendPendingHold } from './automod';
+import { appendPendingHold, automodQueueFace } from './automod';
 
 function hold(id: string): AutomodHold {
   return {
@@ -36,5 +36,24 @@ describe('appendPendingHold', () => {
     expect(result[result.length - 1]?.id).toBe('new');
     expect(result[0]?.id).toBe('1');
     expect(result.some(h => h.id === '0')).toBe(false);
+  });
+});
+
+describe('automodQueueFace', () => {
+  test('before the first fetch lands, an empty queue is loading, not "Nothing held"', () => {
+    expect(automodQueueFace({ loaded: false, error: null, pending: [] })).toBe('loading');
+  });
+
+  test('a failed fetch with nothing held is unavailable, not an empty queue', () => {
+    expect(automodQueueFace({ loaded: false, error: 'boom', pending: [] })).toBe('unavailable');
+    expect(automodQueueFace({ loaded: true, error: 'boom', pending: [] })).toBe('unavailable');
+  });
+
+  test('holds on screen stay on screen through a failed refresh', () => {
+    expect(automodQueueFace({ loaded: true, error: 'boom', pending: [hold('a')] })).toBe('items');
+  });
+
+  test('a loaded, empty queue is empty', () => {
+    expect(automodQueueFace({ loaded: true, error: null, pending: [] })).toBe('empty');
   });
 });

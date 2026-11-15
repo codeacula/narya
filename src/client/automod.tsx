@@ -6,6 +6,9 @@ import { playAutomodAlert } from './sounds';
 import { allowAutomodHold, denyAutomodHold, getAutomodQueue } from './services/dashboard';
 import { errorMessage } from './errors';
 import { EmptyState } from './ui/emptyState';
+import { ListUnavailable } from './pages/settings/shared';
+import { listFace } from './pages/settings/listState';
+import { serviceStateTitle } from './connectionWords';
 
 // Mirrors the server-side pending cap so the two agree on how many holds a
 // spam wave can accumulate before the oldest overflow is dropped.
@@ -52,7 +55,14 @@ const ALERT_THROTTLE_MS = 1500;
 export type AutomodQueueController = {
   pending: AutomodHold[];
   recentlyResolved: AutomodHold[];
+  /** The queue has been fetched at least once. Before that, no pending holds is not "nothing held". */
+  loaded: boolean;
+  /** A fetch is in flight. */
+  refreshing: boolean;
+  /** The last fetch failed. Cleared by the next one that succeeds. */
   error: string | null;
+  /** Fetch the queue again (otherwise only a socket reconnect does). */
+  retry: () => void;
   allow: (id: string) => Promise<void>;
   deny: (id: string) => Promise<void>;
 };
@@ -61,6 +71,8 @@ export function useAutomodQueue(): AutomodQueueController {
   const [pending, setPending] = React.useState<AutomodHold[]>([]);
   const [recentlyResolved, setRecentlyResolved] = React.useState<AutomodHold[]>([]);
   const [error, setError] = React.useState<string | null>(null);
+  const [loaded, setLoaded] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(true);
   // Ids we've already seen resolved — used so a slow initial snapshot can't
   // re-add a hold that a socket event (or our own action) already cleared.
   const resolvedIds = React.useRef<Set<string>>(new Set());
@@ -78,9 +90,11 @@ export function useAutomodQueue(): AutomodQueueController {
   // offline drops out instead of lingering as a ghost. History is merged so a
   // just-resolved entry isn't briefly dropped.
   const refresh = React.useCallback(() => {
+    setRefreshing(true);
     getAutomodQueue()
       .then(queue => {
         setError(null);
+        setLoaded(true);
         setPending(queue.pending.filter(h => !resolvedIds.current.has(h.id)).slice(0, PENDING_LIMIT));
         setRecentlyResolved(current => {
           const byId = new Map<string, AutomodHold>();
@@ -90,8 +104,9 @@ export function useAutomodQueue(): AutomodQueueController {
         });
       })
       .catch((caught: unknown) => {
-        setError(errorMessage(caught, 'Failed to load AutoMod queue'));
-      });
+        setError(errorMessage(caught, 'Could not load the AutoMod queue'));
+      })
+      .finally(() => setRefreshing(false));
   }, []);
 
   React.useEffect(() => { refresh(); }, [refresh]);
@@ -123,7 +138,7 @@ export function useAutomodQueue(): AutomodQueueController {
   const allow = React.useCallback(async (id: string) => { applyResolved(await allowAutomodHold(id)); }, [applyResolved]);
   const deny = React.useCallback(async (id: string) => { applyResolved(await denyAutomodHold(id)); }, [applyResolved]);
 
-  return { pending, recentlyResolved, error, allow, deny };
+  return { pending, recentlyResolved, loaded, refreshing, error, retry: refresh, allow, deny };
 }
 
 function AutomodItem({
@@ -168,6 +183,15 @@ function AutomodItem({
   );
 }
 
+/**
+ * Which face the queue shows (see listFace). Before the first fetch lands it is
+ * loading, not "Nothing held"; a failed fetch with nothing on screen is unavailable,
+ * with a Retry, rather than an empty queue a moderator would trust.
+ */
+export function automodQueueFace(queue: Pick<AutomodQueueController, 'loaded' | 'error' | 'pending'>) {
+  return listFace({ loading: !queue.loaded, loadFailed: queue.error !== null, count: queue.pending.length });
+}
+
 export function AutomodPanel({
   queue,
   showHistory = true,
@@ -177,22 +201,29 @@ export function AutomodPanel({
   showHistory?: boolean;
   subscriptionInactive?: boolean;
 }) {
-  const { pending, recentlyResolved, error, allow, deny } = queue;
+  const { pending, recentlyResolved, error, refreshing, retry, allow, deny } = queue;
+  const face = automodQueueFace(queue);
 
   return (
     <div className="automod-panel">
       {subscriptionInactive ? (
         <p className="automod-notice">
-          AutoMod isn’t connected — reconnect Twitch in Settings to grant
+          {serviceStateTitle('AutoMod', false)}: reconnect Twitch in Settings to grant
           <code> moderator:manage:automod</code> and start receiving held messages.
         </p>
       ) : null}
-      {error ? (
-        <p className="automod-error">{error}</p>
-      ) : pending.length === 0 ? (
+      {face === 'unavailable' ? (
+        <ListUnavailable title="AutoMod queue unavailable" onRetry={retry} retrying={refreshing} />
+      ) : face === 'loading' ? (
+        <EmptyState title="Loading held messages…" />
+      ) : face === 'empty' ? (
         <EmptyState title="Nothing held">Messages AutoMod holds for review appear here.</EmptyState>
       ) : (
-        pending.map(hold => <AutomodItem key={hold.id} hold={hold} onAllow={allow} onDeny={deny} />)
+        <>
+          {/* Holds already on screen stay: a failed refresh does not unhold them. */}
+          {error ? <p className="automod-error">{error}</p> : null}
+          {pending.map(hold => <AutomodItem key={hold.id} hold={hold} onAllow={allow} onDeny={deny} />)}
+        </>
       )}
       {showHistory && recentlyResolved.length > 0 ? (
         <div className="automod-history">
