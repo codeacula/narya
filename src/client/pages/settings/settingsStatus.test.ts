@@ -3,7 +3,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ListUnavailable, SettingsAnnouncer, SettingsStatus } from './shared';
+import { FormUnavailable, ListUnavailable, SettingsAnnouncer, SettingsStatus } from './shared';
 
 const render = (props: React.ComponentProps<typeof SettingsStatus>) =>
   renderToStaticMarkup(React.createElement(SettingsStatus, props));
@@ -94,5 +94,28 @@ describe('ListUnavailable', () => {
     expect(html).toContain('aria-disabled="true"');
     expect(html).toContain('>Retrying…</button>');
     expect(html).not.toMatch(/<button[^>]*\sdisabled/);
+  });
+});
+
+describe('FormUnavailable', () => {
+  test('offers Retry and says the fields are not defaults, not that a list is empty', () => {
+    const html = renderToStaticMarkup(React.createElement(FormUnavailable, { title: 'Connections unavailable', onRetry: () => {} }));
+    expect(html).toContain('Connections unavailable');
+    expect(html).toContain('>Retry</button>');
+    expect(html).toContain('not showing defaults');
+    expect(html).not.toContain('empty list');
+  });
+
+  // Each of these starts from code defaults and PUTs them on Save. A failed load left
+  // the defaults on screen with Save live, and saving wrote them over the stored
+  // configuration. Every one must swap its fields for FormUnavailable instead.
+  test('every form that saves loaded values swaps its fields out after a failed load', () => {
+    for (const name of ['ConnectionsSection.tsx', 'GoLiveSection.tsx', 'WindDownSection.tsx', 'TtsSection.tsx', 'LlmSection.tsx']) {
+      const source = readFileSync(join(import.meta.dir, name), 'utf8');
+      expect({ name, offers: source.includes('<FormUnavailable') }).toEqual({ name, offers: true });
+    }
+    // Speech has two forms, the Tengwar service and the voice, loaded separately.
+    const tts = readFileSync(join(import.meta.dir, 'TtsSection.tsx'), 'utf8');
+    expect(tts.match(/<FormUnavailable/g)?.length).toBe(2);
   });
 });
