@@ -50,6 +50,7 @@ import { NO_ACTIVE_SESSION_FOR_PLANNED_END } from '../../shared/api';
 import { errorMessage } from '../errors';
 import { useToast } from '../ui/notifications';
 import { liveDataRows } from '../ui/statBarText';
+import { createLatestOnly } from '../latestOnly';
 
 /* ---------------- constants ---------------- */
 
@@ -279,7 +280,13 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   // so a refresh that fails means the lists really are getting old: its outcome feeds
   // `feed.feedHealth`, which the chat and activity panels use to mark themselves stale,
   // and to say "unavailable" rather than "no chat yet" when the first load never landed.
+  //
+  // The interval and the panels' Retry can overlap, so only the newest refresh may land:
+  // a slow failure settling after a successful retry would otherwise re-mark fresh lists
+  // stale, and an older snapshot settling last would overwrite newer chat and events.
+  const [refreshGate] = React.useState(createLatestOnly);
   const refreshAll = React.useCallback(async () => {
+    const isCurrent = refreshGate.begin();
     try {
       const [nextViewers, nextChat, nextEvents, nextStatus, nextObsStatus] = await Promise.all([
         getViewers(),
@@ -288,7 +295,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         getDashboardStatus(),
         getObsStatus().catch(() => null),
       ]);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || !isCurrent()) return;
       setViewers(nextViewers);
       setChat(nextChat);
       setEvents(nextEvents);
@@ -298,7 +305,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       feedSucceeded();
     } catch (error) {
       console.error('Failed to refresh dashboard data:', error);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || !isCurrent()) return;
       setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
       feedFailed();
     } finally {
@@ -306,7 +313,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       // mute the attention chime for the rest of the session.
       if (mountedRef.current) setSeeded(true);
     }
-  }, [setChat, setViewers, feedSucceeded, feedFailed]);
+  }, [refreshGate, setChat, setViewers, feedSucceeded, feedFailed]);
   const retryRefresh = React.useCallback(() => { void refreshAll(); }, [refreshAll]);
 
   useEffect(() => {
