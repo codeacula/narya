@@ -20,7 +20,7 @@ import {
   updateCategoryModule,
 } from '../../services/dashboard';
 import { useSocket } from '../../realtime';
-import { useDebouncedSuggestions } from '../../suggestions';
+import { suggestionFace, suggestionFailedText, useDebouncedSuggestions } from '../../suggestions';
 import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
 import { asSentence, listFace, PICKER_LOADING, type PickerLoad } from './listState';
 import { moduleDraftDirty } from './moduleDraft';
@@ -70,7 +70,8 @@ function GamePicker({
 }) {
   const [query, setQuery] = useState('');
   const fetcher = useCallback((value: string) => getCategorySuggestions(value), []);
-  const { suggestions, loading } = useDebouncedSuggestions<TwitchCategorySuggestion>(query, fetcher);
+  const { suggestions, loading, error: searchError } = useDebouncedSuggestions<TwitchCategorySuggestion>(query, fetcher);
+  const searchFace = suggestionFace({ loading, error: searchError, count: suggestions.length });
 
   const add = (suggestion: TwitchCategorySuggestion) => {
     if (games.some(game => game.id === suggestion.id)) return;
@@ -113,9 +114,11 @@ function GamePicker({
         onChange={event => setQuery(event.target.value)}
       />
 
-      {(loading || suggestions.length > 0) && (
+      {query.trim().length >= 2 && (
         <div className="module-suggestions">
-          {loading && <div className="command-empty">Searching…</div>}
+          {searchFace === 'searching' && <div className="command-empty">Searching…</div>}
+          {searchFace === 'failed' && <div className="command-empty command-empty--error">{suggestionFailedText(searchError ?? '')}</div>}
+          {searchFace === 'none' && <div className="command-empty">No matches</div>}
           {suggestions.map(suggestion => {
             const owner = claimedElsewhere.get(suggestion.id);
             const already = games.some(game => game.id === suggestion.id);

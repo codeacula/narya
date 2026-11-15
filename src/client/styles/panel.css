@@ -1155,6 +1155,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
   font-size: 13px;
   padding: 8px 0;
 }
+/* The same line when it reports a failure (a category search that did not answer). */
+.command-empty--error { color: var(--danger-fg); }
 
 /* ================= COUNTERS ================= */
 /* The editor is a card rather than loose fields on the page: it appears above the
@@ -2463,6 +2465,15 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--fg-3);
+}
+/* A search that failed (suggestionFace → failed). The reason is a sentence from the
+   server, so it is set as one rather than shouted in mono capitals. */
+.suggestion-empty--error {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--danger-fg);
 }
 /* Stream-info: saved-category dropdown with an Add button that flips to search. */
 .stream-cat-picker { display: flex; gap: 8px; align-items: stretch; }

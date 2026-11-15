@@ -19,7 +19,7 @@ import {
 } from '../services/dashboard';
 import { useSocket } from '../realtime';
 import { errorMessage } from '../errors';
-import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
+import { formatBoxArtUrl, suggestionFace, suggestionFailedText, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { ListUnavailable, SettingsHeader, SettingsStatus } from './settings/shared';
 import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
@@ -470,7 +470,8 @@ function CategoryGamesEditor({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [showHidden, setShowHidden] = useState(false);
-  const { suggestions } = useDebouncedSuggestions(query, getCategorySuggestions);
+  const { suggestions, loading: searchLoading, error: searchError } = useDebouncedSuggestions(query, getCategorySuggestions);
+  const searchFace = suggestionFace({ loading: searchLoading, error: searchError, count: suggestions.length });
 
   const assignedIds = new Set(category.games.map(game => game.id));
   const savedIds = new Set(saved.map(cat => cat.id));
@@ -525,8 +526,12 @@ function CategoryGamesEditor({
               />
               <div className="reward-combo-list" onMouseDown={keepFocus}>
                 {searching ? (
-                  suggestions.length === 0 ? (
-                    <div className="suggestion-empty">No matches yet…</div>
+                  searchFace === 'searching' ? (
+                    <div className="suggestion-empty">Searching categories…</div>
+                  ) : searchFace === 'failed' ? (
+                    <div className="suggestion-empty suggestion-empty--error">{suggestionFailedText(searchError ?? '')}</div>
+                  ) : searchFace === 'none' ? (
+                    <div className="suggestion-empty">No matches</div>
                   ) : suggestions.map(suggestion => (
                     <SavedCategoryRow
                       key={suggestion.id}

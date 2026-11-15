@@ -10,7 +10,7 @@ import {
   setSavedStreamCategoryHidden,
   setStreamCategoryTags,
 } from '../services/dashboard';
-import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
+import { formatBoxArtUrl, suggestionFace, suggestionFailedText, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { Icon } from '../ui/icons';
 import { ListUnavailable, SettingsHeader, SettingsStatus } from './settings/shared';
@@ -69,8 +69,10 @@ function CategoryCard({
     }),
     [tags],
   );
-  const { suggestions, loading } = useDebouncedSuggestions(tagInput, tagFetcher, { minLength: 1 });
-  const showSuggestions = tagFocused && (loading || suggestions.length > 0);
+  const { suggestions, loading, error: tagSearchError } = useDebouncedSuggestions(tagInput, tagFetcher, { minLength: 1 });
+  const tagFace = suggestionFace({ loading, error: tagSearchError, count: suggestions.length });
+  // An empty answer shows nothing (a tag is typed freely); a failed one says so.
+  const showSuggestions = tagFocused && tagFace !== 'none';
 
   const addTag = (value: string) => {
     const tag = normalizeTagInput(value);
@@ -131,8 +133,10 @@ function CategoryCard({
             />
             {showSuggestions && (
               <div className="suggestion-list">
-                {loading ? (
+                {tagFace === 'searching' ? (
                   <div className="suggestion-empty">Searching tags...</div>
+                ) : tagFace === 'failed' ? (
+                  <div className="suggestion-empty suggestion-empty--error">{suggestionFailedText(tagSearchError ?? '')}</div>
                 ) : suggestions.map(tag => (
                   <button
                     key={tag}
@@ -168,7 +172,8 @@ function AddCategoryControl({
 }) {
   const [search, setSearch] = React.useState('');
   const [focused, setFocused] = React.useState(false);
-  const { suggestions, loading } = useDebouncedSuggestions(search, getCategorySuggestions, { enabled: !busy });
+  const { suggestions, loading, error: searchError } = useDebouncedSuggestions(search, getCategorySuggestions, { enabled: !busy });
+  const face = suggestionFace({ loading, error: searchError, count: suggestions.length });
   const showSuggestions = focused && (loading || suggestions.length > 0 || search.trim().length >= 2);
 
   const pick = (suggestion: TwitchCategorySuggestion) => {
@@ -207,9 +212,11 @@ function AddCategoryControl({
           />
           {showSuggestions && (
             <div className="suggestion-list">
-              {loading ? (
+              {face === 'searching' ? (
                 <div className="suggestion-empty">Searching categories...</div>
-              ) : suggestions.length === 0 ? (
+              ) : face === 'failed' ? (
+                <div className="suggestion-empty suggestion-empty--error">{suggestionFailedText(searchError ?? '')}</div>
+              ) : face === 'none' ? (
                 <div className="suggestion-empty">No matches</div>
               ) : suggestions.map(category => (
                 <button
