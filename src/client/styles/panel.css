@@ -541,6 +541,16 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
   margin: 7px 0 0; padding: 3px 9px;
   font-size: 10px;
 }
+/* A removed message's reason comes first in the row's DOM (the dashboard floats it
+   to the right edge). Inline on the tablet it ran straight into the username with no
+   gap, and the narrow rail cut the reason at 45%. It gets its own line above the
+   message instead, as wide as the reason needs: overflow: hidden (from the base rule)
+   makes it a block formatting context, so it sits beside the floated time rather than
+   under it, and only ellipsizes when the line runs out. */
+.tablet-shell .msg-mod-status.removed {
+  display: block; width: fit-content; max-width: none;
+  margin: 0 0 6px;
+}
 /* Highlighted rows take their palette's -bg fill and keep the tag chip as the label;
    there is no coloured stripe, matching the overlay's flat cards. */
 .msg.hl-first,
