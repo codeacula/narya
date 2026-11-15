@@ -364,7 +364,7 @@ export function StatBar({
       </Gauge>
       <Gauge label="Ad break" className={adClass}>
         <div className="gauge-value">{adCountdown !== null ? formatMM(adCountdown.seconds) : UNKNOWN_VALUE}</div>
-        <div className="gauge-sub" title={adSub.title}>{adSub.text}</div>
+        <div className="gauge-sub" title={stale ? undefined : adSub.title}>{stale ? STALE_SUB : adSub.text}</div>
       </Gauge>
       <Gauge label="Actions">
         <div className="stat-actions">
