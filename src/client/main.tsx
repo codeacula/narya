@@ -81,7 +81,9 @@ function App() {
   // ConfirmProvider (the shared `useConfirm()` dialog) wraps every operator surface and
   // no overlay: a browser source has no one to answer a confirm.
   if (path === '/tablet') return <AuthGate><ConfirmProvider><TabletPage /></ConfirmProvider></AuthGate>;
-  if (path === '/viewer') return <AuthGate><ConfirmProvider><ViewerWindowPage /></ConfirmProvider></AuthGate>;
+  // The viewer popout carries the profile and whisper/timeout/ban modals, which ask the
+  // unsaved-edit guard before dropping typed text, and warn before the window closes.
+  if (path === '/viewer') return <AuthGate><ConfirmProvider><DirtyGuardProvider><ViewerWindowPage /></DirtyGuardProvider></ConfirmProvider></AuthGate>;
   const initialPage = dashboardRouteFromPath(path);
   return (
     <AuthGate>

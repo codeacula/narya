@@ -1,6 +1,8 @@
 import React from 'react';
 import { Icon } from '../icons';
 import { Modal, ModalTitle } from '../modal';
+import { useDirtyGuard } from '../dirtyGuard';
+import { draftsDiffer } from '../dirtyGuardLogic';
 import type { Viewer, ViewerProfileUpdate } from '../../../shared/api';
 import { addProfileTag, MAX_VIEWER_TAGS, normalizeProfileTag } from '../../../shared/viewerTags';
 import { errorMessage } from '../../errors';
@@ -44,6 +46,12 @@ export function ViewerProfileModal({
     setError(null);
   }, [viewer.login, viewer.note, viewer.realName, viewer.tags]);
 
+  // A typed-but-not-added tag is saved too (see handleSubmit), so it counts as an edit.
+  const dirty = tagInput.trim() !== ''
+    || draftsDiffer(form, { realName: viewer.realName, tags: viewer.tags, note: viewer.note });
+  const { discardThen } = useDirtyGuard(dirty, `the profile for @${viewer.login}`);
+  const requestClose = React.useCallback(() => discardThen(onClose), [discardThen, onClose]);
+
   const addTag = React.useCallback((value: string) => {
     setForm(current => ({ ...current, tags: addProfileTag(current.tags, value) }));
     setTagInput('');
@@ -73,13 +81,13 @@ export function ViewerProfileModal({
   }, [form, onClose, onSave, saving, tagInput]);
 
   return (
-    <Modal as="form" className="stream-info-modal viewer-profile-modal" onSubmit={handleSubmit} onClose={onClose} initialFocusRef={realNameRef}>
+    <Modal as="form" className="stream-info-modal viewer-profile-modal" onSubmit={handleSubmit} onClose={requestClose} initialFocusRef={realNameRef}>
       <div className="modal-head">
         <div>
           <ModalTitle>Viewer Profile</ModalTitle>
           <div className="viewer-profile-login">@{viewer.login}</div>
         </div>
-        <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={onClose}>
+        <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={requestClose}>
           <Icon name="x" />
         </button>
       </div>
@@ -140,7 +148,7 @@ export function ViewerProfileModal({
       {error && <div className="modal-status error">{error}</div>}
 
       <div className="modal-actions">
-        <button className="modbtn" type="button" onClick={onClose} disabled={saving}>Cancel</button>
+        <button className="modbtn" type="button" onClick={requestClose} disabled={saving}>Cancel</button>
         <button className="modbtn gold" type="submit" disabled={saving}>
           {saving ? 'Saving...' : 'Save'}
         </button>
@@ -190,6 +198,14 @@ export function ViewerActionModal({
         ? `Timeout · ${timeoutLabel(durationMinutes)}`
         : 'Ban';
 
+  // The duration chips are one tap to set again; typed words are what would be lost.
+  const dirty = (isWhisper ? message : reason).trim() !== '';
+  const { discardThen } = useDirtyGuard(
+    dirty,
+    isWhisper ? `the whisper to @${viewer.login}` : `the ${isTimeout ? 'timeout' : 'ban'} reason for @${viewer.login}`,
+  );
+  const requestClose = React.useCallback(() => discardThen(onClose), [discardThen, onClose]);
+
   const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     onSubmit({
@@ -200,13 +216,13 @@ export function ViewerActionModal({
   }, [durationMinutes, message, onSubmit, reason]);
 
   return (
-    <Modal as="form" className="stream-info-modal viewer-action-modal" onSubmit={handleSubmit} onClose={onClose} initialFocusRef={firstFieldRef}>
+    <Modal as="form" className="stream-info-modal viewer-action-modal" onSubmit={handleSubmit} onClose={requestClose} initialFocusRef={firstFieldRef}>
       <div className="modal-head">
         <div>
           <ModalTitle>{title}</ModalTitle>
           <div className="viewer-profile-login">@{viewer.login}</div>
         </div>
-        <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={onClose}>
+        <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={requestClose}>
           <Icon name="x" />
         </button>
       </div>
@@ -280,7 +296,7 @@ export function ViewerActionModal({
       {error && <div className="modal-status error">{error}</div>}
 
       <div className="modal-actions">
-        <button className="modbtn" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="modbtn" type="button" onClick={requestClose} disabled={busy}>Cancel</button>
         <button
           className={'modbtn ' + (action === 'ban' ? 'danger' : 'gold')}
           type="submit"

@@ -7,6 +7,7 @@ import { useToast } from '../notifications';
 import { sceneLabel, switchableScenes } from '../../scenes';
 import { useMediaMute } from '../../mediaMute';
 import { useWindDown } from '../../windDown';
+import { useDirtyGuard } from '../dirtyGuard';
 import { SettingsAnnouncer } from '../../pages/settings/shared';
 
 export function ControlsPanel({
@@ -206,6 +207,7 @@ function HoldingScenesControls() {
   const { state, busy } = controls;
   const [nextDraft, setNextDraft] = React.useState<string | null>(null);
   const nextValue = nextDraft ?? state.nextStream;
+  useDirtyGuard(nextDraft !== null && nextDraft !== state.nextStream, 'the next-stream line');
 
   return (
     <div className="ctrl-section ctrl-holding-section">
@@ -303,6 +305,7 @@ function PinnedCardControls() {
   );
   const { card, busy, pinTopic, clear } = usePinnedCardControls(onError);
   const [draft, setDraft] = React.useState('');
+  useDirtyGuard(draft.trim() !== '', 'the pinned topic');
 
   return (
     <div className="ctrl-section ctrl-pinned-section">

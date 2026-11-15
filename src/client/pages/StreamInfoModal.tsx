@@ -1,6 +1,8 @@
 import React from 'react';
 import { Icon } from '../ui/icons';
 import { Modal, ModalTitle } from '../ui/modal';
+import { useDirtyGuard } from '../ui/dirtyGuard';
+import { draftsDiffer } from '../ui/dirtyGuardLogic';
 import { addSavedStreamCategory, getCategorySuggestions, getSavedStreamCategories, getTagSuggestions } from '../services/dashboard';
 import { useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
@@ -46,6 +48,19 @@ export function StreamInfoModal({
   const [tagInput, setTagInput] = React.useState('');
   const [tagFocused, setTagFocused] = React.useState(false);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
+
+  // What the form held when the current stream info finished loading (or failed to:
+  // then it is whatever was there, and only an edit after that is unsaved). Null while
+  // the load is in flight, when every field is disabled and nothing can be edited.
+  const [baseline, setBaseline] = React.useState<StreamInfoForm | null>(null);
+  React.useEffect(() => {
+    setBaseline(loading ? null : form);
+    // Only the end of a load re-baselines; edits must not.
+  }, [loading]);
+  const dirty = baseline !== null && draftsDiffer(form, baseline);
+  const { discardThen } = useDirtyGuard(dirty, 'the stream info');
+  // Escape, the backdrop, the close button and Cancel all ask before dropping an edit.
+  const requestClose = React.useCallback(() => discardThen(onClose), [discardThen, onClose]);
 
   // Every category that has been the live selection this session, so a mis-pick can't strand it out of the list.
   const seenCategoriesRef = React.useRef<Map<string, SavedStreamCategory>>(new Map());
@@ -145,12 +160,12 @@ export function StreamInfoModal({
   };
 
   return (
-    <Modal as="form" className="stream-info-modal" onSubmit={onSubmit} onClose={onClose} initialFocusRef={titleInputRef} initialFocusReady={!loading && !saving}>
+    <Modal as="form" className="stream-info-modal" onSubmit={onSubmit} onClose={requestClose} initialFocusRef={titleInputRef} initialFocusReady={!loading && !saving}>
       <div className="modal-head">
         <div>
           <ModalTitle>Stream Info</ModalTitle>
         </div>
-        <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={onClose}>
+        <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={requestClose}>
           <Icon name="x" />
         </button>
       </div>
@@ -331,7 +346,7 @@ export function StreamInfoModal({
       )}
 
       <div className="modal-actions">
-        <button className="modbtn" type="button" onClick={onClose} disabled={saving}>Cancel</button>
+        <button className="modbtn" type="button" onClick={requestClose} disabled={saving}>Cancel</button>
         <button className="modbtn gold" type="submit" disabled={loading || saving}>
           {saving ? 'Saving...' : 'Save'}
         </button>
