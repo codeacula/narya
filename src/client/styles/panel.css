@@ -140,6 +140,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .gauge-value small { font-size: 11px; color: var(--fg-2); font-weight: 500; }
 .gauge-sub { font-family: var(--font-mono); font-size: 10px; color: var(--fg-2); letter-spacing: 0.04em; }
+/* The backend is not answering: readings are last-known, so they recede and the
+   sub-lines (which say so) take the warning colour. */
+.statbar.is-stale .gauge-value { opacity: 0.5; }
+.statbar.is-stale .gauge-sub { color: var(--warning-fg); }
+.statbar.is-stale .live-dot { animation: none; opacity: 0.5; }
 
 /* Live uptime is the bar's one gold value, as it is in the overlay's bottom bar. The
    green live dot beside the label still says "on air". */

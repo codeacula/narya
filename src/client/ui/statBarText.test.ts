@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { adGaugeSub, healthGauge, UNKNOWN_VALUE, viewersGauge } from './statBarText';
+import { UNKNOWN_VALUE, adGaugeSub, healthGauge, statusIsStale, viewersGauge } from './statBarText';
 
 const adBase = {
   mode: null,
@@ -104,5 +104,22 @@ describe('healthGauge', () => {
 
   test('zero total frames does not divide by zero', () => {
     expect(healthGauge({ ...healthBase, totalFrames: 0, droppedFrames: 0 }).sub).toBe('drop: 0 (0.00%) · lag: 2 frames');
+  });
+});
+
+describe('statusIsStale', () => {
+  // The bug: with the backend down the bar kept saying "events connected" and a live
+  // uptime, because only the chat word was reset on a failed refresh.
+  test('a dropped socket makes every reading last-known', () => {
+    expect(statusIsStale({ socket: 'closed', refreshFailed: false })).toBe(true);
+  });
+
+  test('a failed refresh with no status since is stale', () => {
+    expect(statusIsStale({ socket: 'open', refreshFailed: true })).toBe(true);
+  });
+
+  test('an open socket with a good refresh is fresh, and so is the first connect', () => {
+    expect(statusIsStale({ socket: 'open', refreshFailed: false })).toBe(false);
+    expect(statusIsStale({ socket: 'connecting', refreshFailed: false })).toBe(false);
   });
 });

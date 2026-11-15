@@ -29,7 +29,7 @@ import {
   reconnectEventSub,
 } from '../services/dashboard';
 import { useSessionShoutouts } from '../shoutouts';
-import { useSocket } from '../realtime';
+import { useSocket, useSocketState } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsShell } from './settings/SettingsShell';
 import { useLeaveGuard } from '../ui/dirtyGuard';
@@ -49,7 +49,7 @@ import type { ChatEntry, StreamEvent, StreamEventUpdate, DashboardStatus, ChatMe
 import { NO_ACTIVE_SESSION_FOR_PLANNED_END } from '../../shared/api';
 import { errorMessage } from '../errors';
 import { useToast } from '../ui/notifications';
-import { liveDataRows } from '../ui/statBarText';
+import { liveDataRows, statusIsStale } from '../ui/statBarText';
 import { createLatestOnly } from '../latestOnly';
 
 /* ---------------- constants ---------------- */
@@ -139,6 +139,10 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   // False while `status` is still EMPTY_STATUS: its "no channel" and "OBS offline" are
   // placeholders, not facts, and the Live Data list must not report them as such.
   const [statusKnown, setStatusKnown] = useState(false);
+  // The last full refresh failed and no status has arrived since (statusIsStale).
+  const [statusRefreshFailed, setStatusRefreshFailed] = useState(false);
+  const socketState = useSocketState();
+  const statusStale = statusIsStale({ socket: socketState, refreshFailed: statusRefreshFailed });
   const { pushToast } = useToast();
   const [streamInfoOpen, setStreamInfoOpen] = useState(false);
   const [streamInfoForm, setStreamInfoForm] = useState<StreamInfoForm>({ title: '', category: '', tags: [], status: '', plannedEndAt: '' });
@@ -301,12 +305,14 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       setEvents(nextEvents);
       setStatus(nextStatus);
       setStatusKnown(true);
+      setStatusRefreshFailed(false);
       if (nextObsStatus) setObsStatus(nextObsStatus);
       feedSucceeded();
     } catch (error) {
       console.error('Failed to refresh dashboard data:', error);
       if (!mountedRef.current || !isCurrent()) return;
       setStatus(current => ({ ...current, chatConnection: 'UNKNOWN' }));
+      setStatusRefreshFailed(true);
       feedFailed();
     } finally {
       // Even a failed seed ends the quiet period; otherwise one bad fetch would
@@ -352,6 +358,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   useSocket<DashboardStatus>('dashboard:status', React.useCallback((nextStatus) => {
     setStatus(nextStatus);
     setStatusKnown(true);
+    setStatusRefreshFailed(false);
   }, []));
 
   useSocket<ObsStatus>('obs:status', React.useCallback((nextStatus) => {
@@ -792,6 +799,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         eventSubConnected={status.eventSubConnected}
         eventSubError={status.eventSubError}
         onReconnectEventSub={handleReconnectEventSub}
+        stale={statusStale}
       />
       {page === 'viewers' || page === 'viewer' ? (
         // One page, two panes. /viewers is the list with nothing selected; /viewers/<login>
@@ -850,7 +858,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
       <TweaksPanel title="Display" open={tweaksOpen} onClose={() => setTweaksOpen(false)}>
         <TweakSection label="Live Data" />
         <div className="live-data-list">
-          {liveDataRows(status, statusKnown).map(row => (
+          {liveDataRows(status, statusKnown && !statusStale).map(row => (
             <div key={row.label}><span>{row.label}</span><b>{row.value}</b></div>
           ))}
         </div>

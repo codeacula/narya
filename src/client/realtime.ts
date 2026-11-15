@@ -15,6 +15,20 @@ let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let hasConnected = false;
 
+/**
+ * Whether the shared socket is up. `connecting` until the first open, then `open`, and
+ * `closed` from a drop until it reopens: while closed no heartbeat or event arrives, so
+ * anything seeded from the socket is only last-known.
+ */
+export type SocketState = 'connecting' | 'open' | 'closed';
+let socketState: SocketState = 'connecting';
+const stateListeners = new Set<(state: SocketState) => void>();
+function setSocketState(next: SocketState) {
+  if (socketState === next) return;
+  socketState = next;
+  for (const listener of stateListeners) listener(next);
+}
+
 function ensureSocket() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     return;
@@ -23,6 +37,7 @@ function ensureSocket() {
   socket = new WebSocket(withToken(`${protocol}://${window.location.host}/socket`));
 
   socket.addEventListener('open', () => {
+    setSocketState('open');
     if (hasConnected) {
       for (const handler of reconnectHandlers) handler();
     }
@@ -44,6 +59,7 @@ function ensureSocket() {
 
   socket.addEventListener('close', () => {
     socket = null;
+    setSocketState('closed');
     if (handlers.size > 0 && !reconnectTimer) {
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
@@ -83,4 +99,15 @@ export function useSocketReconnect(onReconnect: () => void) {
     reconnectHandlers.add(onReconnect);
     return () => { reconnectHandlers.delete(onReconnect); };
   }, [onReconnect]);
+}
+
+/** The shared socket's state (see SocketState), re-rendering when it changes. */
+export function useSocketState(): SocketState {
+  const [state, setState] = React.useState<SocketState>(socketState);
+  React.useEffect(() => {
+    setState(socketState);
+    stateListeners.add(setState);
+    return () => { stateListeners.delete(setState); };
+  }, []);
+  return state;
 }

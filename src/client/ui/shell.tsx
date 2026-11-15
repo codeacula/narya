@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Icon } from './icons';
 import { CrystalOrb } from '../crystalOrb';
 import { isSettingsRoute, type DashboardRoute } from '../routing';
-import { adGaugeSub, connectionsLine, healthGauge, UNKNOWN_VALUE, viewersGauge } from './statBarText';
+import { adGaugeSub, connectionsLine, healthGauge, STALE_SUB, UNKNOWN_VALUE, viewersGauge } from './statBarText';
 import type { DashboardStatus } from '../../shared/api';
 
 type DragPos = { x: number; y: number; w: number; h: number };
@@ -157,6 +157,7 @@ export function StatBar({
   eventSubConnected,
   eventSubError,
   onReconnectEventSub,
+  stale,
 }: {
   clock24: boolean;
   starfield: boolean;
@@ -188,6 +189,11 @@ export function StatBar({
   eventSubConnected: boolean;
   eventSubError: string | null;
   onReconnectEventSub: () => void;
+  /**
+   * The backend is not answering (statusIsStale): every reading is last-known, so the
+   * values dim and the sub-lines say so instead of claiming connected, live or a count.
+   */
+  stale: boolean;
 }) {
   const [currentTime, setCurrentTime] = useState('');
   const [displaySeconds, setDisplaySeconds] = useState(uptimeSeconds ?? 0);
@@ -335,12 +341,14 @@ export function StatBar({
           : 'Run 3 minute ad break';
 
   return (
-    <div className={'statbar' + (starfield ? ' starfield' : '')}>
+    <div className={'statbar' + (starfield ? ' starfield' : '') + (stale ? ' is-stale' : '')}>
       <Gauge label="Stream" className={'stream-gauge ' + streamClass} icon={<span className={'live-dot' + (streamActive ? '' : ' offline')} />}>
         <div className="gauge-value">{streamLabel}</div>
+        {/* Always mounted, so going stale is announced (a region inserted with its text often is not). */}
+        <span className="sr-only" role="status">{stale ? 'Narya is not answering. The stat bar shows last known values.' : ''}</span>
         <div className="gauge-sub">
-          {uptimeSourceLabel} · {connectionsLine({ chatConnection, eventSubConnected })}
-          {eventSubError && !eventSubConnected && (
+          {stale ? STALE_SUB : `${uptimeSourceLabel} · ${connectionsLine({ chatConnection, eventSubConnected })}`}
+          {!stale && eventSubError && !eventSubConnected && (
             <button
               className="eventsub-retry-btn"
               title="Re-authorize Twitch, then click to retry EventSub"
@@ -394,7 +402,7 @@ export function StatBar({
       </Gauge>
       <Gauge label="Viewers" icon={<Icon name="users" size={11} />}>
         <div className="gauge-value">{viewers.value}</div>
-        <div className="gauge-sub">{viewers.sub}</div>
+        <div className="gauge-sub">{stale ? STALE_SUB : viewers.sub}</div>
       </Gauge>
       <Gauge label="Stream health">
         <div className="gauge-value health">
@@ -408,7 +416,7 @@ export function StatBar({
             ))}
           </span>
         </div>
-        <div className="gauge-sub">{health.sub}</div>
+        <div className="gauge-sub">{stale ? STALE_SUB : health.sub}</div>
       </Gauge>
     </div>
   );

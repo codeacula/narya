@@ -12,6 +12,26 @@ import { chatConnectionWord, connectionWord, OBS_OFFLINE } from '../connectionWo
  */
 export const UNKNOWN_VALUE = '—';
 
+/**
+ * Whether the stat bar's values are only last-known: the socket that carries the status
+ * heartbeat is down, or the last full refresh failed and no status has arrived since.
+ * Either way the backend is not answering, and "connected" or "live" is a claim nobody
+ * has made recently.
+ */
+export function statusIsStale({
+  socket,
+  refreshFailed,
+}: {
+  socket: 'connecting' | 'open' | 'closed';
+  /** The last full refresh failed, and no status has arrived since. */
+  refreshFailed: boolean;
+}): boolean {
+  return socket === 'closed' || refreshFailed;
+}
+
+/** What a gauge's sub-line says in place of its reading while the values are stale. */
+export const STALE_SUB = 'last known · Narya not answering';
+
 export type AdCountdownMode = 'active' | 'next' | 'preroll';
 
 function formatShortDuration(sec: number): string {
