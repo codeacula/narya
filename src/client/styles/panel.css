@@ -2145,6 +2145,32 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 /* Modal (ui/modal.tsx) focuses the dialog itself only when nothing inside can take
    focus; the panel is not a control, so it draws no ring of its own. */
 .modal-backdrop > [role="dialog"]:focus { outline: none; }
+/* ConfirmDialog (ui/confirm.tsx): the same flat panel, narrower, for one question. */
+.confirm-modal {
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-3);
+}
+.confirm-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-1);
+}
+.confirm-body p { margin: 0 0 8px; }
+.confirm-body p:last-child { margin-bottom: 0; }
+/* The text to retype keeps its own case, so it reads as the name it is. */
+.field > span .confirm-require-text {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--fg-1);
+}
 .discord-help-steps {
   margin: 0;
   padding-left: 20px;
