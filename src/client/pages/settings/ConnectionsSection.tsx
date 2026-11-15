@@ -82,7 +82,19 @@ const EMPTY_APP_CONFIG_FORM: AppConfigForm = {
   clearRedisUrl: false,
 };
 
-export function ConnectionsSection({ eventSubConnected, redisConnected }: { eventSubConnected: boolean; redisConnected: boolean }) {
+export function ConnectionsSection({
+  statusKnown,
+  eventSubConnected,
+  redisConnected,
+}: {
+  /**
+   * False until the dashboard has heard a status. Before then `eventSubConnected` and
+   * `redisConnected` are placeholders, and the "offline" alerts would state them as fact.
+   */
+  statusKnown: boolean;
+  eventSubConnected: boolean;
+  redisConnected: boolean;
+}) {
   const {
     draft: appConfigForm,
     setDraft: setAppConfigForm,
@@ -171,7 +183,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
           </span>
         </div>
       )}
-      {!appConfigLoading && appConfigForm.twitchClientId && appConfigForm.twitchClientSecretConfigured
+      {!appConfigLoading && statusKnown && appConfigForm.twitchClientId && appConfigForm.twitchClientSecretConfigured
         && !eventSubConnected && (
         <div className="settings-alert settings-alert--info">
           <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
@@ -191,7 +203,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
           </span>
         </div>
       )}
-      {!appConfigLoading && appConfigForm.redisConfigured && !redisConnected && (
+      {!appConfigLoading && statusKnown && appConfigForm.redisConfigured && !redisConnected && (
         <div className="settings-alert settings-alert--warn">
           <Icon name="alert" className="settings-alert-icon" aria-hidden="true" />
           <span>

@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useConfirm } from '../ui/confirm';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
@@ -10,7 +9,6 @@ import { openViewerPopout } from '../viewerPopout';
 import { isMentionOf } from '../chatText';
 import { playMentionAlert, playTone } from '../sounds';
 import {
-  disconnectTwitch,
   getViewers,
   getChatEntries,
   getStreamEvents,
@@ -32,6 +30,7 @@ import { useSessionShoutouts } from '../shoutouts';
 import { useSocket, useSocketState } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsShell } from './settings/SettingsShell';
+import { connectionsFreshness } from './settings/connectionCopy';
 import { useLeaveGuard } from '../ui/dirtyGuard';
 import {
   dashboardRouteFromName,
@@ -129,7 +128,6 @@ const EMPTY_OBS_STATUS: ObsStatus = {
 /* ---------------- Dashboard page ---------------- */
 
 export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: DashboardRoute }) {
-  const confirm = useConfirm();
   const [page, setPage] = useState(initialPage);
   const [viewerLogin, setViewerLogin] = useState<string | null>(() => viewerLoginFromPath(window.location.pathname));
   const [tweaksOpen, setTweaksOpen] = useState(false);
@@ -365,30 +363,14 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
     setObsStatus(nextStatus);
   }, []));
 
-  // Disconnecting drops EventSub, alerts and the ad schedule until the next sign-in, so
-  // it confirms first and reports a failure where the operator is looking.
-  const disconnectTwitchAccount = React.useCallback(async (account: 'user' | 'bot') => {
-    const what = account === 'bot' ? 'the bot account' : 'your Twitch account';
-    const consequence = account === 'bot'
-      ? 'Dashboard chat messages will stop sending as the bot until you sign it in again.'
-      : 'Alerts, EventSub and the ad schedule stop until you sign in again.';
-    const ok = await confirm({
-      title: `Disconnect ${what}?`,
-      body: consequence,
-      confirmLabel: 'Disconnect',
-      tone: 'danger',
-    });
-    if (!ok) return;
-    void disconnectTwitch(account)
-      .then(() => getDashboardStatus())
+  // Settings > Connections reports a disconnect itself; this only re-reads the status so
+  // its rows and the stat bar follow. A failed re-read changes nothing: the socket's next
+  // `dashboard:status` carries the same news.
+  const handleTwitchDisconnected = React.useCallback(() => {
+    void getDashboardStatus()
       .then(setStatus)
-      .catch((error: unknown) => {
-        console.error(`Failed to disconnect ${what}:`, error);
-        pushToast({ kind: 'error', title: `Could not disconnect ${what}`, message: errorMessage(error, 'The server did not respond.') });
-      });
-  }, [confirm, pushToast]);
-  const handleTwitchLogout = React.useCallback(() => void disconnectTwitchAccount('user'), [disconnectTwitchAccount]);
-  const handleTwitchBotLogout = React.useCallback(() => void disconnectTwitchAccount('bot'), [disconnectTwitchAccount]);
+      .catch((error: unknown) => console.error('Failed to refresh status after a Twitch disconnect:', error));
+  }, []);
 
   // The stat bar's retry is the only place this is asked for, and a refusal used to go
   // to the console alone: the button just did nothing.
@@ -821,9 +803,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         <SettingsShell
           route={page}
           status={status}
+          freshness={connectionsFreshness({ known: statusKnown, stale: statusStale })}
           onNavigate={changePage}
-          onTwitchLogout={handleTwitchLogout}
-          onTwitchBotLogout={handleTwitchBotLogout}
+          onTwitchDisconnected={handleTwitchDisconnected}
         />
       ) : (
         dashboardLayout

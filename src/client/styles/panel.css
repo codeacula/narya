@@ -1128,6 +1128,9 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
 .set-group-toggle { accent-color: var(--gold-500); cursor: pointer; }
 .set-group-toggle:disabled { cursor: default; opacity: 0.5; }
 .set-group-note { padding: 14px; }
+/* "Waiting for Narya" / "last known" under a settings group's label: a stale-notice
+   laid out as one of the group's rows. */
+.set-group .set-freshness { margin: 0; padding: 9px 14px; border-bottom: 1px solid var(--border-1); }
 .set-row { display: flex; align-items: center; gap: 20px; padding: 11px 14px; border-bottom: 1px solid var(--border-1); }
 .set-row-text { flex: 1; min-width: 0; }
 /* A row label with a help button beside it, and a row control made of several parts. */
