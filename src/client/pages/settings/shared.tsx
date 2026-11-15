@@ -51,7 +51,7 @@ export function SettingsHeader({
 
 /**
  * The one line of feedback a settings form gives after a load or a save. An error wins
- * over a message, and takes the `error` modifier with it; with neither, nothing renders.
+ * over a message, and takes the `error` modifier with it; with neither, nothing shows.
  *
  * The feedback rule, so the next page does not grow a sixth pattern:
  * - A save, delete or load on a settings page reports here, beside the form that did
@@ -71,12 +71,23 @@ export function SettingsStatus({
   message?: React.ReactNode;
   error?: React.ReactNode;
 }) {
-  if (!message && !error) return null;
-  // A live region, so a save's outcome is announced rather than only drawn.
+  const shown = error || message || null;
+  // Announced through two live regions that are ALWAYS mounted, even with nothing to
+  // say. A region inserted together with its text is often not announced at all —
+  // screen readers watch regions that already exist for changes — so returning null
+  // when empty silently swallowed every "Saved". Both are `sr-only`, which takes them
+  // out of flow: an empty one adds no gap to the grid or flex column it sits in.
+  // The drawn line is `aria-hidden` so the outcome is read once, not twice.
   return (
-    <div className={'command-settings-status' + (error ? ' error' : '')} role={error ? 'alert' : 'status'}>
-      {error ?? message}
-    </div>
+    <>
+      <div className="sr-only" role="status">{error ? null : message}</div>
+      <div className="sr-only" role="alert">{error}</div>
+      {shown ? (
+        <div className={'command-settings-status' + (error ? ' error' : '')} aria-hidden="true">
+          {shown}
+        </div>
+      ) : null}
+    </>
   );
 }
 
