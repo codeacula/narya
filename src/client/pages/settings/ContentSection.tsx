@@ -65,6 +65,16 @@ function volumePercent(volume: number): string {
   return `${Math.round(volume * 100)}%`;
 }
 
+/**
+ * The New form's file picker's first line. Only a file list that loaded may be called
+ * empty: "No files found under public/" off a failed load sent the operator looking
+ * for files that are there.
+ */
+export function newFilePlaceholder(filesLoaded: boolean, count: number): string {
+  if (!filesLoaded) return 'File list unavailable';
+  return count === 0 ? 'No files found under public/' : 'Select a file…';
+}
+
 function MediaLibrary() {
   const confirm = useConfirm();
   const [assets, setAssets] = useState<MediaAsset[]>([]);
@@ -80,12 +90,17 @@ function MediaLibrary() {
   // A failed load is not an empty list (listState.ts); the next successful load clears it.
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  // Whether `discovered` is a list the server sent. New needs it — its picker is the
+  // only way to name a local file — so New waits for it rather than offering an
+  // empty picker that reads as "no files".
+  const [filesLoaded, setFilesLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const [nextAssets, nextDiscovered] = await Promise.all([getMediaAssets(), getDiscoveredMedia()]);
     setAssets(sortAssets(nextAssets));
     setDiscovered(nextDiscovered.files);
     setConfiguredSrcs(nextDiscovered.configuredSrcs);
+    setFilesLoaded(true);
     setLoadFailed(false);
   }, []);
 
@@ -243,7 +258,7 @@ function MediaLibrary() {
                 a file straight off disk.
               </div>
             </div>
-            <button className="modbtn gold" type="button" disabled={busy} onClick={openNew}>New</button>
+            <button className="modbtn gold" type="button" disabled={busy || !filesLoaded} onClick={openNew}>New</button>
           </div>
 
           <div className="settings-mini-list">
@@ -349,7 +364,7 @@ function MediaLibrary() {
                     onChange={event => setNewForm(current => ({ ...current, src: event.target.value, label: '' }))}
                   >
                     <option value="">
-                      {discovered.length === 0 ? 'No files found under public/' : 'Select a file…'}
+                      {newFilePlaceholder(filesLoaded, discovered.length)}
                     </option>
                     {discovered.map(file => (
                       <option key={file.src} value={file.src}>
