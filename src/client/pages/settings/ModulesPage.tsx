@@ -21,7 +21,7 @@ import { useSocket } from '../../realtime';
 import { useDebouncedSuggestions } from '../../suggestions';
 import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
-import { CrystalOrb } from '../../crystalOrb';
+import { EmptyState } from '../../ui/emptyState';
 
 const EMPTY_RESPONSE: CategoryModulesResponse = {
   modules: [],
@@ -399,14 +399,10 @@ export function ModulesSettingsPage() {
 
             <div className="settings-split-detail">
               {!draft ? (
-                <div className="split-empty">
-                  <CrystalOrb variant="moon" size={40} />
-                  <div className="es-title">Nothing selected</div>
-                  <div className="es-sub">
-                    Pick a module on the left to edit the Twitch categories it claims and the reward
-                    groups it switches. New adds one.
-                  </div>
-                </div>
+                <EmptyState size="pane" title="Nothing selected">
+                  Pick a module on the left to edit the Twitch categories it claims and the reward
+                  groups it switches. New adds one.
+                </EmptyState>
               ) : (
             <form className="settings-editor-section" onSubmit={handleSubmit}>
               <div className="command-editor-head">

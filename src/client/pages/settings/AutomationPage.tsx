@@ -71,7 +71,7 @@ import {
   triggerScopeLabel,
   validateTrigger,
 } from './automation';
-import { CrystalOrb } from '../../crystalOrb';
+import { EmptyState } from '../../ui/emptyState';
 import { Icon } from '../../ui/icons';
 
 const ALERT_EVENT_KINDS: AlertEventKind[] = ['sub', 'gift', 'cheer', 'raid', 'follow'];
@@ -1661,14 +1661,10 @@ export function AutomationSettingsPage() {
 
             <div className="settings-split-detail">
               {!draft ? (
-                <div className="split-empty">
-                  <CrystalOrb variant="moon" size={40} />
-                  <div className="es-title">Nothing selected</div>
-                  <div className="es-sub">
-                    Pick a trigger on the left to see what fires it, which action it runs, and its
-                    cooldowns. New adds one.
-                  </div>
-                </div>
+                <EmptyState size="pane" title="Nothing selected">
+                  Pick a trigger on the left to see what fires it, which action it runs, and its
+                  cooldowns. New adds one.
+                </EmptyState>
               ) : (
                 <>
                   {editingRun && (

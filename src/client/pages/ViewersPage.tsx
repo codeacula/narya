@@ -13,7 +13,7 @@ import {
 } from '../services/dashboard';
 import { mergeRoster, type Person } from '../viewerRoster';
 import { errorMessage } from '../errors';
-import { CrystalOrb } from '../crystalOrb';
+import { EmptyState } from '../ui/emptyState';
 
 type Segment = 'all' | 'live' | 'vips' | 'mods';
 
@@ -344,7 +344,7 @@ export function ViewersPage({
         {message ? <div className="viewers-status" role="status">{message}</div> : null}
 
         {loading ? (
-          <div className="empty-state"><CrystalOrb variant="moon" size={40} /><div className="es-title">Gathering your viewers…</div></div>
+          <EmptyState title="Gathering your viewers…" />
         ) : searchIsNew ? (
           <div className="roster-list">
             <div className="roster-hint">Not in your roster yet — open <b>@{searchLogin}</b> to act on them:</div>
@@ -355,11 +355,9 @@ export function ViewersPage({
             />
           </div>
         ) : shown.length === 0 ? (
-          <div className="empty-state">
-            <CrystalOrb variant="moon" size={40} />
-            <div className="es-title">{people.length === 0 ? 'No one’s come by yet' : 'No one here'}</div>
-            <div className="es-sub">{people.length === 0 ? 'Viewers you meet in chat will gather here as stars.' : 'Try a different filter or search.'}</div>
-          </div>
+          <EmptyState title={people.length === 0 ? 'No one’s come by yet' : 'No one here'}>
+            {people.length === 0 ? 'Viewers you meet in chat will gather here as stars.' : 'Try a different filter or search.'}
+          </EmptyState>
         ) : (
           <div className="roster-list">
             {shown.map(person => (
@@ -390,14 +388,10 @@ export function ViewersPage({
             }}
           />
         ) : (
-          <div className="split-empty">
-            <CrystalOrb variant="moon" size={40} />
-            <div className="es-title">No one in focus</div>
-            <div className="es-sub">
-              Pick a viewer on the left. Their profile, roles, chat history, and the actions you can
-              take on them — VIP, mod, shout out, whisper, timeout, ban — all show up here.
-            </div>
-          </div>
+          <EmptyState size="pane" title="No one in focus">
+            Pick a viewer on the left. Their profile, roles, chat history, and the actions you can
+            take on them — VIP, mod, shout out, whisper, timeout, ban — all show up here.
+          </EmptyState>
         )}
       </section>
     </div>
