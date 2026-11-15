@@ -176,7 +176,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
         <div className="settings-alert settings-alert--info">
           <Icon name="info" className="settings-alert-icon" aria-hidden="true" />
           <span>
-            Twitch app credentials are set but EventSub is not connected. Use “Login with Twitch”
+            Twitch app credentials are set but Twitch EventSub is offline. Use “Login with Twitch”
             above to authorize, then events will start flowing.
           </span>
         </div>
@@ -195,7 +195,7 @@ export function ConnectionsSection({ eventSubConnected, redisConnected }: { even
         <div className="settings-alert settings-alert--warn">
           <Icon name="alert" className="settings-alert-icon" aria-hidden="true" />
           <span>
-            Redis is configured but not connected — check the URL and credentials. Events are not
+            Redis is configured but offline — check the URL and credentials. Events are not
             being published until the connection recovers.
           </span>
         </div>

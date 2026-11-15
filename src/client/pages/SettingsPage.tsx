@@ -2,15 +2,7 @@ import type { DashboardStatus } from '../../shared/api';
 import { withToken } from '../auth';
 import { SettingsHeader, SettingsRow } from './settings/shared';
 import { ConnectionsSection } from './settings/ConnectionsSection';
-
-// A connected socket whose subscriptions Twitch refused still delivers nothing for
-// those event types, so name the ones that are dead instead of claiming health.
-function eventSubSummary(status: DashboardStatus): string {
-  if (!status.eventSubConnected) return 'Not connected - login to enable follows, subs, and alerts';
-  const failed = status.eventSubFailedSubscriptions;
-  if (failed.length === 0) return 'Receiving channel events';
-  return `Connected, but these events aren't arriving: ${failed.join(', ')}. Re-authorize Twitch or check token scopes.`;
-}
+import { eventSubBadge, eventSubSummary } from './settings/connectionCopy';
 
 /**
  * The Connections section — the landing page of the settings shell. Twitch sign-in sits
@@ -85,13 +77,11 @@ export function ConnectionsSettingsPage({
           label="EventSub"
           sub={eventSubSummary(status)}
         >
-          {status.eventSubConnected && status.eventSubFailedSubscriptions.length === 0 ? (
-            <span className="set-badge set-badge--ok">Connected</span>
-          ) : status.eventSubConnected ? (
-            <span className="set-badge">Degraded</span>
-          ) : (
-            <span className="set-badge">Disconnected</span>
-          )}
+          {/* A connected socket whose subscriptions Twitch refused still delivers
+              nothing for those event types, so it is Degraded, not Connected. */}
+          <span className={'set-badge' + (eventSubBadge(status) === 'Connected' ? ' set-badge--ok' : '')}>
+            {eventSubBadge(status)}
+          </span>
         </SettingsRow>
       </div>
 
