@@ -176,9 +176,14 @@ export function ModulesSettingsPage() {
   // after a save, a delete, a Retry — clears it.
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  // Whether `state` came from the server (a load or a push) rather than EMPTY_RESPONSE.
+  // Until it has, the Live state block has nothing to report: "No module active" off a
+  // failed load is a claim about live rewards that nobody read.
+  const [stateKnown, setStateKnown] = useState(false);
 
   const load = useCallback(async () => {
     setState(await getCategoryModules());
+    setStateKnown(true);
     setLoadFailed(false);
   }, []);
 
@@ -222,6 +227,7 @@ export function ModulesSettingsPage() {
   // leaving a stale `idle` on screen.
   useSocket<CategoryModulesResponse>('category-modules:updated', useCallback((payload) => {
     setState(payload);
+    setStateKnown(true);
   }, []));
 
   const busy = loading || saving || reconciling;
@@ -329,6 +335,7 @@ export function ModulesSettingsPage() {
     void reconcileCategoryModules()
       .then(next => {
         setState(next);
+        setStateKnown(true);
         const stillDegraded = next.modules.some(module => module.status === 'degraded');
         setMessage(stillDegraded ? 'Reconciled, but a module is still degraded.' : 'Reconciled with Twitch.');
       })
@@ -359,6 +366,7 @@ export function ModulesSettingsPage() {
           <div className="set-group-label">Live state</div>
           <div className="settings-editor-section">
             <div className="module-live">
+              {stateKnown ? (
               <div>
                 <div className="set-label">
                   {activeModule ? activeModule.name : 'No module active'}
@@ -374,6 +382,16 @@ export function ModulesSettingsPage() {
                   {state.lastSignalSource && ` (${state.lastSignalSource}).`}
                 </div>
               </div>
+              ) : (
+              <div>
+                <div className="set-label">{loading && !loadFailed ? 'Reading live state…' : 'Live state unknown'}</div>
+                <div className="set-sub">
+                  {loading && !loadFailed
+                    ? 'Asking Narya which module is active.'
+                    : 'Narya could not read the modules, so it cannot say which is active or which triggers are armed. Nothing was changed.'}
+                </div>
+              </div>
+              )}
               <button className="modbtn" type="button" disabled={busy} onClick={handleReconcile}>
                 {reconciling ? 'Reconciling...' : 'Reconcile now'}
               </button>
