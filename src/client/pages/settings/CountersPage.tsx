@@ -9,7 +9,8 @@ import {
   updateCounter,
 } from '../../services/dashboard';
 import { useSocket } from '../../realtime';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { listFace } from './listState';
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
 import { EmptyState } from '../../ui/emptyState';
@@ -80,10 +81,14 @@ export function CountersPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const load = useCallback(async () => {
     const response = await getCounters();
     setCounters(response.counters);
+    setLoadFailed(false);
   }, []);
 
   useEffect(() => {
@@ -91,10 +96,14 @@ export function CountersPage() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load counters')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load counters'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   // An Action step or the /counter command can move a counter at any moment, so the
   // page follows the broadcast rather than only what this tab did. useCallback because
@@ -209,12 +218,13 @@ export function CountersPage() {
   };
 
   const keyPreview = draft ? previewCounterKey(draft.key) : '';
+  const face = listFace({ loading, loadFailed, count: counters.length });
 
   return (
     <>
       <SettingsHeader
         section="counters"
-        counts={[{ value: counters.length, one: 'counter' }]}
+        counts={loadFailed ? undefined : [{ value: counters.length, one: 'counter' }]}
         actions={
           <button className="btn-primary" type="button" disabled={busy || draft !== null} onClick={startCreate}>
             New counter
@@ -339,7 +349,8 @@ export function CountersPage() {
           </div>
         ))}
 
-        {!loading && counters.length === 0 && (
+        {face === 'unavailable' && <ListUnavailable title="Counters unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />}
+        {face === 'empty' && (
           <EmptyState title="No counters yet">
             Create one with New counter, then add an “Adjust counter” step to an action.
           </EmptyState>

@@ -20,7 +20,8 @@ import {
 } from '../../services/dashboard';
 import { useSocket } from '../../realtime';
 import { useDebouncedSuggestions } from '../../suggestions';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { asSentence, listFace, PICKER_LOADING, type PickerLoad } from './listState';
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
 import { EmptyState } from '../../ui/emptyState';
@@ -153,6 +154,8 @@ export function ModulesSettingsPage() {
   const confirm = useConfirm();
   const [state, setState] = useState<CategoryModulesResponse>(EMPTY_RESPONSE);
   const [groups, setGroups] = useState<ViewerRewardCategory[]>([]);
+  const [groupsLoad, setGroupsLoad] = useState<PickerLoad>(PICKER_LOADING);
+  const [groupsAttempt, setGroupsAttempt] = useState(0);
   const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<CategoryModuleInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -160,9 +163,14 @@ export function ModulesSettingsPage() {
   const [reconciling, setReconciling] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not "no modules yet" (listState.ts). Any later successful load —
+  // after a save, a delete, a Retry — clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const load = useCallback(async () => {
     setState(await getCategoryModules());
+    setLoadFailed(false);
   }, []);
 
   useEffect(() => {
@@ -170,18 +178,33 @@ export function ModulesSettingsPage() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load category modules')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load category modules'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   // Reward groups come from the Viewer rewards categories; without Twitch they are
-  // simply unavailable and the module can still be edited.
+  // unavailable and the module can still be edited — its saved groups ride along in
+  // the draft untouched. A failure must say so rather than read as "no reward groups",
+  // which would send the operator off to create groups that already exist.
   useEffect(() => {
+    let cancelled = false;
+    setGroupsLoad(PICKER_LOADING);
     void getViewerRewards()
-      .then(response => setGroups(response.categories))
-      .catch(() => setGroups([]));
-  }, []);
+      .then(response => {
+        if (cancelled) return;
+        setGroups(response.categories);
+        setGroupsLoad({ status: 'loaded' });
+      })
+      .catch(caught => {
+        if (!cancelled) setGroupsLoad({ status: 'failed', error: errorMessage(caught, 'Could not load reward groups') });
+      });
+    return () => { cancelled = true; };
+  }, [groupsAttempt]);
 
   // Status changes when the category flips mid-stream, so take the push rather than
   // leaving a stale `idle` on screen.
@@ -190,6 +213,7 @@ export function ModulesSettingsPage() {
   }, []));
 
   const busy = loading || saving || reconciling;
+  const moduleFace = listFace({ loading, loadFailed, count: state.modules.length });
   const activeModule = state.modules.find(module => module.id === state.activeModuleId) ?? null;
   const degraded = state.modules.filter(module => module.status === 'degraded');
   // Delete and Retry act on the saved module, so they only exist while one is open.
@@ -377,9 +401,11 @@ export function ModulesSettingsPage() {
               </div>
 
               <div className="settings-mini-list">
-                {loading ? (
+                {moduleFace === 'loading' ? (
                   <EmptyState size="compact" title="Loading modules…" />
-                ) : state.modules.length === 0 ? (
+                ) : moduleFace === 'unavailable' ? (
+                  <ListUnavailable size="compact" title="Modules unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
+                ) : moduleFace === 'empty' ? (
                   <EmptyState size="compact" title="No category modules yet">
                     New makes one; give it a Twitch category and the reward groups it owns.
                   </EmptyState>
@@ -472,7 +498,17 @@ export function ModulesSettingsPage() {
                 <div className="field settings-wide-field">
                   <span>Reward groups this module owns</span>
                   <div className="module-group-list">
-                    {groups.length === 0 ? (
+                    {groupsLoad.status === 'loading' && groups.length === 0 ? (
+                      <div className="command-empty">Loading reward groups…</div>
+                    ) : groupsLoad.status === 'failed' && groups.length === 0 ? (
+                      <EmptyState
+                        size="note"
+                        title="Reward groups unavailable"
+                        action={<button className="modbtn" type="button" onClick={() => setGroupsAttempt(n => n + 1)}>Retry</button>}
+                      >
+                        {asSentence(groupsLoad.error)} Saving keeps the groups this module already owns.
+                      </EmptyState>
+                    ) : groups.length === 0 ? (
                       <div className="command-empty">
                         No reward groups. Create them in Viewer rewards, then claim them here.
                       </div>

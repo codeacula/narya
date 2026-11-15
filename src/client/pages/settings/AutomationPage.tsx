@@ -38,7 +38,8 @@ import {
   saveTriggerOverride,
   updateAutomationTrigger,
 } from '../../services/dashboard';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { asSentence, listFace, pickerConfirmedEmpty, PICKER_LOADING, type PickerLoad } from './listState';
 import { useDirtyGuard, useDraft, useLeaveGuard } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
 import {
@@ -275,6 +276,7 @@ function RedisEventConfigFields({
   config,
   apps,
   appsLoaded,
+  appsError,
   actions,
   triggerActions,
   events,
@@ -291,6 +293,9 @@ function RedisEventConfigFields({
    *  otherwise state "this app does not exist" as fact is gated on this. Same
    *  conflation the inert badge already fixed via listInertReason. */
   appsLoaded: boolean;
+  /** Why the app roster did not load, or null. Said beside the picker, since an
+   *  empty picker on its own reads as "no apps registered". */
+  appsError: string | null;
   actions: Action[];
   triggerActions: TriggerAction[];
   events: AppEvent[];
@@ -342,6 +347,11 @@ function RedisEventConfigFields({
         </select>
         {appsLoaded && apps.length === 0 && (
           <small className="action-hint">No apps registered. Register one in Settings → Apps.</small>
+        )}
+        {appsError && (
+          <small className="action-hint" role="alert">
+            Could not load the registered apps: {asSentence(appsError)}{config.appId ? ' The chosen app stays selected.' : ''}
+          </small>
         )}
       </label>
 
@@ -405,8 +415,10 @@ function RedisEventConfigFields({
 function TriggerConfigFields({
   draft,
   rewards,
+  rewardsLoad,
   apps,
   appsLoaded,
+  appsError,
   actions,
   events,
   eventsLoaded,
@@ -417,8 +429,10 @@ function TriggerConfigFields({
 }: {
   draft: AutomationTriggerInput;
   rewards: ViewerReward[];
+  rewardsLoad: PickerLoad;
   apps: App[];
   appsLoaded: boolean;
+  appsError: string | null;
   actions: Action[];
   events: AppEvent[];
   eventsLoaded: boolean;
@@ -440,15 +454,24 @@ function TriggerConfigFields({
             <option value="">Select a reward…</option>
             {/* A reward this app cannot see (deleted, or owned by another app) still
                 has to stay selected, or saving would silently re-point the trigger. */}
+            {/* "(unknown reward)" is a claim about Twitch, so it waits for the list to load. */}
             {draft.config.rewardId && !rewards.some(reward => reward.id === draft.config.rewardId) && (
-              <option value={draft.config.rewardId}>{draft.config.rewardId} (unknown reward)</option>
+              <option value={draft.config.rewardId}>
+                {draft.config.rewardId}{rewardsLoad.status === 'loaded' ? ' (unknown reward)' : ''}
+              </option>
             )}
             {rewards.map(reward => (
               <option key={reward.id} value={reward.id}>{reward.title}</option>
             ))}
           </select>
-          {rewards.length === 0 && (
-            <small className="action-hint">No rewards loaded. Connect Twitch, or create rewards in Viewer rewards.</small>
+          {pickerConfirmedEmpty(rewardsLoad, rewards.length) && (
+            <small className="action-hint">No rewards yet. Create one in Viewer rewards.</small>
+          )}
+          {rewardsLoad.status === 'failed' && (
+            <small className="action-hint" role="alert">
+              Could not load rewards from Twitch: {asSentence(rewardsLoad.error)}
+              {draft.config.rewardId ? ' The chosen reward stays selected.' : ''}
+            </small>
           )}
         </label>
       );
@@ -594,6 +617,7 @@ function TriggerConfigFields({
           config={draft.config}
           apps={apps}
           appsLoaded={appsLoaded}
+          appsError={appsError}
           actions={actions}
           triggerActions={draft.actions}
           events={events}
@@ -1115,8 +1139,10 @@ function TriggerEditor({
   actions,
   modules,
   rewards,
+  rewardsLoad,
   apps,
   appsLoaded,
+  appsError,
   redisEvents,
   redisLoadingEvents,
   redisEventsLoaded,
@@ -1141,7 +1167,9 @@ function TriggerEditor({
   actions: Action[];
   modules: CategoryModule[];
   rewards: ViewerReward[];
+  rewardsLoad: PickerLoad;
   apps: App[];
+  appsError: string | null;
   /** Whether the app roster's GET has actually resolved at least once — `apps`
    *  starts (and stays, on a failed fetch) as `[]`, which is indistinguishable
    *  from "no apps exist" without this. See listInertReason. */
@@ -1284,8 +1312,10 @@ function TriggerEditor({
         <TriggerConfigFields
           draft={draft}
           rewards={rewards}
+          rewardsLoad={rewardsLoad}
           apps={apps}
           appsLoaded={appsLoaded}
+          appsError={appsError}
           actions={actions}
           events={redisEvents}
           eventsLoaded={redisEventsLoaded}
@@ -1348,6 +1378,10 @@ export function AutomationSettingsPage() {
   const [overrideBusy, setOverrideBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not "no triggers yet" or "no actions exist" (listState.ts). Any
+  // later successful load — after a save, a delete, a Retry — clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const load = useCallback(async () => {
     const [nextTriggers, nextActions, nextModules, nextOverrides] = await Promise.all([
@@ -1360,6 +1394,7 @@ export function AutomationSettingsPage() {
     setActions(nextActions);
     setModules(nextModules.modules);
     setOverrides(nextOverrides);
+    setLoadFailed(false);
   }, []);
 
   useEffect(() => {
@@ -1367,17 +1402,30 @@ export function AutomationSettingsPage() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load triggers')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load triggers'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
-  // Rewards need a live Twitch connection; without them the page still works, the
-  // reward picker just has nothing to offer.
+  // Rewards need a live Twitch connection; without them the page still works, and the
+  // reward picker says the list failed rather than that there are no rewards.
+  const [rewardsLoad, setRewardsLoad] = useState<PickerLoad>(PICKER_LOADING);
   useEffect(() => {
+    let cancelled = false;
     void getViewerRewards()
-      .then(response => setRewards(response.rewards))
-      .catch(() => setRewards([]));
+      .then(response => {
+        if (cancelled) return;
+        setRewards(response.rewards);
+        setRewardsLoad({ status: 'loaded' });
+      })
+      .catch(caught => {
+        if (!cancelled) setRewardsLoad({ status: 'failed', error: errorMessage(caught, 'Twitch did not answer.') });
+      });
+    return () => { cancelled = true; };
   }, []);
 
   // The redis_event app picker's option list; without it the picker just has
@@ -1387,10 +1435,19 @@ export function AutomationSettingsPage() {
   // 500/slow response must not read as "every app was removed" for the rest of the
   // visit (see listInertReason, which returns null — no badge — while this is false).
   const [appsLoaded, setAppsLoaded] = useState(false);
+  const [appsError, setAppsError] = useState<string | null>(null);
   useEffect(() => {
+    let cancelled = false;
     void getApps()
-      .then(next => { setApps(next); setAppsLoaded(true); })
-      .catch(() => setApps([]));
+      .then(next => {
+        if (cancelled) return;
+        setApps(next);
+        setAppsLoaded(true);
+      })
+      .catch(caught => {
+        if (!cancelled) setAppsError(errorMessage(caught, 'Narya did not answer.'));
+      });
+    return () => { cancelled = true; };
   }, []);
 
   // Loaded once here (not inside TriggerEditor) so the trigger LIST and the editor
@@ -1451,6 +1508,7 @@ export function AutomationSettingsPage() {
   }, [apps, appsLoaded, appEventsCache]);
 
   const busy = loading || saving;
+  const triggerFace = listFace({ loading, loadFailed, count: triggers.length });
 
   useDirtyGuard(
     dirty,
@@ -1590,7 +1648,7 @@ export function AutomationSettingsPage() {
 
         <SettingsStatus message={message} error={error} />
 
-        {actions.length === 0 && !loading && (
+        {actions.length === 0 && !loading && !loadFailed && (
           <SettingsStatus error="No actions exist yet. A trigger has to run one — create an action first in Settings → Actions." />
         )}
 
@@ -1621,9 +1679,11 @@ export function AutomationSettingsPage() {
               </div>
 
               <div className="settings-mini-list">
-                {loading ? (
+                {triggerFace === 'loading' ? (
                   <EmptyState size="compact" title="Loading triggers…" />
-                ) : triggers.length === 0 ? (
+                ) : triggerFace === 'unavailable' ? (
+                  <ListUnavailable size="compact" title="Triggers unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
+                ) : triggerFace === 'empty' ? (
                   <EmptyState size="compact" title="No triggers yet">Pick a kind from New trigger to add one.</EmptyState>
                 ) : TRIGGER_KINDS.map(kind => {
                   const kindTriggers = byKind.get(kind) ?? [];
@@ -1717,8 +1777,10 @@ export function AutomationSettingsPage() {
                     actions={actions}
                     modules={modules}
                     rewards={rewards}
+                    rewardsLoad={rewardsLoad}
                     apps={apps}
                     appsLoaded={appsLoaded}
+                    appsError={appsError}
                     redisEvents={redisEvents}
                     redisLoadingEvents={redisLoadingEvents}
                     redisEventsLoaded={redisEventsLoaded}

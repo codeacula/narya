@@ -20,8 +20,9 @@ import { useSocket } from '../realtime';
 import { errorMessage } from '../errors';
 import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
-import { SettingsHeader, SettingsStatus } from './settings/shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './settings/shared';
 import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
+import { neverLoaded } from './settings/listState';
 import { useDirtyGuard, useDraft } from '../ui/dirtyGuard';
 import { EmptyState } from '../ui/emptyState';
 
@@ -1026,7 +1027,11 @@ export function ViewerRewardsPage() {
           <>
             {data.categories.map(category => renderGroup(category))}
             {renderGroup(null)}
-            {data.categories.length === 0 && data.rewards.length === 0 ? (
+            {data.categories.length === 0 && data.rewards.length === 0 && neverLoaded(rewardsHealth) ? (
+              // Never loaded: "Create first reward" here would invite duplicating rewards
+              // that are all still on Twitch.
+              <ListUnavailable title="Viewer rewards unavailable" onRetry={() => void refresh()} />
+            ) : data.categories.length === 0 && data.rewards.length === 0 ? (
               <EmptyState
                 title="No viewer rewards yet"
                 action={<button className="btn-primary" type="button" onClick={() => startCreate()}>Create first reward</button>}

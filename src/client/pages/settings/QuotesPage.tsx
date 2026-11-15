@@ -3,7 +3,8 @@ import { useConfirm } from '../../ui/confirm';
 import type { Quote } from '../../../shared/api';
 import { MAX_QUOTE_LENGTH, MAX_QUOTE_SLUG_LENGTH } from '../../../shared/api';
 import { createQuote, deleteQuote, getQuotes, updateQuote } from '../../services/dashboard';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { listFace } from './listState';
 import { errorMessage } from '../../errors';
 import { formatAgo } from '../../../shared/time';
 import { useDirtyGuard, useOpenIds } from '../../ui/dirtyGuard';
@@ -126,8 +127,14 @@ export function QuotesPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
-  const load = useCallback(async () => setQuotes(await getQuotes()), []);
+  const load = useCallback(async () => {
+    setQuotes(await getQuotes());
+    setLoadFailed(false);
+  }, []);
 
   useDirtyGuard(draftsDiffer(draft, EMPTY_DRAFT), 'the new quote');
 
@@ -136,10 +143,14 @@ export function QuotesPage() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load quotes')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load quotes'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   // Mirrors the command's own lookup closely enough to be useful: number, keyword, or
   // any text. It is a filter over already-loaded quotes, not a second search path.
@@ -180,12 +191,13 @@ export function QuotesPage() {
   };
 
   const disabled = loading || busy;
+  const face = listFace({ loading, loadFailed, count: quotes.length });
 
   return (
     <>
       <SettingsHeader
         section="quotes"
-        counts={[{ value: quotes.length, one: 'quote' }]}
+        counts={loadFailed ? undefined : [{ value: quotes.length, one: 'quote' }]}
       />
 
       {/* The header sits outside the column so its spacing is the shell's, not this
@@ -243,7 +255,8 @@ export function QuotesPage() {
 
         <div className="quote-list">
           {loading && <EmptyState title="Loading quotes…" />}
-          {!loading && quotes.length === 0 && (
+          {face === 'unavailable' && <ListUnavailable title="Quotes unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />}
+          {face === 'empty' && (
             <EmptyState title="No quotes yet">
               Add one above, or wire a viewer command to a “Save a quote” step in Settings → Actions.
             </EmptyState>

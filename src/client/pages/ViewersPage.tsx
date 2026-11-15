@@ -15,6 +15,8 @@ import { mergeRoster, rosterRefreshError, type Person } from '../viewerRoster';
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
 import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
+import { ListUnavailable } from './settings/shared';
+import { neverLoaded } from './settings/listState';
 
 type Segment = 'all' | 'live' | 'vips' | 'mods';
 
@@ -363,6 +365,10 @@ export function ViewersPage({
               onSelect={onSelectViewer}
             />
           </div>
+        ) : people.length === 0 && neverLoaded(rosterHealth) ? (
+          // The roster never loaded: an empty list here would say "no one has come by"
+          // about a channel whose viewers are all still in the database.
+          <ListUnavailable title="Viewers unavailable" onRetry={() => void refresh()} />
         ) : shown.length === 0 ? (
           <EmptyState title={people.length === 0 ? 'No one’s come by yet' : 'No one here'}>
             {people.length === 0 ? 'Viewers you meet in chat will gather here as stars.' : 'Try a different filter or search.'}

@@ -11,7 +11,8 @@ import {
   revokeAppToken,
   setAppDisabled,
 } from '../../services/dashboard';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { listFace } from './listState';
 import { errorMessage } from '../../errors';
 import { useDirtyGuard } from '../../ui/dirtyGuard';
 import { EmptyState } from '../../ui/emptyState';
@@ -279,18 +280,28 @@ export function AppsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
-  const load = useCallback(async () => setApps(await getApps()), []);
+  const load = useCallback(async () => {
+    setApps(await getApps());
+    setLoadFailed(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load apps')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load apps'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   const handleCreate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -322,12 +333,13 @@ export function AppsPage() {
   };
 
   const disabledOverall = loading || creating;
+  const face = listFace({ loading, loadFailed, count: apps.length });
 
   return (
     <>
       <SettingsHeader
         section="apps"
-        counts={[{ value: apps.length, one: 'app registered', other: 'apps registered' }]}
+        counts={loadFailed ? undefined : [{ value: apps.length, one: 'app registered', other: 'apps registered' }]}
       />
 
       <SettingsStatus message={message} error={error} />
@@ -356,8 +368,9 @@ export function AppsPage() {
       </form>
 
       <div className="counter-list">
-        {loading && <EmptyState title="Loading apps…" />}
-        {!loading && apps.length === 0 && (
+        {face === 'loading' && <EmptyState title="Loading apps…" />}
+        {face === 'unavailable' && <ListUnavailable title="Apps unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />}
+        {face === 'empty' && (
           <EmptyState title="No apps registered yet">
             Register one above, then tag a reward with it on the Viewer rewards page.
           </EmptyState>

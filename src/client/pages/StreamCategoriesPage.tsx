@@ -13,7 +13,8 @@ import {
 import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { Icon } from '../ui/icons';
-import { SettingsHeader, SettingsStatus } from './settings/shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './settings/shared';
+import { listFace } from './settings/listState';
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
 import { useDirtyGuard, useOpenIds } from '../ui/dirtyGuard';
@@ -235,20 +236,37 @@ export function StreamCategoriesPage() {
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // A failed load is not "no saved categories" — see listFace. Cleared by any call
+  // that hands back the whole list, since each mutation returns it.
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [loadAttempt, setLoadAttempt] = React.useState(0);
   const [showHidden, setShowHidden] = React.useState(false);
 
   React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
     getSavedStreamCategories()
-      .then(setCategories)
-      .catch((caught: unknown) => setError(errorMessage(caught, 'Could not load stream categories.')))
-      .finally(() => setLoading(false));
-  }, []);
+      .then(next => {
+        if (cancelled) return;
+        setCategories(next);
+        setLoadFailed(false);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load stream categories.'));
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [loadAttempt]);
 
   const run = async (action: () => Promise<SavedStreamCategory[]>) => {
     setBusy(true);
     setError(null);
     try {
       setCategories(await action());
+      setLoadFailed(false);
     } catch (caught) {
       setError(errorMessage(caught, 'Action failed.'));
     } finally {
@@ -259,12 +277,13 @@ export function StreamCategoriesPage() {
   const { open: dirtyIds, setOpen } = useOpenIds<string>();
   const visible = keepOpenInView(categories, cat => showHidden || !cat.hidden, dirtyIds, cat => cat.id);
   const hiddenCount = categories.filter(cat => cat.hidden).length;
+  const face = listFace({ loading, loadFailed, count: categories.length });
 
   return (
     <div className="cats-page">
         <SettingsHeader
           section="categories"
-          counts={[
+          counts={loadFailed ? undefined : [
             { value: categories.length, one: 'saved', other: 'saved' },
             { value: hiddenCount, one: 'hidden', other: 'hidden', hideWhenZero: true },
           ]}
@@ -277,9 +296,11 @@ export function StreamCategoriesPage() {
 
         <SettingsStatus error={error} />
 
-        {loading ? (
+        {face === 'loading' ? (
           <EmptyState title="Charting your categories…" />
-        ) : categories.length === 0 ? (
+        ) : face === 'unavailable' ? (
+          <ListUnavailable title="Saved categories unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
+        ) : face === 'empty' ? (
           <EmptyState title="No saved categories yet">Search for a category above to add your first one — or pick one in Stream Info and it lands here.</EmptyState>
         ) : (
           <>

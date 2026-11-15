@@ -3,7 +3,7 @@ import { useConfirm } from '../../ui/confirm';
 import type { MediaAsset, MediaFile, MediaKind } from '../../../shared/api';
 import { useToast } from '../../ui/notifications';
 import { errorMessage } from '../../errors';
-import { SettingsStatus } from './shared';
+import { ListUnavailable, SettingsStatus } from './shared';
 import {
   createClipButton,
   createMediaAsset,
@@ -77,12 +77,16 @@ function MediaLibrary() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const load = useCallback(async () => {
     const [nextAssets, nextDiscovered] = await Promise.all([getMediaAssets(), getDiscoveredMedia()]);
     setAssets(sortAssets(nextAssets));
     setDiscovered(nextDiscovered.files);
     setConfiguredSrcs(nextDiscovered.configuredSrcs);
+    setLoadFailed(false);
   }, []);
 
   useEffect(() => {
@@ -90,10 +94,14 @@ function MediaLibrary() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load the media library')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load the media library'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   const claimed = useMemo(() => new Set(configuredSrcs), [configuredSrcs]);
   const busy = loading || saving;
@@ -235,6 +243,8 @@ function MediaLibrary() {
           <div className="settings-mini-list">
             {loading ? (
               <EmptyState size="compact" title="Loading the media library…" />
+            ) : loadFailed && assets.length === 0 ? (
+              <ListUnavailable size="compact" title="Media library unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
             ) : assets.length === 0 ? (
               <EmptyState size="compact" title="No media yet">Add a clip or sound with New.</EmptyState>
             ) : assets.map(asset => (
@@ -527,6 +537,9 @@ function MediaButtonManager({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -535,17 +548,20 @@ function MediaButtonManager({
       .then(next => {
         if (!cancelled) {
           setItems(sortItems(next));
+          setLoadFailed(false);
           setError(null);
         }
       })
       .catch(caught => {
-        if (!cancelled) setError(errorMessage(caught, `Could not load ${copy.noun}s`));
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, `Could not load ${copy.noun}s`));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [api, copy.noun]);
+  }, [api, copy.noun, loadAttempt]);
 
   const noun = `${copy.noun.charAt(0).toUpperCase()}${copy.noun.slice(1)}`;
 
@@ -643,6 +659,8 @@ function MediaButtonManager({
           <div className="settings-mini-list">
             {loading ? (
               <EmptyState size="compact" title={`Loading ${copy.noun} buttons…`} />
+            ) : loadFailed && items.length === 0 ? (
+              <ListUnavailable size="compact" title={`${noun} buttons unavailable`} onRetry={() => setLoadAttempt(n => n + 1)} />
             ) : items.length === 0 ? (
               <EmptyState size="compact" title={`No ${copy.noun} buttons yet`}>Add one with New.</EmptyState>
             ) : items.map(item => (

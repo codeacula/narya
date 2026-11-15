@@ -24,7 +24,8 @@ import {
   updateAction,
 } from '../../services/dashboard';
 import { LlmStepFields } from './LlmStepFields';
-import { SettingsHeader, SettingsStatus } from './shared';
+import { ListUnavailable, SettingsHeader, SettingsStatus } from './shared';
+import { listFace } from './listState';
 import { errorMessage } from '../../errors';
 import {
   MAX_ASSETS_PER_STEP,
@@ -749,11 +750,15 @@ export function ActionsSettingsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed load is not an empty list (listState.ts); the next successful load clears it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const load = useCallback(async () => {
     const [nextActions, nextAssets] = await Promise.all([getActions(), getMediaAssets()]);
     setActions(nextActions);
     setAssets(nextAssets);
+    setLoadFailed(false);
   }, []);
 
   useEffect(() => {
@@ -761,10 +766,14 @@ export function ActionsSettingsPage() {
     setLoading(true);
     void load()
       .then(() => { if (!cancelled) setError(null); })
-      .catch(caught => { if (!cancelled) setError(errorMessage(caught, 'Could not load actions')); })
+      .catch(caught => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setError(errorMessage(caught, 'Could not load actions'));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, loadAttempt]);
 
   // OBS may be down; a scene list is a convenience, not a requirement.
   useEffect(() => {
@@ -783,6 +792,7 @@ export function ActionsSettingsPage() {
 
 
   const busy = loading || saving;
+  const actionFace = listFace({ loading, loadFailed, count: actions.length });
   const problem = useMemo(() => (draft ? validateAction(draft) : null), [draft]);
 
   const { discardThen } = useDirtyGuard(
@@ -887,7 +897,9 @@ export function ActionsSettingsPage() {
               <div className="settings-mini-list">
                 {loading ? (
                   <EmptyState size="compact" title="Loading actions…" />
-                ) : actions.length === 0 ? (
+                ) : actionFace === 'unavailable' ? (
+                  <ListUnavailable size="compact" title="Actions unavailable" onRetry={() => setLoadAttempt(n => n + 1)} />
+                ) : actionFace === 'empty' ? (
                   <EmptyState size="compact" title="No actions yet">Create one with New, then point a trigger at it.</EmptyState>
                 ) : actions.map(action => (
                   <button

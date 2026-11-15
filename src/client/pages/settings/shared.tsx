@@ -5,6 +5,7 @@ import { errorMessage } from '../../errors';
 import { useDirtyGuard } from '../../ui/dirtyGuard';
 import { draftsDiffer } from '../../ui/dirtyGuardLogic';
 import { headerCountParts, type HeaderCount } from './headerCounts';
+import { EmptyState, type EmptyStateSize } from '../../ui/emptyState';
 
 /**
  * The header every settings section shares — the only header a section renders.
@@ -88,6 +89,33 @@ export function SettingsStatus({
         </div>
       ) : null}
     </>
+  );
+}
+
+/**
+ * What a settings list shows when it could not be loaded (`listFace` → `unavailable`,
+ * listState.ts) — never the list's own empty state, which would invite the operator
+ * to recreate what is already there. `title` names the state ("Triggers
+ * unavailable"); the error itself is already on the page's `SettingsStatus` line, so
+ * it is not repeated here. `onRetry` adds the one control that can end the state.
+ */
+export function ListUnavailable({
+  title,
+  size = 'panel',
+  onRetry,
+}: {
+  title: string;
+  size?: EmptyStateSize;
+  onRetry?: () => void;
+}) {
+  return (
+    <EmptyState
+      size={size}
+      title={title}
+      action={onRetry ? <button className="modbtn" type="button" onClick={onRetry}>Retry</button> : undefined}
+    >
+      Narya could not load them, so this is not an empty list. Nothing was changed.
+    </EmptyState>
   );
 }
 
