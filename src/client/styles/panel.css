@@ -339,13 +339,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-size: 15px; line-height: 1.5;
   transition: background var(--dur-fast);
 }
-.msg:hover,
-.msg:focus-within { background: rgba(255,255,255,0.022); }
+.msg:hover { background: rgba(255,255,255,0.022); }
+/* Keyboard focus, not any focus: Chromium focuses a button on mouse click, so a
+   plain :focus-within kept a row lit after its name was clicked and the pointer had
+   left. Separate rules, so a browser without :has() still keeps the hover rule. */
+.msg:has(:focus-visible) { background: rgba(255,255,255,0.022); }
 /* Messages from an earlier stream recede. Lighter than the activity feed's
    .evt--past because chat is the panel you actually read. */
 .msg--past { opacity: 0.6; }
-.msg--past:hover,
-.msg--past:focus-within { opacity: 1; }
+.msg--past:hover { opacity: 1; }
+.msg--past:has(:focus-visible) { opacity: 1; }
 .chat-divider {
   display: flex; align-items: center; gap: 8px;
   margin: 4px 0;
@@ -394,8 +397,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
   font-family: var(--font-mono); font-size: 10px; color: var(--fg-3);
   opacity: 0; transition: opacity var(--dur-fast);
 }
-.msg:hover .msg-time,
-.msg:focus-within .msg-time { opacity: 1; }
+.msg:hover .msg-time { opacity: 1; }
+.msg:has(:focus-visible) .msg-time { opacity: 1; }
 
 /* Inline moderation. Taken out of flow rather than floated: a reserved float box
    would cost every row ~70px of text width forever to buy a no-reflow hover,
@@ -414,12 +417,16 @@ button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offs
   transition: opacity var(--dur-fast);
 }
 /* Keyboard parity with hover: the row reveals its time and actions as soon as
-   anything in it has focus — the name button included, which is the row's first
-   tab stop. Scoping this to .msg-mod alone left the actions invisible until focus
-   had already landed on a button the operator could not see, and never showed the
-   time at all. No extra tab stops: the row itself stays unfocusable. */
-.msg:hover .msg-mod,
-.msg:focus-within .msg-mod { opacity: 1; pointer-events: auto; }
+   anything in it has keyboard focus — the name button included, which is the row's
+   first tab stop. Scoping this to .msg-mod alone left the actions invisible until
+   focus had already landed on a button the operator could not see, and never showed
+   the time at all. :focus-visible rather than :focus-within, because a mouse click
+   focuses the button too and would leave the actions over the end of the message
+   after the pointer had gone. No extra tab stops: the row itself stays unfocusable.
+   An armed ban stays shown, so a live "sure?" is never hidden. */
+.msg:hover .msg-mod { opacity: 1; pointer-events: auto; }
+.msg:has(:focus-visible) .msg-mod,
+.msg:has(.msg-mod-btn.armed) .msg-mod { opacity: 1; pointer-events: auto; }
 /* Opaque, because the button sits over the tail of a long message. Masking with
    a panel-coloured backing plate behind the whole group instead reads as a patch
    over any row carrying a highlight tint. */
