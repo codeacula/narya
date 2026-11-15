@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type {
   Action,
   AlertEventKind,
@@ -1319,6 +1320,7 @@ function TriggerEditor({
 }
 
 export function AutomationSettingsPage() {
+  const confirm = useConfirm();
   const [triggers, setTriggers] = useState<AutomationTrigger[]>([]);
   const [actions, setActions] = useState<Action[]>([]);
   const [modules, setModules] = useState<CategoryModule[]>([]);
@@ -1485,8 +1487,14 @@ export function AutomationSettingsPage() {
       .finally(() => setSaving(false));
   };
 
-  const handleDelete = (trigger: AutomationTrigger) => {
-    if (!window.confirm(`Delete the trigger "${trigger.name}"? This cannot be undone.`)) return;
+  const handleDelete = async (trigger: AutomationTrigger) => {
+    const ok = await confirm({
+      title: `Delete the trigger "${trigger.name}"?`,
+      body: 'It stops firing, and its per-viewer overrides are removed with it. This cannot be undone.',
+      confirmLabel: 'Delete trigger',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setSaving(true);
     setMessage(null);
     setError(null);

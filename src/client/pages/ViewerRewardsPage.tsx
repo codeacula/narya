@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../ui/confirm';
 import type { RewardStreamCategory, SavedStreamCategory, SavedStreamCategoryInput, TwitchCategorySuggestion, ViewerReward, ViewerRewardCategory, ViewerRewardsResponse, ViewerRewardUpsert } from '../../shared/api';
 import {
   addSavedStreamCategory,
@@ -578,6 +579,7 @@ function CategoryGamesEditor({
 }
 
 export function ViewerRewardsPage() {
+  const confirm = useConfirm();
   const [data, setData] = useState<ViewerRewardsResponse>({ categories: [], rewards: [] });
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -692,7 +694,16 @@ export function ViewerRewardsPage() {
   };
 
   const handleRewardDelete = async (reward: ViewerReward) => {
-    if (!window.confirm(`Delete "${reward.title}" from Twitch? This cannot be undone.`)) return;
+    // Deleting on Twitch cannot be taken back: the reward, its id and any pending
+    // redemptions are gone, and a recreated one is a different reward to every binding.
+    const ok = await confirm({
+      title: `Delete "${reward.title}" from Twitch?`,
+      body: 'Twitch removes the reward and its pending redemptions. Triggers bound to it stop firing. This cannot be undone.',
+      confirmLabel: 'Delete reward',
+      tone: 'danger',
+      requireText: reward.title,
+    });
+    if (!ok) return;
     setBusyId(reward.id);
     setError(null);
     setMessage(null);
@@ -821,7 +832,13 @@ export function ViewerRewardsPage() {
   };
 
   const handleCategoryDelete = async (category: ViewerRewardCategory) => {
-    if (!window.confirm(`Delete the "${category.name}" category? Its rewards will become uncategorized.`)) return;
+    const ok = await confirm({
+      title: `Delete the "${category.name}" category?`,
+      body: 'Its rewards stay on Twitch and become uncategorized.',
+      confirmLabel: 'Delete category',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusyId(category.id);
     setError(null);
     setMessage(null);

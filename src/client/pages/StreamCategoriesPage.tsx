@@ -1,4 +1,5 @@
 import React from 'react';
+import { useConfirm } from '../ui/confirm';
 import type { SavedStreamCategory, TwitchCategorySuggestion } from '../../shared/api';
 import {
   addSavedStreamCategory,
@@ -222,6 +223,7 @@ function AddCategoryControl({
 }
 
 export function StreamCategoriesPage() {
+  const confirm = useConfirm();
   const [categories, setCategories] = React.useState<SavedStreamCategory[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
@@ -295,10 +297,14 @@ export function StreamCategoriesPage() {
                   busy={busy}
                   onSaveTags={tags => void run(() => setStreamCategoryTags(category.id, tags))}
                   onToggleHidden={() => void run(() => setSavedStreamCategoryHidden(category.id, !category.hidden))}
-                  onDelete={() => {
-                    if (window.confirm(`Remove "${category.name}" from saved categories? Its tag mappings are deleted.`)) {
-                      void run(() => deleteStreamCategory(category.id));
-                    }
+                  onDelete={async () => {
+                    const ok = await confirm({
+                      title: `Remove "${category.name}"?`,
+                      body: 'It leaves your saved categories, and its tag mappings are deleted with it.',
+                      confirmLabel: 'Remove category',
+                      tone: 'danger',
+                    });
+                    if (ok) void run(() => deleteStreamCategory(category.id));
                   }}
                 />
               ))}

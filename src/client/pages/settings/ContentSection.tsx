@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type { MediaAsset, MediaFile, MediaKind } from '../../../shared/api';
 import { useToast } from '../../ui/notifications';
 import { errorMessage } from '../../errors';
@@ -66,6 +67,7 @@ function volumePercent(volume: number): string {
 
 function MediaLibrary() {
   const { pushToast } = useToast();
+  const confirm = useConfirm();
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [discovered, setDiscovered] = useState<MediaFile[]>([]);
   const [configuredSrcs, setConfiguredSrcs] = useState<string[]>([]);
@@ -193,8 +195,14 @@ function MediaLibrary() {
   });
 
   // A referenced asset comes back 409; the message tells the operator to disable it.
-  const handleDelete = (asset: MediaAsset) => {
-    if (!window.confirm(`Delete ${asset.label}?`)) return;
+  const handleDelete = async (asset: MediaAsset) => {
+    const ok = await confirm({
+      title: `Delete ${asset.label}?`,
+      body: 'It leaves the media catalog. The file on disk is not touched.',
+      confirmLabel: 'Delete asset',
+      tone: 'danger',
+    });
+    if (!ok) return;
     void run(deleteMediaAsset(asset.id), 'Asset deleted', 'Could not delete the asset')
       .then(() => {
         setSelection({ mode: 'none' });
@@ -510,6 +518,7 @@ function MediaButtonManager({
   mediaFiles: MediaFile[];
 }) {
   const { pushToast } = useToast();
+  const confirm = useConfirm();
   const [items, setItems] = useState<MediaButtonItem[]>([]);
   const { draft: form, setDraft: setForm, baseline: formBaseline, resetDraft: resetForm, dirty: formDirty } = useDraft<Form | null>(null);
   // True once the operator picks "Custom…" so the text field shows even before
@@ -576,9 +585,16 @@ function MediaButtonManager({
       .finally(() => setSaving(false));
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const item = items.find(entry => entry.id === id);
-    if (!item || !window.confirm(`Delete ${item.label}?`)) return;
+    if (!item) return;
+    const ok = await confirm({
+      title: `Delete ${item.label}?`,
+      body: `The ${copy.noun} is removed. The file on disk is not touched.`,
+      confirmLabel: `Delete ${copy.noun}`,
+      tone: 'danger',
+    });
+    if (!ok) return;
     setSaving(true);
     setError(null);
     void api.remove(id)

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type {
   CategoryModule,
   CategoryModuleInput,
@@ -149,6 +150,7 @@ function StatusBadge({ module, active }: { module: CategoryModule; active: boole
 }
 
 export function ModulesSettingsPage() {
+  const confirm = useConfirm();
   const [state, setState] = useState<CategoryModulesResponse>(EMPTY_RESPONSE);
   const [groups, setGroups] = useState<ViewerRewardCategory[]>([]);
   const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<CategoryModuleInput | null>(null);
@@ -261,10 +263,16 @@ export function ModulesSettingsPage() {
       .finally(() => setSaving(false));
   };
 
-  const handleDelete = (module: CategoryModule) => {
+  const handleDelete = async (module: CategoryModule) => {
     // The server refuses to delete a module a trigger still scopes to and names the
     // trigger, so this only has to cover the unreferenced case.
-    if (!window.confirm(`Delete "${module.name}"? This cannot be undone.`)) return;
+    const ok = await confirm({
+      title: `Delete "${module.name}"?`,
+      body: 'The module and its category and reward-group assignments are removed. This cannot be undone.',
+      confirmLabel: 'Delete module',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setSaving(true);
     setMessage(null);
     setError(null);

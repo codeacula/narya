@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type { Quote } from '../../../shared/api';
 import { MAX_QUOTE_LENGTH, MAX_QUOTE_SLUG_LENGTH } from '../../../shared/api';
 import { createQuote, deleteQuote, getQuotes, updateQuote } from '../../services/dashboard';
@@ -111,6 +112,7 @@ function QuoteCard({ quote, busy, onSave, onDelete }: {
 }
 
 export function QuotesPage() {
+  const confirm = useConfirm();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [search, setSearch] = useState('');
@@ -252,10 +254,16 @@ export function QuotesPage() {
               `Quote ${quote.number} saved.`,
               'Could not save the quote',
             )}
-            onDelete={() => {
+            onDelete={async () => {
               // quote_sequence never reuses a number, so removing quote 12 retires 12
               // for good while it is still circulating in Discord and screenshots.
-              if (!window.confirm(`Remove quote ${quote.number}? The number is retired for good and cannot be reissued.`)) return;
+              const ok = await confirm({
+                title: `Remove quote ${quote.number}?`,
+                body: `Number ${quote.number} is retired for good and cannot be reissued.`,
+                confirmLabel: 'Remove quote',
+                tone: 'danger',
+              });
+              if (!ok) return;
               act(
                 () => deleteQuote(quote.id),
                 `Quote ${quote.number} removed.`,

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useConfirm } from '../ui/confirm';
 import { NavBar, StatBar, Panel, PopWindow } from '../ui/shell';
 import { AttentionDismissAll, AttentionPanel, ChatInput, ControlsPanel, ChattersPanel, ShoutoutsPanel, MODULES, PanelCtx } from '../ui/panels';
 import { TweaksPanel, TweakSection } from '../ui/tweaks';
@@ -126,6 +127,7 @@ const EMPTY_OBS_STATUS: ObsStatus = {
 /* ---------------- Dashboard page ---------------- */
 
 export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: DashboardRoute }) {
+  const confirm = useConfirm();
   const [page, setPage] = useState(initialPage);
   const [viewerLogin, setViewerLogin] = useState<string | null>(() => viewerLoginFromPath(window.location.pathname));
   const [tweaksOpen, setTweaksOpen] = useState(false);
@@ -335,12 +337,18 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
   // Disconnecting drops EventSub, alerts and the ad schedule until the next sign-in, so
   // it confirms first and reports a failure where the operator is looking.
-  const disconnectTwitchAccount = React.useCallback((account: 'user' | 'bot') => {
+  const disconnectTwitchAccount = React.useCallback(async (account: 'user' | 'bot') => {
     const what = account === 'bot' ? 'the bot account' : 'your Twitch account';
     const consequence = account === 'bot'
       ? 'Dashboard chat messages will stop sending as the bot until you sign it in again.'
       : 'Alerts, EventSub and the ad schedule stop until you sign in again.';
-    if (!window.confirm(`Disconnect ${what}? ${consequence}`)) return;
+    const ok = await confirm({
+      title: `Disconnect ${what}?`,
+      body: consequence,
+      confirmLabel: 'Disconnect',
+      tone: 'danger',
+    });
+    if (!ok) return;
     void disconnectTwitch(account)
       .then(() => getDashboardStatus())
       .then(setStatus)
@@ -348,9 +356,9 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
         console.error(`Failed to disconnect ${what}:`, error);
         pushToast({ kind: 'error', title: `Could not disconnect ${what}`, message: errorMessage(error, 'The server did not respond.') });
       });
-  }, [pushToast]);
-  const handleTwitchLogout = React.useCallback(() => disconnectTwitchAccount('user'), [disconnectTwitchAccount]);
-  const handleTwitchBotLogout = React.useCallback(() => disconnectTwitchAccount('bot'), [disconnectTwitchAccount]);
+  }, [confirm, pushToast]);
+  const handleTwitchLogout = React.useCallback(() => void disconnectTwitchAccount('user'), [disconnectTwitchAccount]);
+  const handleTwitchBotLogout = React.useCallback(() => void disconnectTwitchAccount('bot'), [disconnectTwitchAccount]);
 
   const handleReconnectEventSub = React.useCallback(() => {
     void reconnectEventSub()

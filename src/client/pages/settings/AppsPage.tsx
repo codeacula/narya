@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type { App, AppEvent } from '../../../shared/api';
 import {
   createApp,
@@ -136,6 +137,7 @@ function AppTokenControls({
   disabled: boolean;
   onChanged: () => Promise<void>;
 }) {
+  const confirm = useConfirm();
   const [revealed, setRevealed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -143,13 +145,22 @@ function AppTokenControls({
 
   const disabledOverall = disabled || busy;
 
+  // Rotate occupies the same coordinates as the harmless first Mint, and the server
+  // rotates the hash before returning — one stray click kills a running app's
+  // credential with no way back. Minting the first token destroys nothing, so it asks
+  // for nothing. The confirm is answered before handleMint starts, so nothing is
+  // awaited between the mint landing and its reveal (AppsPage.test.ts).
+  const requestMint = async () => {
+    if (app.tokenConfigured && !(await confirm({
+      title: `Rotate the token for "${app.name}"?`,
+      body: 'The current token stops working immediately and cannot be recovered. The app fails until the new one is deployed.',
+      confirmLabel: 'Rotate token',
+      tone: 'danger',
+    }))) return;
+    handleMint();
+  };
+
   const handleMint = () => {
-    // Rotate occupies the same coordinates as the harmless first Mint, and the server
-    // rotates the hash before returning — one stray click kills a running app's
-    // credential with no way back. Minting the first token destroys nothing, so it asks
-    // for nothing.
-    if (app.tokenConfigured
-      && !window.confirm(`Rotate the token for "${app.name}"? The current one stops working immediately and cannot be recovered.`)) return;
     setBusy(true);
     setError(null);
     setCopied(false);
@@ -170,8 +181,14 @@ function AppTokenControls({
       .finally(() => setBusy(false));
   };
 
-  const handleRevoke = () => {
-    if (!window.confirm(`Revoke the token for "${app.name}"? Every call it makes will 401 until a new token is minted and deployed.`)) return;
+  const handleRevoke = async () => {
+    const ok = await confirm({
+      title: `Revoke the token for "${app.name}"?`,
+      body: 'Every call the app makes is refused until a new token is minted and deployed.',
+      confirmLabel: 'Revoke token',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     // Revoking must drop any plaintext still on screen — a revoked token showing as
@@ -213,7 +230,7 @@ function AppTokenControls({
         </small>
       )}
       <div className="command-row-actions">
-        <button className="modbtn gold" type="button" disabled={disabledOverall} onClick={handleMint}>
+        <button className="modbtn gold" type="button" disabled={disabledOverall} onClick={() => void requestMint()}>
           {app.tokenConfigured ? 'Rotate token' : 'Mint token'}
         </button>
         {app.tokenConfigured && (

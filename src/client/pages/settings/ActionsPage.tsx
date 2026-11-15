@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type {
   Action,
   ActionRunResult,
@@ -735,6 +736,7 @@ function RunResult({ result }: { result: ActionRunResult }) {
 // --- Page ---------------------------------------------------------------------
 
 export function ActionsSettingsPage() {
+  const confirm = useConfirm();
   const [actions, setActions] = useState<Action[]>([]);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [scenes, setScenes] = useState<string[]>([]);
@@ -827,10 +829,16 @@ export function ActionsSettingsPage() {
       .finally(() => setSaving(false));
   };
 
-  const handleDelete = (action: Action) => {
+  const handleDelete = async (action: Action) => {
     // The server refuses to delete an Action a trigger still runs and names the trigger,
     // so this only has to cover the unreferenced case.
-    if (!window.confirm(`Delete "${action.name}"? This cannot be undone.`)) return;
+    const ok = await confirm({
+      title: `Delete "${action.name}"?`,
+      body: 'The action and all of its steps are removed. This cannot be undone.',
+      confirmLabel: 'Delete action',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setSaving(true);
     setMessage(null);
     setError(null);

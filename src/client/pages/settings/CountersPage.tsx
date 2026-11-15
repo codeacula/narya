@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useConfirm } from '../../ui/confirm';
 import type { Counter, CounterInput, CounterUpdate, CountersResponse } from '../../../shared/api';
 import {
   adjustCounter,
@@ -69,6 +70,7 @@ export function previewCounterKey(value: string): string {
 }
 
 export function CountersPage() {
+  const confirm = useConfirm();
   const [counters, setCounters] = useState<Counter[]>([]);
   const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<CounterDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -183,10 +185,16 @@ export function CountersPage() {
       .finally(() => setBusyId(null));
   };
 
-  const remove = (counter: Counter) => {
+  const remove = async (counter: Counter) => {
     // The tally is the whole value of a counter — "deaths: 47" is not re-derivable.
     // A referenced counter is refused server-side (409), so this covers the rest.
-    if (!window.confirm(`Delete "${counter.label}"? Its current count of ${counter.value} is lost.`)) return;
+    const ok = await confirm({
+      title: `Delete "${counter.label}"?`,
+      body: `Its current count of ${counter.value} is lost.`,
+      confirmLabel: 'Delete counter',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusyId(counter.id);
     setMessage(null);
     setError(null);
