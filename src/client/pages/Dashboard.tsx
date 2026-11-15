@@ -31,6 +31,7 @@ import { useSessionShoutouts } from '../shoutouts';
 import { useSocket } from '../realtime';
 import { DASHBOARD_FULL_REFRESH_MS } from '../../shared/constants';
 import { SettingsShell } from './settings/SettingsShell';
+import { useLeaveGuard } from '../ui/dirtyGuard';
 import {
   dashboardRouteFromName,
   dashboardRouteFromPath,
@@ -186,31 +187,67 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
   });
   const { chat, setChat, viewers, setViewers } = feed;
 
-  const changePage = React.useCallback((nextPage: string) => {
+  // Every way off the current page asks the unsaved-edit guard first (ui/dirtyGuard.tsx):
+  // a settings editor holding a draft gets a "Discard unsaved changes?" confirm, and
+  // nothing moves unless the operator agrees. Clean pages navigate synchronously.
+  const { isDirty, confirmLeave } = useLeaveGuard();
+  // The path of the page actually on screen. Back/Forward has already changed the URL
+  // by the time popstate fires, so a refused leave needs this to put it back.
+  const shownPathRef = React.useRef(window.location.pathname);
+
+  const leaveThen = React.useCallback((path: string, go: () => void): Promise<boolean> => {
+    const move = () => {
+      if (window.location.pathname !== path) window.history.pushState({}, '', path);
+      shownPathRef.current = path;
+      go();
+      return true;
+    };
+    // Re-selecting the page you are on throws nothing away, so it never asks.
+    if (window.location.pathname === path || !isDirty()) return Promise.resolve(move());
+    return confirmLeave().then(ok => (ok ? move() : false));
+  }, [isDirty, confirmLeave]);
+
+  /** Resolves true once the page has changed, false when the operator stayed put. */
+  const changePage = React.useCallback((nextPage: string): Promise<boolean> => {
     const route = dashboardRouteFromName(nextPage);
-    const path = pathForDashboardRoute(route);
-    if (window.location.pathname !== path) window.history.pushState({}, '', path);
-    setPage(route);
-  }, []);
+    return leaveThen(pathForDashboardRoute(route), () => setPage(route));
+  }, [leaveThen]);
 
   // Navigate to a single viewer's page (/viewers/<login>). Kept separate from
   // changePage because the destination carries a per-viewer path segment.
   const navigateToViewer = React.useCallback((login: string) => {
-    const path = pathForViewer(login);
-    if (window.location.pathname !== path) window.history.pushState({}, '', path);
-    setViewerLogin(login.toLowerCase());
-    setPage('viewer');
-  }, []);
+    void leaveThen(pathForViewer(login), () => {
+      setViewerLogin(login.toLowerCase());
+      setPage('viewer');
+    });
+  }, [leaveThen]);
 
   useEffect(() => {
-    const handlePopState = () => {
-      const nextRoute = dashboardRouteFromPath(window.location.pathname);
+    const showPath = (path: string) => {
+      shownPathRef.current = path;
+      const nextRoute = dashboardRouteFromPath(path);
       setPage(nextRoute);
-      setViewerLogin(nextRoute === 'viewer' ? viewerLoginFromPath(window.location.pathname) : null);
+      setViewerLogin(nextRoute === 'viewer' ? viewerLoginFromPath(path) : null);
+    };
+    const handlePopState = () => {
+      const target = window.location.pathname;
+      if (!isDirty()) {
+        showPath(target);
+        return;
+      }
+      // The browser has already moved the URL. Put back the page still on screen, then
+      // ask; only an agreed leave re-applies the destination. (This re-pushes rather than
+      // stepping history, so the entry being left becomes the newest one.)
+      window.history.pushState({}, '', shownPathRef.current);
+      void confirmLeave().then(ok => {
+        if (!ok) return;
+        window.history.pushState({}, '', target);
+        showPath(target);
+      });
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [isDirty, confirmLeave]);
 
   useEffect(() => {
     channelRef.current = status.channel.toLowerCase();
@@ -667,11 +704,13 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
             className="nav-automod-alert"
             title="Held messages awaiting review"
             onClick={() => {
-              changePage('dashboard');
-              // The AutoMod queue lives in the tabbed right panel; re-dock it so
-              // the tab switch below lands somewhere the operator can see.
-              handlePop('chatters', false);
-              setRightTab('automod');
+              void changePage('dashboard').then(moved => {
+                if (!moved) return;
+                // The AutoMod queue lives in the tabbed right panel; re-dock it so
+                // the tab switch below lands somewhere the operator can see.
+                handlePop('chatters', false);
+                setRightTab('automod');
+              });
             }}
           >
             <span className="nav-automod-dot" aria-hidden="true" />

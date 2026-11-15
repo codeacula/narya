@@ -14,6 +14,7 @@ import { captureDashboardToken } from './auth';
 import { AuthGate } from './ui/authGate';
 import { ToastProvider } from './ui/notifications';
 import { ConfirmProvider } from './ui/confirm';
+import { DirtyGuardProvider } from './ui/dirtyGuard';
 import { ServiceStatusToasts } from './ui/serviceStatus';
 
 /**
@@ -86,8 +87,12 @@ function App() {
     <AuthGate>
       <ToastProvider>
         <ConfirmProvider>
-          <ServiceStatusToasts />
-          <DashboardPage initialPage={initialPage} />
+          {/* Above DashboardPage, not inside it: the page's own navigation (top nav,
+              settings rail, back/forward) is what asks the guard before leaving. */}
+          <DirtyGuardProvider>
+            <ServiceStatusToasts />
+            <DashboardPage initialPage={initialPage} />
+          </DirtyGuardProvider>
         </ConfirmProvider>
       </ToastProvider>
     </AuthGate>
