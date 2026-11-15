@@ -1023,7 +1023,8 @@ export function ViewerRewardsPage() {
               editing={Boolean(editingId)}
               busy={Boolean(busyId)}
               onChange={setRewardForm}
-              onCancel={() => { setShowEditor(false); setEditingId(null); }}
+              // Cancel throws the draft away, so it asks first, as New and Edit do.
+              onCancel={() => discardThen(() => { setShowEditor(false); setEditingId(null); })}
               onSubmit={handleRewardSubmit}
             />
           </div>

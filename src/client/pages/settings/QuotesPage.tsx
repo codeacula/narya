@@ -40,15 +40,16 @@ function QuoteCard({ quote, busy, setOpen, onSave, onDelete }: {
 
   // Compared against the quote as it stands now, so a save (which refreshes `quote`)
   // leaves the card clean without anything here having to notice.
-  useDirtyGuard(
+  const { discardThen } = useDirtyGuard(
     editing && draftsDiffer(draft, { text: quote.text, slug: quote.slug ?? '', submittedBy: quote.submittedBy }),
     `quote #${quote.number}`,
   );
 
-  const reset = () => {
+  // Cancel throws the edit away, so it asks first, as leaving the page would.
+  const reset = () => discardThen(() => {
     setDraft({ text: quote.text, slug: quote.slug ?? '', submittedBy: quote.submittedBy });
     setEditing(false);
-  };
+  });
 
   if (editing) {
     return (

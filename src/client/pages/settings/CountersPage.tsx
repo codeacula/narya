@@ -138,10 +138,11 @@ export function CountersPage() {
     setError(null);
   });
 
-  const cancel = () => {
+  // Cancel throws the draft away, so it asks first, as New and picking a row do.
+  const cancel = () => discardThen(() => {
     resetDraft(null);
     setEditingId(null);
-  };
+  });
 
   const finish = (request: Promise<unknown>, note: string) =>
     request
