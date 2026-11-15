@@ -2,6 +2,8 @@ import React from 'react';
 import { Icon } from '../ui/icons';
 import { Modal, ModalTitle } from '../ui/modal';
 import { useDirtyGuard } from '../ui/dirtyGuard';
+import { errorMessage } from '../errors';
+import { asSentence, PICKER_LOADING, pickerConfirmedEmpty, type PickerLoad } from './settings/listState';
 import { draftsDiffer } from '../ui/dirtyGuardLogic';
 import { addSavedStreamCategory, getCategorySuggestions, getSavedStreamCategories, getTagSuggestions } from '../services/dashboard';
 import { useDebouncedSuggestions } from '../suggestions';
@@ -17,6 +19,14 @@ export type StreamInfoForm = {
   /** `datetime-local` value ('' when no plan). Local time, converted on save. */
   plannedEndAt: string;
 };
+
+/** The category select's first line: what the list is, or why it is short. */
+export function categoryPlaceholder(load: PickerLoad, optionCount: number): string {
+  if (load.status === 'loading' && optionCount === 0) return 'Loading saved categories…';
+  if (load.status === 'failed' && optionCount === 0) return 'Saved categories unavailable — use Add';
+  if (pickerConfirmedEmpty(load, optionCount)) return 'No saved categories — use Add';
+  return 'Select a category…';
+}
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -65,9 +75,24 @@ export function StreamInfoModal({
   // Every category that has been the live selection this session, so a mis-pick can't strand it out of the list.
   const seenCategoriesRef = React.useRef<Map<string, SavedStreamCategory>>(new Map());
 
+  // `[]` alone cannot say whether there are no saved categories or the load failed;
+  // only a load that worked may be described as "none" (pickerConfirmedEmpty).
+  const [savedLoad, setSavedLoad] = React.useState<PickerLoad>(PICKER_LOADING);
+  const [savedAttempt, setSavedAttempt] = React.useState(0);
   React.useEffect(() => {
-    void getSavedStreamCategories().then(setSavedCategories).catch(() => setSavedCategories([]));
-  }, []);
+    let cancelled = false;
+    setSavedLoad(PICKER_LOADING);
+    void getSavedStreamCategories()
+      .then(next => {
+        if (cancelled) return;
+        setSavedCategories(next);
+        setSavedLoad({ status: 'loaded' });
+      })
+      .catch(caught => {
+        if (!cancelled) setSavedLoad({ status: 'failed', error: errorMessage(caught, 'Could not load saved categories') });
+      });
+    return () => { cancelled = true; };
+  }, [savedAttempt]);
 
   React.useEffect(() => {
     if (form.categoryId && form.category) {
@@ -249,7 +274,7 @@ export function StreamInfoModal({
                 applyCategorySelection(picked.id, picked.name, savedCategories);
               }}
             >
-              <option value="" disabled>{categoryOptions.length ? 'Select a category…' : 'No saved categories — use Add'}</option>
+              <option value="" disabled>{categoryPlaceholder(savedLoad, categoryOptions.length)}</option>
               {categoryOptions.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
             </select>
             <button
@@ -261,6 +286,12 @@ export function StreamInfoModal({
               Add
             </button>
           </div>
+        )}
+        {savedLoad.status === 'failed' && (
+          <small className="error">
+            {asSentence(savedLoad.error)} The list may be missing categories you saved.{' '}
+            <button type="button" className="stale-notice-retry" onClick={() => setSavedAttempt(n => n + 1)}>Retry</button>
+          </small>
         )}
       </div>
 
