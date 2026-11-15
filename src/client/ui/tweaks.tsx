@@ -33,6 +33,9 @@ const STYLE = `
     border:1px solid var(--warning-border,rgba(255,184,108,0.45));
     background:var(--warning-bg,rgba(255,184,108,0.12));
     color:var(--warning-fg,var(--fg-1));font-size:10.5px;line-height:1.35}
+  /* The bounds state could not be read, or a flip was refused. */
+  .twk-problem{border-color:var(--danger-border);background:var(--danger-bg);color:var(--danger-fg)}
+  .twk-problem .stale-notice-retry{margin-left:8px}
 `;
 
 export function TweaksPanel({
