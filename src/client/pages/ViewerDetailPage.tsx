@@ -16,6 +16,7 @@ import {
 } from '../services/dashboard';
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
+import { useConfirm } from '../ui/confirm';
 
 const PAGE_SIZE = 80;
 
@@ -51,10 +52,11 @@ function viewerFromPerson(person: Person): Viewer {
  * Refresh and Flush: the two actions that operate on Narya's *record* of a viewer
  * rather than on their standing in the channel.
  *
- * Flush is destructive and confirms in place rather than through a dialog — the second
- * click is on a button that has already relabelled itself to say what it will do, so
- * the confirmation cannot be dismissed without reading it. It reverts on blur so a
- * half-pressed Flush does not sit armed.
+ * Flush is destructive and confirms through the shared dialog with the viewer's login
+ * typed in, like a Twitch-side delete: the quote anonymization it does cannot be undone
+ * (`unflushViewer` has no login left to restore from), so a stray Enter or a double
+ * click must not be enough. The dialog lists what will go, so it cannot be confirmed
+ * without the consequences in front of the operator.
  */
 function ViewerRecordActions({
   login,
@@ -67,11 +69,11 @@ function ViewerRecordActions({
   /** Messages were deleted, so anything rendering them is now stale. */
   onFlushed?: (login: string) => void;
 }) {
+  const confirm = useConfirm();
   const [busy, setBusy] = React.useState(false);
-  const [armed, setArmed] = React.useState(false);
   const [note, setNote] = React.useState<string | null>(null);
 
-  React.useEffect(() => { setArmed(false); setNote(null); }, [login]);
+  React.useEffect(() => { setNote(null); }, [login]);
 
   const refresh = () => {
     setBusy(true);
@@ -87,10 +89,22 @@ function ViewerRecordActions({
       .finally(() => setBusy(false));
   };
 
-  const flush = () => {
-    if (!armed) { setArmed(true); return; }
+  const flush = async () => {
+    const ok = await confirm({
+      title: `Flush @${login}?`,
+      body: (
+        <>
+          <p>Narya forgets this viewer: their roster entry, profile, stored and archived chat messages and AI reply history are removed, their per-viewer trigger overrides are deleted, and their login goes on the ignore list so chat and presence do not bring them back.</p>
+          <p>Quotes they submitted are kept but anonymized, and that part cannot be undone. Nothing changes on Twitch.</p>
+        </>
+      ),
+      confirmLabel: 'Flush viewer',
+      tone: 'danger',
+      requireText: login,
+    });
+    if (!ok) return;
     setBusy(true);
-    setArmed(false);
+    setNote(null);
     flushViewerRecord(login)
       .then(result => {
         const quotes = result.quotesAnonymized > 0
@@ -112,14 +126,13 @@ function ViewerRecordActions({
         {busy ? '…' : 'Refresh'}
       </button>
       <button
-        className={'modbtn' + (armed ? ' danger-button' : '')}
+        className="modbtn"
         type="button"
         disabled={busy}
-        onClick={flush}
-        onBlur={() => setArmed(false)}
+        onClick={() => void flush()}
         title="Remove this viewer from the roster and ignore them in future"
       >
-        {armed ? 'Confirm flush' : 'Flush'}
+        Flush
       </button>
       {note && <span className="viewer-record-note" role="status">{note}</span>}
     </div>
