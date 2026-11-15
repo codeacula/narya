@@ -86,7 +86,10 @@ describe('healthGauge', () => {
   });
 
   test('OBS up but idle is a dash and says it is not streaming', () => {
-    expect(healthGauge({ ...healthBase, bitrateKbps: null, droppedFrames: null })).toEqual({
+    // The shape a connected, idle OBS really sends: GetStreamStatus still reports
+    // outputSkippedFrames as a number and GetStats a render-lag count, but obs.ts
+    // only derives a bitrate while outputActive is true.
+    expect(healthGauge({ ...healthBase, bitrateKbps: null, droppedFrames: 0, laggedFrames: 3 })).toEqual({
       value: UNKNOWN_VALUE,
       unit: '',
       sub: 'not streaming',

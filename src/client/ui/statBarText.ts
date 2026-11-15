@@ -89,7 +89,10 @@ export function healthGauge({
   const value = bitrateKbps === null ? UNKNOWN_VALUE : String(bitrateKbps);
   const unit = bitrateKbps === null ? '' : ' kbps';
   if (!obsConnected) return { value, unit, sub: 'OBS offline' };
-  if (bitrateKbps === null && droppedFrames === null) return { value, unit, sub: 'not streaming' };
+  // Throughput, not frame counts, is the idle signal: a connected but idle OBS still
+  // reports skipped/lagged frame numbers, and obs.ts only derives a bitrate while the
+  // output is active (the same rule the stat bar's health meter keys off).
+  if (bitrateKbps === null) return { value, unit, sub: 'not streaming' };
   const frameBase = totalFrames && totalFrames > 0 ? totalFrames : 1;
   const dropped = droppedFrames ?? 0;
   const dropPct = (dropped / frameBase) * 100;
