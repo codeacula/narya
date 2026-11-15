@@ -1647,18 +1647,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 /* A switch whose state could not be read, or whose flip was refused. */
 .ctrl-inline-problem { color: var(--danger-fg); }
-.ctrl-inline-retry {
-  margin-left: 8px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--fg-1);
-  font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-.ctrl-inline-retry:hover { color: var(--fg-accent); }
+.ctrl-inline-problem .stale-notice-retry { margin-left: 8px; }
 .ctrl-scene-button {
   display: flex;
   align-items: center;

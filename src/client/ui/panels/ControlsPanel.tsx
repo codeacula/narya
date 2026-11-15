@@ -129,7 +129,7 @@ function ControlProblem({
         <p className="ctrl-inline-warning ctrl-inline-problem">
           <span aria-hidden="true">{text}</span>
           {!error && unreadable ? (
-            <button className="ctrl-inline-retry" type="button" onClick={onRetry}>Retry</button>
+            <button className="stale-notice-retry" type="button" onClick={onRetry}>Retry</button>
           ) : null}
         </p>
       ) : null}
