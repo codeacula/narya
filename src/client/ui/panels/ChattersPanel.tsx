@@ -39,18 +39,32 @@ function chatterSortKey(chatter: Chatter, viewers: Record<string, Viewer>): numb
   return 4;
 }
 
+/**
+ * Which face the chatters panel shows. An error wins, as before. Before the first
+ * presence poll has answered, an empty list is still being gathered — "No chatters
+ * yet" there told the operator nobody was in a room the poll had not looked at.
+ */
+export function chattersFace({ loaded, error, count }: { loaded: boolean; error: string | null; count: number }) {
+  if (error) return 'error' as const;
+  if (count > 0) return 'items' as const;
+  return loaded ? 'empty' as const : 'loading' as const;
+}
+
 export function ChattersPanel({
   chatters,
   viewers,
   error,
+  loaded,
   onOpenViewer,
 }: {
   chatters: Chatter[];
   viewers: Record<string, Viewer>;
   error: string | null;
+  loaded: boolean;
   onOpenViewer: (login: string) => void;
 }) {
-  if (error) {
+  const face = chattersFace({ loaded, error, count: chatters.length });
+  if (face === 'error' && error) {
     const isScopeError = error.toLowerCase().includes('scope') || error.toLowerCase().includes('moderator:read:chatters');
     return (
       <EmptyState title={isScopeError ? 'Permission needed' : 'Chatters unavailable'}>
@@ -61,7 +75,11 @@ export function ChattersPanel({
     );
   }
 
-  if (chatters.length === 0) {
+  if (face === 'loading') {
+    return <EmptyState title="Gathering your viewers…">Asking Twitch who is in your chat room.</EmptyState>;
+  }
+
+  if (face === 'empty') {
     return (
       <EmptyState title="No chatters yet">People in your chat room will appear here.</EmptyState>
     );

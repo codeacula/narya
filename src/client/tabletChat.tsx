@@ -29,6 +29,7 @@ type TabletChatData = {
   ctx: PanelCtx;
   chatters: Chatter[];
   chattersError: string | null;
+  chattersLoaded: boolean;
 };
 
 function useTabletChatData(): TabletChatData {
@@ -83,7 +84,7 @@ function useTabletChatData(): TabletChatData {
     onRetryFeed: loadChat,
   };
 
-  return { ctx, chatters: feed.liveChatters, chattersError: feed.chattersError };
+  return { ctx, chatters: feed.liveChatters, chattersError: feed.chattersError, chattersLoaded: feed.chattersLoaded };
 }
 
 type ChatView = 'chat' | 'chatters';
@@ -94,7 +95,7 @@ type ChatView = 'chat' | 'chatters';
  * it does not compose.
  */
 export function TabletChatPanel() {
-  const { ctx, chatters, chattersError } = useTabletChatData();
+  const { ctx, chatters, chattersError, chattersLoaded } = useTabletChatData();
   const [view, setView] = React.useState<ChatView>('chat');
 
   return (
@@ -131,6 +132,7 @@ export function TabletChatPanel() {
             chatters={chatters}
             viewers={ctx.viewers}
             error={chattersError}
+            loaded={chattersLoaded}
             onOpenViewer={ctx.openViewerPopout}
           />
         )}

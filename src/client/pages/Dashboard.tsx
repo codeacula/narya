@@ -621,7 +621,7 @@ export function DashboardPage({ initialPage = 'dashboard' }: { initialPage?: Das
 
   function renderRightTab(tab: RightTab) {
     if (tab === 'chatters') {
-      return <ChattersPanel chatters={feed.liveChatters} viewers={viewers} error={feed.chattersError} onOpenViewer={ctx.openViewerPopout} />;
+      return <ChattersPanel chatters={feed.liveChatters} viewers={viewers} error={feed.chattersError} loaded={feed.chattersLoaded} onOpenViewer={ctx.openViewerPopout} />;
     }
     if (tab === 'activity') return MODULES.events?.render(ctx);
     if (tab === 'shoutouts') {

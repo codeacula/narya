@@ -89,6 +89,8 @@ export type ChatFeed = {
   chatters: Chatter[];
   liveChatters: Chatter[];
   chattersError: string | null;
+  /** A presence poll has answered at least once. Before that, no chatters is not "none". */
+  chattersLoaded: boolean;
   refreshChatters: () => void;
   loadOlderChat: () => Promise<boolean>;
   /**
@@ -111,6 +113,7 @@ export function useChatFeed(
   // instead of waiting on Twitch's laggy poll. See mergeRecentChatters.
   const [recentChatters, setRecentChatters] = React.useState<RecentChatter[]>([]);
   const [chattersError, setChattersError] = React.useState<string | null>(null);
+  const [chattersLoaded, setChattersLoaded] = React.useState(false);
   // Logins we already have a viewer record for, so a brand-new chatter triggers a
   // single viewer refetch (for their colour/badges) rather than one per message.
   const viewerLoginsRef = React.useRef<Set<string>>(new Set());
@@ -153,6 +156,7 @@ export function useChatFeed(
         if (!mountedRef.current) return;
         setChatters(result.chatters);
         setChattersError(null);
+        setChattersLoaded(true);
       })
       .catch((error: unknown) => {
         if (!mountedRef.current) return;
@@ -232,6 +236,7 @@ export function useChatFeed(
     chatters,
     liveChatters,
     chattersError,
+    chattersLoaded,
     refreshChatters,
     loadOlderChat,
     feedHealth,

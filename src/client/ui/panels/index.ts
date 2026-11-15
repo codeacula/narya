@@ -10,5 +10,5 @@ export { ShoutoutsPanel } from './ShoutoutsPanel';
 export { AttentionDismissAll, AttentionPanel } from './AttentionPanel';
 export { ControlsPanel } from './ControlsPanel';
 export type { RecentChatter } from './ChattersPanel';
-export { mergeRecentChatters, ChattersPanel } from './ChattersPanel';
+export { chattersFace, mergeRecentChatters, ChattersPanel } from './ChattersPanel';
 export { MODULES } from './modules';
