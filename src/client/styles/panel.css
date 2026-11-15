@@ -3159,6 +3159,7 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
   font-size: 10px;
   letter-spacing: 0.03em;
 }
+.viewer-record-note.is-error { color: var(--danger-fg); }
 
 .viewer-history {
   margin-top: var(--space-5);

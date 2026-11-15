@@ -17,6 +17,7 @@ import {
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
 import { useConfirm } from '../ui/confirm';
+import { SettingsAnnouncer } from './settings/shared';
 
 const PAGE_SIZE = 80;
 
@@ -73,14 +74,21 @@ function ViewerRecordActions({
   onFlushed?: (login: string) => void;
 }) {
   const confirm = useConfirm();
-  const [busy, setBusy] = React.useState(false);
+  // Which action is in flight, so its own button can say so; both are locked meanwhile.
+  const [busy, setBusy] = React.useState<'refresh' | 'flush' | null>(null);
   const [note, setNote] = React.useState<string | null>(null);
+  const [failure, setFailure] = React.useState<string | null>(null);
 
-  React.useEffect(() => { setNote(null); }, [login]);
+  React.useEffect(() => { setNote(null); setFailure(null); }, [login]);
+
+  const begin = (action: 'refresh' | 'flush') => {
+    setBusy(action);
+    setNote(null);
+    setFailure(null);
+  };
 
   const refresh = () => {
-    setBusy(true);
-    setNote(null);
+    begin('refresh');
     refreshViewer(login)
       .then(result => {
         if (!result.found) setNote('Twitch no longer has this account.');
@@ -88,8 +96,8 @@ function ViewerRecordActions({
         else setNote('Profile updated.');
         onRefreshed?.();
       })
-      .catch(caught => setNote(errorMessage(caught, 'Refresh failed')))
-      .finally(() => setBusy(false));
+      .catch(caught => setFailure(errorMessage(caught, 'Refresh failed')))
+      .finally(() => setBusy(null));
   };
 
   const flush = async () => {
@@ -106,8 +114,7 @@ function ViewerRecordActions({
       requireText: login,
     });
     if (!ok) return;
-    setBusy(true);
-    setNote(null);
+    begin('flush');
     flushViewerRecord(login)
       .then(result => {
         const quotes = result.quotesAnonymized > 0
@@ -119,25 +126,31 @@ function ViewerRecordActions({
         setNote(`Flushed — ${result.messagesRemoved} message(s) removed${quotes}${overrides}.`);
         onFlushed?.(login);
       })
-      .catch(caught => setNote(errorMessage(caught, 'Flush failed')))
-      .finally(() => setBusy(false));
+      .catch(caught => setFailure(errorMessage(caught, 'Flush failed')))
+      .finally(() => setBusy(null));
   };
 
+  const shown = failure ?? note;
   return (
     <div className="viewer-record-actions">
-      <button className="modbtn" type="button" disabled={busy} onClick={refresh}>
-        {busy ? '…' : 'Refresh'}
+      <button className="modbtn" type="button" disabled={busy !== null} onClick={refresh}>
+        {busy === 'refresh' ? 'Refreshing…' : 'Refresh'}
       </button>
       <button
         className="modbtn"
         type="button"
-        disabled={busy}
+        disabled={busy !== null}
         onClick={() => void flush()}
         title="Remove this viewer from the roster and ignore them in future"
       >
-        Flush
+        {busy === 'flush' ? 'Flushing…' : 'Flush'}
       </button>
-      {note && <span className="viewer-record-note" role="status">{note}</span>}
+      {/* The spoken half stays mounted, success and failure in their own regions, so
+          an outcome is announced; a region inserted with its text often is not. */}
+      <SettingsAnnouncer message={note} error={failure} />
+      {shown ? (
+        <span className={'viewer-record-note' + (failure ? ' is-error' : '')} aria-hidden="true">{shown}</span>
+      ) : null}
     </div>
   );
 }
