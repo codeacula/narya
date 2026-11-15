@@ -339,11 +339,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   font-size: 15px; line-height: 1.5;
   transition: background var(--dur-fast);
 }
-.msg:hover { background: rgba(255,255,255,0.022); }
+.msg:hover,
+.msg:focus-within { background: rgba(255,255,255,0.022); }
 /* Messages from an earlier stream recede. Lighter than the activity feed's
    .evt--past because chat is the panel you actually read. */
 .msg--past { opacity: 0.6; }
-.msg--past:hover { opacity: 1; }
+.msg--past:hover,
+.msg--past:focus-within { opacity: 1; }
 .chat-divider {
   display: flex; align-items: center; gap: 8px;
   margin: 4px 0;
@@ -373,7 +375,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 .msg-user:hover { border-bottom-color: currentColor; }
 button.msg-user { padding: 0; background: none; border-width: 0 0 1px; border-radius: 0; line-height: inherit; }
-button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offset: 2px; }
+button.msg-user:focus-visible { outline: 1px solid var(--gold-400); outline-offset: 2px; }
 /* overflow-wrap: a pasted URL is one unbroken token and would otherwise push the
    chat column wider than the panel. */
 .msg-text { color: var(--ivory-100); overflow-wrap: anywhere; }
@@ -392,7 +394,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   font-family: var(--font-mono); font-size: 10px; color: var(--fg-3);
   opacity: 0; transition: opacity var(--dur-fast);
 }
-.msg:hover .msg-time { opacity: 1; }
+.msg:hover .msg-time,
+.msg:focus-within .msg-time { opacity: 1; }
 
 /* Inline moderation. Taken out of flow rather than floated: a reserved float box
    would cost every row ~70px of text width forever to buy a no-reflow hover,
@@ -410,8 +413,13 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur-fast);
 }
+/* Keyboard parity with hover: the row reveals its time and actions as soon as
+   anything in it has focus — the name button included, which is the row's first
+   tab stop. Scoping this to .msg-mod alone left the actions invisible until focus
+   had already landed on a button the operator could not see, and never showed the
+   time at all. No extra tab stops: the row itself stays unfocusable. */
 .msg:hover .msg-mod,
-.msg-mod:focus-within { opacity: 1; pointer-events: auto; }
+.msg:focus-within .msg-mod { opacity: 1; pointer-events: auto; }
 /* Opaque, because the button sits over the tail of a long message. Masking with
    a panel-coloured backing plate behind the whole group instead reads as a patch
    over any row carrying a highlight tint. */
@@ -425,6 +433,8 @@ button.msg-user:focus-visible { outline: 1px solid var(--border-3); outline-offs
 }
 .msg-mod-btn:hover { color: var(--fg-1); border-color: var(--border-3); background: var(--bg-3); }
 .msg-mod-btn:disabled { opacity: 0.5; cursor: default; }
+/* The browser default ring is near-black on navy; match the name button's gold. */
+.msg-mod-btn:focus-visible { outline: 1px solid var(--gold-400); outline-offset: 1px; }
 .msg-mod-btn.danger { color: var(--danger-fg); border-color: var(--danger-border); }
 .msg-mod-btn.danger:hover { background: var(--danger-bg); }
 /* Armed ban: filled rather than outlined, so the second click lands on a control
