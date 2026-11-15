@@ -129,13 +129,6 @@ nav {
   gap: 24px;
 }
 
-.chat-panel {
-  border: 1px solid #2a3a58;
-  border-radius: 8px;
-  background: var(--navy);
-  padding: 16px;
-}
-
 .button-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
@@ -143,97 +136,16 @@ nav {
 }
 
 
-/* ── Chat panel (dashboard) ─────────────────────────────── */
+/* ── Chat emotes (every chat surface) ───────────────────── */
 
-.chat-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 420px;
-  max-height: calc(100vh - 110px);
-  overflow: hidden;
-}
-
-.chat-panel.compact {
-  min-height: 0;
-  max-height: 100%;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  gap: 8px;
-  border-radius: 0;
-  flex-direction: column-reverse;
-}
-
-.chat-message {
-  --border-color: var(--border-2);
-  display: grid;
-  gap: 3px;
-  padding: 12px 15px 12px 17px;
-  border-radius: var(--radius-3);
-  border-left: 4px solid var(--border-color);
-  background: var(--navy-800);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
-  font-family: var(--font-body);
-}
-
-.chat-message.moderated {
-  opacity: 0.55;
-  --border-color: var(--border-2);
-}
-
-/* Role-based left border — brand semantic colors, matching the dashboard chat */
-.chat-message[data-role='broadcaster'] { --border-color: var(--gold-500); }
-.chat-message[data-role='moderator']   { --border-color: var(--success-base); }
-.chat-message[data-role='vip']         { --border-color: var(--note-base); }
-.chat-message[data-role='subscriber']  { --border-color: var(--gold-500); }
-
-/* First-time chatter — info border with a soft orb glow (matches dashboard first-ever) */
-.chat-message.first-time {
-  --border-color: var(--info-base);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--info-border),
-    0 0 22px rgba(106, 168, 212, 0.25);
-}
-
-/* Mention — the streamer was @'d; gold border with a soft orb glow */
-.chat-message.mention {
-  --border-color: var(--gold-500);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--warning-border),
-    0 0 22px rgba(var(--gold-rgb), 0.28);
-}
-
+/* The base emote size; the overlay rows, holding-scene rows, dashboard chat and
+   Spotlight each override the height for their own text size. */
 .chat-emote {
   display: inline-block;
   vertical-align: middle;
   height: 32px;
   width: auto;
   margin: 0 1px;
-}
-
-.chat-message strong,
-.chat-message span,
-.chat-message em {
-  overflow-wrap: anywhere;
-}
-
-.chat-message span {
-  color: var(--ivory-50);
-  font-size: 16px;
-  line-height: 1.5;
-}
-
-/* Links are anchors on every chat surface, but nothing can click one inside an OBS
-   browser source — so on the overlay a URL stays plain text visually. The dashboard
-   overrides this to look (and behave) like a link. */
-.chat-message .chat-link {
-  color: inherit;
-  text-decoration: none;
-}
-
-.chat-message em {
-  color: var(--silver-400);
-  font-size: 12px;
-  font-style: normal;
 }
 
 /* ── Overlay layout ─────────────────────────────────────── */
@@ -1189,9 +1101,21 @@ nav {
   to   { opacity: 0; transform: translateY(-8px); }
 }
 
+/* Overlay chat (ChatPanel, which only ever renders compact): the newest row sits at the
+   bottom of the column. Moderated rows are filtered out before render, so there is no
+   removed-message style here. */
+.chat-panel.compact {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
 /* Overlay chat row, per the Codeacula overlay spec: one inline line of text on a flat
-   navy surface with a hairline border. Scoped to .compact so no other chat surface
-   changes. Role colours the username; the viewer's own Twitch colour is not used. */
+   navy surface with a hairline border. Role colours the username; the viewer's own
+   Twitch colour is not used. */
 .chat-panel.compact .chat-message {
   display: block;
   padding: 9px 14px;
@@ -1199,11 +1123,13 @@ nav {
   border-radius: var(--radius-2);
   background: rgba(19, 27, 45, 0.88);
   box-shadow: none;
+  font-family: var(--font-body);
   animation: chatIn 480ms var(--ease-out);
   will-change: opacity, transform;
 }
 
 .chat-panel.compact .chat-message strong {
+  overflow-wrap: anywhere;
   margin-right: 10px;
   font-family: var(--font-mono);
   font-size: 15px;
@@ -1217,12 +1143,20 @@ nav {
 .chat-panel.compact .chat-message[data-role='subscriber'] strong  { color: var(--info-fg); }
 
 .chat-panel.compact .chat-message span {
+  overflow-wrap: anywhere;
+  color: var(--ivory-50);
   font-size: 18px;
   line-height: 1.4;
 }
 
 .chat-panel.compact .chat-message .chat-emote {
   height: 28px;
+}
+
+/* Nothing can click a link inside an OBS browser source, so a URL stays plain text. */
+.chat-panel.compact .chat-message .chat-link {
+  color: inherit;
+  text-decoration: none;
 }
 
 /* Signals are a border colour only: no glows over a live scene. */
