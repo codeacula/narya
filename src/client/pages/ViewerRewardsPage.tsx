@@ -20,7 +20,7 @@ import { useSocket } from '../realtime';
 import { errorMessage } from '../errors';
 import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
-import { SettingsHeader } from './settings/shared';
+import { SettingsHeader, SettingsStatus } from './settings/shared';
 import { useDirtyGuard, useDraft } from '../ui/dirtyGuard';
 
 const EMPTY_REWARD: ViewerRewardUpsert = {
@@ -964,8 +964,7 @@ export function ViewerRewardsPage() {
           actions={<button className="btn-primary" type="button" disabled={loading || Boolean(busyId)} onClick={() => startCreate()}>New reward</button>}
         />
 
-        {error ? <div className="set-status error">{error}</div> : null}
-        {message ? <div className="set-status">{message}</div> : null}
+        <SettingsStatus message={message} error={error} />
 
         <div className="set-group reward-category-manager">
           <div className="set-group-label">Categories</div>

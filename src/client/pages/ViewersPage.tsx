@@ -340,7 +340,7 @@ export function ViewersPage({
           />
         </div>
 
-        {error ? <div className="viewers-status is-error" role="status">{error}</div> : null}
+        {error ? <div className="viewers-status is-error" role="alert">{error}</div> : null}
         {message ? <div className="viewers-status" role="status">{message}</div> : null}
 
         {loading ? (

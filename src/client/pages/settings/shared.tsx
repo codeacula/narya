@@ -38,6 +38,15 @@ export function SettingsHeader({
 /**
  * The one line of feedback a settings form gives after a load or a save. An error wins
  * over a message, and takes the `error` modifier with it; with neither, nothing renders.
+ *
+ * The feedback rule, so the next page does not grow a sixth pattern:
+ * - A save, delete or load on a settings page reports here, beside the form that did
+ *   it. Do not hand-roll a banner class for it.
+ * - Toasts are for global or background events nobody is looking at a form for
+ *   (a service dropped, a broadcast arrived, an announcement failed).
+ * - The viewers roster (`viewers-status`) and a viewer's record actions
+ *   (`viewer-record-note`) keep their own quieter styling, tuned to the roster. They
+ *   are live regions too.
  */
 export function SettingsStatus({
   message,

@@ -13,7 +13,7 @@ import {
 import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { Icon } from '../ui/icons';
-import { SettingsHeader } from './settings/shared';
+import { SettingsHeader, SettingsStatus } from './settings/shared';
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
 import { useDirtyGuard } from '../ui/dirtyGuard';
@@ -269,7 +269,7 @@ export function StreamCategoriesPage() {
           onAdd={suggestion => void run(() => addSavedStreamCategory({ id: suggestion.id, name: suggestion.name, boxArtUrl: suggestion.boxArtUrl }))}
         />
 
-        {error ? <div className="viewers-status is-error" role="status">{error}</div> : null}
+        <SettingsStatus error={error} />
 
         {loading ? (
           <EmptyState title="Charting your categories…" />

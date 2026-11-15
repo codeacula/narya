@@ -8,7 +8,7 @@ import type {
 import { Icon } from '../../ui/icons';
 import { Modal, ModalTitle } from '../../ui/modal';
 import { withToken } from '../../auth';
-import { SettingsRow } from './shared';
+import { SettingsRow, SettingsStatus } from './shared';
 import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import {
   clearDiscordGoLiveSettings,
@@ -221,11 +221,7 @@ export function GoLiveSection() {
   return (
     <div className="set-group">
       <div className="set-group-label">Twitch live announcement</div>
-      {(goLiveMessage || goLiveError) && (
-        <div className={'set-status' + (goLiveError ? ' error' : '')}>
-          {goLiveError ?? goLiveMessage}
-        </div>
-      )}
+      <SettingsStatus message={goLiveMessage} error={goLiveError} />
 
       <SettingsRow
         label={
