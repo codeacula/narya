@@ -40,7 +40,7 @@ import {
   unplayableAssetIds,
   validateAction,
 } from './automation';
-import { CrystalOrb } from '../../crystalOrb';
+import { EmptyState } from '../../ui/emptyState';
 import { Icon } from '../../ui/icons';
 
 const EMPTY_DRAFT: ActionUpsert = { name: '', description: '', enabled: true, quickDisable: false, steps: [] };
@@ -902,14 +902,10 @@ export function ActionsSettingsPage() {
 
             <div className="settings-split-detail">
               {!draft ? (
-                <div className="split-empty">
-                  <CrystalOrb variant="moon" size={40} />
-                  <div className="es-title">Nothing selected</div>
-                  <div className="es-sub">
-                    Pick an action on the left to edit its steps, run it as a test, or delete it. New
-                    builds one from scratch.
-                  </div>
-                </div>
+                <EmptyState size="pane" title="Nothing selected">
+                  Pick an action on the left to edit its steps, run it as a test, or delete it. New
+                  builds one from scratch.
+                </EmptyState>
               ) : (
             <form className="settings-editor-section" onSubmit={handleSave}>
               <div className="command-editor-head">

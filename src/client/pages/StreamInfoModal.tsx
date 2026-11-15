@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '../ui/icons';
+import { Modal, ModalTitle } from '../ui/modal';
 import { addSavedStreamCategory, getCategorySuggestions, getSavedStreamCategories, getTagSuggestions } from '../services/dashboard';
 import { useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
@@ -44,6 +45,7 @@ export function StreamInfoModal({
   const [categorySearch, setCategorySearch] = React.useState('');
   const [tagInput, setTagInput] = React.useState('');
   const [tagFocused, setTagFocused] = React.useState(false);
+  const titleInputRef = React.useRef<HTMLInputElement>(null);
 
   // Every category that has been the live selection this session, so a mis-pick can't strand it out of the list.
   const seenCategoriesRef = React.useRef<Map<string, SavedStreamCategory>>(new Map());
@@ -143,200 +145,197 @@ export function StreamInfoModal({
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
-      <form className="stream-info-modal" onSubmit={onSubmit}>
-        <div className="modal-head">
-          <div>
-            <h2>Stream Info</h2>
-          </div>
-          <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={onClose}>
-            <Icon name="x" />
-          </button>
+    <Modal as="form" className="stream-info-modal" onSubmit={onSubmit} onClose={onClose} initialFocusRef={titleInputRef}>
+      <div className="modal-head">
+        <div>
+          <ModalTitle>Stream Info</ModalTitle>
         </div>
+        <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={onClose}>
+          <Icon name="x" />
+        </button>
+      </div>
 
-        <label className="field">
-          <span>Title</span>
-          <input
-            value={form.title}
-            maxLength={140}
-            disabled={loading || saving}
-            onChange={event => setForm(current => ({ ...current, title: event.target.value }))}
-          />
-          <small className="field-count">{form.title.length}/140</small>
-        </label>
+      <label className="field">
+        <span>Title</span>
+        <input
+          ref={titleInputRef}
+          value={form.title}
+          maxLength={140}
+          disabled={loading || saving}
+          onChange={event => setForm(current => ({ ...current, title: event.target.value }))}
+        />
+        <small className="field-count">{form.title.length}/140</small>
+      </label>
 
-        <div className="field">
-          <span>Category</span>
-          {categoryMode === 'search' ? (
-            <div className="stream-cat-picker">
-              <div className="suggestion-anchor">
-                <input
-                  aria-label="Search categories"
-                  autoFocus
-                  value={categorySearch}
-                  placeholder="Search Twitch categories…"
-                  disabled={loading || saving}
-                  onFocus={() => setCategoryFocused(true)}
-                  onBlur={() => window.setTimeout(() => setCategoryFocused(false), SUGGESTION_DISMISS_MS)}
-                  onChange={event => setCategorySearch(event.target.value)}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      if (categorySuggestions[0]) addSearchedCategory(categorySuggestions[0]);
-                    } else if (event.key === 'Escape') {
-                      event.preventDefault();
-                      setCategoryMode('select');
-                      setCategorySearch('');
-                    }
-                  }}
-                />
-                {showCategorySuggestions && (
-                  <div className="suggestion-list">
-                    {categoryLoading ? (
-                      <div className="suggestion-empty">Searching categories...</div>
-                    ) : categorySuggestions.length === 0 ? (
-                      <div className="suggestion-empty">No matches</div>
-                    ) : categorySuggestions.map(category => (
-                      <button
-                        key={category.id}
-                        type="button"
-                        className="suggestion-item"
-                        onMouseDown={event => event.preventDefault()}
-                        onClick={() => addSearchedCategory(category)}
-                      >
-                        <span>{category.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                className="modbtn"
+      <div className="field">
+        <span>Category</span>
+        {categoryMode === 'search' ? (
+          <div className="stream-cat-picker">
+            <div className="suggestion-anchor">
+              <input
+                aria-label="Search categories"
+                autoFocus
+                value={categorySearch}
+                placeholder="Search Twitch categories…"
                 disabled={loading || saving}
-                onClick={() => { setCategoryMode('select'); setCategorySearch(''); }}
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <div className="stream-cat-picker">
-              <select
-                aria-label="Category"
-                value={form.categoryId ?? ''}
-                disabled={loading || saving}
-                onChange={event => {
-                  const picked = categoryOptions.find(option => option.id === event.target.value);
-                  if (!picked) return;
-                  // The saved list carries each category's tag set; a remembered stub may not.
-                  applyCategorySelection(picked.id, picked.name, savedCategories);
+                onFocus={() => setCategoryFocused(true)}
+                onBlur={() => window.setTimeout(() => setCategoryFocused(false), SUGGESTION_DISMISS_MS)}
+                onChange={event => setCategorySearch(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (categorySuggestions[0]) addSearchedCategory(categorySuggestions[0]);
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setCategoryMode('select');
+                    setCategorySearch('');
+                  }
                 }}
-              >
-                <option value="" disabled>{categoryOptions.length ? 'Select a category…' : 'No saved categories — use Add'}</option>
-                {categoryOptions.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
-              </select>
-              <button
-                type="button"
-                className="modbtn"
-                disabled={loading || saving}
-                onClick={() => { setCategoryMode('search'); setCategorySearch(''); }}
-              >
-                Add
+              />
+              {showCategorySuggestions && (
+                <div className="suggestion-list">
+                  {categoryLoading ? (
+                    <div className="suggestion-empty">Searching categories...</div>
+                  ) : categorySuggestions.length === 0 ? (
+                    <div className="suggestion-empty">No matches</div>
+                  ) : categorySuggestions.map(category => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      className="suggestion-item"
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => addSearchedCategory(category)}
+                    >
+                      <span>{category.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="modbtn"
+              disabled={loading || saving}
+              onClick={() => { setCategoryMode('select'); setCategorySearch(''); }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="stream-cat-picker">
+            <select
+              aria-label="Category"
+              value={form.categoryId ?? ''}
+              disabled={loading || saving}
+              onChange={event => {
+                const picked = categoryOptions.find(option => option.id === event.target.value);
+                if (!picked) return;
+                // The saved list carries each category's tag set; a remembered stub may not.
+                applyCategorySelection(picked.id, picked.name, savedCategories);
+              }}
+            >
+              <option value="" disabled>{categoryOptions.length ? 'Select a category…' : 'No saved categories — use Add'}</option>
+              {categoryOptions.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
+            </select>
+            <button
+              type="button"
+              className="modbtn"
+              disabled={loading || saving}
+              onClick={() => { setCategoryMode('search'); setCategorySearch(''); }}
+            >
+              Add
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="field">
+        <span>Tags</span>
+        <div className="tag-chip-list">
+          {form.tags.map(tag => (
+            <span className="tag-chip" key={tag}>
+              {tag}
+              <button type="button" title={`Remove ${tag}`} onClick={() => removeTag(tag)}>
+                <Icon name="x" size={11} />
               </button>
+            </span>
+          ))}
+        </div>
+        <div className="suggestion-anchor">
+          <input
+            aria-label="Add a tag"
+            placeholder={form.tags.length >= 10 ? 'Ten tags is the Twitch limit' : 'Add a tag…'}
+            value={tagInput}
+            disabled={loading || saving || form.tags.length >= 10}
+            onFocus={() => setTagFocused(true)}
+            onBlur={() => window.setTimeout(() => setTagFocused(false), SUGGESTION_DISMISS_MS)}
+            onChange={event => setTagInput(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                addTag(tagInput);
+              }
+            }}
+          />
+          {showTagSuggestions && (
+            <div className="suggestion-list">
+              {tagLoading ? (
+                <div className="suggestion-empty">Searching tags...</div>
+              ) : tagSuggestions.map(tag => (
+                <button
+                  key={tag}
+                  type="button"
+                  className="suggestion-item"
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => addTag(tag)}
+                >
+                  <span>{tag}</span>
+                </button>
+              ))}
             </div>
           )}
         </div>
+        <small className="field-count">{form.tags.length}/10</small>
+      </div>
 
-        <div className="field">
-          <span>Tags</span>
-          <div className="tag-chip-list">
-            {form.tags.map(tag => (
-              <span className="tag-chip" key={tag}>
-                {tag}
-                <button type="button" title={`Remove ${tag}`} onClick={() => removeTag(tag)}>
-                  <Icon name="x" size={11} />
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="suggestion-anchor">
-            <input
-              aria-label="Add a tag"
-              placeholder={form.tags.length >= 10 ? 'Ten tags is the Twitch limit' : 'Add a tag…'}
-              value={tagInput}
-              disabled={loading || saving || form.tags.length >= 10}
-              onFocus={() => setTagFocused(true)}
-              onBlur={() => window.setTimeout(() => setTagFocused(false), SUGGESTION_DISMISS_MS)}
-              onChange={event => setTagInput(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  addTag(tagInput);
-                }
-              }}
-            />
-            {showTagSuggestions && (
-              <div className="suggestion-list">
-                {tagLoading ? (
-                  <div className="suggestion-empty">Searching tags...</div>
-                ) : tagSuggestions.map(tag => (
-                  <button
-                    key={tag}
-                    type="button"
-                    className="suggestion-item"
-                    onMouseDown={event => event.preventDefault()}
-                    onClick={() => addTag(tag)}
-                  >
-                    <span>{tag}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <small className="field-count">{form.tags.length}/10</small>
+      <label className="field">
+        <span>Planned end (optional)</span>
+        <input
+          type="datetime-local"
+          value={form.plannedEndAt}
+          disabled={loading || saving}
+          onChange={event => setForm(prev => ({ ...prev, plannedEndAt: event.target.value }))}
+        />
+        <small className="field-hint">
+          Wind-down signals that the stream is wrapping up shortly before this. You can change
+          it mid-stream if you run long.
+        </small>
+      </label>
+
+      <label className="field">
+        <span>Status line</span>
+        <input
+          value={form.status}
+          maxLength={280}
+          placeholder="Set a stream status line…"
+          disabled={loading || saving}
+          onChange={event => setForm(current => ({ ...current, status: event.target.value }))}
+        />
+        <small>Shown on your overlay. Leave blank to hide it. {form.status.length}/280</small>
+      </label>
+
+      {(loading || message || error) && (
+        <div className={'modal-status' + (error ? ' error' : '')}>
+          {loading ? 'Loading current stream info...' : error ?? message}
         </div>
+      )}
 
-        <label className="field">
-          <span>Planned end (optional)</span>
-          <input
-            type="datetime-local"
-            value={form.plannedEndAt}
-            disabled={loading || saving}
-            onChange={event => setForm(prev => ({ ...prev, plannedEndAt: event.target.value }))}
-          />
-          <small className="field-hint">
-            Wind-down signals that the stream is wrapping up shortly before this. You can change
-            it mid-stream if you run long.
-          </small>
-        </label>
-
-        <label className="field">
-          <span>Status line</span>
-          <input
-            value={form.status}
-            maxLength={280}
-            placeholder="Set a stream status line…"
-            disabled={loading || saving}
-            onChange={event => setForm(current => ({ ...current, status: event.target.value }))}
-          />
-          <small>Shown on your overlay. Leave blank to hide it. {form.status.length}/280</small>
-        </label>
-
-        {(loading || message || error) && (
-          <div className={'modal-status' + (error ? ' error' : '')}>
-            {loading ? 'Loading current stream info...' : error ?? message}
-          </div>
-        )}
-
-        <div className="modal-actions">
-          <button className="modbtn" type="button" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="modbtn gold" type="submit" disabled={loading || saving}>
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-      </form>
-    </div>
+      <div className="modal-actions">
+        <button className="modbtn" type="button" onClick={onClose} disabled={saving}>Cancel</button>
+        <button className="modbtn gold" type="submit" disabled={loading || saving}>
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+    </Modal>
   );
 }

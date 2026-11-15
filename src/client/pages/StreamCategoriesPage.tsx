@@ -14,7 +14,7 @@ import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { Icon } from '../ui/icons';
 import { SettingsHeader } from './settings/shared';
 import { errorMessage } from '../errors';
-import { CrystalOrb } from '../crystalOrb';
+import { EmptyState } from '../ui/emptyState';
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -268,13 +268,9 @@ export function StreamCategoriesPage() {
         {error ? <div className="viewers-status is-error" role="status">{error}</div> : null}
 
         {loading ? (
-          <div className="empty-state"><CrystalOrb variant="moon" size={40} /><div className="es-title">Charting your categories…</div></div>
+          <EmptyState title="Charting your categories…" />
         ) : categories.length === 0 ? (
-          <div className="empty-state">
-            <CrystalOrb variant="moon" size={40} />
-            <div className="es-title">No saved categories yet</div>
-            <div className="es-sub">Search for a category above to add your first one — or pick one in Stream Info and it lands here.</div>
-          </div>
+          <EmptyState title="No saved categories yet">Search for a category above to add your first one — or pick one in Stream Info and it lands here.</EmptyState>
         ) : (
           <>
             {hiddenCount > 0 && (

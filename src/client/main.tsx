@@ -13,6 +13,7 @@ import { dashboardRouteFromPath, overlayFromPath, type OverlayName } from './rou
 import { captureDashboardToken } from './auth';
 import { AuthGate } from './ui/authGate';
 import { ToastProvider } from './ui/notifications';
+import { ConfirmProvider } from './ui/confirm';
 import { ServiceStatusToasts } from './ui/serviceStatus';
 
 /**
@@ -76,14 +77,18 @@ function App() {
       </>
     );
   }
-  if (path === '/tablet') return <AuthGate><TabletPage /></AuthGate>;
-  if (path === '/viewer') return <AuthGate><ViewerWindowPage /></AuthGate>;
+  // ConfirmProvider (the shared `useConfirm()` dialog) wraps every operator surface and
+  // no overlay: a browser source has no one to answer a confirm.
+  if (path === '/tablet') return <AuthGate><ConfirmProvider><TabletPage /></ConfirmProvider></AuthGate>;
+  if (path === '/viewer') return <AuthGate><ConfirmProvider><ViewerWindowPage /></ConfirmProvider></AuthGate>;
   const initialPage = dashboardRouteFromPath(path);
   return (
     <AuthGate>
       <ToastProvider>
-        <ServiceStatusToasts />
-        <DashboardPage initialPage={initialPage} />
+        <ConfirmProvider>
+          <ServiceStatusToasts />
+          <DashboardPage initialPage={initialPage} />
+        </ConfirmProvider>
       </ToastProvider>
     </AuthGate>
   );

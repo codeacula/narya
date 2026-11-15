@@ -6,6 +6,7 @@ import type {
   GoLiveSettings,
 } from '../../../shared/api';
 import { Icon } from '../../ui/icons';
+import { Modal, ModalTitle } from '../../ui/modal';
 import { withToken } from '../../auth';
 import { SettingsRow } from './shared';
 import {
@@ -268,47 +269,43 @@ export function GoLiveSection() {
       </SettingsRow>
 
       {discordHelpOpen && (
-        <div className="modal-backdrop" onMouseDown={event => {
-          if (event.target === event.currentTarget) setDiscordHelpOpen(false);
-        }}>
-          <div className="discord-help-modal">
-            <div className="modal-head">
-              <h2>Discord bot setup</h2>
-              <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={() => setDiscordHelpOpen(false)}>
-                <Icon name="x" />
-              </button>
-            </div>
-            <ol className="discord-help-steps">
-              <li>
-                Go to{' '}
-                <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer">
-                  discord.com/developers/applications
-                </a>{' '}
-                and create a new application.
-              </li>
-              <li>
-                Under <b>Bot</b>, click <b>Add Bot</b>, then copy the token.
-                Paste it into <b>Discord bot token</b> under Connections &amp; credentials.
-              </li>
-              <li>
-                Copy the <b>Application ID</b> from the General Information page.
-                Paste it into <b>Discord client ID</b> under Connections &amp; credentials.
-              </li>
-              <li>
-                Under <b>OAuth2 → Redirects</b>, add the redirect URI that matches your setup:
-                <ul className="discord-help-uris">
-                  <li><b>Local dev (Vite):</b> <code>http://localhost:5173/api/auth/discord/callback</code></li>
-                  <li><b>Production (served by backend):</b> <code>http://localhost:4317/api/auth/discord/callback</code></li>
-                </ul>
-                Set <code>DISCORD_REDIRECT_URI</code> in your <code>.env</code> to match (deploy-specific).
-              </li>
-              <li>Click <b>Install Bot</b> here to add it to your server.</li>
-            </ol>
-            <div className="modal-actions">
-              <button className="modbtn gold" type="button" onClick={() => setDiscordHelpOpen(false)}>Got it</button>
-            </div>
+        <Modal className="discord-help-modal" onClose={() => setDiscordHelpOpen(false)}>
+          <div className="modal-head">
+            <ModalTitle>Discord bot setup</ModalTitle>
+            <button className="icon-btn" type="button" title="Close" aria-label="Close" onClick={() => setDiscordHelpOpen(false)}>
+              <Icon name="x" />
+            </button>
           </div>
-        </div>
+          <ol className="discord-help-steps">
+            <li>
+              Go to{' '}
+              <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer">
+                discord.com/developers/applications
+              </a>{' '}
+              and create a new application.
+            </li>
+            <li>
+              Under <b>Bot</b>, click <b>Add Bot</b>, then copy the token.
+              Paste it into <b>Discord bot token</b> under Connections &amp; credentials.
+            </li>
+            <li>
+              Copy the <b>Application ID</b> from the General Information page.
+              Paste it into <b>Discord client ID</b> under Connections &amp; credentials.
+            </li>
+            <li>
+              Under <b>OAuth2 → Redirects</b>, add the redirect URI that matches your setup:
+              <ul className="discord-help-uris">
+                <li><b>Local dev (Vite):</b> <code>http://localhost:5173/api/auth/discord/callback</code></li>
+                <li><b>Production (served by backend):</b> <code>http://localhost:4317/api/auth/discord/callback</code></li>
+              </ul>
+              Set <code>DISCORD_REDIRECT_URI</code> in your <code>.env</code> to match (deploy-specific).
+            </li>
+            <li>Click <b>Install Bot</b> here to add it to your server.</li>
+          </ol>
+          <div className="modal-actions">
+            <button className="modbtn gold" type="button" onClick={() => setDiscordHelpOpen(false)}>Got it</button>
+          </div>
+        </Modal>
       )}
 
       <div className="settings-editor-section">

@@ -19,7 +19,7 @@ import {
   updateMediaAsset,
   updateSoundButton,
 } from '../../services/dashboard';
-import { CrystalOrb } from '../../crystalOrb';
+import { EmptyState } from '../../ui/emptyState';
 
 const DEFAULT_VOLUME = 0.8;
 
@@ -248,14 +248,10 @@ function MediaLibrary() {
 
         <div className="settings-split-detail">
           {selection.mode === 'none' ? (
-            <div className="split-empty">
-              <CrystalOrb variant="moon" size={40} />
-              <div className="es-title">Nothing selected</div>
-              <div className="es-sub">
-                Pick an asset to rename it, re-point it, or set its playback volume. New adds a file
-                from public/clips and public/sounds, or a remote URL.
-              </div>
-            </div>
+            <EmptyState size="pane" title="Nothing selected">
+              Pick an asset to rename it, re-point it, or set its playback volume. New adds a file
+              from public/clips and public/sounds, or a remote URL.
+            </EmptyState>
           ) : selection.mode === 'new' ? (
             <>
               <div className="command-editor-head">
@@ -638,13 +634,9 @@ function MediaButtonManager({
 
         <div className="settings-split-detail">
           {!form ? (
-            <div className="split-empty">
-              <CrystalOrb variant="moon" size={40} />
-              <div className="es-title">Nothing selected</div>
-              <div className="es-sub">
-                Pick a {copy.noun} button to rename it or re-point it, or hit New to add one.
-              </div>
-            </div>
+            <EmptyState size="pane" title="Nothing selected">
+              Pick a {copy.noun} button to rename it or re-point it, or hit New to add one.
+            </EmptyState>
           ) : (
             <>
               <div className="command-editor-head">
