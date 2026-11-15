@@ -1034,6 +1034,7 @@ function TriggerOverridesSection({
   onSave: (triggerId: string, input: TriggerOverrideInput) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
 }) {
+  const confirm = useConfirm();
   const [newLogin, setNewLogin] = useState('');
   const [newActionId, setNewActionId] = useState('');
   // A half-filled add row is unsaved work like any other field on the trigger.
@@ -1060,6 +1061,20 @@ function TriggerOverridesSection({
     if (!saved) return;
     setNewLogin('');
     setNewActionId('');
+  };
+
+  // An override is a choice the operator made about one viewer, and Remove deletes it
+  // at once with no undo — the same one-click risk as deleting a trigger, so it asks.
+  const remove = async (override: TriggerOverride) => {
+    const actionName = actions.find(action => action.id === override.actionId)?.name;
+    const ok = await confirm({
+      title: `Remove the override for ${override.login}?`,
+      body: `${override.login} gets this trigger's normal action again${actionName ? ` instead of "${actionName}"` : ''}. `
+        + 'The override is deleted straight away.',
+      confirmLabel: 'Remove override',
+      tone: 'danger',
+    });
+    if (ok) await onDelete(override.id);
   };
 
   return (
@@ -1092,7 +1107,7 @@ function TriggerOverridesSection({
             />
             <span>On</span>
           </label>
-          <button className="modbtn danger" type="button" disabled={disabled} onClick={() => onDelete(override.id)}>
+          <button className="modbtn danger" type="button" disabled={disabled} onClick={() => void remove(override)}>
             Remove
           </button>
         </div>

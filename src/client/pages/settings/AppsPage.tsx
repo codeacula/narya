@@ -26,6 +26,7 @@ import { EmptyState } from '../../ui/emptyState';
  * another row's unsaved edit.
  */
 function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
+  const confirm = useConfirm();
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
@@ -63,6 +64,27 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
       .finally(() => setBusy(false));
   };
 
+  /**
+   * Removing an unbound event asks nothing: it is a name the operator can type back in
+   * a second, and the data keys it had learned are only autocomplete hints that fill
+   * in again as the app publishes. Removing one that triggers are bound to does lose
+   * something — those triggers stop firing — so that case confirms, and says how many.
+   */
+  const requestRemove = async (event: AppEvent) => {
+    if (event.boundTriggerCount > 0) {
+      const count = event.boundTriggerCount;
+      const ok = await confirm({
+        title: `Remove the event "${event.eventName}"?`,
+        body: `${count} trigger${count === 1 ? '' : 's'} listen${count === 1 ? 's' : ''} for it and will stop firing `
+          + 'until it is declared again. The triggers themselves are kept.',
+        confirmLabel: 'Remove event',
+        tone: 'danger',
+      });
+      if (!ok) return;
+    }
+    handleRemove(event.eventName);
+  };
+
   const handleRemove = (eventName: string) => {
     setBusy(true);
     setError(null);
@@ -97,7 +119,7 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
             className="modbtn danger"
             type="button"
             disabled={disabledOverall}
-            onClick={() => handleRemove(event.eventName)}
+            onClick={() => void requestRemove(event)}
           >
             Remove
           </button>
@@ -116,7 +138,7 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
           Add
         </button>
       </div>
-      {error && <small className="action-hint">{error}</small>}
+      {error && <small className="action-hint" role="alert">{error}</small>}
     </div>
   );
 }
@@ -285,7 +307,7 @@ function AppTokenControls({
           </div>
         </div>
       )}
-      {error && <small className="action-hint">{error}</small>}
+      {error && <small className="action-hint" role="alert">{error}</small>}
     </div>
   );
 }
