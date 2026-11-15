@@ -21,6 +21,7 @@ import { errorMessage } from '../errors';
 import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { SettingsHeader, SettingsStatus } from './settings/shared';
+import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
 import { useDirtyGuard, useDraft } from '../ui/dirtyGuard';
 
 const EMPTY_REWARD: ViewerRewardUpsert = {
@@ -611,15 +612,26 @@ export function ViewerRewardsPage() {
     return groups;
   }, [data.rewards]);
 
+  // Whether the reward list on screen is current; see the rewards:updated refetch.
+  const { health: rewardsHealth, succeeded: rewardsSucceeded, failed: rewardsFailed } = useRefreshHealth();
+  // Every write returns the whole list from Twitch, so a landed write is as good as a
+  // refresh and clears the stale marker too.
+  const applyRewards = (next: ViewerRewardsResponse) => {
+    setData(next);
+    rewardsSucceeded();
+  };
+
   const refresh = async () => {
     setLoading(true);
     setError(null);
     try {
       const [rewards, savedCats, apps] = await Promise.all([getViewerRewards(), getSavedStreamCategories(), getApps()]);
       setData(rewards);
+      rewardsSucceeded();
       setSavedCategories(savedCats);
       setSources(['narya', 'manual', ...apps.filter(app => !app.disabledAt).map(app => app.name)]);
     } catch (loadError) {
+      rewardsFailed();
       setError(errorMessage(loadError, 'Could not load viewer rewards.'));
     } finally {
       setLoading(false);
@@ -629,17 +641,25 @@ export function ViewerRewardsPage() {
   useEffect(() => { void refresh(); }, []);
 
 
-  // A stream-category change can auto-toggle reward groups server-side; refetch silently so the list reflects it.
+  // A stream-category change can auto-toggle reward groups server-side; refetch quietly so
+  // the list reflects it. A failed refetch is not an error the operator caused, so it
+  // gets the stale marker (with a retry, as the next event may be a stream away) rather
+  // than the status line or a toast.
   useSocket<{ at: string }>('rewards:updated', React.useCallback(() => {
-    void getViewerRewards().then(setData).catch(() => undefined);
-  }, []));
+    void getViewerRewards()
+      .then(next => {
+        setData(next);
+        rewardsSucceeded();
+      })
+      .catch(() => rewardsFailed());
+  }, [rewardsSucceeded, rewardsFailed]));
 
   const handlePauseToggle = async (reward: ViewerReward) => {
     setBusyId(reward.id);
     setError(null);
     setMessage(null);
     try {
-      setData(await updateViewerReward(reward.id, { isPaused: !reward.isPaused }));
+      applyRewards(await updateViewerReward(reward.id, { isPaused: !reward.isPaused }));
       setMessage(reward.isPaused ? `"${reward.title}" resumed.` : `"${reward.title}" paused.`);
     } catch (pauseError) {
       setError(errorMessage(pauseError, 'Could not update the reward pause state.'));
@@ -681,7 +701,7 @@ export function ViewerRewardsPage() {
       const next = editingId
         ? await updateViewerReward(editingId, rewardForm)
         : await createViewerReward(rewardForm);
-      setData(next);
+      applyRewards(next);
       setShowEditor(false);
       setEditingId(null);
       resetRewardForm(EMPTY_REWARD);
@@ -723,7 +743,7 @@ export function ViewerRewardsPage() {
     setError(null);
     setMessage(null);
     try {
-      setData(await updateViewerReward(reward.id, { categoryId }));
+      applyRewards(await updateViewerReward(reward.id, { categoryId }));
       setMessage('Reward category updated.');
     } catch (updateError) {
       setError(errorMessage(updateError, 'Could not update reward category.'));
@@ -737,7 +757,7 @@ export function ViewerRewardsPage() {
     setError(null);
     setMessage(null);
     try {
-      setData(await updateViewerReward(reward.id, { source }));
+      applyRewards(await updateViewerReward(reward.id, { source }));
       setMessage('Reward source updated.');
     } catch (updateError) {
       setError(errorMessage(updateError, 'Could not update reward source.'));
@@ -755,7 +775,7 @@ export function ViewerRewardsPage() {
     setError(null);
     setMessage(null);
     try {
-      setData(await updateViewerRewardCategory(category.id, { games }));
+      applyRewards(await updateViewerRewardCategory(category.id, { games }));
     } catch (updateError) {
       setError(errorMessage(updateError, failureMessage));
     } finally {
@@ -818,7 +838,7 @@ export function ViewerRewardsPage() {
     setMessage(null);
     try {
       const next = await updateViewerRewardCategory(category.id, { enabled: !category.enabled });
-      setData(next);
+      applyRewards(next);
       const skipped = next.skippedReadOnlyCount > 0
         ? ` ${next.skippedReadOnlyCount} Twitch-managed reward${next.skippedReadOnlyCount === 1 ? ' was' : 's were'} left unchanged.`
         : '';
@@ -862,7 +882,7 @@ export function ViewerRewardsPage() {
     setMessage(null);
     try {
       const next = await updateViewerRewardCategory(category.id, { defaultBackgroundColor: color });
-      setData(next);
+      applyRewards(next);
     } catch (updateError) {
       setError(errorMessage(updateError, 'Could not update category color.'));
     } finally {
@@ -875,7 +895,7 @@ export function ViewerRewardsPage() {
     setError(null);
     setMessage(null);
     try {
-      setData(await applyViewerRewardCategoryColor(category.id));
+      applyRewards(await applyViewerRewardCategoryColor(category.id));
       setMessage(`Color applied to all manageable rewards in "${category.name}".`);
     } catch (applyError) {
       setError(errorMessage(applyError, 'Could not apply category color.'));
@@ -965,6 +985,7 @@ export function ViewerRewardsPage() {
         />
 
         <SettingsStatus message={message} error={error} />
+        <StaleNotice health={rewardsHealth} onRetry={() => void refresh()} />
 
         <div className="set-group reward-category-manager">
           <div className="set-group-label">Categories</div>

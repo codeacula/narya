@@ -1685,6 +1685,33 @@ button.settings-item-row.is-selected .settings-item-main b { color: var(--fg-acc
 }
 
 /* ================= SETTINGS STATUS / HEADER ================= */
+/* StaleNotice: a background refresh is failing and the list below is old. Quiet on
+   purpose (it can sit there for minutes), so a mono eyebrow line, not a banner. */
+.stale-notice {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  color: var(--warning-fg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.stale-notice-retry {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: none;
+  color: var(--fg-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.stale-notice-retry:hover { color: var(--fg-1); }
+.stale-notice-retry:focus-visible { outline: 2px solid var(--gold-400); outline-offset: 2px; }
 .settings-eyebrow {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
   text-transform: uppercase; color: var(--fg-3); margin-bottom: 6px;

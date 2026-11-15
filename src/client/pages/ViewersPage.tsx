@@ -14,6 +14,7 @@ import {
 import { mergeRoster, type Person } from '../viewerRoster';
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
+import { StaleNotice, useRefreshHealth } from '../ui/staleNotice';
 
 type Segment = 'all' | 'live' | 'vips' | 'mods';
 
@@ -162,6 +163,10 @@ export function ViewersPage({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
+  // Whether the roster on screen is current. Both the full refresh and the chat-nudged
+  // roster sync feed it, so a dead backend marks the list stale instead of leaving it
+  // looking live.
+  const { health: rosterHealth, succeeded: rosterSucceeded, failed: rosterFailed } = useRefreshHealth();
 
   const refresh = React.useCallback(async () => {
     setError(null);
@@ -171,7 +176,12 @@ export function ViewersPage({
     ]);
     // A slower earlier refresh must not overwrite a newer one's results.
     if (generation !== refreshGeneration.current) return;
-    if (rosterRes.status === 'fulfilled') setRoster(rosterRes.value);
+    if (rosterRes.status === 'fulfilled') {
+      setRoster(rosterRes.value);
+      rosterSucceeded();
+    } else {
+      rosterFailed();
+    }
     if (chattersRes.status === 'fulfilled') setLiveLogins(new Set(chattersRes.value.chatters.map(c => c.userLogin.toLowerCase())));
     if (vipsRes.status === 'fulfilled') setVips(vipsRes.value);
     if (modsRes.status === 'fulfilled') setMods(modsRes.value);
@@ -190,7 +200,7 @@ export function ViewersPage({
     } else if (rosterRes.status === 'rejected') {
       setError(errorMessage(rosterRes.reason, 'Could not load your viewer roster.'));
     }
-  }, []);
+  }, [rosterSucceeded, rosterFailed]);
 
   React.useEffect(() => { void refresh().finally(() => setLoading(false)); }, [refresh]);
 
@@ -203,10 +213,13 @@ export function ViewersPage({
   const syncRoster = React.useCallback(async () => {
     try {
       setRoster(await getViewerRoster());
+      rosterSucceeded();
     } catch {
-      // A dropped background refresh is harmless; the interval or next message retries.
+      // The interval or the next message retries; until then the stale marker says the
+      // list is old rather than a toast every time chat moves.
+      rosterFailed();
     }
-  }, []);
+  }, [rosterSucceeded, rosterFailed]);
 
   const rosterRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const onChatMessage = React.useCallback(() => {
@@ -342,6 +355,7 @@ export function ViewersPage({
 
         {error ? <div className="viewers-status is-error" role="alert">{error}</div> : null}
         {message ? <div className="viewers-status" role="status">{message}</div> : null}
+        <StaleNotice health={rosterHealth} />
 
         {loading ? (
           <EmptyState title="Gathering your viewers…" />

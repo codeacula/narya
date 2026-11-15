@@ -47,6 +47,8 @@ export function SettingsHeader({
  * - The viewers roster (`viewers-status`) and a viewer's record actions
  *   (`viewer-record-note`) keep their own quieter styling, tuned to the roster. They
  *   are live regions too.
+ * - A background refresh that fails says so with `StaleNotice`, not here: this line
+ *   is about what the operator just did.
  */
 export function SettingsStatus({
   message,
