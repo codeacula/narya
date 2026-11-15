@@ -20,6 +20,7 @@ import {
 import { useSocket } from '../../realtime';
 import { useDebouncedSuggestions } from '../../suggestions';
 import { SettingsHeader, SettingsStatus } from './shared';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
 import { EmptyState } from '../../ui/emptyState';
 
@@ -150,7 +151,7 @@ function StatusBadge({ module, active }: { module: CategoryModule; active: boole
 export function ModulesSettingsPage() {
   const [state, setState] = useState<CategoryModulesResponse>(EMPTY_RESPONSE);
   const [groups, setGroups] = useState<ViewerRewardCategory[]>([]);
-  const [draft, setDraft] = useState<CategoryModuleInput | null>(null);
+  const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<CategoryModuleInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -213,23 +214,28 @@ export function ModulesSettingsPage() {
     return owners;
   }, [state.modules, editingId]);
 
-  const startCreate = () => {
-    setEditingId(null);
-    setDraft({ ...EMPTY_DRAFT });
-    setMessage(null);
-    setError(null);
-  };
+  const { discardThen } = useDirtyGuard(
+    dirty,
+    editingId ? `the module "${baseline?.name || 'Untitled module'}"` : 'the new module',
+  );
 
-  const startEdit = (module: CategoryModule) => {
-    setEditingId(module.id);
-    setDraft(moduleToInput(module));
+  const startCreate = () => discardThen(() => {
+    setEditingId(null);
+    resetDraft({ ...EMPTY_DRAFT });
     setMessage(null);
     setError(null);
-  };
+  });
+
+  const startEdit = (module: CategoryModule) => discardThen(() => {
+    setEditingId(module.id);
+    resetDraft(moduleToInput(module));
+    setMessage(null);
+    setError(null);
+  });
 
   const closeEditor = () => {
     setEditingId(null);
-    setDraft(null);
+    resetDraft(null);
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -246,7 +252,7 @@ export function ModulesSettingsPage() {
         // Stay on the saved module: the editor is the right pane now, and after a create
         // a second Save would otherwise make a duplicate rather than update this one.
         setEditingId(saved.id);
-        setDraft(moduleToInput(saved));
+        resetDraft(moduleToInput(saved));
         setMessage('Module saved');
       })
       // A 409 arrives as a plain sentence from the server ("X is already claimed by
@@ -421,7 +427,7 @@ export function ModulesSettingsPage() {
                       Delete
                     </button>
                   )}
-                  <button className="modbtn" type="button" disabled={saving} onClick={closeEditor}>Close</button>
+                  <button className="modbtn" type="button" disabled={saving} onClick={() => discardThen(closeEditor)}>Close</button>
                 </div>
               </div>
 

@@ -41,6 +41,7 @@ import {
   validateAction,
 } from './automation';
 import { EmptyState } from '../../ui/emptyState';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { Icon } from '../../ui/icons';
 
 const EMPTY_DRAFT: ActionUpsert = { name: '', description: '', enabled: true, quickDisable: false, steps: [] };
@@ -738,7 +739,7 @@ export function ActionsSettingsPage() {
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [scenes, setScenes] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<ActionUpsert | null>(null);
+  const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<ActionUpsert | null>(null);
   const [counters, setCounters] = useState<Counter[]>([]);
   const [runs, setRuns] = useState<Record<string, ActionRunResult>>({});
   const [loading, setLoading] = useState(true);
@@ -782,23 +783,28 @@ export function ActionsSettingsPage() {
   const busy = loading || saving;
   const problem = useMemo(() => (draft ? validateAction(draft) : null), [draft]);
 
-  const startCreate = () => {
-    setEditingId(null);
-    setDraft({ ...EMPTY_DRAFT, steps: [newStep('show_text')] });
-    setMessage(null);
-    setError(null);
-  };
+  const { discardThen } = useDirtyGuard(
+    dirty,
+    editingId ? `the action "${baseline?.name || 'Untitled action'}"` : 'the new action',
+  );
 
-  const startEdit = (action: Action) => {
-    setEditingId(action.id);
-    setDraft(actionToUpsert(action));
+  const startCreate = () => discardThen(() => {
+    setEditingId(null);
+    resetDraft({ ...EMPTY_DRAFT, steps: [newStep('show_text')] });
     setMessage(null);
     setError(null);
-  };
+  });
+
+  const startEdit = (action: Action) => discardThen(() => {
+    setEditingId(action.id);
+    resetDraft(actionToUpsert(action));
+    setMessage(null);
+    setError(null);
+  });
 
   const closeEditor = () => {
     setEditingId(null);
-    setDraft(null);
+    resetDraft(null);
   };
 
   const handleSave = (event: React.FormEvent<HTMLFormElement>) => {
@@ -814,7 +820,7 @@ export function ActionsSettingsPage() {
         await load();
         // Stay on the saved action so a follow-up Run targets what was just written.
         setEditingId(saved.id);
-        setDraft(actionToUpsert(saved));
+        resetDraft(actionToUpsert(saved));
         setMessage('Action saved');
       })
       .catch(caught => setError(errorMessage(caught, 'Could not save the action')))
@@ -936,7 +942,7 @@ export function ActionsSettingsPage() {
                       Delete
                     </button>
                   )}
-                  <button className="modbtn" type="button" disabled={saving} onClick={closeEditor}>Close</button>
+                  <button className="modbtn" type="button" disabled={saving} onClick={() => discardThen(closeEditor)}>Close</button>
                 </div>
               </div>
 

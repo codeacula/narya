@@ -20,6 +20,7 @@ import {
   updateSoundButton,
 } from '../../services/dashboard';
 import { EmptyState } from '../../ui/emptyState';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 
 const DEFAULT_VOLUME = 0.8;
 
@@ -69,8 +70,8 @@ function MediaLibrary() {
   const [discovered, setDiscovered] = useState<MediaFile[]>([]);
   const [configuredSrcs, setConfiguredSrcs] = useState<string[]>([]);
   const [selection, setSelection] = useState<Selection>({ mode: 'none' });
-  const [edit, setEdit] = useState<AssetForm | null>(null);
-  const [newForm, setNewForm] = useState<NewForm>(EMPTY_NEW);
+  const { draft: edit, setDraft: setEdit, baseline: editBaseline, resetDraft: resetEdit, dirty: editDirty } = useDraft<AssetForm | null>(null);
+  const { draft: newForm, setDraft: setNewForm, resetDraft: resetNewForm, dirty: newFormDirty } = useDraft<NewForm>(EMPTY_NEW);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,18 +123,24 @@ function MediaLibrary() {
       .finally(() => setSaving(false));
   };
 
-  const openNew = () => {
-    setSelection({ mode: 'new' });
-    setNewForm(EMPTY_NEW);
-    setEdit(null);
-    setError(null);
-  };
+  // The pane shows one form at a time, so only the visible one can hold unsaved work.
+  const { discardThen } = useDirtyGuard(
+    selection.mode === 'edit' ? editDirty : selection.mode === 'new' ? newFormDirty : false,
+    selection.mode === 'new' ? 'the new asset' : `the asset "${editBaseline?.label || 'Asset'}"`,
+  );
 
-  const openAsset = (asset: MediaAsset) => {
-    setSelection({ mode: 'edit', id: asset.id });
-    setEdit(formFromAsset(asset));
+  const openNew = () => discardThen(() => {
+    setSelection({ mode: 'new' });
+    resetNewForm(EMPTY_NEW);
+    resetEdit(null);
     setError(null);
-  };
+  });
+
+  const openAsset = (asset: MediaAsset) => discardThen(() => {
+    setSelection({ mode: 'edit', id: asset.id });
+    resetEdit(formFromAsset(asset));
+    setError(null);
+  });
 
   const handleCreate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -154,8 +161,8 @@ function MediaLibrary() {
       // Land on the asset just made: it is what the operator wants to tune next, and it
       // is the clearest possible signal that the Add actually did something.
       setSelection({ mode: 'edit', id: asset.id });
-      setEdit(formFromAsset(asset));
-      setNewForm(EMPTY_NEW);
+      resetEdit(formFromAsset(asset));
+      resetNewForm(EMPTY_NEW);
     }).catch(() => undefined);
   };
 
@@ -172,16 +179,18 @@ function MediaLibrary() {
       }),
       'Asset saved',
       'Could not save the asset',
-    ).then(saved => setEdit(formFromAsset(saved))).catch(() => undefined);
+    ).then(saved => resetEdit(formFromAsset(saved))).catch(() => undefined);
   };
 
-  const handleToggle = (asset: MediaAsset) => {
+  // The toggle saves and then reloads the form from the server, which would take an
+  // unsaved rename or volume change with it — ask first.
+  const handleToggle = (asset: MediaAsset) => discardThen(() => {
     void run(
       updateMediaAsset(asset.id, { enabled: !asset.enabled }),
       asset.enabled ? 'Asset disabled' : 'Asset enabled',
       'Could not update the asset',
-    ).then(saved => setEdit(formFromAsset(saved))).catch(() => undefined);
-  };
+    ).then(saved => resetEdit(formFromAsset(saved))).catch(() => undefined);
+  });
 
   // A referenced asset comes back 409; the message tells the operator to disable it.
   const handleDelete = (asset: MediaAsset) => {
@@ -189,7 +198,7 @@ function MediaLibrary() {
     void run(deleteMediaAsset(asset.id), 'Asset deleted', 'Could not delete the asset')
       .then(() => {
         setSelection({ mode: 'none' });
-        setEdit(null);
+        resetEdit(null);
       })
       .catch(() => undefined);
   };
@@ -502,7 +511,7 @@ function MediaButtonManager({
 }) {
   const { pushToast } = useToast();
   const [items, setItems] = useState<MediaButtonItem[]>([]);
-  const [form, setForm] = useState<Form | null>(null);
+  const { draft: form, setDraft: setForm, baseline: formBaseline, resetDraft: resetForm, dirty: formDirty } = useDraft<Form | null>(null);
   // True once the operator picks "Custom…" so the text field shows even before
   // they type anything. Editing an existing off-catalog value shows it anyway.
   const [customMode, setCustomMode] = useState(false);
@@ -531,8 +540,13 @@ function MediaButtonManager({
 
   const noun = `${copy.noun.charAt(0).toUpperCase()}${copy.noun.slice(1)}`;
 
+  const { discardThen } = useDirtyGuard(
+    formDirty,
+    formBaseline?.id ? `the ${copy.noun} button "${formBaseline.label || copy.noun}"` : `the new ${copy.noun} button`,
+  );
+
   const loadForm = (next: Form | null) => {
-    setForm(next);
+    resetForm(next);
     setCustomMode(false);
     setError(null);
   };
@@ -550,7 +564,7 @@ function MediaButtonManager({
         setItems(current => sortItems([...current.filter(item => item.id !== saved.id), saved]));
         // Stay on what was just saved — including a brand-new one, so the next Save
         // edits it rather than silently adding a second copy.
-        setForm(formFrom(saved));
+        resetForm(formFrom(saved));
         setCustomMode(false);
         pushToast({ kind: 'success', title: `${noun} saved` });
       })
@@ -605,7 +619,7 @@ function MediaButtonManager({
         <div className="settings-split-list">
           <div className="split-list-head">
             <div className="set-sub">{copy.sub}</div>
-            <button className="modbtn gold" type="button" disabled={saving} onClick={() => loadForm(EMPTY_FORM)}>
+            <button className="modbtn gold" type="button" disabled={saving} onClick={() => discardThen(() => loadForm(EMPTY_FORM))}>
               New
             </button>
           </div>
@@ -621,7 +635,7 @@ function MediaButtonManager({
                 className={'settings-item-row' + (form?.id === item.id ? ' is-selected' : '')}
                 key={item.id}
                 aria-current={form?.id === item.id ? 'true' : undefined}
-                onClick={() => loadForm(formFrom(item))}
+                onClick={() => discardThen(() => loadForm(formFrom(item)))}
               >
                 <div className="settings-item-main">
                   <b>{item.label}</b>
@@ -650,7 +664,7 @@ function MediaButtonManager({
                       Delete
                     </button>
                   )}
-                  <button className="modbtn" type="button" disabled={saving} onClick={() => loadForm(null)}>
+                  <button className="modbtn" type="button" disabled={saving} onClick={() => discardThen(() => loadForm(null))}>
                     Close
                   </button>
                 </div>

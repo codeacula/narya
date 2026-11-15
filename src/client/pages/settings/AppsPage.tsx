@@ -12,6 +12,7 @@ import {
 } from '../../services/dashboard';
 import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
+import { useDirtyGuard } from '../../ui/dirtyGuard';
 
 /**
  * An app's declared inbound event names: what a redis_event trigger's event picker
@@ -26,6 +27,7 @@ function AppEventsList({ app, disabled }: { app: App; disabled: boolean }) {
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
+  useDirtyGuard(newName.trim() !== '', `the new event for "${app.name}"`);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => setEvents(await getAppEvents(app.id)), [app.id]);
@@ -254,6 +256,7 @@ export function AppsPage() {
   const [apps, setApps] = useState<App[]>([]);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(true);
+  useDirtyGuard(name.trim() !== '', 'the new app');
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);

@@ -38,6 +38,7 @@ import {
   updateAutomationTrigger,
 } from '../../services/dashboard';
 import { SettingsHeader, SettingsStatus } from './shared';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
 import {
   CHAT_PHRASE_MATCHES,
@@ -1010,6 +1011,8 @@ function TriggerOverridesSection({
 }) {
   const [newLogin, setNewLogin] = useState('');
   const [newActionId, setNewActionId] = useState('');
+  // A half-filled add row is unsaved work like any other field on the trigger.
+  useDirtyGuard(newLogin.trim() !== '' || newActionId !== '', 'the new viewer override');
 
   const addProblem = (() => {
     if (!newLogin.trim()) return null; // untouched: no nagging
@@ -1322,7 +1325,7 @@ export function AutomationSettingsPage() {
   const [rewards, setRewards] = useState<ViewerReward[]>([]);
   const [apps, setApps] = useState<App[]>([]);
   const [overrides, setOverrides] = useState<TriggerOverride[]>([]);
-  const [draft, setDraft] = useState<AutomationTriggerInput | null>(null);
+  const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<AutomationTriggerInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [runs, setRuns] = useState<Record<string, TriggerRunResult>>({});
   const [loading, setLoading] = useState(true);
@@ -1437,23 +1440,28 @@ export function AutomationSettingsPage() {
 
   const busy = loading || saving;
 
-  const startCreate = (kind: AutomationTriggerKind) => {
-    setEditingId(null);
-    setDraft(newTrigger(kind));
-    setMessage(null);
-    setError(null);
-  };
+  const { discardThen } = useDirtyGuard(
+    dirty,
+    editingId ? `the trigger "${baseline?.name || 'Untitled trigger'}"` : 'the new trigger',
+  );
 
-  const startEdit = (trigger: AutomationTrigger) => {
-    setEditingId(trigger.id);
-    setDraft(triggerToInput(trigger));
+  const startCreate = (kind: AutomationTriggerKind) => discardThen(() => {
+    setEditingId(null);
+    resetDraft(newTrigger(kind));
     setMessage(null);
     setError(null);
-  };
+  });
+
+  const startEdit = (trigger: AutomationTrigger) => discardThen(() => {
+    setEditingId(trigger.id);
+    resetDraft(triggerToInput(trigger));
+    setMessage(null);
+    setError(null);
+  });
 
   const closeEditor = () => {
     setEditingId(null);
-    setDraft(null);
+    resetDraft(null);
   };
 
   const handleSubmit = () => {
@@ -1470,7 +1478,7 @@ export function AutomationSettingsPage() {
         // now, so closing it would blank the half of the screen you are working in — and
         // after a create, a second Save would otherwise add a duplicate trigger.
         setEditingId(saved.id);
-        setDraft(triggerToInput(saved));
+        resetDraft(triggerToInput(saved));
         setMessage('Trigger saved');
       })
       .catch(caught => setError(errorMessage(caught, 'Could not save the trigger')))
@@ -1694,7 +1702,7 @@ export function AutomationSettingsPage() {
                     overrideBusy={overrideBusy}
                     onChange={setDraft}
                     onSubmit={handleSubmit}
-                    onClose={closeEditor}
+                    onClose={() => discardThen(closeEditor)}
                     onTest={editingTrigger ? () => handleRun(editingTrigger) : undefined}
                     onDelete={editingTrigger ? () => handleDelete(editingTrigger) : undefined}
                     onSaveOverride={saveOverride}

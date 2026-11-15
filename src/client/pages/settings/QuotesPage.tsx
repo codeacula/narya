@@ -5,6 +5,8 @@ import { createQuote, deleteQuote, getQuotes, updateQuote } from '../../services
 import { SettingsHeader, SettingsStatus } from './shared';
 import { errorMessage } from '../../errors';
 import { formatAgo } from '../../../shared/time';
+import { useDirtyGuard } from '../../ui/dirtyGuard';
+import { draftsDiffer } from '../../ui/dirtyGuardLogic';
 
 type Draft = { text: string; slug: string; submittedBy: string };
 
@@ -27,6 +29,13 @@ function QuoteCard({ quote, busy, onSave, onDelete }: {
     slug: quote.slug ?? '',
     submittedBy: quote.submittedBy,
   });
+
+  // Compared against the quote as it stands now, so a save (which refreshes `quote`)
+  // leaves the card clean without anything here having to notice.
+  useDirtyGuard(
+    editing && draftsDiffer(draft, { text: quote.text, slug: quote.slug ?? '', submittedBy: quote.submittedBy }),
+    `quote #${quote.number}`,
+  );
 
   const reset = () => {
     setDraft({ text: quote.text, slug: quote.slug ?? '', submittedBy: quote.submittedBy });
@@ -111,6 +120,8 @@ export function QuotesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => setQuotes(await getQuotes()), []);
+
+  useDirtyGuard(draftsDiffer(draft, EMPTY_DRAFT), 'the new quote');
 
   useEffect(() => {
     let cancelled = false;

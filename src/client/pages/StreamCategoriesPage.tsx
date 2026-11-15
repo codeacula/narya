@@ -15,6 +15,7 @@ import { Icon } from '../ui/icons';
 import { SettingsHeader } from './settings/shared';
 import { errorMessage } from '../errors';
 import { EmptyState } from '../ui/emptyState';
+import { useDirtyGuard } from '../ui/dirtyGuard';
 
 function normalizeTagInput(value: string): string {
   return value.trim().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 25);
@@ -37,6 +38,7 @@ function CategoryCard({
   const [tagInput, setTagInput] = React.useState('');
   const [tagFocused, setTagFocused] = React.useState(false);
   const dirty = tags.join(' ') !== category.tags.join(' ');
+  useDirtyGuard(dirty, `the tags for ${category.name}`);
 
   // Any save/hide/delete replaces the whole category list, handing every card a
   // fresh `tags` array. Sync local state only when THIS card's persisted value

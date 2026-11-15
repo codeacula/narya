@@ -20,6 +20,7 @@ import { errorMessage } from '../errors';
 import { formatBoxArtUrl, useDebouncedSuggestions } from '../suggestions';
 import { SUGGESTION_DISMISS_MS } from '../../shared/constants';
 import { SettingsHeader } from './settings/shared';
+import { useDirtyGuard, useDraft } from '../ui/dirtyGuard';
 
 const EMPTY_REWARD: ViewerRewardUpsert = {
   title: '',
@@ -585,7 +586,13 @@ export function ViewerRewardsPage() {
   const [categoryName, setCategoryName] = useState('');
   const [showEditor, setShowEditor] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [rewardForm, setRewardForm] = useState<ViewerRewardUpsert>(EMPTY_REWARD);
+  const {
+    draft: rewardForm,
+    setDraft: setRewardForm,
+    baseline: rewardBaseline,
+    resetDraft: resetRewardForm,
+    dirty: rewardFormDirty,
+  } = useDraft<ViewerRewardUpsert>(EMPTY_REWARD);
   const [savedCategories, setSavedCategories] = useState<SavedStreamCategory[]>([]);
   // 'narya' and 'manual' are reserved source sentinels (never rows in the apps registry);
   // the rest come from enabled apps registered in Settings → Apps.
@@ -639,23 +646,29 @@ export function ViewerRewardsPage() {
     }
   };
 
-  const startCreate = (categoryId: string | null = null) => {
+  const { discardThen } = useDirtyGuard(
+    showEditor && rewardFormDirty,
+    editingId ? `the reward "${rewardBaseline.title || 'Untitled reward'}"` : 'the new reward',
+  );
+  useDirtyGuard(categoryName.trim() !== '', 'the new reward category');
+
+  const startCreate = (categoryId: string | null = null) => discardThen(() => {
     const category = categoryId ? data.categories.find(c => c.id === categoryId) : null;
     const backgroundColor = category?.defaultBackgroundColor ?? EMPTY_REWARD.backgroundColor;
-    setRewardForm({ ...EMPTY_REWARD, categoryId, backgroundColor });
+    resetRewardForm({ ...EMPTY_REWARD, categoryId, backgroundColor });
     setEditingId(null);
     setShowEditor(true);
     setError(null);
     setMessage(null);
-  };
+  });
 
-  const startEdit = (reward: ViewerReward) => {
-    setRewardForm(formFromReward(reward));
+  const startEdit = (reward: ViewerReward) => discardThen(() => {
+    resetRewardForm(formFromReward(reward));
     setEditingId(reward.id);
     setShowEditor(true);
     setError(null);
     setMessage(null);
-  };
+  });
 
   const handleRewardSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -669,7 +682,7 @@ export function ViewerRewardsPage() {
       setData(next);
       setShowEditor(false);
       setEditingId(null);
-      setRewardForm(EMPTY_REWARD);
+      resetRewardForm(EMPTY_REWARD);
       setMessage(editingId ? 'Reward updated on Twitch.' : 'Reward created on Twitch.');
     } catch (saveError) {
       setError(errorMessage(saveError, 'Could not save reward.'));

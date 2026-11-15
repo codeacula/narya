@@ -9,6 +9,7 @@ import {
 } from '../../services/dashboard';
 import { useSocket } from '../../realtime';
 import { SettingsHeader, SettingsStatus } from './shared';
+import { useDirtyGuard, useDraft } from '../../ui/dirtyGuard';
 import { errorMessage } from '../../errors';
 
 /**
@@ -69,7 +70,7 @@ export function previewCounterKey(value: string): string {
 
 export function CountersPage() {
   const [counters, setCounters] = useState<Counter[]>([]);
-  const [draft, setDraft] = useState<CounterDraft | null>(null);
+  const { draft, setDraft, baseline, resetDraft, dirty } = useDraft<CounterDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -102,23 +103,28 @@ export function CountersPage() {
 
   const busy = loading || saving;
 
-  const startCreate = () => {
+  const { discardThen } = useDirtyGuard(
+    dirty,
+    editingId ? `the counter "${baseline?.label || baseline?.key || 'Untitled counter'}"` : 'the new counter',
+  );
+
+  const startCreate = () => discardThen(() => {
     setEditingId(null);
-    setDraft({ ...EMPTY_DRAFT });
+    resetDraft({ ...EMPTY_DRAFT });
     setMessage(null);
     setError(null);
-  };
+  });
 
-  const startEdit = (counter: Counter) => {
+  const startEdit = (counter: Counter) => discardThen(() => {
     setEditingId(counter.id);
     const value = String(counter.value);
-    setDraft({ key: counter.key, label: counter.label, value, originalValue: value });
+    resetDraft({ key: counter.key, label: counter.label, value, originalValue: value });
     setMessage(null);
     setError(null);
-  };
+  });
 
   const cancel = () => {
-    setDraft(null);
+    resetDraft(null);
     setEditingId(null);
   };
 
@@ -126,7 +132,7 @@ export function CountersPage() {
     request
       .then(async () => {
         await load();
-        setDraft(null);
+        resetDraft(null);
         setEditingId(null);
         setMessage(note);
       })
