@@ -49,8 +49,6 @@ import type {
   ClipButtonUpdate,
   AutomodHold,
   AutomodQueue,
-  ChatbotCommand,
-  ChatbotCommandUpsert,
   LlmModelList,
   LlmProviderId,
   LlmSettings,
@@ -393,22 +391,6 @@ export async function runGoLive(): Promise<GoLiveResult> {
   return sendJson<GoLiveResult>('/api/go-live', 'POST');
 }
 
-export async function getChatbotCommands(): Promise<ChatbotCommand[]> {
-  return fetchJson<ChatbotCommand[]>('/api/chatbot/commands');
-}
-
-export async function createChatbotCommand(settings: ChatbotCommandUpsert): Promise<ChatbotCommand> {
-  return sendJson<ChatbotCommand>('/api/chatbot/commands', 'POST', settings);
-}
-
-export async function updateChatbotCommand(id: string, settings: ChatbotCommandUpsert): Promise<ChatbotCommand> {
-  return sendJson<ChatbotCommand>(`/api/chatbot/commands/${encodeURIComponent(id)}`, 'PUT', settings);
-}
-
-export async function deleteChatbotCommand(id: string): Promise<void> {
-  return sendVoid(`/api/chatbot/commands/${encodeURIComponent(id)}`, 'DELETE');
-}
-
 export async function getLlmSettings(): Promise<LlmSettings> {
   return fetchJson<LlmSettings>('/api/llm/settings');
 }
@@ -604,14 +586,6 @@ export async function getEmotes(): Promise<Record<string, string>> {
 
 export async function getCurrentMusic(): Promise<MusicInfo | null> {
   return fetchJson<MusicInfo | null>('/api/music/current');
-}
-
-export async function setManualMusic(input: { title: string; artist: string; status: MusicInfo['status'] }): Promise<MusicInfo> {
-  return sendJson<MusicInfo>('/api/music/current', 'PUT', input);
-}
-
-export async function clearManualMusic(): Promise<MusicInfo> {
-  return sendJson<MusicInfo>('/api/music/current', 'DELETE');
 }
 
 export async function getStreamStatus(): Promise<StreamStatus> {

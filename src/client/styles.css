@@ -1317,8 +1317,7 @@ nav {
 
 /* Action `show_text` steps. Fully transparent when idle, so this is safe as its
    own full-canvas OBS source positioned independently of the other overlays.
-   The three styles differ only in placement and weight; keep them within the
-   same visual language as .alert-text. */
+   The three styles differ only in placement and weight. */
 .overlay-text-widget {
   width: 100vw;
   height: 100vh;
