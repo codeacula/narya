@@ -1065,7 +1065,10 @@ nav {
    touch-target tile. The engaged state reuses the same danger trio as
    .tablet-error so a lit mute reads the same as any other alarm on this surface. */
 .tablet-mute-button {
-  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
   padding: 8px 14px;
   border: 1px solid var(--border-2);
   border-radius: var(--radius-2);

@@ -21,6 +21,7 @@ import {
 import { errorMessage } from '../errors';
 import { obsNotice } from '../obsNotice';
 import { EmptyState } from '../ui/emptyState';
+import { Icon } from '../ui/icons';
 
 // Dropping focus after a tap keeps a tablet's on-screen button from staying
 // visually "stuck" highlighted. Keyboard activation (Enter/Space) also fires
@@ -323,8 +324,11 @@ export function TabletPage() {
                 aria-pressed={media.muted}
                 disabled={media.busy}
                 onClick={event => { blurIfPointer(event); media.toggle(!media.muted); }}
+                title="Silences sound and video commands. Redemptions on unflagged actions still play."
               >
-                {media.muted ? '🔇 Commands muted' : '🔊 Mute commands'}
+                {/* The words are the button's name; the glyph only repeats them. */}
+                <Icon name={media.muted ? 'speaker-off' : 'speaker'} size={18} aria-hidden="true" focusable="false" />
+                <span>{media.muted ? 'Commands muted' : 'Mute commands'}</span>
               </button>
             </div>
 
