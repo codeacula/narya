@@ -3,7 +3,7 @@ import { useConfirm } from '../../ui/confirm';
 import type { MediaAsset, MediaFile, MediaKind } from '../../../shared/api';
 import { errorMessage } from '../../errors';
 import { ListUnavailable, SettingsStatus } from './shared';
-import { listFace } from './listState';
+import { asSentence, listFace, PICKER_LOADING, type PickerLoad } from './listState';
 import {
   createClipButton,
   createMediaAsset,
@@ -520,14 +520,30 @@ function formFrom(item: MediaButtonItem): Form {
   return { id: item.id, label: item.label, filename: item.filename };
 }
 
+/**
+ * Where a button's saved file stands against the file list. Only a list that loaded can
+ * call a file off-catalog: a failed or pending load used to mark every saved clip
+ * "(missing)", switch every saved sound to its custom-path field, and disable the
+ * picker for clips.
+ */
+export function fileBinding(filename: string, files: readonly MediaFile[], load: PickerLoad): 'none' | 'catalog' | 'off-catalog' | 'unknown' {
+  if (!filename) return 'none';
+  if (files.some(file => file.src === filename)) return 'catalog';
+  return load.status === 'loaded' ? 'off-catalog' : 'unknown';
+}
+
 function MediaButtonManager({
   api,
   copy,
   mediaFiles,
+  filesLoad,
+  onRetryFiles,
 }: {
   api: MediaButtonApi;
   copy: ManagerCopy;
   mediaFiles: MediaFile[];
+  filesLoad: PickerLoad;
+  onRetryFiles: () => void;
 }) {
   const confirm = useConfirm();
   const [items, setItems] = useState<MediaButtonItem[]>([]);
@@ -633,10 +649,10 @@ function MediaButtonManager({
       .finally(() => setSaving(false));
   };
 
-  const inCatalog = form !== null && mediaFiles.some(file => file.src === form.filename);
+  const binding = form !== null ? fileBinding(form.filename, mediaFiles, filesLoad) : 'none';
   // Off-catalog values (a custom URL, or a file deleted from public/) still need
   // to show. Sounds reveal the text field; clips just flag the value as missing.
-  const offCatalog = form !== null && form.filename !== '' && !inCatalog;
+  const offCatalog = binding === 'off-catalog';
   const showCustomInput = copy.allowCustomPath && (customMode || offCatalog);
   const selectValue = showCustomInput ? CUSTOM_VALUE : form?.filename ?? '';
 
@@ -732,10 +748,12 @@ function MediaButtonManager({
                 <span>File</span>
                 <select
                   value={selectValue}
-                  disabled={loading || saving || (mediaFiles.length === 0 && !copy.allowCustomPath && !offCatalog)}
+                  disabled={loading || saving || (filesLoad.status === 'loaded' && mediaFiles.length === 0 && !copy.allowCustomPath && !offCatalog)}
                   onChange={event => onSelectFile(event.target.value)}
                 >
                   <option value="">Select a file…</option>
+                  {/* The file list is not known: keep the saved file selected, unjudged. */}
+                  {binding === 'unknown' && <option value={form.filename}>{form.filename}</option>}
                   {/* Keep a deleted/off-catalog binding visible for catalog-only managers. */}
                   {!copy.allowCustomPath && offCatalog && (
                     <option value={form.filename}>{form.filename} (missing)</option>
@@ -745,6 +763,12 @@ function MediaButtonManager({
                   ))}
                   {copy.allowCustomPath && <option value={CUSTOM_VALUE}>Custom path or URL…</option>}
                 </select>
+                {filesLoad.status === 'failed' && (
+                  <small className="error">
+                    {asSentence(filesLoad.error)} The saved file is kept.{' '}
+                    <button type="button" className="stale-notice-retry" onClick={onRetryFiles}>Retry</button>
+                  </small>
+                )}
               </label>
               {showCustomInput && (
                 <label className="field">
@@ -787,10 +811,25 @@ const CLIP_API: MediaButtonApi = {
 
 export function ContentSection() {
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  // `[]` cannot say whether there are no files or the list failed (fileBinding).
+  const [filesLoad, setFilesLoad] = useState<PickerLoad>(PICKER_LOADING);
+  const [filesAttempt, setFilesAttempt] = useState(0);
 
   useEffect(() => {
-    void getMediaFiles().then(setMediaFiles).catch(() => setMediaFiles([]));
-  }, []);
+    let cancelled = false;
+    setFilesLoad(PICKER_LOADING);
+    void getMediaFiles()
+      .then(next => {
+        if (cancelled) return;
+        setMediaFiles(next);
+        setFilesLoad({ status: 'loaded' });
+      })
+      .catch(caught => {
+        if (!cancelled) setFilesLoad({ status: 'failed', error: errorMessage(caught, 'Could not load the media files') });
+      });
+    return () => { cancelled = true; };
+  }, [filesAttempt]);
+  const retryFiles = useCallback(() => setFilesAttempt(n => n + 1), []);
 
   const byKind = (kind: MediaKind) => mediaFiles.filter(file => file.kind === kind);
   const soundFiles = useMemo(() => byKind('audio'), [mediaFiles]);
@@ -805,6 +844,8 @@ export function ContentSection() {
       <MediaButtonManager
         api={SOUND_API}
         mediaFiles={soundFiles}
+        filesLoad={filesLoad}
+        onRetryFiles={retryFiles}
         copy={{
           noun: 'sound',
           heading: 'Sound buttons',
@@ -818,6 +859,8 @@ export function ContentSection() {
       <MediaButtonManager
         api={CLIP_API}
         mediaFiles={clipFiles}
+        filesLoad={filesLoad}
+        onRetryFiles={retryFiles}
         copy={{
           noun: 'clip',
           heading: 'Clip buttons',
