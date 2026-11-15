@@ -909,7 +909,7 @@ export function ActionsSettingsPage() {
               </div>
 
               <div className="settings-mini-list">
-                {loading ? (
+                {actionFace === 'loading' ? (
                   <EmptyState size="compact" title="Loading actions…" />
                 ) : actionFace === 'unavailable' ? (
                   <ListUnavailable size="compact" title="Actions unavailable" onRetry={() => setLoadAttempt(n => n + 1)} retrying={loading} />
