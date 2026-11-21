@@ -1621,16 +1621,21 @@ nav {
 
 /* ── Holding scenes: Starting soon, Be right back, Ending ───────────────────────── */
 
-/* The one opaque overlay: a whole OBS scene, not a layer over one. It paints its own
-   background rather than relying on the page, which every other overlay keeps
-   transparent. */
-.holding-scene {
+/* The opaque overlays: a holding scene is a whole OBS scene, not a layer over one, and
+   /overlay/background is the bottom layer of a live scene with no capture under it.
+   They paint their own background rather than relying on the page, which every other
+   overlay keeps transparent. One rule for the gradient, so the two cannot drift. */
+.holding-scene,
+.overlay-backdrop {
   position: fixed;
   inset: 0;
   overflow: hidden;
   background:
     radial-gradient(ellipse 40% 40% at 72% 68%, color-mix(in srgb, var(--arcane-600) 50%, transparent) 0%, transparent 70%),
     radial-gradient(ellipse 80% 60% at 30% 40%, var(--navy-700) 0%, var(--navy-800) 50%, var(--navy-950) 100%);
+}
+
+.holding-scene {
   color: var(--ivory-50);
   font-family: var(--font-body);
 }

@@ -58,6 +58,11 @@ test('the full-screen holding scenes resolve to their own sources', () => {
   expect(overlayFromPath('/overlay/ending')).toBe('ending');
 });
 
+test('the scene background resolves to its own source', () => {
+  expect(overlayFromPath('/overlay/background')).toBe('background');
+  expect(overlayFromPath('/overlay/background/')).toBe('background');
+});
+
 test('trailing slashes and non-overlay paths are unaffected', () => {
   expect(overlayFromPath('/overlay/chat/')).toBe('chat');
   expect(overlayFromPath('/overlays')).toBeNull();
