@@ -176,6 +176,15 @@ export function OverlayEndingPage() {
   return <HoldingScene scene="ending" />;
 }
 
+/**
+ * The holding scenes' navy backdrop on its own, with nothing drawn over it: the bottom
+ * layer for a live scene that has no capture to fill the canvas (Just chatting, where
+ * the webcam and the chat column sit on it). Opaque, 1920x1080, no data.
+ */
+export function OverlayBackgroundPage() {
+  return <main className="overlay-backdrop" aria-hidden="true" />;
+}
+
 export function OverlayTextPage() {
   const { current, onFinished } = useOverlayTextQueue();
   return (
@@ -210,7 +219,7 @@ export function OverlayUnknownPage({ path }: { path: string }) {
     <main className="overlay-widget overlay-unknown-widget" aria-label="Unknown overlay">
       <div className="overlay-unknown-notice">
         <strong>Narya: no overlay at {path}</strong>
-        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, /bottombar, /ads, /pinned, /starting, /brb, or /ending.</span>
+        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, /bottombar, /ads, /pinned, /starting, /brb, /ending, or /background.</span>
       </div>
     </main>
   );
