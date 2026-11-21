@@ -3,6 +3,7 @@ import { useAdBreak } from '../adBreak';
 import { ChatPanel } from '../chat';
 import { ClipStage, useMediaQueue } from '../clips';
 import { useCountdown } from '../countdown';
+import { ChattingColumn } from '../chattingColumn';
 import { CrystalOrb } from '../crystalOrb';
 import { HoldingScene } from '../holdingScene';
 import { PinnedCardView, usePinnedCard } from '../pinnedCard';
@@ -185,6 +186,19 @@ export function OverlayBackgroundPage() {
   return <main className="overlay-backdrop" aria-hidden="true" />;
 }
 
+/**
+ * Just chatting's right-hand column: topic, rule, persistent chat. Transparent and
+ * 1920x1080 like the other layers, so it drops in with Fit to screen; the webcam and
+ * the bars are separate sources.
+ */
+export function OverlayChattingPage() {
+  return (
+    <main className="overlay-widget overlay-chatting-widget">
+      <ChattingColumn />
+    </main>
+  );
+}
+
 export function OverlayTextPage() {
   const { current, onFinished } = useOverlayTextQueue();
   return (
@@ -219,7 +233,7 @@ export function OverlayUnknownPage({ path }: { path: string }) {
     <main className="overlay-widget overlay-unknown-widget" aria-label="Unknown overlay">
       <div className="overlay-unknown-notice">
         <strong>Narya: no overlay at {path}</strong>
-        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, /bottombar, /ads, /pinned, /starting, /brb, /ending, or /background.</span>
+        <span>Point this browser source at /overlay/chat, /nowplaying, /sounds, /clips, /text, /shoutouts, /status, /winddown, /topbar, /bottombar, /ads, /pinned, /starting, /brb, /ending, /background, or /chatting.</span>
       </div>
     </main>
   );

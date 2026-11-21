@@ -1816,6 +1816,80 @@ nav {
 
 .holding-chat-row .chat-emote { height: 28px; }
 
+/* ── Just chatting column (/overlay/chatting) ─────────────────────────────────────
+   mockups/Chatting.html: the webcam is 1248px wide at left 64 with a 48px gap, so the
+   column runs from x 1360 to 64px off the right edge, between the two 48px bars, and
+   centres its content vertically. */
+.overlay-chatting-widget {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.chatting-column {
+  position: absolute;
+  left: 1360px;
+  right: 64px;
+  top: 48px;
+  bottom: 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  color: var(--ivory-50);
+  font-family: var(--font-body);
+}
+
+.chatting-topic {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.chatting-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--silver-400);
+}
+
+/* A pinned viewer question names its asker in gold, as on the floating card. */
+.chatting-eyebrow.is-question {
+  color: var(--gold-400);
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+.chatting-topic-text {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 52px;
+  line-height: 1.1;
+  color: var(--ivory-50);
+  overflow-wrap: anywhere;
+  /* A long question must not push chat off the bottom of the column. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+}
+
+.chatting-rule {
+  width: 96px;
+  height: 1px;
+  margin: 8px 0 4px;
+  background: rgba(255, 184, 108, 0.45);
+}
+
+.chatting-chat {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Tablet countdown panel: four equal buttons per row (three presets and clear). */
 .holding-panel .tablet-button-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));

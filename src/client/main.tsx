@@ -5,7 +5,7 @@ import './styles/tokens.css';
 import './styles/panel.css';
 import './styles/holdingStars.css';
 import { DashboardPage } from './pages/Dashboard';
-import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage, OverlayShoutoutsPage, OverlayClipsPage, OverlayStatusPage, OverlayTextPage, OverlayWindDownPage, OverlayTopBarPage, OverlayBottomBarPage, OverlayAdsPage, OverlayPinnedPage, OverlayStartingPage, OverlayBrbPage, OverlayEndingPage, OverlayBackgroundPage, OverlayUnknownPage } from './pages/Overlay';
+import { OverlayPage, OverlayChatPage, OverlayNowPlayingPage, OverlaySoundsPage, OverlayShoutoutsPage, OverlayClipsPage, OverlayStatusPage, OverlayTextPage, OverlayWindDownPage, OverlayTopBarPage, OverlayBottomBarPage, OverlayAdsPage, OverlayPinnedPage, OverlayStartingPage, OverlayBrbPage, OverlayEndingPage, OverlayBackgroundPage, OverlayChattingPage, OverlayUnknownPage } from './pages/Overlay';
 import { TabletPage } from './pages/Tablet';
 import { ViewerWindowPage } from './pages/ViewerWindow';
 import { OverlayPlaceholder } from './overlayPlaceholders';
@@ -40,6 +40,7 @@ const OVERLAY_PAGES: Record<OverlayName, React.ComponentType> = {
   brb: OverlayBrbPage,
   ending: OverlayEndingPage,
   background: OverlayBackgroundPage,
+  chatting: OverlayChattingPage,
 };
 
 function App() {

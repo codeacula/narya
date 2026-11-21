@@ -31,6 +31,7 @@ config change, so install Bun and use it for everything below.
 - `http://localhost:5173/overlay/text` - Action-driven text banners (also serves `/overlay/alerts`, kept as an alias for existing OBS sources)
 - `http://localhost:5173/overlay/winddown` - stream wind-down countdown
 - `http://localhost:5173/overlay/background` - opaque navy scene background (the holding scenes' gradient, nothing on it); the bottom layer of Just chatting
+- `http://localhost:5173/overlay/chatting` - Just chatting's right column: the pinned topic or question as a headline, then the last five chat messages (they stay up rather than expiring). Use it instead of `/overlay/chat` + `/overlay/pinned` on that scene
 
 The overlay is designed for a `1920x1080` browser source, with Twitch chat in the top right and now-playing music in the bottom left.
 Use `/overlay/clips` as its own `1920x1080` browser source. Clips stay centered, preserve their full frame, and scale automatically for portrait or landscape video while the rest of the source remains transparent.

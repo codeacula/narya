@@ -50,19 +50,22 @@ const SCENES = {
 export type HoldingSceneName = keyof typeof SCENES;
 
 /**
- * The last four visible chat messages, persistent. Unlike the compact overlay chat they
+ * The last few visible chat messages, persistent. Unlike the compact overlay chat they
  * never expire on a timer: a holding scene is on screen for minutes at a time, and an
  * empty column is the wrong thing to show a room that is waiting. Moderated rows are
  * dropped rather than shown with a reason, the same as every other overlay.
+ *
+ * Also the chat in the Just chatting column (/overlay/chatting), which is on screen
+ * just as long; `className` places it, the rows are styled the same everywhere.
  */
-function HoldingChat() {
+export function HoldingChat({ rows = CHAT_ROWS, className = 'holding-chat' }: { rows?: number; className?: string }) {
   const messages = useChat(0);
   const emoteMap = useEmotes();
-  const visible = messages.filter(message => !message.deletedAt).slice(-CHAT_ROWS);
+  const visible = messages.filter(message => !message.deletedAt).slice(-rows);
   if (visible.length === 0) return null;
 
   return (
-    <section className="holding-chat" aria-label="Chat">
+    <section className={className} aria-label="Chat">
       <span className="holding-chat-eyebrow">chat</span>
       {visible.map(message => (
         <article className="holding-chat-row" data-role={getRole(message.badges)} key={message.id}>

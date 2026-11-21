@@ -63,6 +63,11 @@ test('the scene background resolves to its own source', () => {
   expect(overlayFromPath('/overlay/background/')).toBe('background');
 });
 
+test('the Just chatting column resolves to its own source', () => {
+  expect(overlayFromPath('/overlay/chatting')).toBe('chatting');
+  expect(overlayFromPath('/overlay/chatting/')).toBe('chatting');
+});
+
 test('trailing slashes and non-overlay paths are unaffected', () => {
   expect(overlayFromPath('/overlay/chat/')).toBe('chat');
   expect(overlayFromPath('/overlays')).toBeNull();
